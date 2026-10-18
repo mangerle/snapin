@@ -4,6 +4,7 @@
 //! 以及撤销、重做、定在屏幕(贴图)、保存、复制、关闭等动作。
 //! 支持自适应屏幕边缘检测，防止超出可视区域。
 
+pub mod icons;
 pub mod items;
 pub mod render;
 
@@ -52,22 +53,21 @@ impl Default for Toolbar {
 }
 
 impl Toolbar {
-    /// 主工具列表定义 (严格对齐设计文档规范)
+    /// 主工具列表定义 (严格对齐经典工具栏规范)
     pub const MAIN_ITEMS: &'static [ToolbarItem] = &[
-        ToolbarItem::ToolRect,    // 0
-        ToolbarItem::ToolEllipse, // 1
-        ToolbarItem::ToolArrow,   // 2
-        ToolbarItem::ToolPen,     // 3
-        ToolbarItem::ToolMarker,  // 4
-        ToolbarItem::ToolText,    // 5
-        ToolbarItem::ToolBadge,   // 6
-        ToolbarItem::ToolMosaic,  // 7
-        ToolbarItem::ActionUndo,  // 8
-        ToolbarItem::ActionRedo,  // 9
-        ToolbarItem::ActionPin,   // 10
-        ToolbarItem::ActionCopy,  // 11
-        ToolbarItem::ActionSave,  // 12
-        ToolbarItem::ActionClose, // 13
+        ToolbarItem::ToolRect,    // 0: 几何形状 (矩形+椭圆)
+        ToolbarItem::ToolArrow,   // 1: 折线箭头 (带颜色指示圆点)
+        ToolbarItem::ToolPen,     // 2: 铅笔画笔
+        ToolbarItem::ToolMarker,  // 3: 荧光记号笔
+        ToolbarItem::ToolMosaic,  // 4: 黑白四宫格马赛克
+        ToolbarItem::ToolText,    // 5: 文字 T
+        ToolbarItem::ToolBadge,   // 6: 序号气泡/印章
+        ToolbarItem::ActionUndo,  // 7: 撤销 (前置分隔线 1)
+        ToolbarItem::ActionRedo,  // 8: 重做
+        ToolbarItem::ActionClose, // 9: 关闭取消 X (前置分隔线 2)
+        ToolbarItem::ActionPin,   // 10: 贴图置顶 (图钉)
+        ToolbarItem::ActionSave,  // 11: 保存文件 (软盘)
+        ToolbarItem::ActionCopy,  // 12: 复制到剪贴板 (双重叠矩形)
     ];
 
     /// 根据选区与屏幕宽高重新计算工具栏自适应摆放位置 (自适应 HiDPI 缩放)
@@ -157,7 +157,7 @@ impl Toolbar {
         let mut cur_x = self.main_rect.x + padding;
 
         for (idx, &item) in Self::MAIN_ITEMS.iter().enumerate() {
-            if idx == 8 || idx == 10 {
+            if idx == 7 || idx == 9 {
                 cur_x += 8.0 * s;
             }
 
