@@ -279,8 +279,11 @@ fn now_timestamp() -> u64 {
 async fn run_daemon_server(cfg: config::Config) -> Result<()> {
     tracing::info!("Snapin 守护服务启动中...");
 
-    // 自动确保 GNOME 快捷键注册与配套扩展激活
+    // 自动确保 GNOME 快捷键注册与配套扩展原地热重载
     let _ = sync_hotkeys_to_gnome(&cfg.hotkeys);
+    let _ = std::process::Command::new("gnome-extensions")
+        .args(["disable", "snapin-helper@wangle.local"])
+        .output();
     let _ = std::process::Command::new("gnome-extensions")
         .args(["enable", "snapin-helper@wangle.local"])
         .output();
@@ -349,12 +352,15 @@ fn install_gnome_extension() -> Result<()> {
         std::fs::copy(&js_file, target_dir.join("extension.js"))?;
         println!("GNOME 扩展文件已部署至: {target_dir:?}");
 
-        // 尝试激活扩展
+        // 原地热重载扩展 (先 disable 再 enable，无需登出即可立即刷新托盘菜单)
+        let _ = std::process::Command::new("gnome-extensions")
+            .args(["disable", uuid])
+            .output();
         let _ = std::process::Command::new("gnome-extensions")
             .args(["enable", uuid])
             .output();
 
-        println!("已向 GNOME 发送扩展启用指令。");
+        println!("已向 GNOME 发送扩展热重载启用指令。");
     } else {
         println!("未在当前目录找到 extension/ 源码文件！");
     }

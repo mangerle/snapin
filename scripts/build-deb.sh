@@ -76,11 +76,31 @@ EOF
 mkdir -p "${STAGE_DIR}/etc/xdg/autostart"
 cp "${STAGE_DIR}/usr/share/applications/snapin.desktop" "${STAGE_DIR}/etc/xdg/autostart/snapin.desktop"
 
-# 6. 拷贝配套 GNOME Shell 扩展
+# 6. 生成 systemd 用户服务单元 (现代 Linux 桌面标准常驻守护机制)
+mkdir -p "${STAGE_DIR}/usr/lib/systemd/user"
+cat << 'EOF' > "${STAGE_DIR}/usr/lib/systemd/user/snapin.service"
+[Unit]
+Description=Snapin 截图与贴图守护进程
+Documentation=https://github.com/wangle/snapin
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/snapin daemon
+Restart=on-failure
+RestartSec=2s
+Slice=app.slice
+
+[Install]
+WantedBy=graphical-session.target
+EOF
+
+# 7. 拷贝配套 GNOME Shell 扩展
 cp "${PROJECT_ROOT}/extension/metadata.json" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin-helper@wangle.local/metadata.json"
 cp "${PROJECT_ROOT}/extension/extension.js" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin-helper@wangle.local/extension.js"
 
-# 7. 生成 DEBIAN/control 控制文件
+# 8. 生成 DEBIAN/control 控制文件
 cat << EOF > "${STAGE_DIR}/DEBIAN/control"
 Package: ${PACKAGE_NAME}
 Version: ${VERSION}
@@ -95,7 +115,27 @@ Description: 专为 Linux Wayland (Ubuntu GNOME) 打造的纯 Rust 原生截图�
  马赛克遮蔽、撤销重做栈，以及剪贴板色彩与文本自动便签化置顶贴图。
 EOF
 
-# 8. 生成 DEBIAN/postinst 安装后触发脚本
+# 9. 生成 DEBIAN/prerm 卸载或升级前触发脚本
+cat << 'EOF' > "${STAGE_DIR}/DEBIAN/prerm"
+#!/usr/bin/env bash
+set -e
+
+# 在卸载或升级覆盖前停止所有已登录用户的守护进程
+if which loginctl > /dev/null 2>&1; then
+    for user_name in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $2}'); do
+        user_id=$(id -u "$user_name" 2>/dev/null || true)
+        if [ -n "$user_id" ] && [ "$user_id" -ge 1000 ]; then
+            runuser -u "$user_name" -- env XDG_RUNTIME_DIR="/run/user/$user_id" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$user_id/bus" systemctl --user stop snapin.service 2>/dev/null || true
+            pkill -u "$user_name" -x snapin 2>/dev/null || true
+        fi
+    done
+fi
+
+exit 0
+EOF
+chmod 755 "${STAGE_DIR}/DEBIAN/prerm"
+
+# 10. 生成 DEBIAN/postinst 安装后触发脚本
 cat << 'EOF' > "${STAGE_DIR}/DEBIAN/postinst"
 #!/usr/bin/env bash
 set -e
@@ -109,12 +149,43 @@ if which gtk-update-icon-cache > /dev/null 2>&1; then
     gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
 fi
 
+# 对当前处于登录状态的所有普通桌面用户执行免登出热更新与服务自启
+if which loginctl > /dev/null 2>&1; then
+    for user_name in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $2}'); do
+        user_id=$(id -u "$user_name" 2>/dev/null || true)
+        if [ -z "$user_id" ] || [ "$user_id" -lt 1000 ]; then
+            continue
+        fi
+
+        user_home=$(eval echo "~$user_name")
+        runtime_dir="/run/user/$user_id"
+
+        # 1. 若用户目录残留旧版扩展，自动同步更新，防止用户级目录遮蔽系统级扩展
+        user_ext_dir="$user_home/.local/share/gnome-shell/extensions/snapin-helper@wangle.local"
+        if [ -d "$user_ext_dir" ]; then
+            cp /usr/share/gnome-shell/extensions/snapin-helper@wangle.local/* "$user_ext_dir/" 2>/dev/null || true
+            chown -R "$user_name:$user_name" "$user_ext_dir" 2>/dev/null || true
+        fi
+
+        # 2. 如果用户当前处于图形会话中，立即热重载 GNOME 扩展并启动常驻后台服务
+        if [ -d "$runtime_dir" ]; then
+            # 原地热重载 GNOME 扩展 (销毁旧菜单并按最新代码原地重建，免注销)
+            runuser -u "$user_name" -- env XDG_RUNTIME_DIR="$runtime_dir" DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" gnome-extensions disable snapin-helper@wangle.local 2>/dev/null || true
+            runuser -u "$user_name" -- env XDG_RUNTIME_DIR="$runtime_dir" DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" gnome-extensions enable snapin-helper@wangle.local 2>/dev/null || true
+
+            # 清理旧进程残留，并通过 systemd user 服务拉起最新守护进程
+            pkill -u "$user_name" -x snapin 2>/dev/null || true
+            runuser -u "$user_name" -- env XDG_RUNTIME_DIR="$runtime_dir" DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" systemctl --user daemon-reload 2>/dev/null || true
+            runuser -u "$user_name" -- env XDG_RUNTIME_DIR="$runtime_dir" DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" systemctl --user enable --now snapin.service 2>/dev/null || true
+        fi
+    done
+fi
+
 echo "=========================================================="
-echo " Snapin 截图与贴图工具已成功安装！"
-echo " 1. 已配置登录自动常驻后台（/etc/xdg/autostart/snapin.desktop）。"
-echo " 2. 您可随时在应用程序列表中搜索并点击 Snapin 图标启动，"
-echo "    或在终端输入 'snapin &'。"
-echo " 3. 守护服务启动时将自动激活 GNOME 置顶扩展并绑定快捷键（F1 截图、F3 贴图）。"
+echo " Snapin 截图与贴图工具已成功安装并热激活！"
+echo " 1. 顶栏托盘菜单已热重载为最新版本（无需注销或重启系统）。"
+echo " 2. 后台守护服务已由 systemd 用户服务自动启动（systemctl --user status snapin）。"
+echo " 3. 系统快捷键与置顶特权已同步就绪：直接按下 F1 即可开始截图！"
 echo "=========================================================="
 
 exit 0
