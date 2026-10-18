@@ -56,6 +56,12 @@ export default class SnapinHelperExtension extends Extension {
 
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
+        let prefsItem = new PopupMenu.PopupMenuItem('首选项 / 设置...');
+        prefsItem.connect('activate', () => {
+            GLib.spawn_command_line_async('snapin prefs');
+        });
+        this._indicator.menu.addMenuItem(prefsItem);
+
         let syncItem = new PopupMenu.PopupMenuItem('同步系统快捷键');
         syncItem.connect('activate', () => {
             GLib.spawn_command_line_async('snapin sync-hotkeys');

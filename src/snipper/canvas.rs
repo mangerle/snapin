@@ -7,13 +7,12 @@ use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::toolbar::Toolbar;
 use image::RgbaImage;
-use tiny_skia::{
-    Paint, PathBuilder, Pixmap, PixmapMut, PixmapPaint, Rect as SkiaRect, Stroke, Transform,
-};
+use tiny_skia::{Paint, PathBuilder, Pixmap, PixmapMut, Rect as SkiaRect, Stroke, Transform};
 
 /// 全屏选区画布渲染上下文
 pub struct SnipperCanvas<'a> {
     pub original_bg: &'a Pixmap,
+    pub dimmed_bg: &'a Pixmap,
     pub original_rgba: &'a RgbaImage,
     pub selection: &'a SelectionState,
     pub cursor_pos: (f64, f64),
@@ -23,28 +22,12 @@ pub struct SnipperCanvas<'a> {
 }
 
 impl<'a> SnipperCanvas<'a> {
-    /// 执行完整帧的光栅化复合渲染并写入输出 pixmap
+    /// 执行完整帧的高性能复合渲染并写入输出 pixmap
     pub fn render(&self, pixmap: &mut PixmapMut) {
-        // 1. 铺设原始全屏底图
-        pixmap.draw_pixmap(
-            0,
-            0,
-            self.original_bg.as_ref(),
-            &PixmapPaint::default(),
-            Transform::identity(),
-            None,
-        );
+        // 1. 高速整块恢复已预计算好的暗色底图 (内存瞬时拷贝，避免重复混合计算)
+        pixmap.data_mut().copy_from_slice(self.dimmed_bg.data());
 
-        // 2. 覆盖半透明暗色遮罩
-        let screen_w = pixmap.width() as f32;
-        let screen_h = pixmap.height() as f32;
-        if let Some(screen_rect) = SkiaRect::from_xywh(0.0, 0.0, screen_w, screen_h) {
-            let mut mask_paint = Paint::default();
-            mask_paint.set_color_rgba8(0, 0, 0, 110);
-            pixmap.fill_rect(screen_rect, &mask_paint, Transform::identity(), None);
-        }
-
-        // 3. 提取当前有效矩形选区
+        // 2. 提取当前有效矩形选区
         let active_rect = match self.selection {
             SelectionState::Idle => None,
             SelectionState::Creating { start, current } => {
@@ -53,15 +36,21 @@ impl<'a> SnipperCanvas<'a> {
             SelectionState::Locked { rect, .. } => Some(*rect),
         };
 
-        // 4. 若有选区，执行镂空高亮与线框绘制
+        let screen_w = pixmap.width();
+        let screen_h = pixmap.height();
+
+        // 3. 若有选区，执行极速行切片镂空高亮与线框绘制
         if let Some(r) = active_rect {
             if r.width > 1.0 && r.height > 1.0 {
-                self.render_cutout(pixmap, &r);
-                // 回放已完成的标注操作
+                self.fast_cutout_restore(pixmap, &r, screen_w, screen_h);
+
+                // 回放已完成的矢量标注
                 if let Some(history) = self.annotations {
                     history.replay_all(pixmap);
                 }
+
                 self.render_selection_borders_and_handles(pixmap, &r);
+
                 // 绘制工具栏 (若处于锁定状态且存在工具栏)
                 if matches!(self.selection, SelectionState::Locked { .. }) {
                     if let Some(tb) = self.toolbar {
@@ -70,7 +59,7 @@ impl<'a> SnipperCanvas<'a> {
                 }
             }
         } else {
-            // 未拉框状态下，跟随光标渲染放大镜
+            // 未拉框状态下，跟随光标渲染像素放大镜
             self.magnifier.render(
                 pixmap,
                 self.original_rgba,
@@ -80,25 +69,30 @@ impl<'a> SnipperCanvas<'a> {
         }
     }
 
-    /// 选区镂空恢复原图
-    fn render_cutout(&self, pixmap: &mut PixmapMut, rect: &Rect) {
-        if let Some(skia_r) = SkiaRect::from_xywh(rect.x, rect.y, rect.width, rect.height) {
-            // 清除暗色蒙版，原底图透出
-            let clear_paint = Paint {
-                blend_mode: tiny_skia::BlendMode::Clear,
-                ..Default::default()
-            };
-            pixmap.fill_rect(skia_r, &clear_paint, Transform::identity(), None);
+    /// 通过直接内存行切片快速将原图像素恢复到选区内（亚毫秒级完成镂空透出）
+    fn fast_cutout_restore(
+        &self,
+        pixmap: &mut PixmapMut,
+        rect: &Rect,
+        screen_w: u32,
+        screen_h: u32,
+    ) {
+        let (px, py, pw, ph) = rect.to_pixel_bounds(screen_w, screen_h);
+        if pw == 0 || ph == 0 {
+            return;
+        }
 
-            // 重新填入选区对应的原图
-            pixmap.draw_pixmap(
-                0,
-                0,
-                self.original_bg.as_ref(),
-                &PixmapPaint::default(),
-                Transform::identity(),
-                None,
-            );
+        let stride = (screen_w as usize) * 4;
+        let row_bytes = (pw as usize) * 4;
+        let orig_data = self.original_bg.data();
+        let dest_data = pixmap.data_mut();
+
+        for row in 0..ph {
+            let y_idx = (py + row) as usize;
+            let start_offset = y_idx * stride + (px as usize) * 4;
+            let end_offset = start_offset + row_bytes;
+            dest_data[start_offset..end_offset]
+                .copy_from_slice(&orig_data[start_offset..end_offset]);
         }
     }
 

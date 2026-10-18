@@ -56,6 +56,19 @@ pub enum Commands {
     },
     /// 在前台启动常驻守护进程
     Daemon,
+    /// 独立启动一个置顶贴图窗口展示指定图像文件
+    PinFile {
+        /// 贴图图像路径
+        path: PathBuf,
+        /// 初始 X 坐标
+        #[arg(default_value_t = 200)]
+        x: i32,
+        /// 初始 Y 坐标
+        #[arg(default_value_t = 200)]
+        y: i32,
+    },
+    /// 打开 Snapin 首选项 / 设置页面
+    Prefs,
     /// 部署配套 GNOME Shell 扩展以获得置顶特权
     InstallExtension,
     /// 向系统 GNOME 快捷键中心同步绑定默认热键
@@ -81,14 +94,14 @@ async fn main() -> Result<()> {
             run_oneshot_snip().await?;
         }
         Some(Commands::Paste) => {
-            let delivered = send_command_to_daemon(&DaemonCommand::Paste)
-                .await
-                .context("向守护进程发送贴图指令失败")?;
-
-            if !delivered {
-                tracing::info!("守护进程未在运行，正在直接检查剪贴板生成贴图...");
-                run_oneshot_paste().await?;
-            }
+            tracing::info!("正在检查剪贴板生成贴图...");
+            run_oneshot_paste().await?;
+        }
+        Some(Commands::PinFile { path, x, y }) => {
+            run_pin_file(path, x, y)?;
+        }
+        Some(Commands::Prefs) => {
+            open_preferences().await?;
         }
         Some(Commands::Toggle) => {
             let _ = send_command_to_daemon(&DaemonCommand::TogglePasters).await;
@@ -139,8 +152,30 @@ async fn run_oneshot_snip() -> Result<()> {
                 send_desktop_notification("Snapin 截图已保存", &msg).await?;
             }
             SnipperOutcome::Pinned(item) => {
-                if let Err(e) = spawn_paster_window(item) {
-                    tracing::error!("贴图窗口运行异常: {e}");
+                let stamp = now_timestamp();
+                let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|_| std::env::temp_dir());
+                let pin_path = runtime_dir.join(format!("snapin_pin_{stamp}.png"));
+                let (px, py) = item.position;
+
+                if let Some(img) = image::RgbaImage::from_raw(
+                    item.pixmap.width(),
+                    item.pixmap.height(),
+                    item.pixmap.data().to_vec(),
+                ) {
+                    if img.save(&pin_path).is_ok() {
+                        let current_exe =
+                            std::env::current_exe().unwrap_or_else(|_| PathBuf::from("snapin"));
+                        let _ = std::process::Command::new(current_exe)
+                            .args([
+                                "pin-file",
+                                &pin_path.to_string_lossy(),
+                                &px.to_string(),
+                                &py.to_string(),
+                            ])
+                            .spawn();
+                    }
                 }
             }
             SnipperOutcome::Cancelled => {
@@ -149,6 +184,54 @@ async fn run_oneshot_snip() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// 独立启动贴图并挂载置顶窗口
+fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let img = image::open(&path).context("无法读取贴图临时文件")?;
+    let rgba = img.to_rgba8();
+    let mut pixmap = Pixmap::new(rgba.width(), rgba.height())
+        .ok_or_else(|| anyhow::anyhow!("分配贴图 Pixmap 失败"))?;
+    pixmap.data_mut().copy_from_slice(rgba.as_raw());
+
+    let stamp = now_timestamp();
+    let item = PasterItem::new(stamp, format!("pin_{stamp}"), pixmap, (x, y));
+
+    // 运行贴图窗口直至用户关闭
+    let res = spawn_paster_window(item);
+
+    // 窗口退出后自动清理临时文件
+    let _ = std::fs::remove_file(&path);
+
+    res.context("贴图窗口运行异常")
+}
+
+/// 打开 Snapin 首选项设置页面与配置文件
+async fn open_preferences() -> Result<()> {
+    let cfg_path = config::get_default_config_path()?;
+    tracing::info!("正在打开首选项配置: {:?}", cfg_path);
+
+    let opened = std::process::Command::new("gnome-text-editor")
+        .arg(&cfg_path)
+        .spawn()
+        .is_ok()
+        || std::process::Command::new("xdg-open")
+            .arg(&cfg_path)
+            .spawn()
+            .is_ok();
+
+    let msg = if opened {
+        format!("已打开首选项配置文件: {}", cfg_path.display())
+    } else {
+        format!("配置文件路径: {}", cfg_path.display())
+    };
+
+    send_desktop_notification("Snapin 首选项与设置", &msg).await?;
     Ok(())
 }
 
@@ -161,9 +244,7 @@ async fn run_oneshot_paste() -> Result<()> {
             pixmap.data_mut().copy_from_slice(img.as_raw());
             let stamp = now_timestamp();
             let item = PasterItem::new(stamp, format!("clip_img_{stamp}"), pixmap, (200, 200));
-            std::thread::spawn(move || {
-                let _ = spawn_paster_window(item);
-            });
+            spawn_paster_window(item).context("贴图窗口运行异常")?;
             return Ok(());
         }
     }
@@ -178,9 +259,7 @@ async fn run_oneshot_paste() -> Result<()> {
         };
 
         let item = PasterItem::new(stamp, format!("clip_note_{stamp}"), pixmap, (250, 250));
-        std::thread::spawn(move || {
-            let _ = spawn_paster_window(item);
-        });
+        spawn_paster_window(item).context("贴图窗口运行异常")?;
         return Ok(());
     }
 

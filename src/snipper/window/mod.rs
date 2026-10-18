@@ -46,7 +46,33 @@ pub fn run_snipper_session(bg_image: RgbaImage) -> Result<Option<SnipperOutcome>
         }
     })?;
 
+    let w = NonZeroU32::new(screen_w).ok_or_else(|| SnapinError::SoftbufferError {
+        message: "无效的屏幕宽度".to_string(),
+    })?;
+    let h = NonZeroU32::new(screen_h).ok_or_else(|| SnapinError::SoftbufferError {
+        message: "无效的屏幕高度".to_string(),
+    })?;
+    surface
+        .resize(w, h)
+        .map_err(|e| SnapinError::SoftbufferError {
+            message: format!("初始化帧缓冲尺寸失败: {e}"),
+        })?;
+
     let bg_pixmap = rgba_to_pixmap(&bg_image)?;
+    let mut dimmed_bg = bg_pixmap.clone();
+    if let Some(screen_rect) =
+        tiny_skia::Rect::from_xywh(0.0, 0.0, screen_w as f32, screen_h as f32)
+    {
+        let mut mask_paint = tiny_skia::Paint::default();
+        mask_paint.set_color_rgba8(0, 0, 0, 110);
+        dimmed_bg.fill_rect(
+            screen_rect,
+            &mask_paint,
+            tiny_skia::Transform::identity(),
+            None,
+        );
+    }
+
     let mut render_pixmap =
         Pixmap::new(screen_w, screen_h).ok_or_else(|| SnapinError::SoftbufferError {
             message: "分配渲染双缓冲区失败".to_string(),
@@ -65,6 +91,7 @@ pub fn run_snipper_session(bg_image: RgbaImage) -> Result<Option<SnipperOutcome>
                     window: &window,
                     surface: &mut surface,
                     bg_pixmap: &bg_pixmap,
+                    dimmed_bg: &dimmed_bg,
                     bg_image: &bg_image,
                     render_pixmap: &mut render_pixmap,
                     outcome_slot: &outcome_slot,
@@ -90,6 +117,7 @@ struct WindowContext<'a> {
     window: &'a Arc<Window>,
     surface: &'a mut softbuffer::Surface<Arc<Window>, Arc<Window>>,
     bg_pixmap: &'a Pixmap,
+    dimmed_bg: &'a Pixmap,
     bg_image: &'a RgbaImage,
     render_pixmap: &'a mut Pixmap,
     outcome_slot: &'a Arc<Mutex<Option<SnipperOutcome>>>,
@@ -109,6 +137,7 @@ fn dispatch_window_event(
         WindowEvent::RedrawRequested => {
             let canvas = SnipperCanvas {
                 original_bg: ctx.bg_pixmap,
+                dimmed_bg: ctx.dimmed_bg,
                 original_rgba: ctx.bg_image,
                 selection: &state.selection,
                 cursor_pos: state.cursor_pos,
@@ -120,7 +149,7 @@ fn dispatch_window_event(
             let mut pixmap_mut = ctx.render_pixmap.as_mut();
             canvas.render(&mut pixmap_mut);
 
-            if let Err(e) = blit_to_surface(ctx.surface, ctx.render_pixmap, screen_w, screen_h) {
+            if let Err(e) = blit_to_surface(ctx.surface, ctx.render_pixmap) {
                 tracing::error!("向屏幕刷新帧缓冲失败: {e}");
             }
         }
@@ -198,33 +227,16 @@ fn rgba_to_pixmap(img: &RgbaImage) -> Result<Pixmap, SnapinError> {
 fn blit_to_surface(
     surface: &mut softbuffer::Surface<Arc<Window>, Arc<Window>>,
     pixmap: &Pixmap,
-    width: u32,
-    height: u32,
 ) -> Result<(), SnapinError> {
-    let w = NonZeroU32::new(width).ok_or_else(|| SnapinError::SoftbufferError {
-        message: "无效的屏幕宽度".to_string(),
-    })?;
-    let h = NonZeroU32::new(height).ok_or_else(|| SnapinError::SoftbufferError {
-        message: "无效的屏幕高度".to_string(),
-    })?;
-
-    surface
-        .resize(w, h)
-        .map_err(|e| SnapinError::SoftbufferError {
-            message: format!("调整帧缓冲尺寸失败: {e}"),
-        })?;
-
     let mut buffer = surface
         .buffer_mut()
         .map_err(|e| SnapinError::SoftbufferError {
             message: format!("获取绘图表面缓冲区失败: {e}"),
         })?;
 
-    for (dest, chunk) in buffer.iter_mut().zip(pixmap.data().as_chunks::<4>().0) {
-        let r = chunk[0] as u32;
-        let g = chunk[1] as u32;
-        let b = chunk[2] as u32;
-        *dest = (r << 16) | (g << 8) | b;
+    let src_bytes = pixmap.data();
+    for (dest, src) in buffer.iter_mut().zip(src_bytes.as_chunks::<4>().0) {
+        *dest = ((src[0] as u32) << 16) | ((src[1] as u32) << 8) | (src[2] as u32);
     }
 
     buffer.present().map_err(|e| SnapinError::SoftbufferError {
