@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <!-- 主背景深邃科技渐变 -->
+    <linearGradient id="mainBg" x1="15%" y1="0%" x2="85%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="35%" stop-color="#2563EB"/>
+      <stop offset="100%" stop-color="#1E1B4B"/>
+    </linearGradient>
+
+    <!-- 贴图悬浮毛玻璃渐变 -->
+    <linearGradient id="glassLayer" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.08"/>
+    </linearGradient>
+
+    <!-- 图钉立体活力渐变 (珊瑚玫瑰金) -->
+    <linearGradient id="pinHeadGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDA4AF"/>
+      <stop offset="30%" stop-color="#F43F5E"/>
+      <stop offset="100%" stop-color="#BE123C"/>
+    </linearGradient>
+
+    <!-- 针身金属高光渐变 -->
+    <linearGradient id="pinNeedleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#94A3B8"/>
+    </linearGradient>
+
+    <!-- 外部环境柔和投影 -->
+    <filter id="shadowFilter" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#0F172A" flood-opacity="0.38"/>
+    </filter>
+
+    <!-- 浮动层微弱下落投影 -->
+    <filter id="floatingShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="1" dy="4" stdDeviation="4" flood-color="#090D1A" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <!-- 1. 应用图标主圆角卡片底板 -->
+  <rect x="10" y="10" width="108" height="108" rx="28" fill="url(#mainBg)" filter="url(#shadowFilter)"/>
+  <!-- 顶部微弱弧形内高光边缘 -->
+  <rect x="10.75" y="10.75" width="106.5" height="106.5" rx="27.25" fill="none" stroke="#FFFFFF" stroke-width="1.5" stroke-opacity="0.35"/>
+
+  <!-- 2. 背景悬浮微倾斜的毛玻璃贴图图层 (代表 Pin 置顶便签卡片) -->
+  <g transform="rotate(-6 64 64)" filter="url(#floatingShadow)">
+    <rect x="26" y="26" width="76" height="76" rx="18" fill="url(#glassLayer)"/>
+    <rect x="26.75" y="26.75" width="74.5" height="74.5" rx="17.25" fill="none" stroke="#FFFFFF" stroke-width="1.5" stroke-opacity="0.45"/>
+  </g>
+
+  <!-- 3. 前景精密截图取景准星标 (代表 Snip 选区截屏) -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 左上角 -->
+    <path d="M 33 46 L 33 37 A 4 4 0 0 1 37 33 L 46 33"/>
+    <!-- 右上角 -->
+    <path d="M 95 46 L 95 37 A 4 4 0 0 0 91 33 L 82 33"/>
+    <!-- 左下角 -->
+    <path d="M 33 82 L 33 91 A 4 4 0 0 0 37 95 L 46 95"/>
+    <!-- 右下角 -->
+    <path d="M 95 82 L 95 91 A 4 4 0 0 1 91 95 L 82 95"/>
+  </g>
+
+  <!-- 4. 中心 45 度立体倾斜图钉 (代表 In 定格悬浮于屏) -->
+  <g filter="url(#floatingShadow)">
+    <!-- 针尖扎入阴影 -->
+    <ellipse cx="61" cy="71" rx="5.5" ry="3" fill="#000000" fill-opacity="0.35" transform="rotate(-15 61 71)"/>
+
+    <!-- 金属针身 -->
+    <path d="M 68 56 L 56 68" stroke="url(#pinNeedleGrad)" stroke-width="3.5" stroke-linecap="round"/>
+
+    <!-- 图钉帽主体 (立体双层椭圆造型) -->
+    <g transform="rotate(-45 74 50)">
+      <!-- 钉身托盘 -->
+      <path d="M 65 52 C 65 48, 83 48, 83 52 L 78 58 C 78 60, 70 60, 70 58 Z" fill="url(#pinHeadGrad)"/>
+      <ellipse cx="74" cy="52" rx="9" ry="3.5" fill="#FDA4AF"/>
+
+      <!-- 钉帽顶珠 -->
+      <circle cx="74" cy="45" r="9" fill="url(#pinHeadGrad)"/>
+      <!-- 顶珠球形晶莹高光 -->
+      <circle cx="71.5" cy="42" r="3" fill="#FFFFFF" fill-opacity="0.75"/>
+    </g>
+  </g>
+</svg>

@@ -22,40 +22,16 @@ mkdir -p "${STAGE_DIR}/DEBIAN"
 mkdir -p "${STAGE_DIR}/usr/bin"
 mkdir -p "${STAGE_DIR}/usr/share/applications"
 mkdir -p "${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps"
+mkdir -p "${STAGE_DIR}/usr/share/icons/hicolor/scalable/status"
 mkdir -p "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin-helper@wangle.local"
 
 # 3. 拷贝二进制可执行文件
 cp "${PROJECT_ROOT}/target/release/snapin" "${STAGE_DIR}/usr/bin/snapin"
 chmod 755 "${STAGE_DIR}/usr/bin/snapin"
 
-# 4. 生成专属 SVG 矢量图标
-cat << 'EOF' > "${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps/snapin.svg"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-  <defs>
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#3B82F6"/>
-      <stop offset="100%" stop-color="#1D4ED8"/>
-    </linearGradient>
-    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
-      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.3"/>
-    </filter>
-  </defs>
-  <!-- 主圆角底色背景 -->
-  <rect x="8" y="8" width="112" height="112" rx="24" fill="url(#bgGrad)" filter="url(#shadow)"/>
-  
-  <!-- 选区取景框四角指示标 -->
-  <path d="M 28 44 L 28 32 L 40 32" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M 100 44 L 100 32 L 88 32" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M 28 84 L 28 96 L 40 96" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M 100 84 L 100 96 L 88 96" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-
-  <!-- 内部中心浮动图钉 (Pin) 矢量符号 -->
-  <circle cx="64" cy="54" r="14" fill="#F59E0B" stroke="#FFFFFF" stroke-width="3"/>
-  <circle cx="64" cy="54" r="6" fill="#FFFFFF"/>
-  <path d="M 64 68 L 64 88" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
-  <circle cx="64" cy="90" r="2.5" fill="#FFFFFF"/>
-</svg>
-EOF
+# 4. 拷贝专属现代 SVG 矢量应用图标与系统状态托盘图标
+cp "${PROJECT_ROOT}/assets/icons/snapin.svg" "${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps/snapin.svg"
+cp "${PROJECT_ROOT}/assets/icons/snapin-tray.svg" "${STAGE_DIR}/usr/share/icons/hicolor/scalable/status/snapin-tray.svg"
 
 # 5. 生成桌面快捷方式 entry 与系统开机自启项
 cat << 'EOF' > "${STAGE_DIR}/usr/share/applications/snapin.desktop"
@@ -96,9 +72,11 @@ Slice=app.slice
 WantedBy=graphical-session.target
 EOF
 
-# 7. 拷贝配套 GNOME Shell 扩展
+# 7. 拷贝配套 GNOME Shell 扩展及其图标
 cp "${PROJECT_ROOT}/extension/metadata.json" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin-helper@wangle.local/metadata.json"
 cp "${PROJECT_ROOT}/extension/extension.js" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin-helper@wangle.local/extension.js"
+mkdir -p "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin-helper@wangle.local/icons"
+cp "${PROJECT_ROOT}/extension/icons/snapin-tray.svg" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin-helper@wangle.local/icons/snapin-tray.svg"
 
 # 8. 生成 DEBIAN/control 控制文件
 cat << EOF > "${STAGE_DIR}/DEBIAN/control"

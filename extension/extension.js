@@ -39,11 +39,21 @@ export default class SnapinHelperExtension extends Extension {
         let box = new St.BoxLayout({
             style_class: 'panel-status-indicators-box',
         });
-        let icon = new St.Icon({
-            icon_name: 'image-crop-symbolic',
-            style_class: 'system-status-icon',
-            style: 'margin: 0; padding: 0;',
-        });
+        let iconFile = Gio.File.new_for_path(this.path + '/icons/snapin-tray.svg');
+        let icon;
+        if (iconFile.query_exists(null)) {
+            icon = new St.Icon({
+                gicon: new Gio.FileIcon({ file: iconFile }),
+                style_class: 'system-status-icon',
+                style: 'margin: 0; padding: 0;',
+            });
+        } else {
+            icon = new St.Icon({
+                icon_name: 'image-crop-symbolic',
+                style_class: 'system-status-icon',
+                style: 'margin: 0; padding: 0;',
+            });
+        }
         box.add_child(icon);
         this._indicator.add_child(box);
 
