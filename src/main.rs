@@ -125,7 +125,8 @@ async fn main() -> Result<()> {
 }
 
 /// 获取屏幕快照（优先扩展零白闪通道，自动优雅降级 Portal）
-async fn acquire_screen_snapshot() -> Result<image::DynamicImage> {
+async fn acquire_screen_snapshot() -> Result<image::RgbaImage> {
+    let t_start = std::time::Instant::now();
     let stamp = now_timestamp();
     let shm_dir = std::path::Path::new("/dev/shm");
     let target_dir = if shm_dir.exists() {
@@ -136,30 +137,50 @@ async fn acquire_screen_snapshot() -> Result<image::DynamicImage> {
     let target_path = target_dir.join(format!("snapin_screen_{stamp}.png"));
     let target_str = target_path.to_string_lossy().to_string();
 
+    let t_dbus_start = std::time::Instant::now();
     if let Ok(true) = capture_fullscreen_extension(&target_str).await {
-        if let Ok(img) = image::open(&target_path) {
+        let t_dbus_end = std::time::Instant::now();
+        tracing::info!(
+            "GNOME 扩展 D-Bus 截屏耗时: {:.2}ms",
+            (t_dbus_end - t_dbus_start).as_secs_f64() * 1000.0
+        );
+
+        let t_decode_start = std::time::Instant::now();
+        if let Ok(bytes) = std::fs::read(&target_path) {
             let _ = std::fs::remove_file(&target_path);
-            tracing::info!("已通过 GNOME 扩展完成毫秒级无闪烁截屏");
-            return Ok(img);
+            if let Ok(dynamic_img) = image::load_from_memory(&bytes) {
+                let rgba = dynamic_img.into_rgba8();
+                let t_decode_end = std::time::Instant::now();
+                tracing::info!(
+                    "PNG 读取并内存解码耗时: {:.2}ms, 总截屏耗时: {:.2}ms",
+                    (t_decode_end - t_decode_start).as_secs_f64() * 1000.0,
+                    (t_decode_end - t_start).as_secs_f64() * 1000.0
+                );
+                return Ok(rgba);
+            }
         }
     }
 
     tracing::info!("通过 XDG Desktop Portal 捕获屏幕快照...");
-    capture_fullscreen_portal()
+    let rgba = capture_fullscreen_portal()
         .await
-        .context("Portal 全屏截图捕获失败")
+        .context("Portal 全屏截图捕获失败")?;
+    Ok(rgba)
 }
 
 /// 执行单次截图流程
 async fn run_oneshot_snip() -> Result<()> {
+    let t0 = std::time::Instant::now();
     let img = acquire_screen_snapshot().await?;
+    let t1 = std::time::Instant::now();
     tracing::info!(
-        "快照尺寸: {}x{}，正在启动交互窗口...",
+        "快照准备就绪: {}x{}，耗时: {:.2}ms，正在启动交互窗口...",
         img.width(),
-        img.height()
+        img.height(),
+        (t1 - t0).as_secs_f64() * 1000.0
     );
 
-    let outcome = tokio::task::spawn_blocking(move || run_snipper_session(img.to_rgba8()))
+    let outcome = tokio::task::spawn_blocking(move || run_snipper_session(img))
         .await
         .context("截图任务调度异常")?
         .context("截图交互会话运行失败")?;

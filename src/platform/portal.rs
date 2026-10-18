@@ -5,21 +5,27 @@
 
 use crate::error::SnapinError;
 use ashpd::desktop::screenshot::Screenshot;
-use image::DynamicImage;
+use image::RgbaImage;
 use std::fs;
 
 /// 请求 XDG Desktop Portal 执行静默全屏截屏（非交互模式）。
 ///
 /// 成功获取后立即将图片载入内存，并安全清理本地临时文件。
-pub async fn capture_fullscreen_portal() -> Result<DynamicImage, SnapinError> {
+pub async fn capture_fullscreen_portal() -> Result<RgbaImage, SnapinError> {
     tracing::debug!("正在向 XDG Desktop Portal 请求全屏快照...");
 
+    let t_req_start = std::time::Instant::now();
     let response = Screenshot::request()
         .interactive(false)
         .modal(false)
         .send()
         .await?
         .response()?;
+    let t_req_end = std::time::Instant::now();
+    tracing::info!(
+        "Portal D-Bus 截屏请求与合成器捕获耗时: {:.2}ms",
+        (t_req_end - t_req_start).as_secs_f64() * 1000.0
+    );
 
     let uri = response.uri();
     let file_path = uri
@@ -30,17 +36,26 @@ pub async fn capture_fullscreen_portal() -> Result<DynamicImage, SnapinError> {
 
     tracing::debug!("Portal 截屏文件就绪，路径: {:?}", file_path);
 
-    let image = image::open(&file_path)?;
-
-    // 内存加载完成后立即移除磁盘临时文件，防止垃圾堆积
+    let t_dec_start = std::time::Instant::now();
+    let bytes = fs::read(&file_path).map_err(|e| SnapinError::IoError {
+        path: file_path.to_string_lossy().to_string(),
+        source: e,
+    })?;
     if let Err(e) = fs::remove_file(&file_path) {
         tracing::warn!("清理 Portal 临时图片文件失败: {e}");
     }
+    let dynamic_img = image::load_from_memory(&bytes)?;
+    let rgba_img = dynamic_img.into_rgba8();
+    let t_dec_end = std::time::Instant::now();
+    tracing::info!(
+        "Portal 图片内存解码加载耗时: {:.2}ms",
+        (t_dec_end - t_dec_start).as_secs_f64() * 1000.0
+    );
 
     tracing::info!(
         "全屏图像加载完成，分辨率: {}x{}",
-        image.width(),
-        image.height()
+        rgba_img.width(),
+        rgba_img.height()
     );
-    Ok(image)
+    Ok(rgba_img)
 }

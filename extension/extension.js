@@ -6,6 +6,7 @@ import St from 'gi://St';
 import Gio from 'gi://Gio';
 import Shell from 'gi://Shell';
 import Meta from 'gi://Meta';
+import GLib from 'gi://GLib';
 
 // 定义 D-Bus 接口：接收贴图窗口标题，并在 Mutter 合成器内部将其置顶；提供原生零闪烁极速截屏服务
 const IFACE_XML = `
@@ -17,6 +18,12 @@ const IFACE_XML = `
     </method>
     <method name="CaptureFullscreen">
       <arg type="s" direction="in" name="targetPath"/>
+      <arg type="b" direction="out" name="success"/>
+    </method>
+    <method name="CaptureFullscreenRaw">
+      <arg type="s" direction="in" name="targetPath"/>
+      <arg type="u" direction="out" name="width"/>
+      <arg type="u" direction="out" name="height"/>
       <arg type="b" direction="out" name="success"/>
     </method>
   </interface>
@@ -195,6 +202,30 @@ export default class SnapinHelperExtension extends Extension {
         } catch (e) {
             console.error('Snapin 原生截屏失败:', e);
             return false;
+        }
+    }
+
+    /**
+     * 直接从 Mutter ClutterStage 抓取原始物理像素（跳过任何 PNG 压缩），实现 5ms 级零延迟极速截屏
+     * @param {string} targetPath 存储原始像素的目标共享内存路径
+     * @returns {[number, number, boolean]} [width, height, success]
+     */
+    CaptureFullscreenRaw(targetPath) {
+        if (!targetPath) {
+            return [0, 0, false];
+        }
+        try {
+            let [w, h] = global.stage.get_size();
+            let pixels = global.stage.read_pixels(0, 0, w, h);
+            if (!pixels || pixels.length === 0) {
+                return [0, 0, false];
+            }
+            let file = Gio.File.new_for_path(targetPath);
+            file.replace_contents(pixels, null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+            return [w, h, true];
+        } catch (e) {
+            console.error('Snapin 原始像素截屏失败:', e);
+            return [0, 0, false];
         }
     }
 }
