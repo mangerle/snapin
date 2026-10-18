@@ -1,7 +1,10 @@
 //! 截图交互会话全屏窗口与双缓冲渲染事件循环。
 
 pub mod actions;
+pub mod annotation_builder;
 pub mod events;
+pub mod mouse;
+pub mod text_input;
 pub mod types;
 
 pub use events::SnipperState;
@@ -9,8 +12,9 @@ pub use types::SnipperOutcome;
 
 use crate::error::SnapinError;
 use crate::snipper::canvas::SnipperCanvas;
-use events::{handle_cursor_move, handle_key_input, handle_mouse_button, handle_mouse_wheel};
+use events::handle_key_input;
 use image::RgbaImage;
+use mouse::{handle_cursor_move, handle_mouse_button, handle_mouse_wheel};
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use tiny_skia::Pixmap;
@@ -170,6 +174,7 @@ fn dispatch_window_event(
                 annotations: Some(&state.annotations),
                 ui_scale: state.toolbar.ui_scale,
                 pending_stroke,
+                active_text_input: state.active_text_input.as_ref(),
             };
 
             let mut pixmap_mut = ctx.render_pixmap.as_mut();

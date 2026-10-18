@@ -92,7 +92,13 @@ fn render_main_buttons(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
             height: btn_size,
         };
 
-        let is_active = toolbar.active_tool == Some(item);
+        let is_geometric_slot = item == ToolbarItem::ToolRect;
+        let is_active = if is_geometric_slot {
+            toolbar.active_tool == Some(ToolbarItem::ToolRect)
+                || toolbar.active_tool == Some(ToolbarItem::ToolEllipse)
+        } else {
+            toolbar.active_tool == Some(item)
+        };
         let is_hovered = toolbar.hovered_item == Some(item);
 
         if is_active {
@@ -105,7 +111,20 @@ fn render_main_buttons(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
             }
         }
 
-        render_item_icon(pixmap, item, &btn_rect, s, toolbar.sub_options.color);
+        let display_item =
+            if is_geometric_slot && toolbar.active_tool == Some(ToolbarItem::ToolEllipse) {
+                ToolbarItem::ToolEllipse
+            } else {
+                item
+            };
+
+        render_item_icon(
+            pixmap,
+            display_item,
+            &btn_rect,
+            s,
+            toolbar.sub_options.color,
+        );
         cur_x += btn_size + spacing;
     }
 }
@@ -167,12 +186,46 @@ fn render_divider(pixmap: &mut PixmapMut, x: f32, y: f32, s: f32) {
     }
 }
 
-/// 绘制二级属性栏内容 (3 档粗细 + 6 个预设色块，自适应 HiDPI 缩放)
+/// 绘制二级属性栏内容 (形状切换 + 3 档粗细 + 6 个预设色块，自适应 HiDPI 缩放)
 fn render_sub_options(toolbar: &Toolbar, pixmap: &mut PixmapMut, rect: &Rect) {
     let s = toolbar.ui_scale;
     let padding = 12.0 * s;
     let mut cur_x = rect.x + padding;
     let center_y = rect.y + rect.height / 2.0;
+
+    // 1. 若当前处于几何选框标注模式，渲染 [矩形] / [椭圆] 切换按钮
+    let is_geometric = toolbar.active_tool == Some(ToolbarItem::ToolRect)
+        || toolbar.active_tool == Some(ToolbarItem::ToolEllipse);
+    if is_geometric {
+        let is_rect = toolbar.active_tool == Some(ToolbarItem::ToolRect);
+        let rect_btn = Rect {
+            x: cur_x - 4.0 * s,
+            y: center_y - 12.0 * s,
+            width: 24.0 * s,
+            height: 24.0 * s,
+        };
+        if is_rect {
+            fill_button_highlight(pixmap, &rect_btn, Color::from_rgba8(37, 99, 235, 45), s);
+        }
+        render_sub_shape_rect(pixmap, cur_x + 8.0 * s, center_y, s, is_rect);
+        cur_x += 26.0 * s;
+
+        let is_ellipse = toolbar.active_tool == Some(ToolbarItem::ToolEllipse);
+        let ellipse_btn = Rect {
+            x: cur_x - 4.0 * s,
+            y: center_y - 12.0 * s,
+            width: 24.0 * s,
+            height: 24.0 * s,
+        };
+        if is_ellipse {
+            fill_button_highlight(pixmap, &ellipse_btn, Color::from_rgba8(37, 99, 235, 45), s);
+        }
+        render_sub_shape_ellipse(pixmap, cur_x + 8.0 * s, center_y, s, is_ellipse);
+        cur_x += 26.0 * s;
+
+        render_divider(pixmap, cur_x + 2.0 * s, rect.y + 4.0 * s, s);
+        cur_x += 16.0 * s;
+    }
 
     for level in [
         StrokeWidthLevel::Thin,
@@ -257,5 +310,60 @@ fn render_sub_options(toolbar: &Toolbar, pixmap: &mut PixmapMut, rect: &Rect) {
             }
         }
         cur_x += 26.0 * s;
+    }
+}
+
+/// 绘制二级属性栏中的微型矩形形状图标
+fn render_sub_shape_rect(pixmap: &mut PixmapMut, cx: f32, cy: f32, s: f32, is_active: bool) {
+    let mut pb = PathBuilder::new();
+    add_round_rect(
+        &mut pb,
+        cx - 6.5 * s,
+        cy - 5.5 * s,
+        13.0 * s,
+        11.0 * s,
+        1.5 * s,
+    );
+    if let Some(path) = pb.finish() {
+        let color = if is_active {
+            Color::from_rgba8(37, 99, 235, 255)
+        } else {
+            Color::from_rgba8(75, 85, 99, 255)
+        };
+        let paint = make_paint(color);
+        let stroke = Stroke {
+            width: 1.6 * s,
+            ..Default::default()
+        };
+        pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+    }
+}
+
+/// 绘制二级属性栏中的微型椭圆形状图标
+fn render_sub_shape_ellipse(pixmap: &mut PixmapMut, cx: f32, cy: f32, s: f32, is_active: bool) {
+    let mut pb = PathBuilder::new();
+    let a = 6.5 * s;
+    let b = 5.5 * s;
+    let ox = a * 0.552_284_8_f32;
+    let oy = b * 0.552_284_8_f32;
+    pb.move_to(cx - a, cy);
+    pb.cubic_to(cx - a, cy - oy, cx - ox, cy - b, cx, cy - b);
+    pb.cubic_to(cx + ox, cy - b, cx + a, cy - oy, cx + a, cy);
+    pb.cubic_to(cx + a, cy + oy, cx + ox, cy + b, cx, cy + b);
+    pb.cubic_to(cx - ox, cy + b, cx - a, cy + oy, cx - a, cy);
+    pb.close();
+
+    if let Some(path) = pb.finish() {
+        let color = if is_active {
+            Color::from_rgba8(37, 99, 235, 255)
+        } else {
+            Color::from_rgba8(75, 85, 99, 255)
+        };
+        let paint = make_paint(color);
+        let stroke = Stroke {
+            width: 1.6 * s,
+            ..Default::default()
+        };
+        pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
     }
 }

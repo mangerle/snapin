@@ -9,7 +9,8 @@ use crate::annotation::shapes::{
 use crate::annotation::AnnotationHistory;
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionState};
-use crate::snipper::toolbar::{StrokeWidthLevel, Toolbar, ToolbarItem};
+use crate::snipper::toolbar::{Toolbar, ToolbarItem};
+use crate::snipper::window::text_input::TextInputSession;
 use image::RgbaImage;
 use tiny_skia::{Paint, PathBuilder, Pixmap, PixmapMut, Rect as SkiaRect, Stroke, Transform};
 
@@ -28,6 +29,7 @@ pub struct SnipperCanvas<'a> {
     pub annotations: Option<&'a AnnotationHistory>,
     pub ui_scale: f32,
     pub pending_stroke: Option<PendingStroke<'a>>,
+    pub active_text_input: Option<&'a TextInputSession>,
 }
 
 impl<'a> SnipperCanvas<'a> {
@@ -56,6 +58,11 @@ impl<'a> SnipperCanvas<'a> {
                 // 回放已完成的矢量标注
                 if let Some(history) = self.annotations {
                     history.replay_all(pixmap);
+                }
+
+                // 实时渲染当前活跃编辑中的文本会话
+                if let Some(text_session) = self.active_text_input {
+                    text_session.render(pixmap);
                 }
 
                 // 实时渲染当前正在拖拽拉伸中的标注图元即时预览 (光标移动即刻变化)
@@ -188,7 +195,7 @@ impl<'a> SnipperCanvas<'a> {
             return;
         }
 
-        let stroke_w = toolbar.sub_options.stroke_width.to_pixel();
+        let stroke_w = toolbar.sub_options.current_stroke_width();
         let c = toolbar.sub_options.color;
         let rgba = (
             (c.red() * 255.0).round() as u8,
@@ -253,11 +260,7 @@ impl<'a> SnipperCanvas<'a> {
             }
             ToolbarItem::ToolBadge => {
                 let center = pts[pts.len() - 1];
-                let radius = match toolbar.sub_options.stroke_width {
-                    StrokeWidthLevel::Thin => 12.0,
-                    StrokeWidthLevel::Medium => 15.0,
-                    StrokeWidthLevel::Thick => 18.0,
-                } * toolbar.ui_scale;
+                let radius = (stroke_w * 3.0).clamp(10.0, 48.0) * toolbar.ui_scale;
                 let action = BadgeAction {
                     center,
                     radius,

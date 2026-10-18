@@ -65,7 +65,32 @@ pub fn render_item_icon(
         ToolbarItem::ActionPin => render_icon_pin(pixmap, cx, cy, s, &paint, &stroke),
         ToolbarItem::ActionSave => render_icon_save(pixmap, cx, cy, s, &paint, &stroke),
         ToolbarItem::ActionCopy => render_icon_copy(pixmap, cx, cy, s, &paint, &stroke),
-        ToolbarItem::ToolEllipse => {}
+        ToolbarItem::ToolEllipse => render_icon_ellipse(pixmap, cx, cy, s, &paint, &stroke),
+    }
+}
+
+/// 图标: 纯椭圆几何造型
+fn render_icon_ellipse(
+    pixmap: &mut PixmapMut,
+    cx: f32,
+    cy: f32,
+    s: f32,
+    paint: &Paint,
+    stroke: &Stroke,
+) {
+    let a = 8.5 * s;
+    let b = 6.0 * s;
+    let ox = a * 0.552_284_8_f32;
+    let oy = b * 0.552_284_8_f32;
+    let mut epb = PathBuilder::new();
+    epb.move_to(cx - a, cy);
+    epb.cubic_to(cx - a, cy - oy, cx - ox, cy - b, cx, cy - b);
+    epb.cubic_to(cx + ox, cy - b, cx + a, cy - oy, cx + a, cy);
+    epb.cubic_to(cx + a, cy + oy, cx + ox, cy + b, cx, cy + b);
+    epb.cubic_to(cx - ox, cy + b, cx - a, cy + oy, cx - a, cy);
+    epb.close();
+    if let Some(path) = epb.finish() {
+        pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
     }
 }
 

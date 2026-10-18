@@ -1,19 +1,16 @@
-//! 截图会话键盘与鼠标事件响应及状态机流转。
+//! 截图会话键盘事件响应、状态机管理与选区历史回溯。
 
 use super::actions::{handle_action_copy, handle_action_pin, handle_action_save};
+use super::text_input::TextInputSession;
 use super::types::SnipperOutcome;
-use crate::annotation::shapes::{
-    ArrowAction, BadgeAction, EllipseAction, MarkerAction, MosaicAction, PenAction, RectAction,
-};
 use crate::annotation::AnnotationHistory;
 use crate::platform::write_text_to_clipboard;
 use crate::snipper::magnifier::Magnifier;
-use crate::snipper::selection::{DragMode, Rect, SelectionHistory, SelectionState};
-use crate::snipper::toolbar::{StrokeWidthLevel, Toolbar, ToolbarItem};
+use crate::snipper::selection::{SelectionHistory, SelectionState};
+use crate::snipper::toolbar::Toolbar;
 use image::RgbaImage;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta};
+use winit::event::ElementState;
 use winit::keyboard::{Key, ModifiersState, NamedKey};
-use winit::window::Window;
 
 /// 截图会话可变运行状态封装
 pub struct SnipperState {
@@ -26,6 +23,7 @@ pub struct SnipperState {
     pub modifiers: ModifiersState,
     pub pending_stroke_points: Vec<(f32, f32)>,
     pub next_badge_number: u32,
+    pub active_text_input: Option<TextInputSession>,
     pub outcome: Option<SnipperOutcome>,
 }
 
@@ -41,6 +39,7 @@ impl SnipperState {
             modifiers: ModifiersState::default(),
             pending_stroke_points: Vec::with_capacity(64),
             next_badge_number: 1,
+            active_text_input: None,
             outcome: None,
         }
     }
@@ -61,6 +60,10 @@ pub fn handle_key_input(
 ) -> bool {
     if key_state != ElementState::Pressed {
         return false;
+    }
+
+    if state.active_text_input.is_some() {
+        return handle_text_key_input(state, key);
     }
 
     match key {
@@ -97,9 +100,50 @@ pub fn handle_key_input(
     }
 }
 
-/// 逐级退出处理 (先收起二级栏/工具 -> 再取消选区 -> 再退出窗口)
-fn handle_escape(state: &mut SnipperState) -> bool {
-    if state.toolbar.active_tool.is_some() {
+/// 处理处于文本编辑中的按键交互
+fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
+    match key {
+        Key::Named(NamedKey::Escape) | Key::Named(NamedKey::Enter) => {
+            commit_active_text_input(state);
+            true
+        }
+        Key::Named(NamedKey::Backspace) => {
+            if let Some(session) = &mut state.active_text_input {
+                session.pop_char();
+            }
+            true
+        }
+        Key::Named(NamedKey::Space) => {
+            if let Some(session) = &mut state.active_text_input {
+                session.push_char(' ');
+            }
+            true
+        }
+        Key::Character(s) if !state.modifiers.control_key() => {
+            if let Some(session) = &mut state.active_text_input {
+                session.push_str(s.as_str());
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
+/// 提交并关闭当前文本输入会话
+pub fn commit_active_text_input(state: &mut SnipperState) {
+    if let Some(session) = state.active_text_input.take() {
+        if let Some(action) = session.commit() {
+            state.annotations.push(action);
+        }
+    }
+}
+
+/// 逐级退出处理 (先提交文本 -> 再收起二级栏/工具 -> 再取消选区 -> 再退出窗口)
+pub fn handle_escape(state: &mut SnipperState) -> bool {
+    if state.active_text_input.is_some() {
+        commit_active_text_input(state);
+        true
+    } else if state.toolbar.active_tool.is_some() {
         state.toolbar.active_tool = None;
         state.toolbar.sub_rect = None;
         true
@@ -151,318 +195,4 @@ fn handle_history_forward(state: &mut SnipperState, img: &RgbaImage) -> bool {
     } else {
         false
     }
-}
-
-/// 鼠标移动事件统一处理
-pub fn handle_cursor_move(
-    state: &mut SnipperState,
-    pos: (f64, f64),
-    _window: &Window,
-    screen_w: f32,
-    screen_h: f32,
-) -> bool {
-    state.cursor_pos = pos;
-    let (cx, cy) = (pos.0 as f32, pos.1 as f32);
-
-    match &mut state.selection {
-        SelectionState::Idle => {
-            // 工具栏不在活跃状态，请求重绘放大镜
-            true
-        }
-        SelectionState::Creating { current, .. } => {
-            *current = (cx, cy);
-            true
-        }
-        SelectionState::Locked { rect, active_drag } => {
-            if let Some(drag) = active_drag {
-                // 正在拖拽手柄平移或缩放
-                let p = (cx, cy);
-                let (r, d) = match drag {
-                    DragMode::Move { offset_x, offset_y } => (
-                        Rect {
-                            x: p.0 - *offset_x as f32,
-                            y: p.1 - *offset_y as f32,
-                            ..*rect
-                        },
-                        DragMode::Move {
-                            offset_x: *offset_x,
-                            offset_y: *offset_y,
-                        },
-                    ),
-                    DragMode::Resize(h) => {
-                        (Rect::from_points((rect.x, rect.y), p), DragMode::Resize(*h))
-                    }
-                };
-                *rect = r;
-                *active_drag = Some(d);
-                state.toolbar.update_layout(rect, screen_w, screen_h);
-                true
-            } else if state.toolbar.active_tool.is_some() && !state.pending_stroke_points.is_empty()
-            {
-                match state.toolbar.active_tool {
-                    Some(ToolbarItem::ToolPen) | Some(ToolbarItem::ToolMarker) => {
-                        state.pending_stroke_points.push((cx, cy));
-                    }
-                    _ => {
-                        if state.pending_stroke_points.len() > 1 {
-                            state.pending_stroke_points[1] = (cx, cy);
-                        } else {
-                            state.pending_stroke_points.push((cx, cy));
-                        }
-                    }
-                }
-                true
-            } else {
-                state.toolbar.handle_mouse_move(cx, cy)
-            }
-        }
-    }
-}
-
-/// 鼠标按键点击事件处理
-pub fn handle_mouse_button(
-    state: &mut SnipperState,
-    button: MouseButton,
-    button_state: ElementState,
-    original_rgba: &RgbaImage,
-) -> bool {
-    let (cx, cy) = (state.cursor_pos.0 as f32, state.cursor_pos.1 as f32);
-
-    if button == MouseButton::Right && button_state == ElementState::Pressed {
-        return handle_escape(state);
-    }
-
-    if button != MouseButton::Left {
-        return false;
-    }
-
-    match button_state {
-        ElementState::Pressed => handle_left_press(state, cx, cy, original_rgba),
-        ElementState::Released => handle_left_release(state, cx, cy, original_rgba),
-    }
-}
-
-/// 鼠标左键按下交互
-fn handle_left_press(
-    state: &mut SnipperState,
-    cx: f32,
-    cy: f32,
-    original_rgba: &RgbaImage,
-) -> bool {
-    if matches!(state.selection, SelectionState::Locked { .. }) {
-        // 先检测工具栏点击命中
-        if let Some(item) = state.toolbar.handle_click(cx, cy) {
-            return dispatch_toolbar_action(state, item, original_rgba);
-        }
-
-        // 若处于标注模式，记录标注笔触起点
-        if state.toolbar.active_tool.is_some() {
-            state.pending_stroke_points.clear();
-            state.pending_stroke_points.push((cx, cy));
-            return true;
-        }
-    }
-
-    match state.selection {
-        SelectionState::Idle => {
-            state.selection = SelectionState::Creating {
-                start: (cx, cy),
-                current: (cx, cy),
-            };
-            true
-        }
-        SelectionState::Locked {
-            rect,
-            ref mut active_drag,
-        } if rect.contains(cx, cy) => {
-            *active_drag = Some(DragMode::Move {
-                offset_x: (cx - rect.x) as i32,
-                offset_y: (cy - rect.y) as i32,
-            });
-            true
-        }
-        _ => false,
-    }
-}
-
-/// 鼠标左键抬起交互
-fn handle_left_release(
-    state: &mut SnipperState,
-    cx: f32,
-    cy: f32,
-    original_rgba: &RgbaImage,
-) -> bool {
-    let screen_w = original_rgba.width() as f32;
-    let screen_h = original_rgba.height() as f32;
-
-    match &mut state.selection {
-        SelectionState::Creating { start, current } => {
-            let rect = Rect::from_points(*start, *current);
-            if rect.width > 4.0 && rect.height > 4.0 {
-                state.history.push(rect);
-                state.toolbar.update_layout(&rect, screen_w, screen_h);
-                state.selection = SelectionState::Locked {
-                    rect,
-                    active_drag: None,
-                };
-            } else {
-                state.selection = SelectionState::Idle;
-            }
-            true
-        }
-        SelectionState::Locked { rect, active_drag } => {
-            if active_drag.is_some() {
-                *active_drag = None;
-                state.history.push(*rect);
-                state.toolbar.update_layout(rect, screen_w, screen_h);
-                true
-            } else if state.toolbar.active_tool.is_some() && !state.pending_stroke_points.is_empty()
-            {
-                state.pending_stroke_points.push((cx, cy));
-                commit_annotation_action(state);
-                true
-            } else {
-                false
-            }
-        }
-        _ => false,
-    }
-}
-
-/// 将暂存的笔触图元提交至 Undo 栈
-fn commit_annotation_action(state: &mut SnipperState) {
-    if let Some(tool) = state.toolbar.active_tool {
-        let pts = &state.pending_stroke_points;
-        if pts.is_empty() {
-            return;
-        }
-        if tool != ToolbarItem::ToolBadge && pts.len() < 2 {
-            state.pending_stroke_points.clear();
-            return;
-        }
-
-        let stroke_w = state.toolbar.sub_options.stroke_width.to_pixel();
-        let c = state.toolbar.sub_options.color;
-        let rgba = (
-            (c.red() * 255.0).round() as u8,
-            (c.green() * 255.0).round() as u8,
-            (c.blue() * 255.0).round() as u8,
-            (c.alpha() * 255.0).round() as u8,
-        );
-
-        match tool {
-            ToolbarItem::ToolRect => {
-                let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
-                state.annotations.push(Box::new(RectAction {
-                    rect: (rect.x, rect.y, rect.width, rect.height),
-                    color: rgba,
-                    stroke_width: stroke_w,
-                    is_filled: false,
-                }));
-            }
-            ToolbarItem::ToolEllipse => {
-                let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
-                state.annotations.push(Box::new(EllipseAction {
-                    rect: (rect.x, rect.y, rect.width, rect.height),
-                    color: rgba,
-                    stroke_width: stroke_w,
-                    is_filled: false,
-                }));
-            }
-            ToolbarItem::ToolBadge => {
-                let center = pts[pts.len() - 1];
-                let number = state.next_badge_number;
-                state.next_badge_number += 1;
-                let radius = match state.toolbar.sub_options.stroke_width {
-                    StrokeWidthLevel::Thin => 12.0,
-                    StrokeWidthLevel::Medium => 15.0,
-                    StrokeWidthLevel::Thick => 18.0,
-                } * state.toolbar.ui_scale;
-                state.annotations.push(Box::new(BadgeAction {
-                    center,
-                    radius,
-                    number: number as usize,
-                    color: rgba,
-                }));
-            }
-            ToolbarItem::ToolArrow => {
-                state.annotations.push(Box::new(ArrowAction {
-                    start: pts[0],
-                    end: pts[pts.len() - 1],
-                    color: rgba,
-                    stroke_width: stroke_w,
-                }));
-            }
-            ToolbarItem::ToolPen => {
-                state.annotations.push(Box::new(PenAction {
-                    points: pts.clone(),
-                    color: rgba,
-                    stroke_width: stroke_w,
-                }));
-            }
-            ToolbarItem::ToolMarker => {
-                state.annotations.push(Box::new(MarkerAction {
-                    points: pts.clone(),
-                    color: (rgba.0, rgba.1, rgba.2),
-                    stroke_width: stroke_w * 2.0,
-                }));
-            }
-            ToolbarItem::ToolMosaic => {
-                let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
-                state.annotations.push(Box::new(MosaicAction {
-                    rect: (rect.x, rect.y, rect.width, rect.height),
-                    cell_size: 10,
-                }));
-            }
-            _ => {}
-        }
-    }
-    state.pending_stroke_points.clear();
-}
-
-/// 执行工具栏动作派发
-fn dispatch_toolbar_action(
-    state: &mut SnipperState,
-    item: ToolbarItem,
-    original_rgba: &RgbaImage,
-) -> bool {
-    match item {
-        ToolbarItem::ActionUndo => {
-            state.next_badge_number = state.next_badge_number.saturating_sub(1).max(1);
-            state.annotations.undo()
-        }
-        ToolbarItem::ActionRedo => state.annotations.redo(),
-        ToolbarItem::ActionCopy => {
-            handle_action_copy(state, original_rgba);
-            true
-        }
-        ToolbarItem::ActionSave => {
-            handle_action_save(state, original_rgba);
-            true
-        }
-        ToolbarItem::ActionPin => {
-            handle_action_pin(state, original_rgba);
-            true
-        }
-        ToolbarItem::ActionClose => {
-            state.outcome = Some(SnipperOutcome::Cancelled);
-            true
-        }
-        _ => true,
-    }
-}
-
-/// 处理截图会话中的鼠标滚轮事件 (调节标注线条与边框粗细)
-pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> bool {
-    let delta_y = match delta {
-        MouseScrollDelta::LineDelta(_, y) => y,
-        MouseScrollDelta::PixelDelta(p) => p.y as f32 / 20.0,
-    };
-
-    if delta_y.abs() < 0.1 {
-        return false;
-    }
-
-    let increase = delta_y > 0.0;
-    state.toolbar.cycle_stroke_width(increase)
 }

@@ -77,6 +77,10 @@ impl AnnotationAction for BadgeAction {
         // 3. 使用 cosmic-text 高精排版渲染现代纯白加粗数字 (绝对光学居中)
         draw_badge_digit(pixmap, cx, cy, self.number, r);
     }
+
+    fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
+        self.radius = (stroke_w * 3.0).clamp(10.0, 48.0);
+    }
 }
 
 /// 在气泡中心高精排版绘制加粗现代无衬线数字
@@ -96,6 +100,7 @@ fn draw_badge_digit(pixmap: &mut PixmapMut, cx: f32, cy: f32, num: usize, r: f32
 
         let metrics = Metrics::new(font_size, font_size * 1.25);
         let mut buffer = Buffer::new(font_system, metrics);
+        buffer.set_size(font_system, r * 4.0, r * 4.0);
         buffer.set_text(
             font_system,
             &text,

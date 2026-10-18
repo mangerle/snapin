@@ -119,7 +119,9 @@ impl Toolbar {
         if self.active_tool.is_some() && self.main_rect.width > 0.0 {
             let s = self.ui_scale;
             let sub_h = 36.0 * s;
-            let sub_w = 340.0 * s;
+            let is_geo = self.active_tool == Some(ToolbarItem::ToolRect)
+                || self.active_tool == Some(ToolbarItem::ToolEllipse);
+            let sub_w = if is_geo { 400.0 * s } else { 340.0 * s };
             let sub_x = self.main_rect.x;
             let sub_y = if self.main_rect.y >= sub_h + 8.0 * s {
                 self.main_rect.y - sub_h - 4.0 * s
@@ -182,8 +184,18 @@ impl Toolbar {
     pub fn handle_click(&mut self, px: f32, py: f32) -> Option<ToolbarItem> {
         if let Some(item) = self.hit_test_main(px, py) {
             match item {
-                ToolbarItem::ToolRect
-                | ToolbarItem::ToolEllipse
+                ToolbarItem::ToolRect => {
+                    if self.active_tool == Some(ToolbarItem::ToolRect) {
+                        self.active_tool = Some(ToolbarItem::ToolEllipse);
+                    } else if self.active_tool == Some(ToolbarItem::ToolEllipse) {
+                        self.active_tool = None;
+                    } else {
+                        self.active_tool = Some(ToolbarItem::ToolRect);
+                    }
+                    self.update_sub_rect();
+                    return self.active_tool;
+                }
+                ToolbarItem::ToolEllipse
                 | ToolbarItem::ToolArrow
                 | ToolbarItem::ToolPen
                 | ToolbarItem::ToolMarker
@@ -211,12 +223,40 @@ impl Toolbar {
         None
     }
 
-    /// 处理二级属性栏内的粗细与颜色点击 (自适应 HiDPI 缩放)
+    /// 处理二级属性栏内的形状、粗细与颜色点击 (自适应 HiDPI 缩放)
     fn handle_sub_click(&mut self, px: f32, py: f32, sub_rect: Rect) {
         let s = self.ui_scale;
         let padding = 8.0 * s;
         let mut cur_x = sub_rect.x + padding;
         let center_y = sub_rect.y + sub_rect.height / 2.0;
+
+        let is_geo = self.active_tool == Some(ToolbarItem::ToolRect)
+            || self.active_tool == Some(ToolbarItem::ToolEllipse);
+        if is_geo {
+            let rect_btn = Rect {
+                x: cur_x - 4.0 * s,
+                y: center_y - 12.0 * s,
+                width: 24.0 * s,
+                height: 24.0 * s,
+            };
+            if rect_btn.contains(px, py) {
+                self.active_tool = Some(ToolbarItem::ToolRect);
+                return;
+            }
+            cur_x += 26.0 * s;
+
+            let ellipse_btn = Rect {
+                x: cur_x - 4.0 * s,
+                y: center_y - 12.0 * s,
+                width: 24.0 * s,
+                height: 24.0 * s,
+            };
+            if ellipse_btn.contains(px, py) {
+                self.active_tool = Some(ToolbarItem::ToolEllipse);
+                return;
+            }
+            cur_x += 26.0 * s + 16.0 * s;
+        }
 
         for level in [
             StrokeWidthLevel::Thin,
@@ -231,6 +271,7 @@ impl Toolbar {
             };
             if hit_box.contains(px, py) {
                 self.sub_options.stroke_width = level;
+                self.sub_options.custom_stroke_width = level.to_pixel();
                 return;
             }
             cur_x += 24.0 * s;
@@ -348,5 +389,35 @@ mod tests {
         assert_eq!(tb.sub_options.stroke_width, StrokeWidthLevel::Thin);
         // 到底不再变化
         assert!(!tb.cycle_stroke_width(false));
+    }
+
+    #[test]
+    fn test_toolbar_rect_ellipse_switching() {
+        let mut tb = Toolbar::default();
+        let selection = Rect {
+            x: 100.0,
+            y: 100.0,
+            width: 500.0,
+            height: 300.0,
+        };
+        tb.update_layout(&selection, 1920.0, 1080.0);
+
+        let btn_x = tb.main_rect.x + 10.0;
+        let btn_y = tb.main_rect.y + 10.0;
+
+        // 第一次点击主按钮：进入 ToolRect
+        assert_eq!(tb.handle_click(btn_x, btn_y), Some(ToolbarItem::ToolRect));
+        assert_eq!(tb.active_tool, Some(ToolbarItem::ToolRect));
+
+        // 第二次点击主按钮：轮转切换为 ToolEllipse
+        assert_eq!(
+            tb.handle_click(btn_x, btn_y),
+            Some(ToolbarItem::ToolEllipse)
+        );
+        assert_eq!(tb.active_tool, Some(ToolbarItem::ToolEllipse));
+
+        // 第三次点击主按钮：取消选择
+        assert_eq!(tb.handle_click(btn_x, btn_y), None);
+        assert_eq!(tb.active_tool, None);
     }
 }

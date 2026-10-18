@@ -36,4 +36,8 @@ impl AnnotationAction for PenAction {
             pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
         }
     }
+
+    fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
+        self.stroke_width = stroke_w;
+    }
 }

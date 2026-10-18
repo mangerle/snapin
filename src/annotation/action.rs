@@ -9,6 +9,9 @@ use tiny_skia::PixmapMut;
 pub trait AnnotationAction: Send + Sync {
     /// 执行绘制
     fn draw(&self, pixmap: &mut PixmapMut);
+
+    /// 动态调节标注尺寸 (粗细或字体大小)
+    fn adjust_size(&mut self, _stroke_w: f32, _font_sz: f32) {}
 }
 
 /// 标注历史管理器 (Undo / Redo 栈)
@@ -23,6 +26,16 @@ impl AnnotationHistory {
     pub fn push(&mut self, action: Box<dyn AnnotationAction>) {
         self.undo_stack.push(action);
         self.redo_stack.clear();
+    }
+
+    /// 动态调节历史栈顶图元（最近绘制的标注）的粗细或字体大小
+    pub fn adjust_last_action_size(&mut self, stroke_w: f32, font_sz: f32) -> bool {
+        if let Some(last) = self.undo_stack.last_mut() {
+            last.adjust_size(stroke_w, font_sz);
+            true
+        } else {
+            false
+        }
     }
 
     /// 撤销上一次标注
@@ -120,5 +133,18 @@ mod tests {
             color: (0, 128, 255, 255),
         };
         badge.draw(&mut mut_pix);
+
+        // 验证气泡内部确实绘制出了纯白数字像素
+        let data = pixmap.data();
+        let has_white_digit = (40..60).any(|y| {
+            (40..60).any(|x| {
+                let idx = ((y * 100 + x) * 4) as usize;
+                data[idx] > 200 && data[idx + 1] > 200 && data[idx + 2] > 200
+            })
+        });
+        assert!(
+            has_white_digit,
+            "BadgeAction 必须在中心成功绘制出纯白色数字！"
+        );
     }
 }

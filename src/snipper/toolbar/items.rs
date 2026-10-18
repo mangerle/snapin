@@ -60,11 +60,13 @@ impl StrokeWidthLevel {
 /// 二级属性栏选项
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SubToolOptions {
-    /// 笔触粗细
+    /// 预设笔触粗细档位
     pub stroke_width: StrokeWidthLevel,
+    /// 自由连续笔触粗细 (像素值，受鼠标滚轮连续动态微调，范围 1.0 ~ 50.0)
+    pub custom_stroke_width: f32,
     /// 当前前景色 RGBA [0.0, 1.0]
     pub color: Color,
-    /// 字体大小 (用于文本标注)
+    /// 字体大小 (用于文本标注，受鼠标滚轮连续动态微调，范围 12.0 ~ 72.0)
     pub font_size: f32,
 }
 
@@ -72,9 +74,17 @@ impl Default for SubToolOptions {
     fn default() -> Self {
         Self {
             stroke_width: StrokeWidthLevel::Medium,
+            custom_stroke_width: 4.0,
             color: Color::from_rgba8(239, 68, 68, 255), // 默认红色
             font_size: 20.0,
         }
+    }
+}
+
+impl SubToolOptions {
+    /// 获取当前生效的笔触粗细像素值
+    pub fn current_stroke_width(&self) -> f32 {
+        self.custom_stroke_width
     }
 }
 
