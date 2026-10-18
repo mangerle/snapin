@@ -247,10 +247,13 @@ fn save_paster_to_disk(state: &mut PasterWindowState) {
         let out = pic_dir.join(format!("{}.png", state.item.title));
         if rgba.save(&out).is_ok() {
             state.file_path = Some(out.clone());
-            let msg = format!("贴图图像已保存至: {}", out.display());
-            std::mem::drop(tokio::spawn(async move {
-                let _ = send_desktop_notification("Snapin 贴图已保存", &msg).await;
-            }));
+            let cfg = crate::config::load_or_create_config(None).unwrap_or_default();
+            if cfg.output.notify_on_save {
+                let msg = format!("贴图图像已保存至: {}", out.display());
+                std::mem::drop(tokio::spawn(async move {
+                    let _ = send_desktop_notification("Snapin 贴图已保存", &msg).await;
+                }));
+            }
         }
     }
 }

@@ -143,13 +143,18 @@ async fn run_oneshot_snip() -> Result<()> {
         .context("截图交互会话运行失败")?;
 
     if let Some(outcome) = outcome {
+        let cfg = config::load_or_create_config(None).unwrap_or_default();
         match outcome {
             SnipperOutcome::Copied(_) => {
-                send_desktop_notification("Snapin 截图", "选区图像已成功复制到剪贴板").await?;
+                if cfg.output.notify_on_copy {
+                    send_desktop_notification("Snapin 截图", "选区图像已成功复制到剪贴板").await?;
+                }
             }
             SnipperOutcome::Saved(path) => {
-                let msg = format!("选区图像已保存至: {}", path.display());
-                send_desktop_notification("Snapin 截图已保存", &msg).await?;
+                if cfg.output.notify_on_save {
+                    let msg = format!("选区图像已保存至: {}", path.display());
+                    send_desktop_notification("Snapin 截图已保存", &msg).await?;
+                }
             }
             SnipperOutcome::Pinned(item) => {
                 let stamp = now_timestamp();
@@ -298,8 +303,10 @@ async fn run_daemon_server(cfg: config::Config) -> Result<()> {
     });
 
     tracing::info!("Snapin 守护服务已就绪，等待热键指令...");
-    let _ =
-        send_desktop_notification("Snapin 截图贴图", "服务已就绪：按 F1 截图，按 F3 贴图").await;
+    if cfg.general.notify_on_startup {
+        let _ = send_desktop_notification("Snapin 截图贴图", "服务已就绪：按 F1 截图，按 F3 贴图")
+            .await;
+    }
 
     while let Some(cmd) = rx.recv().await {
         tracing::info!("守护进程接收到控制指令: {:?}", cmd);

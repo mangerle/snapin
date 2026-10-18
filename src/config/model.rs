@@ -51,6 +51,10 @@ pub struct GeneralConfig {
     /// 托盘图标风格 ("auto" | "dark" | "light")
     #[serde(default = "default_tray_theme")]
     pub tray_theme: String,
+
+    /// 守护进程启动成功时是否发送桌面通知
+    #[serde(default)]
+    pub notify_on_startup: bool,
 }
 
 impl Default for GeneralConfig {
@@ -60,6 +64,7 @@ impl Default for GeneralConfig {
             language: default_language(),
             log_level: default_log_level(),
             tray_theme: default_tray_theme(),
+            notify_on_startup: false,
         }
     }
 }
@@ -217,8 +222,12 @@ pub struct OutputConfig {
     pub jpeg_quality: u8,
 
     /// 复制到剪贴板后是否触发桌面系统通知
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub notify_on_copy: bool,
+
+    /// 保存选区图片到文件后是否触发桌面系统通知
+    #[serde(default)]
+    pub notify_on_save: bool,
 
     /// 是否自动静默备份原始底图到缓存
     #[serde(default)]
@@ -232,7 +241,8 @@ impl Default for OutputConfig {
             file_name_template: default_file_name_template(),
             default_format: default_format(),
             jpeg_quality: default_jpeg_quality(),
-            notify_on_copy: true,
+            notify_on_copy: false,
+            notify_on_save: false,
             auto_backup_raw: false,
         }
     }
