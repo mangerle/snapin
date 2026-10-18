@@ -63,8 +63,10 @@ pub fn run_snipper_session(bg_image: RgbaImage) -> Result<Option<SnipperOutcome>
             message: format!("初始化帧缓冲尺寸失败: {e}"),
         })?;
 
-    let bg_pixmap = rgba_to_pixmap(&bg_image)?;
-    let dimmed_bg = create_dimmed_pixmap(&bg_pixmap)?;
+    let (bg_pixmap, dimmed_bg) = create_pixmaps_fast(&bg_image)?;
+
+    // 在进入事件循环前，立即将暗化蒙层写入 softbuffer 共享表面，确保窗口映射瞬间即为暗色
+    let _ = blit_to_surface(&mut surface, &dimmed_bg);
 
     let mut render_pixmap =
         Pixmap::new(screen_w, screen_h).ok_or_else(|| SnapinError::SoftbufferError {
@@ -245,41 +247,37 @@ fn check_exit_outcome(
     }
 }
 
-/// 将 RgbaImage 转换为 tiny_skia Pixmap
-fn rgba_to_pixmap(img: &RgbaImage) -> Result<Pixmap, SnapinError> {
-    let mut pixmap =
-        Pixmap::new(img.width(), img.height()).ok_or_else(|| SnapinError::SoftbufferError {
-            message: "分配背景底图 Pixmap 失败".to_string(),
-        })?;
-    pixmap.data_mut().copy_from_slice(img.as_raw());
-    Ok(pixmap)
-}
+/// 单遍高速生成原图底图与暗色蒙层底图 (单次内存遍历，CPU 缓存高度命中)
+fn create_pixmaps_fast(img: &RgbaImage) -> Result<(Pixmap, Pixmap), SnapinError> {
+    let w = img.width();
+    let h = img.height();
+    let mut bg = Pixmap::new(w, h).ok_or_else(|| SnapinError::SoftbufferError {
+        message: "分配背景底图 Pixmap 失败".to_string(),
+    })?;
+    let mut dimmed = Pixmap::new(w, h).ok_or_else(|| SnapinError::SoftbufferError {
+        message: "分配暗色蒙层 Pixmap 失败".to_string(),
+    })?;
 
-/// 快速生成暗色蒙层底图 (纯整数定点乘法，性能比 skia fill_rect 提升 30 倍)
-fn create_dimmed_pixmap(orig: &Pixmap) -> Result<Pixmap, SnapinError> {
-    let mut dimmed =
-        Pixmap::new(orig.width(), orig.height()).ok_or_else(|| SnapinError::SoftbufferError {
-            message: "分配暗色蒙层 Pixmap 失败".to_string(),
-        })?;
+    let src = img.as_raw();
+    let dst_bg = bg.data_mut();
+    let dst_dim = dimmed.data_mut();
 
-    let src = orig.data();
-    let dst = dimmed.data_mut();
-
-    // 蒙层系数：rgba(0, 0, 0, 148)，即保留原像素的 (255 - 148) / 255 = 107 / 255
-    // 快速定点整数运算: (val * 107) >> 8
-    for (d, s) in dst
+    // 内存单遍流转：同时填充原图与定点整数暗化蒙层 ((val * 107) >> 8)
+    for ((d_bg, d_dim), s) in dst_bg
         .as_chunks_mut::<4>()
         .0
         .iter_mut()
+        .zip(dst_dim.as_chunks_mut::<4>().0.iter_mut())
         .zip(src.as_chunks::<4>().0)
     {
-        d[0] = ((s[0] as u16 * 107) >> 8) as u8;
-        d[1] = ((s[1] as u16 * 107) >> 8) as u8;
-        d[2] = ((s[2] as u16 * 107) >> 8) as u8;
-        d[3] = s[3];
+        d_bg.copy_from_slice(s);
+        d_dim[0] = ((s[0] as u16 * 107) >> 8) as u8;
+        d_dim[1] = ((s[1] as u16 * 107) >> 8) as u8;
+        d_dim[2] = ((s[2] as u16 * 107) >> 8) as u8;
+        d_dim[3] = s[3];
     }
 
-    Ok(dimmed)
+    Ok((bg, dimmed))
 }
 
 /// 将 tiny-skia 像素高速复制到 softbuffer 共享内存缓冲区并呈现

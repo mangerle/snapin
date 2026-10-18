@@ -141,7 +141,7 @@ async fn acquire_screen_snapshot() -> Result<image::RgbaImage> {
     if let Ok(true) = capture_fullscreen_extension(&target_str).await {
         let t_dbus_end = std::time::Instant::now();
         tracing::info!(
-            "GNOME 扩展 D-Bus 截屏耗时: {:.2}ms",
+            "命中 GNOME 扩展原生零白闪截屏通道，D-Bus 耗时: {:.2}ms",
             (t_dbus_end - t_dbus_start).as_secs_f64() * 1000.0
         );
 
@@ -152,7 +152,7 @@ async fn acquire_screen_snapshot() -> Result<image::RgbaImage> {
                 let rgba = dynamic_img.into_rgba8();
                 let t_decode_end = std::time::Instant::now();
                 tracing::info!(
-                    "PNG 读取并内存解码耗时: {:.2}ms, 总截屏耗时: {:.2}ms",
+                    "PNG 读取并内存解码耗时: {:.2}ms, 原生全屏截屏总耗时: {:.2}ms",
                     (t_decode_end - t_decode_start).as_secs_f64() * 1000.0,
                     (t_decode_end - t_start).as_secs_f64() * 1000.0
                 );
@@ -161,7 +161,9 @@ async fn acquire_screen_snapshot() -> Result<image::RgbaImage> {
         }
     }
 
-    tracing::info!("通过 XDG Desktop Portal 捕获屏幕快照...");
+    tracing::info!(
+        "当前走 XDG Desktop Portal 通道 (注销重新登录桌面后将自动激活 GNOME 原生零白闪通道)"
+    );
     let rgba = capture_fullscreen_portal()
         .await
         .context("Portal 全屏截图捕获失败")?;
@@ -174,7 +176,7 @@ async fn run_oneshot_snip() -> Result<()> {
     let img = acquire_screen_snapshot().await?;
     let t1 = std::time::Instant::now();
     tracing::info!(
-        "快照准备就绪: {}x{}，耗时: {:.2}ms，正在启动交互窗口...",
+        "快照准备就绪: {}x{}，耗时: {:.2}ms，正在瞬间呈现交互窗口...",
         img.width(),
         img.height(),
         (t1 - t0).as_secs_f64() * 1000.0
