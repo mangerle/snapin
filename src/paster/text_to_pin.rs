@@ -61,32 +61,69 @@ pub fn render_color_swatch_card(r: u8, g: u8, b: u8) -> Option<Pixmap> {
     Some(pixmap)
 }
 
+use crate::paster::context_menu::render::TextRenderer;
+
 /// 将纯文本行转换为带卡片背景的便签 Pixmap
 pub fn render_simple_text_card(lines: &[&str]) -> Option<Pixmap> {
-    let padding = 16.0f32;
-    let line_height = 22.0f32;
-    let estimated_width = 360.0f32;
-    let card_h = (lines.len().max(1) as f32 * line_height + padding * 2.0).max(80.0);
+    if lines.is_empty() {
+        return None;
+    }
 
-    let mut pixmap = Pixmap::new(estimated_width as u32, card_h as u32)?;
+    let padding_x = 20.0f32;
+    let padding_y = 16.0f32;
+    let line_height = 24.0f32;
+    let font_size = 14.0f32;
 
-    // 绘制深色护眼便签底色
+    // 估算内容包围盒
+    let max_line_len = lines.iter().map(|l| l.chars().count()).max().unwrap_or(1);
+    let card_w = (max_line_len as f32 * 10.0 + padding_x * 2.0).clamp(260.0, 960.0);
+    let card_h = (lines.len() as f32 * line_height + padding_y * 2.0 + 8.0).max(64.0);
+
+    let mut pixmap = Pixmap::new(card_w as u32, card_h as u32)?;
+
+    // 1. 绘制暗黑现代便签卡片主体
     let mut bg_paint = Paint::default();
-    bg_paint.set_color_rgba8(28, 28, 30, 245);
-    let card_rect = Rect::from_xywh(0.0, 0.0, estimated_width, card_h)?;
+    bg_paint.set_color_rgba8(30, 32, 42, 252);
+    let card_rect = Rect::from_xywh(0.0, 0.0, card_w, card_h)?;
     pixmap.fill_rect(card_rect, &bg_paint, Transform::identity(), None);
 
-    // 绘制装饰细边框
+    // 2. 绘制顶部便签精致天蓝指示细线条
+    let mut bar_paint = Paint::default();
+    bar_paint.set_color_rgba8(59, 130, 246, 255);
+    if let Some(bar_rect) = Rect::from_xywh(0.0, 0.0, card_w, 3.5) {
+        pixmap.fill_rect(bar_rect, &bar_paint, Transform::identity(), None);
+    }
+
+    // 3. 绘制卡片微弱半透明描边
     let mut border_paint = Paint::default();
-    border_paint.set_color_rgba8(0, 174, 255, 180);
+    border_paint.set_color_rgba8(255, 255, 255, 28);
     let stroke = Stroke {
-        width: 1.5,
+        width: 1.0,
         ..Default::default()
     };
     let mut pb = PathBuilder::new();
     pb.push_rect(card_rect);
     if let Some(path) = pb.finish() {
         pixmap.stroke_path(&path, &border_paint, &stroke, Transform::identity(), None);
+    }
+
+    // 4. 逐行真实排版渲染文本内容
+    let mut text_renderer = TextRenderer::default();
+    let text_color = tiny_skia::Color::from_rgba8(240, 242, 248, 255);
+    let mut cur_y = padding_y + 4.0;
+
+    for line in lines {
+        if !line.is_empty() {
+            text_renderer.draw_text(
+                &mut pixmap.as_mut(),
+                line,
+                padding_x,
+                cur_y,
+                font_size,
+                text_color,
+            );
+        }
+        cur_y += line_height;
     }
 
     Some(pixmap)
@@ -108,5 +145,15 @@ mod tests {
     fn test_render_swatch_card() {
         let pixmap = render_color_swatch_card(255, 0, 0);
         assert!(pixmap.is_some());
+    }
+
+    #[test]
+    fn test_render_simple_text_card() {
+        let lines = vec!["fn main() {", "    println!(\"Hello Snapin\");", "}"];
+        let card = render_simple_text_card(&lines);
+        assert!(card.is_some());
+        let pixmap = card.unwrap();
+        assert!(pixmap.width() >= 260);
+        assert!(pixmap.height() >= 64);
     }
 }

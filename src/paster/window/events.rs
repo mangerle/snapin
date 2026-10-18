@@ -27,6 +27,7 @@ pub struct PasterWindowState {
     pub context_menu: ContextMenuState,
     pub text_renderer: TextRenderer,
     pub cursor_pos: (f32, f32),
+    pub ui_scale: f32,
     last_click_time: Option<Instant>,
 }
 
@@ -43,6 +44,7 @@ impl PasterWindowState {
             context_menu: ContextMenuState::default(),
             text_renderer: TextRenderer::default(),
             cursor_pos: (0.0, 0.0),
+            ui_scale: 1.0,
             last_click_time: None,
         }
     }
@@ -155,6 +157,7 @@ pub fn handle_paster_mouse_button(
     }
 
     if button == MouseButton::Right {
+        state.context_menu.set_ui_scale(state.ui_scale);
         state
             .context_menu
             .open_at(state.cursor_pos.0, state.cursor_pos.1);

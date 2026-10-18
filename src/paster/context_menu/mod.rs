@@ -92,6 +92,7 @@ pub struct ContextMenuState {
     pub y: f32,
     pub width: f32,
     pub item_height: f32,
+    pub ui_scale: f32,
     pub hovered_main_idx: Option<usize>,
     pub active_submenu: Option<(SubMenuType, f32, f32)>,
     pub hovered_sub_idx: Option<usize>,
@@ -105,6 +106,7 @@ impl Default for ContextMenuState {
             y: 0.0,
             width: 170.0,
             item_height: 28.0,
+            ui_scale: 1.0,
             hovered_main_idx: None,
             active_submenu: None,
             hovered_sub_idx: None,
@@ -113,6 +115,14 @@ impl Default for ContextMenuState {
 }
 
 impl ContextMenuState {
+    /// 设置菜单缩放倍率并重新计算布局基准尺寸
+    pub fn set_ui_scale(&mut self, scale: f32) {
+        let s = scale.max(0.5);
+        self.ui_scale = s;
+        self.width = 170.0 * s;
+        self.item_height = 28.0 * s;
+    }
+
     /// 在指定坐标弹出上下文菜单
     pub fn open_at(&mut self, x: f32, y: f32) {
         self.is_open = true;
@@ -186,26 +196,32 @@ impl ContextMenuState {
         }
 
         // 1. 检查是否悬停在二级菜单区域
+        let s = self.ui_scale;
+        let sep_h = 8.0 * s;
+        let pad_v = 5.0 * s;
+        let extra_h = 10.0 * s;
+        let sub_w = 160.0 * s;
+        let overlap = 4.0 * s;
+
         if let Some((sub_type, sx, sy)) = self.active_submenu {
             let sub_items = Self::build_sub_items(sub_type, smooth_scaling);
-            let sub_w = 160.0;
             let sub_h = sub_items
                 .iter()
                 .map(|it| {
                     if it.is_separator {
-                        8.0
+                        sep_h
                     } else {
                         self.item_height
                     }
                 })
                 .sum::<f32>()
-                + 10.0;
+                + extra_h;
             if cx >= sx && cx <= sx + sub_w && cy >= sy && cy <= sy + sub_h {
-                let mut cur_y = sy + 5.0;
+                let mut cur_y = sy + pad_v;
                 let mut found_sub = None;
                 for (idx, it) in sub_items.iter().enumerate() {
                     let h = if it.is_separator {
-                        8.0
+                        sep_h
                     } else {
                         self.item_height
                     };
@@ -228,19 +244,19 @@ impl ContextMenuState {
             .iter()
             .map(|it| {
                 if it.is_separator {
-                    8.0
+                    sep_h
                 } else {
                     self.item_height
                 }
             })
             .sum::<f32>()
-            + 10.0;
+            + extra_h;
         if cx >= self.x && cx <= self.x + self.width && cy >= self.y && cy <= self.y + main_h {
-            let mut cur_y = self.y + 5.0;
+            let mut cur_y = self.y + pad_v;
             let mut found_main = None;
             for (idx, it) in items.iter().enumerate() {
                 let h = if it.is_separator {
-                    8.0
+                    sep_h
                 } else {
                     self.item_height
                 };
@@ -258,7 +274,8 @@ impl ContextMenuState {
                     changed = true;
                 }
                 if let Some(sub_type) = sub {
-                    let next_sub = Some((sub_type, self.x + self.width - 4.0, item_top - 4.0));
+                    let next_sub =
+                        Some((sub_type, self.x + self.width - overlap, item_top - overlap));
                     if self.active_submenu != next_sub {
                         self.active_submenu = next_sub;
                         self.hovered_sub_idx = None;
@@ -288,26 +305,31 @@ impl ContextMenuState {
             return None;
         }
 
+        let s = self.ui_scale;
+        let sep_h = 8.0 * s;
+        let pad_v = 5.0 * s;
+        let extra_h = 10.0 * s;
+        let sub_w = 160.0 * s;
+
         // 1. 检测二级子菜单点击
         if let Some((sub_type, sx, sy)) = self.active_submenu {
             let sub_items = Self::build_sub_items(sub_type, smooth_scaling);
-            let sub_w = 160.0;
             let sub_h = sub_items
                 .iter()
                 .map(|it| {
                     if it.is_separator {
-                        8.0
+                        sep_h
                     } else {
                         self.item_height
                     }
                 })
                 .sum::<f32>()
-                + 10.0;
+                + extra_h;
             if cx >= sx && cx <= sx + sub_w && cy >= sy && cy <= sy + sub_h {
-                let mut cur_y = sy + 5.0;
+                let mut cur_y = sy + pad_v;
                 for it in sub_items.iter() {
                     let h = if it.is_separator {
-                        8.0
+                        sep_h
                     } else {
                         self.item_height
                     };
@@ -325,18 +347,18 @@ impl ContextMenuState {
             .iter()
             .map(|it| {
                 if it.is_separator {
-                    8.0
+                    sep_h
                 } else {
                     self.item_height
                 }
             })
             .sum::<f32>()
-            + 10.0;
+            + extra_h;
         if cx >= self.x && cx <= self.x + self.width && cy >= self.y && cy <= self.y + main_h {
-            let mut cur_y = self.y + 5.0;
+            let mut cur_y = self.y + pad_v;
             for it in main_items.iter() {
                 let h = if it.is_separator {
-                    8.0
+                    sep_h
                 } else {
                     self.item_height
                 };
@@ -390,5 +412,24 @@ mod tests {
         let clicked = menu.handle_click(60.0, 65.0, &items, true);
         assert_eq!(clicked, Some(MenuItemId::CopyImage));
         assert!(!menu.is_open);
+    }
+
+    #[test]
+    fn test_text_renderer_draws_pixels() {
+        let mut tr = render::TextRenderer::default();
+        let mut pixmap = tiny_skia::Pixmap::new(200, 100).unwrap();
+        pixmap.fill(tiny_skia::Color::from_rgba8(26, 28, 40, 255));
+        let before = pixmap.data().to_vec();
+        tr.draw_text(
+            &mut pixmap.as_mut(),
+            "复制图像",
+            10.0,
+            10.0,
+            14.0,
+            tiny_skia::Color::WHITE,
+        );
+        let after = pixmap.data();
+        let changed = before.iter().zip(after.iter()).any(|(a, b)| a != b);
+        assert!(changed, "draw_text 应该绘制出了像素！");
     }
 }

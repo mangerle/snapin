@@ -16,7 +16,7 @@ use std::sync::Arc;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
-use winit::platform::wayland::EventLoopBuilderExtWayland;
+use winit::platform::wayland::{EventLoopBuilderExtWayland, WindowBuilderExtWayland};
 use winit::window::{Window, WindowBuilder};
 
 /// 启动独立贴图浮动置顶窗口
@@ -31,6 +31,7 @@ pub fn spawn_paster_window(item: PasterItem) -> Result<(), SnapinError> {
 
     let window = Arc::new(
         WindowBuilder::new()
+            .with_name("snapin-pin", "snapin-pin")
             .with_title(&title)
             .with_decorations(false)
             .with_transparent(true)
@@ -66,7 +67,11 @@ pub fn spawn_paster_window(item: PasterItem) -> Result<(), SnapinError> {
         }
     });
 
+    let raw_scale = window.scale_factor() as f32;
+    let auto_scale = if raw_scale > 1.05 { raw_scale } else { 1.0 };
     let mut state = PasterWindowState::new(item);
+    state.ui_scale = auto_scale;
+    state.context_menu.set_ui_scale(auto_scale);
 
     event_loop.run(move |event, elwt| {
         elwt.set_control_flow(ControlFlow::Wait);
