@@ -1,15 +1,16 @@
 //! 截图会话键盘与鼠标事件响应及状态机流转。
 
+use super::actions::{handle_action_copy, handle_action_pin, handle_action_save};
 use super::types::SnipperOutcome;
-use crate::annotation::shapes::{ArrowAction, MarkerAction, MosaicAction, PenAction, RectAction};
+use crate::annotation::shapes::{
+    ArrowAction, BadgeAction, EllipseAction, MarkerAction, MosaicAction, PenAction, RectAction,
+};
 use crate::annotation::AnnotationHistory;
-use crate::paster::PasterItem;
-use crate::platform::{write_image_to_clipboard, write_text_to_clipboard};
+use crate::platform::write_text_to_clipboard;
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{DragMode, Rect, SelectionHistory, SelectionState};
-use crate::snipper::toolbar::{Toolbar, ToolbarItem};
-use image::{GenericImageView, RgbaImage};
-use std::path::PathBuf;
+use crate::snipper::toolbar::{StrokeWidthLevel, Toolbar, ToolbarItem};
+use image::RgbaImage;
 use winit::event::{ElementState, MouseButton};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::Window;
@@ -24,6 +25,7 @@ pub struct SnipperState {
     pub cursor_pos: (f64, f64),
     pub modifiers: ModifiersState,
     pub pending_stroke_points: Vec<(f32, f32)>,
+    pub next_badge_number: u32,
     pub outcome: Option<SnipperOutcome>,
 }
 
@@ -38,6 +40,7 @@ impl SnipperState {
             cursor_pos: (0.0, 0.0),
             modifiers: ModifiersState::default(),
             pending_stroke_points: Vec::with_capacity(64),
+            next_badge_number: 1,
             outcome: None,
         }
     }
@@ -194,6 +197,10 @@ pub fn handle_cursor_move(
                 *active_drag = Some(d);
                 state.toolbar.update_layout(rect, screen_w, screen_h);
                 true
+            } else if state.toolbar.active_tool.is_some() && !state.pending_stroke_points.is_empty()
+            {
+                state.pending_stroke_points.push((cx, cy));
+                true
             } else {
                 state.toolbar.handle_mouse_move(cx, cy)
             }
@@ -315,7 +322,10 @@ fn handle_left_release(
 fn commit_annotation_action(state: &mut SnipperState) {
     if let Some(tool) = state.toolbar.active_tool {
         let pts = &state.pending_stroke_points;
-        if pts.len() < 2 {
+        if pts.is_empty() {
+            return;
+        }
+        if tool != ToolbarItem::ToolBadge && pts.len() < 2 {
             state.pending_stroke_points.clear();
             return;
         }
@@ -337,6 +347,31 @@ fn commit_annotation_action(state: &mut SnipperState) {
                     color: rgba,
                     stroke_width: stroke_w,
                     is_filled: false,
+                }));
+            }
+            ToolbarItem::ToolEllipse => {
+                let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+                state.annotations.push(Box::new(EllipseAction {
+                    rect: (rect.x, rect.y, rect.width, rect.height),
+                    color: rgba,
+                    stroke_width: stroke_w,
+                    is_filled: false,
+                }));
+            }
+            ToolbarItem::ToolBadge => {
+                let center = pts[pts.len() - 1];
+                let number = state.next_badge_number;
+                state.next_badge_number += 1;
+                let radius = match state.toolbar.sub_options.stroke_width {
+                    StrokeWidthLevel::Thin => 12.0,
+                    StrokeWidthLevel::Medium => 15.0,
+                    StrokeWidthLevel::Thick => 18.0,
+                } * state.toolbar.ui_scale;
+                state.annotations.push(Box::new(BadgeAction {
+                    center,
+                    radius,
+                    number: number as usize,
+                    color: rgba,
                 }));
             }
             ToolbarItem::ToolArrow => {
@@ -381,7 +416,10 @@ fn dispatch_toolbar_action(
     original_rgba: &RgbaImage,
 ) -> bool {
     match item {
-        ToolbarItem::ActionUndo => state.annotations.undo(),
+        ToolbarItem::ActionUndo => {
+            state.next_badge_number = state.next_badge_number.saturating_sub(1).max(1);
+            state.annotations.undo()
+        }
         ToolbarItem::ActionRedo => state.annotations.redo(),
         ToolbarItem::ActionCopy => {
             handle_action_copy(state, original_rgba);
@@ -401,65 +439,4 @@ fn dispatch_toolbar_action(
         }
         _ => true,
     }
-}
-
-/// 裁剪当前选区图像
-fn crop_selection_image(state: &SnipperState, original_rgba: &RgbaImage) -> Option<RgbaImage> {
-    if let SelectionState::Locked { rect, .. } = &state.selection {
-        let (px, py, pw, ph) = rect.to_pixel_bounds(original_rgba.width(), original_rgba.height());
-        if pw > 0 && ph > 0 {
-            let sub = original_rgba.view(px, py, pw, ph).to_image();
-            return Some(sub);
-        }
-    }
-    None
-}
-
-/// 复制选区图像到剪贴板并准备退出
-fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
-    if let Some(cropped) = crop_selection_image(state, original_rgba) {
-        let _ = write_image_to_clipboard(&cropped);
-        state.outcome = Some(SnipperOutcome::Copied(cropped));
-    }
-}
-
-/// 保存选区图像至文件
-fn handle_action_save(state: &mut SnipperState, original_rgba: &RgbaImage) {
-    if let Some(cropped) = crop_selection_image(state, original_rgba) {
-        let pictures_dir = std::env::var("HOME")
-            .map(|h| PathBuf::from(h).join("Pictures"))
-            .unwrap_or_else(|_| PathBuf::from("."));
-        let filename = format!("snapin_{}.png", chrono_stamp());
-        let out_path = pictures_dir.join(filename);
-        let _ = cropped.save(&out_path);
-        let _ = write_image_to_clipboard(&cropped);
-        state.outcome = Some(SnipperOutcome::Saved(out_path));
-    }
-}
-
-/// 将选区转为贴图固定在屏幕
-fn handle_action_pin(state: &mut SnipperState, original_rgba: &RgbaImage) {
-    if let SelectionState::Locked { rect, .. } = &state.selection {
-        if let Some(cropped) = crop_selection_image(state, original_rgba) {
-            if let Some(mut pixmap) = tiny_skia::Pixmap::new(cropped.width(), cropped.height()) {
-                pixmap.data_mut().copy_from_slice(cropped.as_raw());
-                let id = chrono_stamp();
-                let item = PasterItem::new(
-                    id,
-                    format!("pin_{id}"),
-                    pixmap,
-                    (rect.x as i32, rect.y as i32),
-                );
-                state.outcome = Some(SnipperOutcome::Pinned(item));
-            }
-        }
-    }
-}
-
-/// 毫秒时间戳生成
-fn chrono_stamp() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }

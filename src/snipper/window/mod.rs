@@ -1,5 +1,6 @@
 //! 截图交互会话全屏窗口与双缓冲渲染事件循环。
 
+pub mod actions;
 pub mod events;
 pub mod types;
 
@@ -64,7 +65,7 @@ pub fn run_snipper_session(bg_image: RgbaImage) -> Result<Option<SnipperOutcome>
         tiny_skia::Rect::from_xywh(0.0, 0.0, screen_w as f32, screen_h as f32)
     {
         let mut mask_paint = tiny_skia::Paint::default();
-        mask_paint.set_color_rgba8(0, 0, 0, 110);
+        mask_paint.set_color_rgba8(0, 0, 0, 148);
         dimmed_bg.fill_rect(
             screen_rect,
             &mask_paint,
@@ -79,6 +80,17 @@ pub fn run_snipper_session(bg_image: RgbaImage) -> Result<Option<SnipperOutcome>
         })?;
 
     let mut state = SnipperState::new();
+    let raw_scale = window.scale_factor() as f32;
+    let auto_scale = if raw_scale > 1.05 {
+        raw_scale
+    } else if screen_w >= 2560 {
+        2.0
+    } else {
+        1.0
+    };
+    state.toolbar.ui_scale = auto_scale;
+    state.magnifier.ui_scale = auto_scale;
+
     let final_outcome = Arc::new(Mutex::new(None));
     let outcome_slot = final_outcome.clone();
 
@@ -144,6 +156,7 @@ fn dispatch_window_event(
                 magnifier: &state.magnifier,
                 toolbar: Some(&state.toolbar),
                 annotations: Some(&state.annotations),
+                ui_scale: state.toolbar.ui_scale,
             };
 
             let mut pixmap_mut = ctx.render_pixmap.as_mut();
@@ -152,6 +165,12 @@ fn dispatch_window_event(
             if let Err(e) = blit_to_surface(ctx.surface, ctx.render_pixmap) {
                 tracing::error!("向屏幕刷新帧缓冲失败: {e}");
             }
+        }
+        WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+            let s = scale_factor as f32;
+            state.toolbar.ui_scale = s;
+            state.magnifier.ui_scale = s;
+            ctx.window.request_redraw();
         }
         WindowEvent::CursorMoved { position, .. } => {
             let need_redraw = handle_cursor_move(

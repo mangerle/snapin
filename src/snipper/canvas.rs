@@ -19,6 +19,7 @@ pub struct SnipperCanvas<'a> {
     pub magnifier: &'a Magnifier,
     pub toolbar: Option<&'a Toolbar>,
     pub annotations: Option<&'a AnnotationHistory>,
+    pub ui_scale: f32,
 }
 
 impl<'a> SnipperCanvas<'a> {
@@ -96,13 +97,14 @@ impl<'a> SnipperCanvas<'a> {
         }
     }
 
-    /// 绘制高亮线框与 8 个缩放手柄
+    /// 绘制高亮线框与 8 个缩放手柄 (自适应 HiDPI 缩放)
     fn render_selection_borders_and_handles(&self, pixmap: &mut PixmapMut, rect: &Rect) {
+        let s = self.ui_scale;
         if let Some(skia_r) = SkiaRect::from_xywh(rect.x, rect.y, rect.width, rect.height) {
             let mut stroke_paint = Paint::default();
             stroke_paint.set_color_rgba8(0, 174, 255, 255);
             let stroke = Stroke {
-                width: 2.0,
+                width: 2.0 * s,
                 ..Default::default()
             };
 
@@ -112,18 +114,29 @@ impl<'a> SnipperCanvas<'a> {
                 pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
             }
 
-            // 绘制 4 角控制手柄 (白色小方块，青色细边框)
-            let handle_size = 6.0f32;
-            let corners = [
+            // 绘制 8 个控制手柄 (4个角点 + 4条边中点，白色方块带青色描边)
+            let handle_size = (6.0 * s).round().max(4.0);
+            let handles = [
                 (rect.x, rect.y),
+                (rect.x + rect.width / 2.0, rect.y),
                 (rect.x + rect.width, rect.y),
-                (rect.x, rect.y + rect.height),
+                (rect.x + rect.width, rect.y + rect.height / 2.0),
                 (rect.x + rect.width, rect.y + rect.height),
+                (rect.x + rect.width / 2.0, rect.y + rect.height),
+                (rect.x, rect.y + rect.height),
+                (rect.x, rect.y + rect.height / 2.0),
             ];
 
             let mut handle_paint = Paint::default();
             handle_paint.set_color_rgba8(255, 255, 255, 255);
-            for (cx, cy) in corners {
+            let mut handle_border_paint = Paint::default();
+            handle_border_paint.set_color_rgba8(0, 174, 255, 255);
+            let handle_stroke = Stroke {
+                width: 1.0 * s,
+                ..Default::default()
+            };
+
+            for (cx, cy) in handles {
                 if let Some(hr) = SkiaRect::from_xywh(
                     cx - handle_size / 2.0,
                     cy - handle_size / 2.0,
@@ -131,6 +144,17 @@ impl<'a> SnipperCanvas<'a> {
                     handle_size,
                 ) {
                     pixmap.fill_rect(hr, &handle_paint, Transform::identity(), None);
+                    let mut b_pb = PathBuilder::new();
+                    b_pb.push_rect(hr);
+                    if let Some(bp) = b_pb.finish() {
+                        pixmap.stroke_path(
+                            &bp,
+                            &handle_border_paint,
+                            &handle_stroke,
+                            Transform::identity(),
+                            None,
+                        );
+                    }
                 }
             }
         }

@@ -96,4 +96,29 @@ mod tests {
         assert!(history.can_undo());
         assert!(!history.can_redo());
     }
+
+    #[test]
+    fn test_ellipse_and_badge_action() {
+        use crate::annotation::shapes::{BadgeAction, EllipseAction};
+        use tiny_skia::Pixmap;
+
+        let mut pixmap = Pixmap::new(100, 100).unwrap();
+        let mut mut_pix = pixmap.as_mut();
+
+        let ellipse = EllipseAction {
+            rect: (10.0, 10.0, 80.0, 60.0),
+            color: (255, 0, 0, 255),
+            stroke_width: 2.0,
+            is_filled: false,
+        };
+        ellipse.draw(&mut mut_pix);
+
+        let badge = BadgeAction {
+            center: (50.0, 50.0),
+            radius: 15.0,
+            number: 1,
+            color: (0, 128, 255, 255),
+        };
+        badge.draw(&mut mut_pix);
+    }
 }

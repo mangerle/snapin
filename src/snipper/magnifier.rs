@@ -42,6 +42,7 @@ pub struct Magnifier {
     pub scale: u32,
     pub format: ColorFormat,
     pub show_grid: bool,
+    pub ui_scale: f32,
 }
 
 impl Default for Magnifier {
@@ -50,6 +51,7 @@ impl Default for Magnifier {
             scale: 8,
             format: ColorFormat::Hex,
             show_grid: true,
+            ui_scale: 1.0,
         }
     }
 }
@@ -65,24 +67,26 @@ impl Magnifier {
         }
     }
 
-    /// 在给定的目标 pixmap 上绘制跟随光标的放大镜卡片
+    /// 在给定的目标 pixmap 上绘制跟随光标的放大镜卡片 (自适应 HiDPI 缩放)
     pub fn render(&self, pixmap: &mut PixmapMut, img: &RgbaImage, cursor_x: i32, cursor_y: i32) {
         let (_cur_r, _cur_g, _cur_b, _) = self.get_pixel_color(img, cursor_x, cursor_y);
 
-        // 放大镜尺寸与采样网格 (采样 15x15 像素，放大为 150x150)
+        let s = self.ui_scale;
+        // 放大镜尺寸与采样网格 (采样 15x15 像素，按缩放放大)
         let sample_radius = 7i32;
-        let cell_size = 10.0f32;
+        let cell_size = (10.0 * s).round().max(4.0);
         let box_w = (sample_radius * 2 + 1) as f32 * cell_size;
         let box_h = box_w;
 
         // 动态偏移：防止放大镜挡住光标本身或超出屏幕边界
-        let mut target_x = cursor_x as f32 + 20.0;
-        let mut target_y = cursor_y as f32 + 20.0;
+        let offset = 20.0 * s;
+        let mut target_x = cursor_x as f32 + offset;
+        let mut target_y = cursor_y as f32 + offset;
         if target_x + box_w > pixmap.width() as f32 {
-            target_x = (cursor_x as f32 - box_w - 20.0).max(0.0);
+            target_x = (cursor_x as f32 - box_w - offset).max(0.0);
         }
-        if target_y + box_h + 30.0 > pixmap.height() as f32 {
-            target_y = (cursor_y as f32 - box_h - 40.0).max(0.0);
+        if target_y + box_h + 30.0 * s > pixmap.height() as f32 {
+            target_y = (cursor_y as f32 - box_h - (offset + 20.0 * s)).max(0.0);
         }
 
         // 1. 逐个像素色块绘制
@@ -110,7 +114,7 @@ impl Magnifier {
             let mut stroke_paint = Paint::default();
             stroke_paint.set_color_rgba8(0, 174, 255, 255);
             let stroke = Stroke {
-                width: 2.0,
+                width: 2.0 * s,
                 ..Default::default()
             };
             let mut pb = PathBuilder::new();
@@ -121,16 +125,21 @@ impl Magnifier {
         }
 
         // 3. 绘制外边框与底部色值展示卡片背景
-        if let Some(border_rect) = SkiaRect::from_xywh(target_x, target_y, box_w, box_h + 24.0) {
+        let bottom_bar_h = 24.0 * s;
+        if let Some(border_rect) =
+            SkiaRect::from_xywh(target_x, target_y, box_w, box_h + bottom_bar_h)
+        {
             let mut border_paint = Paint::default();
             border_paint.set_color_rgba8(20, 20, 20, 220);
             // 底部颜色文本卡槽
-            if let Some(text_bg) = SkiaRect::from_xywh(target_x, target_y + box_h, box_w, 24.0) {
+            if let Some(text_bg) =
+                SkiaRect::from_xywh(target_x, target_y + box_h, box_w, bottom_bar_h)
+            {
                 pixmap.fill_rect(text_bg, &border_paint, Transform::identity(), None);
             }
 
             let stroke = Stroke {
-                width: 2.0,
+                width: 2.0 * s,
                 ..Default::default()
             };
             let mut outline_paint = Paint::default();

@@ -16,6 +16,8 @@ use tiny_skia::PixmapMut;
 /// 工具栏整体状态与布局管理器
 #[derive(Debug, Clone)]
 pub struct Toolbar {
+    /// 界面缩放倍率 (HiDPI 缩放因子)
+    pub ui_scale: f32,
     /// 当前处于激活状态的标注工具 (None 表示未进入标注模式)
     pub active_tool: Option<ToolbarItem>,
     /// 当前鼠标悬停的项目
@@ -26,11 +28,14 @@ pub struct Toolbar {
     pub main_rect: Rect,
     /// 二级属性栏当前在屏幕上的包围盒 (若激活)
     pub sub_rect: Option<Rect>,
+    /// 步骤序号累加计数器 (用于 ToolBadge)
+    pub badge_counter: usize,
 }
 
 impl Default for Toolbar {
     fn default() -> Self {
         Self {
+            ui_scale: 1.0,
             active_tool: None,
             hovered_item: None,
             sub_options: SubToolOptions::default(),
@@ -41,33 +46,37 @@ impl Default for Toolbar {
                 height: 0.0,
             },
             sub_rect: None,
+            badge_counter: 1,
         }
     }
 }
 
 impl Toolbar {
-    /// 主工具列表定义
+    /// 主工具列表定义 (严格对齐设计文档规范)
     pub const MAIN_ITEMS: &'static [ToolbarItem] = &[
-        ToolbarItem::ToolRect,
-        ToolbarItem::ToolArrow,
-        ToolbarItem::ToolPen,
-        ToolbarItem::ToolMarker,
-        ToolbarItem::ToolMosaic,
-        ToolbarItem::ToolText,
-        ToolbarItem::ActionUndo,
-        ToolbarItem::ActionRedo,
-        ToolbarItem::ActionPin,
-        ToolbarItem::ActionSave,
-        ToolbarItem::ActionCopy,
-        ToolbarItem::ActionClose,
+        ToolbarItem::ToolRect,    // 0
+        ToolbarItem::ToolEllipse, // 1
+        ToolbarItem::ToolArrow,   // 2
+        ToolbarItem::ToolPen,     // 3
+        ToolbarItem::ToolMarker,  // 4
+        ToolbarItem::ToolText,    // 5
+        ToolbarItem::ToolBadge,   // 6
+        ToolbarItem::ToolMosaic,  // 7
+        ToolbarItem::ActionUndo,  // 8
+        ToolbarItem::ActionRedo,  // 9
+        ToolbarItem::ActionPin,   // 10
+        ToolbarItem::ActionCopy,  // 11
+        ToolbarItem::ActionSave,  // 12
+        ToolbarItem::ActionClose, // 13
     ];
 
-    /// 根据选区与屏幕宽高重新计算工具栏自适应摆放位置
+    /// 根据选区与屏幕宽高重新计算工具栏自适应摆放位置 (自适应 HiDPI 缩放)
     pub fn update_layout(&mut self, selection: &Rect, screen_w: f32, screen_h: f32) {
-        let btn_size = 32.0;
-        let padding = 6.0;
-        let spacing = 4.0;
-        let divider_width = 8.0;
+        let s = self.ui_scale;
+        let btn_size = 32.0 * s;
+        let padding = 6.0 * s;
+        let spacing = 4.0 * s;
+        let divider_width = 8.0 * s;
 
         let total_items = Self::MAIN_ITEMS.len() as f32;
         let width = padding * 2.0
@@ -77,21 +86,21 @@ impl Toolbar {
         let height = padding * 2.0 + btn_size;
 
         let mut x = (selection.x + selection.width) - width;
-        let mut y = selection.y + selection.height + 8.0;
+        let mut y = selection.y + selection.height + 8.0 * s;
 
-        if x + width > screen_w - 8.0 {
-            x = screen_w - width - 8.0;
+        if x + width > screen_w - 8.0 * s {
+            x = screen_w - width - 8.0 * s;
         }
-        if x < 8.0 {
-            x = 8.0;
+        if x < 8.0 * s {
+            x = 8.0 * s;
         }
 
-        if y + height > screen_h - 8.0 {
-            let above_y = selection.y - height - 8.0;
-            if above_y >= 8.0 {
+        if y + height > screen_h - 8.0 * s {
+            let above_y = selection.y - height - 8.0 * s;
+            if above_y >= 8.0 * s {
                 y = above_y;
             } else {
-                y = (selection.y + selection.height - height - 8.0).max(8.0);
+                y = (selection.y + selection.height - height - 8.0 * s).max(8.0 * s);
             }
         }
 
@@ -105,16 +114,17 @@ impl Toolbar {
         self.update_sub_rect();
     }
 
-    /// 根据当前主工具栏位置重新定位二级属性栏
+    /// 根据当前主工具栏位置重新定位二级属性栏 (自适应 HiDPI 缩放)
     fn update_sub_rect(&mut self) {
         if self.active_tool.is_some() && self.main_rect.width > 0.0 {
-            let sub_h = 36.0;
-            let sub_w = 340.0;
+            let s = self.ui_scale;
+            let sub_h = 36.0 * s;
+            let sub_w = 340.0 * s;
             let sub_x = self.main_rect.x;
-            let sub_y = if self.main_rect.y >= sub_h + 8.0 {
-                self.main_rect.y - sub_h - 4.0
+            let sub_y = if self.main_rect.y >= sub_h + 8.0 * s {
+                self.main_rect.y - sub_h - 4.0 * s
             } else {
-                self.main_rect.y + self.main_rect.height + 4.0
+                self.main_rect.y + self.main_rect.height + 4.0 * s
             };
             self.sub_rect = Some(Rect {
                 x: sub_x,
@@ -134,20 +144,21 @@ impl Toolbar {
         prev != self.hovered_item
     }
 
-    /// 主栏命中测试
+    /// 主栏命中测试 (自适应 HiDPI 缩放)
     pub fn hit_test_main(&self, px: f32, py: f32) -> Option<ToolbarItem> {
         if !self.main_rect.contains(px, py) {
             return None;
         }
 
-        let btn_size = 32.0;
-        let padding = 6.0;
-        let spacing = 4.0;
+        let s = self.ui_scale;
+        let btn_size = 32.0 * s;
+        let padding = 6.0 * s;
+        let spacing = 4.0 * s;
         let mut cur_x = self.main_rect.x + padding;
 
         for (idx, &item) in Self::MAIN_ITEMS.iter().enumerate() {
-            if idx == 6 || idx == 8 {
-                cur_x += 8.0;
+            if idx == 8 || idx == 10 {
+                cur_x += 8.0 * s;
             }
 
             let btn_rect = Rect {
@@ -172,11 +183,13 @@ impl Toolbar {
         if let Some(item) = self.hit_test_main(px, py) {
             match item {
                 ToolbarItem::ToolRect
+                | ToolbarItem::ToolEllipse
                 | ToolbarItem::ToolArrow
                 | ToolbarItem::ToolPen
                 | ToolbarItem::ToolMarker
-                | ToolbarItem::ToolMosaic
-                | ToolbarItem::ToolText => {
+                | ToolbarItem::ToolText
+                | ToolbarItem::ToolBadge
+                | ToolbarItem::ToolMosaic => {
                     if self.active_tool == Some(item) {
                         self.active_tool = None;
                     } else {
@@ -198,9 +211,10 @@ impl Toolbar {
         None
     }
 
-    /// 处理二级属性栏内的粗细与颜色点击
+    /// 处理二级属性栏内的粗细与颜色点击 (自适应 HiDPI 缩放)
     fn handle_sub_click(&mut self, px: f32, py: f32, sub_rect: Rect) {
-        let padding = 8.0;
+        let s = self.ui_scale;
+        let padding = 8.0 * s;
         let mut cur_x = sub_rect.x + padding;
         let center_y = sub_rect.y + sub_rect.height / 2.0;
 
@@ -210,32 +224,32 @@ impl Toolbar {
             StrokeWidthLevel::Thick,
         ] {
             let hit_box = Rect {
-                x: cur_x - 6.0,
-                y: center_y - 12.0,
-                width: 24.0,
-                height: 24.0,
+                x: cur_x - 6.0 * s,
+                y: center_y - 12.0 * s,
+                width: 24.0 * s,
+                height: 24.0 * s,
             };
             if hit_box.contains(px, py) {
                 self.sub_options.stroke_width = level;
                 return;
             }
-            cur_x += 24.0;
+            cur_x += 24.0 * s;
         }
 
-        cur_x += 16.0;
+        cur_x += 16.0 * s;
 
         for color in preset_colors() {
             let hit_box = Rect {
-                x: cur_x - 4.0,
-                y: center_y - 12.0,
-                width: 24.0,
-                height: 24.0,
+                x: cur_x - 4.0 * s,
+                y: center_y - 12.0 * s,
+                width: 24.0 * s,
+                height: 24.0 * s,
             };
             if hit_box.contains(px, py) {
                 self.sub_options.color = color;
                 return;
             }
-            cur_x += 26.0;
+            cur_x += 26.0 * s;
         }
     }
 

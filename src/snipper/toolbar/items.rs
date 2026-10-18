@@ -7,26 +7,30 @@ use tiny_skia::Color;
 pub enum ToolbarItem {
     /// 矩形标注
     ToolRect,
+    /// 椭圆与圆形标注
+    ToolEllipse,
     /// 箭头标注
     ToolArrow,
     /// 自由画笔
     ToolPen,
     /// 荧光记号笔
     ToolMarker,
-    /// 马赛克打码
-    ToolMosaic,
     /// 文本输入
     ToolText,
+    /// 步骤数字序号气泡
+    ToolBadge,
+    /// 马赛克打码
+    ToolMosaic,
     /// 撤销上一步
     ActionUndo,
     /// 重做
     ActionRedo,
     /// 贴图置顶到屏幕 (F3)
     ActionPin,
-    /// 保存为图片文件
-    ActionSave,
     /// 复制到剪贴板并退出
     ActionCopy,
+    /// 保存为图片文件
+    ActionSave,
     /// 取消并关闭截图
     ActionClose,
 }
