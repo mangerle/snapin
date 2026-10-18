@@ -57,7 +57,7 @@ cat << 'EOF' > "${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps/snapin.svg"
 </svg>
 EOF
 
-# 5. 生成桌面快捷方式 entry
+# 5. 生成桌面快捷方式 entry 与系统开机自启项
 cat << 'EOF' > "${STAGE_DIR}/usr/share/applications/snapin.desktop"
 [Desktop Entry]
 Name=Snapin
@@ -71,6 +71,10 @@ Categories=Utility;Graphics;
 Keywords=screenshot;snip;paste;pin;截图;贴图;
 StartupNotify=false
 EOF
+
+# 放入系统标准自启动目录，登录桌面时自动常驻后台
+mkdir -p "${STAGE_DIR}/etc/xdg/autostart"
+cp "${STAGE_DIR}/usr/share/applications/snapin.desktop" "${STAGE_DIR}/etc/xdg/autostart/snapin.desktop"
 
 # 6. 拷贝配套 GNOME Shell 扩展
 cp "${PROJECT_ROOT}/extension/metadata.json" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin-helper@wangle.local/metadata.json"
@@ -106,9 +110,11 @@ if which gtk-update-icon-cache > /dev/null 2>&1; then
 fi
 
 echo "=========================================================="
-echo " Snapin 已成功安装！"
-echo " 1. 运行 'snapin sync-hotkeys' 可一键将 F1 与 F3 绑定至系统设置。"
-echo " 2. 运行 'snapin daemon' 即可在后台常驻运行。"
+echo " Snapin 截图与贴图工具已成功安装！"
+echo " 1. 已配置登录自动常驻后台（/etc/xdg/autostart/snapin.desktop）。"
+echo " 2. 您可随时在应用程序列表中搜索并点击 Snapin 图标启动，"
+echo "    或在终端输入 'snapin &'。"
+echo " 3. 守护服务启动时将自动激活 GNOME 置顶扩展并绑定快捷键（F1 截图、F3 贴图）。"
 echo "=========================================================="
 
 exit 0

@@ -209,7 +209,12 @@ fn now_timestamp() -> u64 {
 async fn run_daemon_server(cfg: config::Config) -> Result<()> {
     tracing::info!("Snapin 守护服务启动中...");
 
+    // 自动确保 GNOME 快捷键注册与配套扩展激活
     let _ = sync_hotkeys_to_gnome(&cfg.hotkeys);
+    let _ = std::process::Command::new("gnome-extensions")
+        .args(["enable", "snapin-helper@wangle.local"])
+        .output();
+
     let listener = IpcListener::bind(None).context("绑定 IPC 监听套接字失败")?;
     let (tx, mut rx) = mpsc::channel::<DaemonCommand>(32);
 
@@ -218,6 +223,8 @@ async fn run_daemon_server(cfg: config::Config) -> Result<()> {
     });
 
     tracing::info!("Snapin 守护服务已就绪，等待热键指令...");
+    let _ =
+        send_desktop_notification("Snapin 截图贴图", "服务已就绪：按 F1 截图，按 F3 贴图").await;
 
     while let Some(cmd) = rx.recv().await {
         tracing::info!("守护进程接收到控制指令: {:?}", cmd);
