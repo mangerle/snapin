@@ -69,15 +69,22 @@ pub fn render_simple_text_card(lines: &[&str]) -> Option<Pixmap> {
         return None;
     }
 
-    let padding_x = 20.0f32;
-    let padding_y = 16.0f32;
-    let line_height = 24.0f32;
-    let font_size = 14.0f32;
+    let padding_x = 24.0f32;
+    let padding_y = 20.0f32;
+    let line_height = 28.0f32;
+    let font_size = 17.0f32;
 
-    // 估算内容包围盒
-    let max_line_len = lines.iter().map(|l| l.chars().count()).max().unwrap_or(1);
-    let card_w = (max_line_len as f32 * 10.0 + padding_x * 2.0).clamp(260.0, 960.0);
-    let card_h = (lines.len() as f32 * line_height + padding_y * 2.0 + 8.0).max(64.0);
+    // 根据中英文字符实际排版特征精准估算宽度包围盒
+    let max_line_w = lines
+        .iter()
+        .map(|l| {
+            l.chars()
+                .map(|c| if c.is_ascii() { 10.0 } else { 18.0 })
+                .sum::<f32>()
+        })
+        .fold(0.0f32, f32::max);
+    let card_w = (max_line_w + padding_x * 2.0).clamp(200.0, 1200.0);
+    let card_h = (lines.len() as f32 * line_height + padding_y * 2.0 + 8.0).max(68.0);
 
     let mut pixmap = Pixmap::new(card_w as u32, card_h as u32)?;
 
@@ -153,7 +160,7 @@ mod tests {
         let card = render_simple_text_card(&lines);
         assert!(card.is_some());
         let pixmap = card.unwrap();
-        assert!(pixmap.width() >= 260);
+        assert!(pixmap.width() >= 200);
         assert!(pixmap.height() >= 64);
     }
 }

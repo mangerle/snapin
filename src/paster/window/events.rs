@@ -3,6 +3,9 @@
 use crate::paster::context_menu::render::TextRenderer;
 use crate::paster::context_menu::{ContextMenuState, MenuItemId};
 use crate::paster::manager::PasterItem;
+use crate::paster::transform::{
+    flip_pixmap_horizontal, flip_pixmap_vertical, rotate_pixmap_ccw, rotate_pixmap_cw,
+};
 use crate::platform::{
     read_clipboard_image, read_clipboard_text, send_desktop_notification, write_image_to_clipboard,
 };
@@ -55,7 +58,7 @@ pub fn handle_paster_key(
     state: &mut PasterWindowState,
     key: &Key,
     key_state: ElementState,
-    _window: &Window,
+    window: &Window,
 ) -> bool {
     if key_state != ElementState::Pressed {
         return false;
@@ -82,16 +85,29 @@ pub fn handle_paster_key(
             true
         }
         Key::Character(c) if c == "3" => {
-            state.item.transform.rotate_clockwise();
-            true
+            if let Some(rotated) = rotate_pixmap_cw(&state.item.pixmap) {
+                state.item.pixmap = rotated;
+                apply_window_scale_resize(state, window);
+                true
+            } else {
+                false
+            }
         }
         Key::Character(c) if c.eq_ignore_ascii_case("h") => {
-            state.item.transform.toggle_flip_horizontal();
-            true
+            if let Some(flipped) = flip_pixmap_horizontal(&state.item.pixmap) {
+                state.item.pixmap = flipped;
+                true
+            } else {
+                false
+            }
         }
         Key::Character(c) if c.eq_ignore_ascii_case("v") => {
-            state.item.transform.toggle_flip_vertical();
-            true
+            if let Some(flipped) = flip_pixmap_vertical(&state.item.pixmap) {
+                state.item.pixmap = flipped;
+                true
+            } else {
+                false
+            }
         }
         Key::Character(c) if c.eq_ignore_ascii_case("c") => {
             copy_paster_to_clipboard(&state.item);
@@ -158,9 +174,15 @@ pub fn handle_paster_mouse_button(
 
     if button == MouseButton::Right {
         state.context_menu.set_ui_scale(state.ui_scale);
-        state
-            .context_menu
-            .open_at(state.cursor_pos.0, state.cursor_pos.1);
+        let win_size = window.inner_size();
+        let main_items = ContextMenuState::build_main_items(state.show_toolbar, state.has_shadow);
+        state.context_menu.open_at(
+            state.cursor_pos.0,
+            state.cursor_pos.1,
+            win_size.width as f32,
+            win_size.height as f32,
+            &main_items,
+        );
         return true;
     }
 
@@ -206,10 +228,28 @@ fn dispatch_menu_action(state: &mut PasterWindowState, action: MenuItemId, windo
             apply_window_scale_resize(state, window);
         }
         MenuItemId::ToggleSmoothScaling => state.smooth_scaling = !state.smooth_scaling,
-        MenuItemId::RotateLeft => state.item.transform.rotate_counter_clockwise(),
-        MenuItemId::RotateRight => state.item.transform.rotate_clockwise(),
-        MenuItemId::FlipHorizontal => state.item.transform.toggle_flip_horizontal(),
-        MenuItemId::FlipVertical => state.item.transform.toggle_flip_vertical(),
+        MenuItemId::RotateLeft => {
+            if let Some(rotated) = rotate_pixmap_ccw(&state.item.pixmap) {
+                state.item.pixmap = rotated;
+                apply_window_scale_resize(state, window);
+            }
+        }
+        MenuItemId::RotateRight => {
+            if let Some(rotated) = rotate_pixmap_cw(&state.item.pixmap) {
+                state.item.pixmap = rotated;
+                apply_window_scale_resize(state, window);
+            }
+        }
+        MenuItemId::FlipHorizontal => {
+            if let Some(flipped) = flip_pixmap_horizontal(&state.item.pixmap) {
+                state.item.pixmap = flipped;
+            }
+        }
+        MenuItemId::FlipVertical => {
+            if let Some(flipped) = flip_pixmap_vertical(&state.item.pixmap) {
+                state.item.pixmap = flipped;
+            }
+        }
         MenuItemId::PasteFromClipboard => paste_from_clipboard_to_paster(state, window),
         MenuItemId::OpenInFolder => open_paster_in_folder(state),
         MenuItemId::Close => state.should_close = true,

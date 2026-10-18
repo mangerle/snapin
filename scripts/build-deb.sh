@@ -37,7 +37,6 @@ cp "${PROJECT_ROOT}/assets/icons/snapin-tray.svg" "${STAGE_DIR}/usr/share/icons/
 cat << 'EOF' > "${STAGE_DIR}/usr/share/applications/snapin.desktop"
 [Desktop Entry]
 Name=Snapin
-Name[zh_CN]=Snapin 截图贴图
 Comment=纯 Rust Wayland 原生截图与置顶贴图工具
 Exec=snapin daemon
 Icon=snapin

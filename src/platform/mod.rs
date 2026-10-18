@@ -9,7 +9,7 @@ pub mod portal;
 pub use clipboard::{
     read_clipboard_image, read_clipboard_text, write_image_to_clipboard, write_text_to_clipboard,
 };
-pub use extension_client::pin_window_above;
+pub use extension_client::{capture_fullscreen_extension, pin_window_above};
 pub use hotkey_manager::sync_hotkeys_to_gnome;
 pub use notification::send_desktop_notification;
 pub use portal::capture_fullscreen_portal;

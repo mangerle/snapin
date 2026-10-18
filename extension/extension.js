@@ -104,10 +104,23 @@ export default class SnapinHelperExtension extends Extension {
             if (!metaWin) return;
             let title = metaWin.get_title();
             let wmClass = metaWin.get_wm_class ? metaWin.get_wm_class() : '';
-            if ((title && (title.startsWith('pin_') || title.startsWith('clip_'))) || wmClass === 'snapin-pin') {
-                metaWin.make_above();
-                if (Meta.WindowType && typeof metaWin.set_type === 'function') {
-                    metaWin.set_type(Meta.WindowType.UTILITY);
+            let isPin = (title && (title.startsWith('pin_') || title.startsWith('clip_'))) || wmClass === 'snapin-pin';
+            if (!isPin) return;
+
+            metaWin.make_above();
+            if (Meta.WindowType && typeof metaWin.set_type === 'function') {
+                metaWin.set_type(Meta.WindowType.UTILITY);
+            }
+
+            // 窗口初次创建时就近对齐到当前鼠标光标所在屏幕区域，避免被 Mutter 丢到屏幕右上角
+            if (!metaWin._snapin_positioned) {
+                metaWin._snapin_positioned = true;
+                let [mouseX, mouseY] = global.get_pointer();
+                let rect = metaWin.get_frame_rect();
+                let targetX = Math.max(10, mouseX - Math.floor(rect.width / 2));
+                let targetY = Math.max(30, mouseY - Math.floor(rect.height / 2));
+                if (typeof metaWin.move_frame === 'function') {
+                    metaWin.move_frame(true, targetX, targetY);
                 }
             }
         };

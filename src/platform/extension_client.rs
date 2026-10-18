@@ -51,3 +51,39 @@ pub async fn pin_window_above(window_title: &str) -> Result<bool, SnapinError> {
     }
     Ok(success)
 }
+
+/// 请求配套 GNOME Shell 扩展执行毫秒级原生无白闪全屏截屏
+pub async fn capture_fullscreen_extension(target_path: &str) -> Result<bool, SnapinError> {
+    let connection = Connection::session()
+        .await
+        .map_err(|e| SnapinError::DBusError {
+            service: "D-Bus Session Bus".to_string(),
+            source: e,
+        })?;
+
+    tracing::debug!("正在向 GNOME 扩展请求原生极速全屏截屏: {}", target_path);
+
+    let msg = connection
+        .call_method(
+            Some(EXT_BUS_NAME),
+            EXT_OBJECT_PATH,
+            Some(EXT_INTERFACE),
+            "CaptureFullscreen",
+            &(target_path),
+        )
+        .await
+        .map_err(|e| SnapinError::DBusError {
+            service: EXT_BUS_NAME.to_string(),
+            source: e,
+        })?;
+
+    let reply: (bool,) = msg
+        .body()
+        .deserialize()
+        .map_err(|e| SnapinError::DBusError {
+            service: EXT_BUS_NAME.to_string(),
+            source: e,
+        })?;
+
+    Ok(reply.0)
+}

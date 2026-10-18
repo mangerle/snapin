@@ -188,11 +188,24 @@ fn render_menu_panel(
         .sum::<f32>()
         + extra_h;
 
-    // 1. 绘制现代微深色毛玻璃卡片背景与浅边框
+    // 1. 绘制现代浅色卡片柔和投影与纯白微圆角背景
+    let mut pb_shadow = PathBuilder::new();
+    add_round_rect(&mut pb_shadow, x, y + 2.0 * s, width, total_h, 8.0 * s);
+    if let Some(path) = pb_shadow.finish() {
+        let shadow_paint = make_paint(Color::from_rgba8(0, 0, 0, 36));
+        pixmap.fill_path(
+            &path,
+            &shadow_paint,
+            tiny_skia::FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+    }
+
     let mut pb_bg = PathBuilder::new();
     add_round_rect(&mut pb_bg, x, y, width, total_h, 8.0 * s);
     if let Some(path) = pb_bg.finish() {
-        let bg_paint = make_paint(Color::from_rgba8(26, 28, 40, 245));
+        let bg_paint = make_paint(Color::from_rgba8(255, 255, 255, 252));
         pixmap.fill_path(
             &path,
             &bg_paint,
@@ -201,7 +214,7 @@ fn render_menu_panel(
             None,
         );
 
-        let stroke_paint = make_paint(Color::from_rgba8(255, 255, 255, 28));
+        let stroke_paint = make_paint(Color::from_rgba8(218, 224, 233, 240));
         let stroke = Stroke {
             width: 1.0 * s,
             ..Default::default()
@@ -217,7 +230,7 @@ fn render_menu_panel(
             pb_sep.move_to(x + 12.0 * s, cur_y + 4.0 * s);
             pb_sep.line_to(x + width - 12.0 * s, cur_y + 4.0 * s);
             if let Some(path) = pb_sep.finish() {
-                let p = make_paint(Color::from_rgba8(255, 255, 255, 20));
+                let p = make_paint(Color::from_rgba8(226, 232, 240, 220));
                 let stroke = Stroke {
                     width: 1.0 * s,
                     ..Default::default()
@@ -240,7 +253,7 @@ fn render_menu_panel(
                 5.0 * s,
             );
             if let Some(path) = pb_hover.finish() {
-                let hp = make_paint(Color::from_rgba8(59, 130, 246, 220));
+                let hp = make_paint(Color::from_rgba8(59, 130, 246, 240));
                 pixmap.fill_path(
                     &path,
                     &hp,
@@ -251,11 +264,11 @@ fn render_menu_panel(
             }
         }
 
-        // 绘制复选框 / 文字 / 展开箭头 (高清晰度白色排版)
+        // 绘制复选框 / 文字 / 展开箭头 (高清晰度浅色主题排版)
         let text_color = if is_hovered {
             Color::from_rgba8(255, 255, 255, 255)
         } else {
-            Color::from_rgba8(235, 238, 245, 255)
+            Color::from_rgba8(30, 41, 59, 255)
         };
         let font_size = 13.0 * s;
         let text_y = cur_y + (item_height - font_size * 1.25) / 2.0;
@@ -316,7 +329,12 @@ fn render_checkbox_mark(
     add_round_rect(&mut pb, x, y, size, size, 3.0 * s);
     if let Some(path) = pb.finish() {
         if checked {
-            let p = make_paint(Color::from_rgba8(34, 197, 94, 255));
+            let bg_color = if is_hovered {
+                Color::from_rgba8(255, 255, 255, 255)
+            } else {
+                Color::from_rgba8(59, 130, 246, 255)
+            };
+            let p = make_paint(bg_color);
             pixmap.fill_path(
                 &path,
                 &p,
@@ -325,13 +343,18 @@ fn render_checkbox_mark(
                 None,
             );
 
-            // 白色小对勾
+            // 小对勾
+            let check_color = if is_hovered {
+                Color::from_rgba8(59, 130, 246, 255)
+            } else {
+                Color::from_rgba8(255, 255, 255, 255)
+            };
             let mut pb_check = PathBuilder::new();
             pb_check.move_to(x + 3.0 * s, y + 7.0 * s);
             pb_check.line_to(x + 6.0 * s, y + 10.5 * s);
             pb_check.line_to(x + 11.0 * s, y + 3.5 * s);
             if let Some(cp) = pb_check.finish() {
-                let cp_paint = make_paint(Color::from_rgba8(255, 255, 255, 255));
+                let cp_paint = make_paint(check_color);
                 let stroke = Stroke {
                     width: 1.8 * s,
                     line_cap: tiny_skia::LineCap::Round,
@@ -342,9 +365,9 @@ fn render_checkbox_mark(
             }
         } else {
             let stroke_color = if is_hovered {
-                (255, 255, 255, 180)
+                (255, 255, 255, 220)
             } else {
-                (160, 160, 180, 150)
+                (203, 213, 225, 255)
             };
             let p = make_paint(Color::from_rgba8(
                 stroke_color.0,
@@ -371,7 +394,7 @@ fn render_arrow_mark(pixmap: &mut PixmapMut, cx: f32, cy: f32, is_hovered: bool,
         let c = if is_hovered {
             (255, 255, 255, 255)
         } else {
-            (180, 180, 200, 200)
+            (148, 163, 184, 255)
         };
         let p = make_paint(Color::from_rgba8(c.0, c.1, c.2, c.3));
         let stroke = Stroke {

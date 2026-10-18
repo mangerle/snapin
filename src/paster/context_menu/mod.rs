@@ -93,6 +93,8 @@ pub struct ContextMenuState {
     pub width: f32,
     pub item_height: f32,
     pub ui_scale: f32,
+    pub win_w: f32,
+    pub win_h: f32,
     pub hovered_main_idx: Option<usize>,
     pub active_submenu: Option<(SubMenuType, f32, f32)>,
     pub hovered_sub_idx: Option<usize>,
@@ -107,6 +109,8 @@ impl Default for ContextMenuState {
             width: 170.0,
             item_height: 28.0,
             ui_scale: 1.0,
+            win_w: 1920.0,
+            win_h: 1080.0,
             hovered_main_idx: None,
             active_submenu: None,
             hovered_sub_idx: None,
@@ -123,14 +127,52 @@ impl ContextMenuState {
         self.item_height = 28.0 * s;
     }
 
-    /// 在指定坐标弹出上下文菜单
-    pub fn open_at(&mut self, x: f32, y: f32) {
+    /// 在指定坐标弹出上下文菜单，并自适应窗口物理边界进行上下左右智能避让
+    pub fn open_at(&mut self, x: f32, y: f32, win_w: f32, win_h: f32, main_items: &[MenuItem]) {
         self.is_open = true;
-        self.x = x.max(0.0);
-        self.y = y.max(0.0);
+        self.win_w = win_w;
+        self.win_h = win_h;
         self.hovered_main_idx = None;
         self.active_submenu = None;
         self.hovered_sub_idx = None;
+
+        let s = self.ui_scale;
+        let sep_h = 8.0 * s;
+        let extra_h = 10.0 * s;
+        let total_h = main_items
+            .iter()
+            .map(|it| {
+                if it.is_separator {
+                    sep_h
+                } else {
+                    self.item_height
+                }
+            })
+            .sum::<f32>()
+            + extra_h;
+
+        let target_y = if y + total_h > win_h {
+            if y >= total_h {
+                y - total_h
+            } else {
+                (win_h - total_h).max(0.0)
+            }
+        } else {
+            y
+        };
+
+        let target_x = if x + self.width > win_w {
+            if x >= self.width {
+                x - self.width
+            } else {
+                (win_w - self.width).max(0.0)
+            }
+        } else {
+            x
+        };
+
+        self.x = target_x.max(0.0);
+        self.y = target_y.max(0.0);
     }
 
     /// 关闭上下文菜单
@@ -274,8 +316,34 @@ impl ContextMenuState {
                     changed = true;
                 }
                 if let Some(sub_type) = sub {
-                    let next_sub =
-                        Some((sub_type, self.x + self.width - overlap, item_top - overlap));
+                    let sub_items = Self::build_sub_items(sub_type, smooth_scaling);
+                    let sub_h = sub_items
+                        .iter()
+                        .map(|it| {
+                            if it.is_separator {
+                                sep_h
+                            } else {
+                                self.item_height
+                            }
+                        })
+                        .sum::<f32>()
+                        + extra_h;
+
+                    let sub_x = if self.x + self.width + sub_w - overlap > self.win_w
+                        && self.x >= sub_w - overlap
+                    {
+                        self.x - sub_w + overlap
+                    } else {
+                        self.x + self.width - overlap
+                    };
+
+                    let sub_y = if item_top + sub_h > self.win_h {
+                        (self.win_h - sub_h).max(0.0)
+                    } else {
+                        item_top - overlap
+                    };
+
+                    let next_sub = Some((sub_type, sub_x.max(0.0), sub_y.max(0.0)));
                     if self.active_submenu != next_sub {
                         self.active_submenu = next_sub;
                         self.hovered_sub_idx = None;
@@ -377,59 +445,4 @@ impl ContextMenuState {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_context_menu_open_and_close() {
-        let mut menu = ContextMenuState::default();
-        assert!(!menu.is_open);
-        menu.open_at(100.0, 150.0);
-        assert!(menu.is_open);
-        assert_eq!(menu.x, 100.0);
-        assert_eq!(menu.y, 150.0);
-        menu.close();
-        assert!(!menu.is_open);
-    }
-
-    #[test]
-    fn test_context_menu_items_structure() {
-        let items = ContextMenuState::build_main_items(true, false);
-        assert!(items.len() >= 10);
-        let sub_scale = ContextMenuState::build_sub_items(SubMenuType::Scale, true);
-        assert_eq!(sub_scale.len(), 6);
-        let sub_img = ContextMenuState::build_sub_items(SubMenuType::ImageProcessing, true);
-        assert_eq!(sub_img.len(), 4);
-    }
-
-    #[test]
-    fn test_context_menu_click_action() {
-        let mut menu = ContextMenuState::default();
-        menu.open_at(50.0, 50.0);
-        let items = ContextMenuState::build_main_items(false, true);
-
-        // 点击第一项 "复制图像" (y 在 55.0 ~ 83.0 之间)
-        let clicked = menu.handle_click(60.0, 65.0, &items, true);
-        assert_eq!(clicked, Some(MenuItemId::CopyImage));
-        assert!(!menu.is_open);
-    }
-
-    #[test]
-    fn test_text_renderer_draws_pixels() {
-        let mut tr = render::TextRenderer::default();
-        let mut pixmap = tiny_skia::Pixmap::new(200, 100).unwrap();
-        pixmap.fill(tiny_skia::Color::from_rgba8(26, 28, 40, 255));
-        let before = pixmap.data().to_vec();
-        tr.draw_text(
-            &mut pixmap.as_mut(),
-            "复制图像",
-            10.0,
-            10.0,
-            14.0,
-            tiny_skia::Color::WHITE,
-        );
-        let after = pixmap.data();
-        let changed = before.iter().zip(after.iter()).any(|(a, b)| a != b);
-        assert!(changed, "draw_text 应该绘制出了像素！");
-    }
-}
+mod tests;

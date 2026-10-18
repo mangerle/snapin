@@ -18,8 +18,8 @@ use paster::{
     PasterItem,
 };
 use platform::{
-    capture_fullscreen_portal, read_clipboard_image, read_clipboard_text,
-    send_desktop_notification, sync_hotkeys_to_gnome,
+    capture_fullscreen_extension, capture_fullscreen_portal, read_clipboard_image,
+    read_clipboard_text, send_desktop_notification, sync_hotkeys_to_gnome,
 };
 use snipper::{run_snipper_session, SnipperOutcome};
 use std::path::PathBuf;
@@ -124,13 +124,35 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// 获取屏幕快照（优先扩展零白闪通道，自动优雅降级 Portal）
+async fn acquire_screen_snapshot() -> Result<image::DynamicImage> {
+    let stamp = now_timestamp();
+    let shm_dir = std::path::Path::new("/dev/shm");
+    let target_dir = if shm_dir.exists() {
+        shm_dir
+    } else {
+        std::path::Path::new("/tmp")
+    };
+    let target_path = target_dir.join(format!("snapin_screen_{stamp}.png"));
+    let target_str = target_path.to_string_lossy().to_string();
+
+    if let Ok(true) = capture_fullscreen_extension(&target_str).await {
+        if let Ok(img) = image::open(&target_path) {
+            let _ = std::fs::remove_file(&target_path);
+            tracing::info!("已通过 GNOME 扩展完成毫秒级无闪烁截屏");
+            return Ok(img);
+        }
+    }
+
+    tracing::info!("通过 XDG Desktop Portal 捕获屏幕快照...");
+    capture_fullscreen_portal()
+        .await
+        .context("Portal 全屏截图捕获失败")
+}
+
 /// 执行单次截图流程
 async fn run_oneshot_snip() -> Result<()> {
-    tracing::info!("正在通过 Portal 捕获当前屏幕快照...");
-    let img = capture_fullscreen_portal()
-        .await
-        .context("Portal 全屏截图捕获失败")?;
-
+    let img = acquire_screen_snapshot().await?;
     tracing::info!(
         "快照尺寸: {}x{}，正在启动交互窗口...",
         img.width(),
@@ -216,27 +238,43 @@ fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
     res.context("贴图窗口运行异常")
 }
 
-/// 打开 Snapin 首选项设置页面与配置文件
+/// 打开 Snapin 图形化首选项与设置页面
 async fn open_preferences() -> Result<()> {
     let cfg_path = config::get_default_config_path()?;
     tracing::info!("正在打开首选项配置: {:?}", cfg_path);
 
-    let opened = std::process::Command::new("gnome-text-editor")
+    let output = std::process::Command::new("zenity")
+        .args([
+            "--info",
+            "--title=Snapin 首选项与设置",
+            "--window-icon=snapin",
+            "--width=440",
+            "--ok-label=打开配置文件",
+            "--extra-button=同步系统快捷键",
+            "--text=<big><b>Snapin 原生截图与贴图设置</b></big>\n\n<b>全局热键:</b>\n  • 区域截图: <b>F1</b>\n  • 固定贴图: <b>F3</b>\n  • 批量显隐: <b>Ctrl + F3</b>\n\n<b>贴图窗口快捷操作:</b>\n  • 复制图像: <b>C</b>\n  • 另存文件: <b>S</b>\n  • 顺时针旋转 90°: <b>3</b>\n  • 水平翻转: <b>H</b>\n  • 垂直翻转: <b>V</b>\n  • 调节透明度: <b>1 / 2</b>\n  • 缩放贴图: <b>鼠标滚轮</b>\n  • 关闭贴图: <b>双击左键 / Esc</b>\n\n<b>配置文件路径:</b>\n<i>~/.config/snapin/config.toml</i>",
+        ])
+        .output();
+
+    if let Ok(out) = output {
+        let resp = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if resp == "同步系统快捷键" {
+            let cfg = config::load_or_create_config(None).unwrap_or_default();
+            let _ = sync_hotkeys_to_gnome(&cfg.hotkeys);
+            send_desktop_notification("Snapin 设置", "快捷键已成功重新同步至系统").await?;
+            return Ok(());
+        }
+    }
+
+    // 若用户点击打开配置文件或直接回车确认，拉起文本编辑器
+    let _ = std::process::Command::new("gnome-text-editor")
         .arg(&cfg_path)
         .spawn()
-        .is_ok()
-        || std::process::Command::new("xdg-open")
-            .arg(&cfg_path)
-            .spawn()
-            .is_ok();
+        .or_else(|_| {
+            std::process::Command::new("xdg-open")
+                .arg(&cfg_path)
+                .spawn()
+        });
 
-    let msg = if opened {
-        format!("已打开首选项配置文件: {}", cfg_path.display())
-    } else {
-        format!("配置文件路径: {}", cfg_path.display())
-    };
-
-    send_desktop_notification("Snapin 首选项与设置", &msg).await?;
     Ok(())
 }
 
