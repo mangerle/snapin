@@ -1,0 +1,87 @@
+//! 工具栏按钮动作、笔触粗细与颜色选项数据契约。
+
+use tiny_skia::Color;
+
+/// 工具栏主按钮动作与工具定义
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolbarItem {
+    /// 矩形标注
+    ToolRect,
+    /// 箭头标注
+    ToolArrow,
+    /// 自由画笔
+    ToolPen,
+    /// 荧光记号笔
+    ToolMarker,
+    /// 马赛克打码
+    ToolMosaic,
+    /// 文本输入
+    ToolText,
+    /// 撤销上一步
+    ActionUndo,
+    /// 重做
+    ActionRedo,
+    /// 贴图置顶到屏幕 (F3)
+    ActionPin,
+    /// 保存为图片文件
+    ActionSave,
+    /// 复制到剪贴板并退出
+    ActionCopy,
+    /// 取消并关闭截图
+    ActionClose,
+}
+
+/// 笔刷粗细预设档位
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StrokeWidthLevel {
+    /// 细 (2px)
+    Thin,
+    /// 中 (4px)
+    Medium,
+    /// 粗 (8px)
+    Thick,
+}
+
+impl StrokeWidthLevel {
+    /// 获取实际像素数值
+    pub fn to_pixel(self) -> f32 {
+        match self {
+            Self::Thin => 2.0,
+            Self::Medium => 4.0,
+            Self::Thick => 8.0,
+        }
+    }
+}
+
+/// 二级属性栏选项
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SubToolOptions {
+    /// 笔触粗细
+    pub stroke_width: StrokeWidthLevel,
+    /// 当前前景色 RGBA [0.0, 1.0]
+    pub color: Color,
+    /// 字体大小 (用于文本标注)
+    pub font_size: f32,
+}
+
+impl Default for SubToolOptions {
+    fn default() -> Self {
+        Self {
+            stroke_width: StrokeWidthLevel::Medium,
+            color: Color::from_rgba8(239, 68, 68, 255), // 默认红色
+            font_size: 20.0,
+        }
+    }
+}
+
+/// 获取预设调色板列表 (红、橙黄、绿、蓝、白、黑)
+pub fn preset_colors() -> [Color; 6] {
+    [
+        Color::from_rgba8(239, 68, 68, 255),   // 红
+        Color::from_rgba8(245, 158, 11, 255),  // 橙黄
+        Color::from_rgba8(16, 185, 129, 255),  // 绿
+        Color::from_rgba8(59, 130, 246, 255),  // 蓝
+        Color::from_rgba8(255, 255, 255, 255), // 白
+        Color::from_rgba8(24, 24, 27, 255),    // 黑
+    ]
+}

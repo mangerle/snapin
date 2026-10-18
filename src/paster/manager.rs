@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use tiny_skia::Pixmap;
 
 /// 单张贴图的数据上下文
+#[derive(Debug, Clone)]
 pub struct PasterItem {
     pub id: u64,
     pub title: String,
@@ -15,6 +16,21 @@ pub struct PasterItem {
     pub transform: PasterTransform,
     pub is_visible: bool,
     pub group_id: usize,
+}
+
+impl PasterItem {
+    /// 构造新的贴图图元项
+    pub fn new(id: u64, title: String, pixmap: Pixmap, position: (i32, i32)) -> Self {
+        Self {
+            id,
+            title,
+            pixmap,
+            position,
+            transform: PasterTransform::default(),
+            is_visible: true,
+            group_id: 0,
+        }
+    }
 }
 
 /// 贴图分组管理器

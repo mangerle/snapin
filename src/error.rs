@@ -20,9 +20,9 @@ pub enum SnapinError {
         source: zbus::Error,
     },
 
-    /// Wayland 或底层操作系统窗口创建失败
-    #[error("Wayland 窗口系统创建失败，原因: {0}")]
-    WindowError(#[from] winit::error::OsError),
+    /// Wayland 或底层操作系统窗口与事件循环异常
+    #[error("Wayland 窗口系统异常，描述: {message}")]
+    WindowError { message: String },
 
     /// 帧缓冲分配与渲染呈现异常
     #[error("softbuffer 共享内存帧缓冲操作失败，描述: {message}")]
@@ -62,4 +62,24 @@ pub enum SnapinError {
     /// 剪贴板内容获取或格式转换异常
     #[error("系统剪贴板读取失败，不支持的 MIME 类型或数据损坏")]
     ClipboardEmptyOrUnsupported,
+
+    /// 剪贴板读写操作异常
+    #[error("系统剪贴板操作失败，描述: {message}")]
+    ClipboardError { message: String },
+}
+
+impl From<winit::error::OsError> for SnapinError {
+    fn from(e: winit::error::OsError) -> Self {
+        Self::WindowError {
+            message: e.to_string(),
+        }
+    }
+}
+
+impl From<winit::error::EventLoopError> for SnapinError {
+    fn from(e: winit::error::EventLoopError) -> Self {
+        Self::WindowError {
+            message: e.to_string(),
+        }
+    }
 }

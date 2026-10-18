@@ -13,8 +13,17 @@ pub mod snipper;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use daemon::{send_command_to_daemon, DaemonCommand, IpcListener};
-use platform::{capture_fullscreen_portal, send_desktop_notification, sync_hotkeys_to_gnome};
+use paster::{
+    render_color_swatch_card, render_simple_text_card, spawn_paster_window, try_parse_hex_color,
+    PasterItem,
+};
+use platform::{
+    capture_fullscreen_portal, read_clipboard_image, read_clipboard_text,
+    send_desktop_notification, sync_hotkeys_to_gnome,
+};
+use snipper::{run_snipper_session, SnipperOutcome};
 use std::path::PathBuf;
+use tiny_skia::Pixmap;
 use tokio::sync::mpsc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -84,9 +93,8 @@ async fn main() -> Result<()> {
                 .context("向守护进程发送贴图指令失败")?;
 
             if !delivered {
-                tracing::info!("守护进程未在运行，正在检查剪贴板直接生成贴图...");
-                send_desktop_notification("Snapin 提示", "未检测到常驻守护进程，已触发贴图请求")
-                    .await?;
+                tracing::info!("守护进程未在运行，正在直接检查剪贴板生成贴图...");
+                run_oneshot_paste().await?;
             }
         }
         Some(Commands::Toggle) => {
@@ -112,40 +120,105 @@ async fn main() -> Result<()> {
 
 /// 执行单次截图流程
 async fn run_oneshot_snip() -> Result<()> {
+    tracing::info!("正在通过 Portal 捕获当前屏幕快照...");
     let img = capture_fullscreen_portal()
         .await
         .context("Portal 全屏截图捕获失败")?;
 
-    let msg = format!(
-        "已成功捕获屏幕快照，物理尺寸: {}x{}",
+    tracing::info!(
+        "快照尺寸: {}x{}，正在启动交互窗口...",
         img.width(),
         img.height()
     );
-    send_desktop_notification("Snapin 截图就绪", &msg).await?;
+
+    let outcome = tokio::task::spawn_blocking(move || run_snipper_session(img.to_rgba8()))
+        .await
+        .context("截图任务调度异常")?
+        .context("截图交互会话运行失败")?;
+
+    if let Some(outcome) = outcome {
+        match outcome {
+            SnipperOutcome::Copied(_) => {
+                send_desktop_notification("Snapin 截图", "选区图像已成功复制到剪贴板").await?;
+            }
+            SnipperOutcome::Saved(path) => {
+                let msg = format!("选区图像已保存至: {}", path.display());
+                send_desktop_notification("Snapin 截图已保存", &msg).await?;
+            }
+            SnipperOutcome::Pinned(item) => {
+                std::thread::spawn(move || {
+                    if let Err(e) = spawn_paster_window(item) {
+                        tracing::error!("贴图窗口运行异常: {e}");
+                    }
+                });
+            }
+            SnipperOutcome::Cancelled => {
+                tracing::info!("用户已取消本次截图");
+            }
+        }
+    }
+
     Ok(())
+}
+
+/// 检查系统剪贴板并就地生成贴图
+async fn run_oneshot_paste() -> Result<()> {
+    tracing::info!("正在检查剪贴板内容以生成贴图...");
+
+    if let Ok(Some(img)) = read_clipboard_image() {
+        if let Some(mut pixmap) = Pixmap::new(img.width(), img.height()) {
+            pixmap.data_mut().copy_from_slice(img.as_raw());
+            let stamp = now_timestamp();
+            let item = PasterItem::new(stamp, format!("clip_img_{stamp}"), pixmap, (200, 200));
+            std::thread::spawn(move || {
+                let _ = spawn_paster_window(item);
+            });
+            return Ok(());
+        }
+    }
+
+    if let Ok(Some(text)) = read_clipboard_text() {
+        let stamp = now_timestamp();
+        let pixmap = if let Some((r, g, b)) = try_parse_hex_color(&text) {
+            render_color_swatch_card(r, g, b).context("生成色彩卡片失败")?
+        } else {
+            let lines: Vec<&str> = text.lines().collect();
+            render_simple_text_card(&lines).context("生成文本便签卡片失败")?
+        };
+
+        let item = PasterItem::new(stamp, format!("clip_note_{stamp}"), pixmap, (250, 250));
+        std::thread::spawn(move || {
+            let _ = spawn_paster_window(item);
+        });
+        return Ok(());
+    }
+
+    send_desktop_notification("Snapin 贴图提示", "当前剪贴板为空，无法生成贴图").await?;
+    Ok(())
+}
+
+/// 获取当前秒级时间戳
+fn now_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// 运行后台守护服务
 async fn run_daemon_server(cfg: config::Config) -> Result<()> {
     tracing::info!("Snapin 守护服务启动中...");
 
-    // 自动确保 GNOME 快捷键注册
     let _ = sync_hotkeys_to_gnome(&cfg.hotkeys);
-
-    // 绑定 IPC 监听器
     let listener = IpcListener::bind(None).context("绑定 IPC 监听套接字失败")?;
-
-    // 创建有界命令通道 (容量 32)
     let (tx, mut rx) = mpsc::channel::<DaemonCommand>(32);
 
-    // 在后台协程中运行套接字循环
     tokio::spawn(async move {
         listener.run_loop(tx).await;
     });
 
-    tracing::info!("Snapin 守护服务已进入就绪状态，等待热键指令...");
+    tracing::info!("Snapin 守护服务已就绪，等待热键指令...");
 
-    // 主服务事件消费循环
     while let Some(cmd) = rx.recv().await {
         tracing::info!("守护进程接收到控制指令: {:?}", cmd);
         match cmd {
@@ -155,7 +228,9 @@ async fn run_daemon_server(cfg: config::Config) -> Result<()> {
                 }
             }
             DaemonCommand::Paste => {
-                tracing::info!("执行贴图处理流程");
+                if let Err(e) = run_oneshot_paste().await {
+                    tracing::error!("执行贴图流程失败: {e}");
+                }
             }
             DaemonCommand::TogglePasters => {
                 tracing::info!("批量切换贴图显示状态");

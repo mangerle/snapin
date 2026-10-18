@@ -2,8 +2,10 @@
 //!
 //! 基于 tiny-skia 实现全屏暗色遮罩、选区镂空聚焦、8 手柄线框以及像素放大镜复合渲染。
 
+use crate::annotation::AnnotationHistory;
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionState};
+use crate::snipper::toolbar::Toolbar;
 use image::RgbaImage;
 use tiny_skia::{
     Paint, PathBuilder, Pixmap, PixmapMut, PixmapPaint, Rect as SkiaRect, Stroke, Transform,
@@ -16,6 +18,8 @@ pub struct SnipperCanvas<'a> {
     pub selection: &'a SelectionState,
     pub cursor_pos: (f64, f64),
     pub magnifier: &'a Magnifier,
+    pub toolbar: Option<&'a Toolbar>,
+    pub annotations: Option<&'a AnnotationHistory>,
 }
 
 impl<'a> SnipperCanvas<'a> {
@@ -53,7 +57,17 @@ impl<'a> SnipperCanvas<'a> {
         if let Some(r) = active_rect {
             if r.width > 1.0 && r.height > 1.0 {
                 self.render_cutout(pixmap, &r);
+                // 回放已完成的标注操作
+                if let Some(history) = self.annotations {
+                    history.replay_all(pixmap);
+                }
                 self.render_selection_borders_and_handles(pixmap, &r);
+                // 绘制工具栏 (若处于锁定状态且存在工具栏)
+                if matches!(self.selection, SelectionState::Locked { .. }) {
+                    if let Some(tb) = self.toolbar {
+                        tb.render(pixmap);
+                    }
+                }
             }
         } else {
             // 未拉框状态下，跟随光标渲染放大镜
