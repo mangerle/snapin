@@ -28,12 +28,19 @@ export default class SnapinHelperExtension extends Extension {
 
         // 2. 创建 GNOME 顶栏原生托盘指示器与菜单
         this._indicator = new PanelMenu.Button(0.0, 'Snapin Indicator', false);
+        // 紧凑模式水平内边距，防止托盘按钮被横向过度拉伸导致药丸圆角过宽
+        this._indicator.set_style('-natural-hpadding: 6px; -minimum-hpadding: 4px; margin: 0; padding: 0;');
 
+        let box = new St.BoxLayout({
+            style_class: 'panel-status-indicators-box',
+        });
         let icon = new St.Icon({
             icon_name: 'image-crop-symbolic',
             style_class: 'system-status-icon',
+            style: 'margin: 0; padding: 0;',
         });
-        this._indicator.add_child(icon);
+        box.add_child(icon);
+        this._indicator.add_child(box);
 
         // 添加托盘菜单项
         let snipItem = new PopupMenu.PopupMenuItem('区域截图 (F1)');
