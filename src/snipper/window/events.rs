@@ -11,7 +11,7 @@ use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{DragMode, Rect, SelectionHistory, SelectionState};
 use crate::snipper::toolbar::{StrokeWidthLevel, Toolbar, ToolbarItem};
 use image::RgbaImage;
-use winit::event::{ElementState, MouseButton};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::Window;
 
@@ -450,4 +450,19 @@ fn dispatch_toolbar_action(
         }
         _ => true,
     }
+}
+
+/// 处理截图会话中的鼠标滚轮事件 (调节标注线条与边框粗细)
+pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> bool {
+    let delta_y = match delta {
+        MouseScrollDelta::LineDelta(_, y) => y,
+        MouseScrollDelta::PixelDelta(p) => p.y as f32 / 20.0,
+    };
+
+    if delta_y.abs() < 0.1 {
+        return false;
+    }
+
+    let increase = delta_y > 0.0;
+    state.toolbar.cycle_stroke_width(increase)
 }

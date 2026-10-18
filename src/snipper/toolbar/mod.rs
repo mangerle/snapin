@@ -253,6 +253,29 @@ impl Toolbar {
         }
     }
 
+    /// 根据鼠标滚轮滚动方向阶梯调节标注粗细 (向前滚轮变粗，向后滚轮变细)
+    pub fn cycle_stroke_width(&mut self, increase: bool) -> bool {
+        let prev = self.sub_options.stroke_width;
+        let next = if increase {
+            match prev {
+                StrokeWidthLevel::Thin => StrokeWidthLevel::Medium,
+                StrokeWidthLevel::Medium | StrokeWidthLevel::Thick => StrokeWidthLevel::Thick,
+            }
+        } else {
+            match prev {
+                StrokeWidthLevel::Thick => StrokeWidthLevel::Medium,
+                StrokeWidthLevel::Medium | StrokeWidthLevel::Thin => StrokeWidthLevel::Thin,
+            }
+        };
+
+        if next != prev {
+            self.sub_options.stroke_width = next;
+            true
+        } else {
+            false
+        }
+    }
+
     /// 使用 tiny-skia 将工具栏绘制到目标 Pixmap
     pub fn render(&self, pixmap: &mut PixmapMut) {
         render_toolbar(self, pixmap);
@@ -305,5 +328,25 @@ mod tests {
         assert_eq!(clicked, Some(ToolbarItem::ToolRect));
         assert_eq!(tb.active_tool, Some(ToolbarItem::ToolRect));
         assert!(tb.sub_rect.is_some());
+    }
+
+    #[test]
+    fn test_toolbar_cycle_stroke_width() {
+        let mut tb = Toolbar::default();
+        assert_eq!(tb.sub_options.stroke_width, StrokeWidthLevel::Medium);
+
+        // 滚轮向上增大粗细：Medium -> Thick
+        assert!(tb.cycle_stroke_width(true));
+        assert_eq!(tb.sub_options.stroke_width, StrokeWidthLevel::Thick);
+        // 到顶不再变化
+        assert!(!tb.cycle_stroke_width(true));
+
+        // 滚轮向下减小粗细：Thick -> Medium -> Thin
+        assert!(tb.cycle_stroke_width(false));
+        assert_eq!(tb.sub_options.stroke_width, StrokeWidthLevel::Medium);
+        assert!(tb.cycle_stroke_width(false));
+        assert_eq!(tb.sub_options.stroke_width, StrokeWidthLevel::Thin);
+        // 到底不再变化
+        assert!(!tb.cycle_stroke_width(false));
     }
 }

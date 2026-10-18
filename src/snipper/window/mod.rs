@@ -9,7 +9,7 @@ pub use types::SnipperOutcome;
 
 use crate::error::SnapinError;
 use crate::snipper::canvas::SnipperCanvas;
-use events::{handle_cursor_move, handle_key_input, handle_mouse_button};
+use events::{handle_cursor_move, handle_key_input, handle_mouse_button, handle_mouse_wheel};
 use image::RgbaImage;
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
@@ -194,6 +194,11 @@ fn dispatch_window_event(
                 screen_h as f32,
             );
             if need_redraw {
+                ctx.window.request_redraw();
+            }
+        }
+        WindowEvent::MouseWheel { delta, .. } => {
+            if handle_mouse_wheel(state, delta) {
                 ctx.window.request_redraw();
             }
         }
