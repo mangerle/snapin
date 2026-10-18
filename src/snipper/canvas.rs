@@ -2,12 +2,19 @@
 //!
 //! 基于 tiny-skia 实现全屏暗色遮罩、选区镂空聚焦、8 手柄线框以及像素放大镜复合渲染。
 
+use crate::annotation::action::AnnotationAction;
+use crate::annotation::shapes::{
+    ArrowAction, BadgeAction, EllipseAction, MarkerAction, MosaicAction, PenAction, RectAction,
+};
 use crate::annotation::AnnotationHistory;
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionState};
-use crate::snipper::toolbar::Toolbar;
+use crate::snipper::toolbar::{StrokeWidthLevel, Toolbar, ToolbarItem};
 use image::RgbaImage;
 use tiny_skia::{Paint, PathBuilder, Pixmap, PixmapMut, Rect as SkiaRect, Stroke, Transform};
+
+/// 正在拉伸绘制中的待提交标注笔触元数据 (工具类型, 轨迹点集合, 预设色值)
+pub type PendingStroke<'a> = (&'a ToolbarItem, &'a [(f32, f32)], u32);
 
 /// 全屏选区画布渲染上下文
 pub struct SnipperCanvas<'a> {
@@ -20,6 +27,7 @@ pub struct SnipperCanvas<'a> {
     pub toolbar: Option<&'a Toolbar>,
     pub annotations: Option<&'a AnnotationHistory>,
     pub ui_scale: f32,
+    pub pending_stroke: Option<PendingStroke<'a>>,
 }
 
 impl<'a> SnipperCanvas<'a> {
@@ -48,6 +56,13 @@ impl<'a> SnipperCanvas<'a> {
                 // 回放已完成的矢量标注
                 if let Some(history) = self.annotations {
                     history.replay_all(pixmap);
+                }
+
+                // 实时渲染当前正在拖拽拉伸中的标注图元即时预览 (光标移动即刻变化)
+                if let (Some(tb), Some((tool, pts, badge_num))) =
+                    (self.toolbar, self.pending_stroke)
+                {
+                    self.render_pending_preview(pixmap, tb, tool, pts, badge_num);
                 }
 
                 self.render_selection_borders_and_handles(pixmap, &r);
@@ -157,6 +172,101 @@ impl<'a> SnipperCanvas<'a> {
                     }
                 }
             }
+        }
+    }
+
+    /// 实时渲染当前正在交互拖拽中的即时图元 (支持矩形、椭圆、箭头、画笔、记号笔、马赛克、序号实时动态伸缩)
+    fn render_pending_preview(
+        &self,
+        pixmap: &mut PixmapMut,
+        toolbar: &Toolbar,
+        tool: &ToolbarItem,
+        pts: &[(f32, f32)],
+        badge_num: u32,
+    ) {
+        if pts.is_empty() {
+            return;
+        }
+
+        let stroke_w = toolbar.sub_options.stroke_width.to_pixel();
+        let c = toolbar.sub_options.color;
+        let rgba = (
+            (c.red() * 255.0).round() as u8,
+            (c.green() * 255.0).round() as u8,
+            (c.blue() * 255.0).round() as u8,
+            (c.alpha() * 255.0).round() as u8,
+        );
+
+        match tool {
+            ToolbarItem::ToolRect => {
+                let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+                let action = RectAction {
+                    rect: (rect.x, rect.y, rect.width, rect.height),
+                    color: rgba,
+                    stroke_width: stroke_w,
+                    is_filled: false,
+                };
+                action.draw(pixmap);
+            }
+            ToolbarItem::ToolEllipse => {
+                let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+                let action = EllipseAction {
+                    rect: (rect.x, rect.y, rect.width, rect.height),
+                    color: rgba,
+                    stroke_width: stroke_w,
+                    is_filled: false,
+                };
+                action.draw(pixmap);
+            }
+            ToolbarItem::ToolArrow => {
+                let action = ArrowAction {
+                    start: pts[0],
+                    end: pts[pts.len() - 1],
+                    color: rgba,
+                    stroke_width: stroke_w,
+                };
+                action.draw(pixmap);
+            }
+            ToolbarItem::ToolPen => {
+                let action = PenAction {
+                    points: pts.to_vec(),
+                    color: rgba,
+                    stroke_width: stroke_w,
+                };
+                action.draw(pixmap);
+            }
+            ToolbarItem::ToolMarker => {
+                let action = MarkerAction {
+                    points: pts.to_vec(),
+                    color: (rgba.0, rgba.1, rgba.2),
+                    stroke_width: stroke_w * 2.0,
+                };
+                action.draw(pixmap);
+            }
+            ToolbarItem::ToolMosaic => {
+                let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+                let action = MosaicAction {
+                    rect: (rect.x, rect.y, rect.width, rect.height),
+                    cell_size: 10,
+                };
+                action.draw(pixmap);
+            }
+            ToolbarItem::ToolBadge => {
+                let center = pts[pts.len() - 1];
+                let radius = match toolbar.sub_options.stroke_width {
+                    StrokeWidthLevel::Thin => 12.0,
+                    StrokeWidthLevel::Medium => 15.0,
+                    StrokeWidthLevel::Thick => 18.0,
+                } * toolbar.ui_scale;
+                let action = BadgeAction {
+                    center,
+                    radius,
+                    number: badge_num as usize,
+                    color: rgba,
+                };
+                action.draw(pixmap);
+            }
+            _ => {}
         }
     }
 }

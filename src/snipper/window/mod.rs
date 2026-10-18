@@ -147,6 +147,18 @@ fn dispatch_window_event(
 
     match event {
         WindowEvent::RedrawRequested => {
+            let pending_stroke = state.toolbar.active_tool.as_ref().and_then(|tool| {
+                if !state.pending_stroke_points.is_empty() {
+                    Some((
+                        tool,
+                        state.pending_stroke_points.as_slice(),
+                        state.next_badge_number,
+                    ))
+                } else {
+                    None
+                }
+            });
+
             let canvas = SnipperCanvas {
                 original_bg: ctx.bg_pixmap,
                 dimmed_bg: ctx.dimmed_bg,
@@ -157,6 +169,7 @@ fn dispatch_window_event(
                 toolbar: Some(&state.toolbar),
                 annotations: Some(&state.annotations),
                 ui_scale: state.toolbar.ui_scale,
+                pending_stroke,
             };
 
             let mut pixmap_mut = ctx.render_pixmap.as_mut();

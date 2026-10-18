@@ -199,7 +199,18 @@ pub fn handle_cursor_move(
                 true
             } else if state.toolbar.active_tool.is_some() && !state.pending_stroke_points.is_empty()
             {
-                state.pending_stroke_points.push((cx, cy));
+                match state.toolbar.active_tool {
+                    Some(ToolbarItem::ToolPen) | Some(ToolbarItem::ToolMarker) => {
+                        state.pending_stroke_points.push((cx, cy));
+                    }
+                    _ => {
+                        if state.pending_stroke_points.len() > 1 {
+                            state.pending_stroke_points[1] = (cx, cy);
+                        } else {
+                            state.pending_stroke_points.push((cx, cy));
+                        }
+                    }
+                }
                 true
             } else {
                 state.toolbar.handle_mouse_move(cx, cy)
