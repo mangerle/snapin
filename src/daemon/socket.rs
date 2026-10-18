@@ -110,11 +110,19 @@ pub struct IpcListener {
 }
 
 impl IpcListener {
-    /// 绑定套接字并初始化监听器，若存在过期失效的套接字文件则自动清理
-    pub fn bind(custom_path: Option<PathBuf>) -> Result<Self, SnapinError> {
+    /// 绑定套接字并初始化监听器，若检测到已有存活实例则拒绝重复启动，若为残留文件则自动清理
+    pub async fn bind(custom_path: Option<PathBuf>) -> Result<Self, SnapinError> {
         let socket_path = custom_path.unwrap_or_else(get_socket_path);
 
         if socket_path.exists() {
+            if let Ok(mut stream) = UnixStream::connect(&socket_path).await {
+                if stream.write_all(b"PING\n").await.is_ok() {
+                    return Err(SnapinError::IpcError {
+                        socket_path: socket_path.to_string_lossy().to_string(),
+                        message: "已有另一个 Snapin 守护进程在运行中".to_string(),
+                    });
+                }
+            }
             let _ = std::fs::remove_file(&socket_path);
         }
 

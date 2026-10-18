@@ -13,12 +13,15 @@ use events::{handle_paster_key, handle_paster_mouse_button, handle_paster_scroll
 use std::sync::Arc;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{Event, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop};
+use winit::event_loop::{ControlFlow, EventLoopBuilder};
+use winit::platform::wayland::EventLoopBuilderExtWayland;
 use winit::window::{Window, WindowBuilder};
 
 /// 启动独立贴图浮动置顶窗口
 pub fn spawn_paster_window(item: PasterItem) -> Result<(), SnapinError> {
-    let event_loop = EventLoop::new()?;
+    let mut builder = EventLoopBuilder::new();
+    builder.with_any_thread(true);
+    let event_loop = builder.build()?;
     let title = item.title.clone();
     let initial_w = item.pixmap.width();
     let initial_h = item.pixmap.height();

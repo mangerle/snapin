@@ -215,7 +215,9 @@ async fn run_daemon_server(cfg: config::Config) -> Result<()> {
         .args(["enable", "snapin-helper@wangle.local"])
         .output();
 
-    let listener = IpcListener::bind(None).context("绑定 IPC 监听套接字失败")?;
+    let listener = IpcListener::bind(None)
+        .await
+        .context("绑定 IPC 监听套接字失败")?;
     let (tx, mut rx) = mpsc::channel::<DaemonCommand>(32);
 
     tokio::spawn(async move {

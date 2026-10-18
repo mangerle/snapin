@@ -32,11 +32,11 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), SnapinError> {
 
     let current_list = String::from_utf8_lossy(&output.stdout);
     let mut bindings: Vec<String> = current_list
-        .trim()
-        .trim_matches(|c| c == '[' || c == ']' || c == '\n' || c == ' ')
-        .split(',')
-        .map(|s| s.trim().trim_matches('\'').to_string())
-        .filter(|s| !s.is_empty())
+        .split('\'')
+        .filter(|s| {
+            s.starts_with("/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/")
+        })
+        .map(|s| s.to_string())
         .collect();
 
     // 2. 确保 snapin 的三个条目已加入列表
@@ -66,9 +66,13 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), SnapinError> {
         .output();
 
     // 3. 配置每个具体快捷键项的名称、执行命令与键位
-    let current_exe = std::env::current_exe()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "snapin".to_string());
+    let current_exe = if std::path::Path::new("/usr/bin/snapin").exists() {
+        "/usr/bin/snapin".to_string()
+    } else {
+        std::env::current_exe()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "snapin".to_string())
+    };
 
     setup_keybinding(
         &snip_path,

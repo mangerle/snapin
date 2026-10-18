@@ -15,12 +15,15 @@ use std::sync::{Arc, Mutex};
 use tiny_skia::Pixmap;
 use winit::dpi::PhysicalSize;
 use winit::event::{Event, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop};
+use winit::event_loop::{ControlFlow, EventLoopBuilder};
+use winit::platform::wayland::EventLoopBuilderExtWayland;
 use winit::window::{Fullscreen, Window, WindowBuilder};
 
 /// 启动全屏截图交互会话，进入事件循环直至用户确认或取消
 pub fn run_snipper_session(bg_image: RgbaImage) -> Result<Option<SnipperOutcome>, SnapinError> {
-    let event_loop = EventLoop::new()?;
+    let mut builder = EventLoopBuilder::new();
+    builder.with_any_thread(true);
+    let event_loop = builder.build()?;
     let screen_w = bg_image.width();
     let screen_h = bg_image.height();
 
