@@ -36,9 +36,19 @@ impl PasterTransform {
         self.scale = (self.scale * factor).clamp(0.1, 10.0);
     }
 
-    /// 顺时针旋转 90 度
+    /// 顺时针旋转 90 度 (向右旋转)
     pub fn rotate_clockwise(&mut self) {
         self.rotation_deg = (self.rotation_deg + 90) % 360;
+    }
+
+    /// 逆时针旋转 90 度 (向左旋转)
+    pub fn rotate_counter_clockwise(&mut self) {
+        self.rotation_deg = (self.rotation_deg + 270) % 360;
+    }
+
+    /// 精确设置缩放比例
+    pub fn set_scale(&mut self, s: f32) {
+        self.scale = s.clamp(0.1, 10.0);
     }
 
     /// 水平翻转切换
@@ -88,5 +98,13 @@ mod tests {
         tf.rotate_clockwise();
         tf.rotate_clockwise();
         assert_eq!(tf.rotation_deg, 0);
+
+        tf.rotate_counter_clockwise();
+        assert_eq!(tf.rotation_deg, 270);
+        tf.rotate_counter_clockwise();
+        assert_eq!(tf.rotation_deg, 180);
+
+        tf.set_scale(0.5);
+        assert_eq!(tf.scale, 0.5);
     }
 }

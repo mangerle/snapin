@@ -1,15 +1,26 @@
-//! 贴图变换光栅化合成与软帧缓冲提交。
+//! 贴图变换光栅化合成、精致边框与右键上下文菜单渲染。
 
+use super::events::PasterWindowState;
 use crate::error::SnapinError;
-use crate::paster::manager::PasterItem;
+use crate::paster::context_menu::render::render_context_menu;
 use std::num::NonZeroU32;
 use std::sync::Arc;
-use tiny_skia::{Pixmap, PixmapPaint, Transform};
+use tiny_skia::{Color, FilterQuality, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform};
 use winit::window::Window;
 
-/// 根据几何变换矩阵将贴图图元光栅化到目标缓冲区并推送到 softbuffer
+/// 创建开启抗锯齿的基础画笔
+fn make_paint(color: Color) -> Paint<'static> {
+    let mut paint = Paint {
+        anti_alias: true,
+        ..Default::default()
+    };
+    paint.set_color(color);
+    paint
+}
+
+/// 根据几何变换矩阵将贴图图元、精致边框、阴影及右键菜单光栅化到目标表面
 pub fn render_paster_to_surface(
-    item: &PasterItem,
+    state: &mut PasterWindowState,
     surface: &mut softbuffer::Surface<Arc<Window>, Arc<Window>>,
     width: u32,
     height: u32,
@@ -32,26 +43,53 @@ pub fn render_paster_to_surface(
             message: "分配贴图渲染双缓冲区失败".to_string(),
         })?;
 
-    // 1. 构建仿射几何变换矩阵 (缩放、翻转、旋转)
-    let scale = item.transform.scale;
+    // 1. 构建几何变换矩阵 (缩放、翻转、旋转)
+    let scale = state.item.transform.scale;
     let mut tf = Transform::from_scale(scale, scale);
 
-    if item.transform.flip_horizontal {
+    if state.item.transform.flip_horizontal {
         tf = tf.pre_scale(-1.0, 1.0);
     }
-    if item.transform.flip_vertical {
+    if state.item.transform.flip_vertical {
         tf = tf.pre_scale(1.0, -1.0);
     }
 
-    // 2. 配置不透明度
+    let quality = if state.smooth_scaling {
+        FilterQuality::Bilinear
+    } else {
+        FilterQuality::Nearest
+    };
+
     let paint = PixmapPaint {
-        opacity: item.transform.opacity,
+        opacity: state.item.transform.opacity,
+        quality,
         ..Default::default()
     };
 
-    target_pixmap.draw_pixmap(0, 0, item.pixmap.as_ref(), &paint, tf, None);
+    // 2. 光栅化贴图图像本体
+    target_pixmap.draw_pixmap(0, 0, state.item.pixmap.as_ref(), &paint, tf, None);
 
-    // 3. 提交到 softbuffer
+    // 3. 绘制贴图精致外边框与窗口阴影
+    render_paster_border_and_shadow(
+        &mut target_pixmap,
+        width as f32,
+        height as f32,
+        state.has_shadow,
+    );
+
+    // 4. 叠加渲染右键上下文菜单与二级子菜单 (若当前处于激活展开状态)
+    if state.context_menu.is_open {
+        render_context_menu(
+            &state.context_menu,
+            &mut target_pixmap.as_mut(),
+            &mut state.text_renderer,
+            state.show_toolbar,
+            state.has_shadow,
+            state.smooth_scaling,
+        );
+    }
+
+    // 5. 提交渲染至 softbuffer 显存
     let mut buffer = surface
         .buffer_mut()
         .map_err(|e| SnapinError::SoftbufferError {
@@ -73,4 +111,65 @@ pub fn render_paster_to_surface(
     })?;
 
     Ok(())
+}
+
+/// 绘制贴图边缘微反光边框与内嵌阴影
+fn render_paster_border_and_shadow(pixmap: &mut Pixmap, w: f32, h: f32, has_shadow: bool) {
+    if w <= 2.0 || h <= 2.0 {
+        return;
+    }
+
+    // 1. 窗口阴影层 (若开启则绘制四周微渐变柔和内敛投影)
+    if has_shadow {
+        let shadow_steps = [(1.0, 50u8), (2.0, 30u8), (3.0, 15u8)];
+        for (inset, alpha) in shadow_steps {
+            let mut pb_shadow = PathBuilder::new();
+            pb_shadow.move_to(inset, inset);
+            pb_shadow.line_to(w - inset, inset);
+            pb_shadow.line_to(w - inset, h - inset);
+            pb_shadow.line_to(inset, h - inset);
+            pb_shadow.close();
+            if let Some(path) = pb_shadow.finish() {
+                let sp = make_paint(Color::from_rgba8(0, 0, 0, alpha));
+                let stroke = Stroke {
+                    width: 1.0,
+                    ..Default::default()
+                };
+                pixmap.stroke_path(&path, &sp, &stroke, Transform::identity(), None);
+            }
+        }
+    }
+
+    // 2. 贴图精致微边框 (外层 1.5px 浅反光高对比细线，无论黑白背景皆清晰可辨)
+    let mut pb_border = PathBuilder::new();
+    pb_border.move_to(0.5, 0.5);
+    pb_border.line_to(w - 0.5, 0.5);
+    pb_border.line_to(w - 0.5, h - 0.5);
+    pb_border.line_to(0.5, h - 0.5);
+    pb_border.close();
+
+    if let Some(path) = pb_border.finish() {
+        let bp = make_paint(Color::from_rgba8(220, 225, 235, 180));
+        let stroke = Stroke {
+            width: 1.5,
+            ..Default::default()
+        };
+        pixmap.stroke_path(&path, &bp, &stroke, Transform::identity(), None);
+
+        // 内侧 1px 细微暗色对准线
+        let mut pb_inner = PathBuilder::new();
+        pb_inner.move_to(1.5, 1.5);
+        pb_inner.line_to(w - 1.5, 1.5);
+        pb_inner.line_to(w - 1.5, h - 1.5);
+        pb_inner.line_to(1.5, h - 1.5);
+        pb_inner.close();
+        if let Some(in_path) = pb_inner.finish() {
+            let ip = make_paint(Color::from_rgba8(0, 0, 0, 60));
+            let in_stroke = Stroke {
+                width: 1.0,
+                ..Default::default()
+            };
+            pixmap.stroke_path(&in_path, &ip, &in_stroke, Transform::identity(), None);
+        }
+    }
 }

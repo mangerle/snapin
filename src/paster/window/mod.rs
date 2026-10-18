@@ -9,7 +9,9 @@ pub use render::render_paster_to_surface;
 use crate::error::SnapinError;
 use crate::paster::manager::PasterItem;
 use crate::platform::pin_window_above;
-use events::{handle_paster_key, handle_paster_mouse_button, handle_paster_scroll};
+use events::{
+    handle_paster_cursor_move, handle_paster_key, handle_paster_mouse_button, handle_paster_scroll,
+};
 use std::sync::Arc;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{Event, WindowEvent};
@@ -103,10 +105,13 @@ fn dispatch_paster_event(
     match event {
         WindowEvent::RedrawRequested => {
             let size = ctx.window.inner_size();
-            if let Err(e) =
-                render_paster_to_surface(&state.item, ctx.surface, size.width, size.height)
-            {
+            if let Err(e) = render_paster_to_surface(state, ctx.surface, size.width, size.height) {
                 tracing::error!("贴图渲染失败: {e}");
+            }
+        }
+        WindowEvent::CursorMoved { position, .. } => {
+            if handle_paster_cursor_move(state, (position.x, position.y)) {
+                ctx.window.request_redraw();
             }
         }
         WindowEvent::MouseWheel { delta, .. } => {

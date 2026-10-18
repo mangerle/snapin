@@ -76,9 +76,27 @@ export default class SnapinHelperExtension extends Extension {
 
         // 将托盘添加到顶栏右侧状态栏区域
         Main.panel.addToStatusArea('snapin-indicator', this._indicator, 1, 'right');
+
+        // 3. 监听全局窗口创建事件：贴图窗口一诞生立即强制置顶并从 Dock / 任务栏中隐藏
+        this._windowCreatedId = global.display.connect('window-created', (_display, metaWin) => {
+            if (!metaWin) return;
+            let title = metaWin.get_title();
+            if (title && (title.startsWith('pin_') || title.startsWith('clip_') || title === 'Snapin')) {
+                metaWin.make_above();
+                metaWin.skip_taskbar = true;
+                if (typeof metaWin.set_skip_taskbar_hint === 'function') {
+                    metaWin.set_skip_taskbar_hint(true);
+                }
+            }
+        });
     }
 
     disable() {
+        if (this._windowCreatedId) {
+            global.display.disconnect(this._windowCreatedId);
+            this._windowCreatedId = null;
+        }
+
         if (this._indicator) {
             this._indicator.destroy();
             this._indicator = null;
@@ -91,7 +109,7 @@ export default class SnapinHelperExtension extends Extension {
     }
 
     /**
-     * 在 Mutter 窗口树中查找指定标题的贴图窗口并调用 make_above 置顶。
+     * 在 Mutter 窗口树中查找指定标题的贴图窗口并调用 make_above 置顶及隐藏 Dock 图标。
      * @param {string} windowTitle 贴图窗口标题
      * @returns {boolean} 是否成功置顶
      */
@@ -104,6 +122,10 @@ export default class SnapinHelperExtension extends Extension {
             let metaWin = actor.get_meta_window();
             if (metaWin && metaWin.get_title() === windowTitle) {
                 metaWin.make_above();
+                metaWin.skip_taskbar = true;
+                if (typeof metaWin.set_skip_taskbar_hint === 'function') {
+                    metaWin.set_skip_taskbar_hint(true);
+                }
                 return true;
             }
         }

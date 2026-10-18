@@ -1,5 +1,6 @@
 //! 贴图窗口管理器与剪贴板便签化模块。
 
+pub mod context_menu;
 pub mod manager;
 pub mod text_to_pin;
 pub mod transform;
