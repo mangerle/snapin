@@ -77,15 +77,8 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Some(Commands::Snip) => {
-            // 首先尝试通过 IPC 向已运行的守护进程发送指令
-            let delivered = send_command_to_daemon(&DaemonCommand::Snip)
-                .await
-                .context("向守护进程发送截图指令失败")?;
-
-            if !delivered {
-                tracing::info!("守护进程未在运行，正在直接执行一次性截屏流程...");
-                run_oneshot_snip().await?;
-            }
+            tracing::info!("正在启动区域截图流程...");
+            run_oneshot_snip().await?;
         }
         Some(Commands::Paste) => {
             let delivered = send_command_to_daemon(&DaemonCommand::Paste)
@@ -146,11 +139,9 @@ async fn run_oneshot_snip() -> Result<()> {
                 send_desktop_notification("Snapin 截图已保存", &msg).await?;
             }
             SnipperOutcome::Pinned(item) => {
-                std::thread::spawn(move || {
-                    if let Err(e) = spawn_paster_window(item) {
-                        tracing::error!("贴图窗口运行异常: {e}");
-                    }
-                });
+                if let Err(e) = spawn_paster_window(item) {
+                    tracing::error!("贴图窗口运行异常: {e}");
+                }
             }
             SnipperOutcome::Cancelled => {
                 tracing::info!("用户已取消本次截图");
@@ -232,8 +223,10 @@ async fn run_daemon_server(cfg: config::Config) -> Result<()> {
         tracing::info!("守护进程接收到控制指令: {:?}", cmd);
         match cmd {
             DaemonCommand::Snip => {
-                if let Err(e) = run_oneshot_snip().await {
-                    tracing::error!("执行截图流程失败: {e}");
+                let current_exe =
+                    std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("snapin"));
+                if let Err(e) = std::process::Command::new(current_exe).arg("snip").spawn() {
+                    tracing::error!("调起截图前台子进程失败: {e}");
                 }
             }
             DaemonCommand::Paste => {
