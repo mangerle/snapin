@@ -8,6 +8,7 @@ pub mod mosaic;
 pub mod pen;
 pub mod rect;
 pub mod text;
+pub mod translation;
 
 pub use arrow::ArrowAction;
 pub use badge::BadgeAction;
@@ -17,3 +18,4 @@ pub use mosaic::MosaicAction;
 pub use pen::PenAction;
 pub use rect::RectAction;
 pub use text::TextAction;
+pub use translation::{TranslationAction, TranslationShapeItem};

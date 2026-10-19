@@ -10,7 +10,9 @@ pub use error::ServiceError;
 pub use ocr::{
     load_character_dict, LocalOcrPaths, LocalPpOcrEngine, OcrEngine, OcrResult, OcrTextBlock,
 };
-pub use translate::{TranslateOptions, TranslateResult, TranslationItem, Translator};
+pub use translate::{
+    create_translator, TranslateOptions, TranslateResult, TranslationItem, Translator,
+};
 
 #[cfg(test)]
 mod tests {

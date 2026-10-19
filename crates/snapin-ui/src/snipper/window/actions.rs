@@ -152,6 +152,217 @@ pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
     }
 }
 
+/// 估算指定局部矩形周边的背景主导色 (对四条外边缘进行采样求平均)
+fn estimate_dominant_background_color(
+    image: &RgbaImage,
+    min_x: u32,
+    min_y: u32,
+    w: u32,
+    h: u32,
+) -> (u8, u8, u8, u8) {
+    let img_w = image.width();
+    let img_h = image.height();
+    if img_w == 0 || img_h == 0 {
+        return (255, 255, 255, 255);
+    }
+
+    let mut r_sum: u64 = 0;
+    let mut g_sum: u64 = 0;
+    let mut b_sum: u64 = 0;
+    let mut count: u64 = 0;
+
+    let x1 = min_x.min(img_w.saturating_sub(1));
+    let y1 = min_y.min(img_h.saturating_sub(1));
+    let x2 = (min_x + w).min(img_w.saturating_sub(1));
+    let y2 = (min_y + h).min(img_h.saturating_sub(1));
+
+    // 顶部与底部边缘采样
+    for x in x1..=x2 {
+        let p_top = image.get_pixel(x, y1);
+        r_sum += p_top[0] as u64;
+        g_sum += p_top[1] as u64;
+        b_sum += p_top[2] as u64;
+
+        let p_bot = image.get_pixel(x, y2);
+        r_sum += p_bot[0] as u64;
+        g_sum += p_bot[1] as u64;
+        b_sum += p_bot[2] as u64;
+        count += 2;
+    }
+
+    // 左侧与右侧边缘采样
+    for y in (y1 + 1)..y2 {
+        let p_left = image.get_pixel(x1, y);
+        r_sum += p_left[0] as u64;
+        g_sum += p_left[1] as u64;
+        b_sum += p_left[2] as u64;
+
+        let p_right = image.get_pixel(x2, y);
+        r_sum += p_right[0] as u64;
+        g_sum += p_right[1] as u64;
+        b_sum += p_right[2] as u64;
+        count += 2;
+    }
+
+    if count == 0 {
+        return (255, 255, 255, 255);
+    }
+
+    (
+        (r_sum / count) as u8,
+        (g_sum / count) as u8,
+        (b_sum / count) as u8,
+        255,
+    )
+}
+
+/// 计算背景色对应的高反差可读前景色 (浅背景配黑灰，深背景配亮白)
+fn get_contrasting_text_color(bg: (u8, u8, u8, u8)) -> (u8, u8, u8, u8) {
+    let luminance = 0.299 * (bg.0 as f32) + 0.587 * (bg.1 as f32) + 0.114 * (bg.2 as f32);
+    if luminance > 135.0 {
+        (30, 30, 30, 255)
+    } else {
+        (245, 245, 245, 255)
+    }
+}
+
+/// 执行选区截图原位翻译替换
+pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    let (px, py, pw, ph) = match &state.selection {
+        SelectionState::Locked { rect, .. } => {
+            rect.to_pixel_bounds(original_rgba.width(), original_rgba.height())
+        }
+        _ => return,
+    };
+    if pw == 0 || ph == 0 {
+        return;
+    }
+
+    // 获取当前选区裁切图像 (原图 + 已绘制标注)
+    let cropped = match crop_selection_image(state, original_rgba) {
+        Some(c) => c,
+        None => return,
+    };
+
+    let custom_dir = if state.config.ocr.local.model_dir.is_empty() {
+        None
+    } else {
+        Some(std::path::Path::new(&state.config.ocr.local.model_dir))
+    };
+
+    let engine = match snapin_service::LocalPpOcrEngine::new(custom_dir) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!("原位翻译 OCR 引擎未能初始化: {e}");
+            return;
+        }
+    };
+
+    use snapin_service::OcrEngine;
+    let recognize_fut = engine.recognize(&cropped);
+    let ocr_result = match tokio::runtime::Handle::try_current() {
+        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(recognize_fut)),
+        Err(_) => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build();
+            match rt {
+                Ok(runtime) => runtime.block_on(recognize_fut),
+                Err(_) => return,
+            }
+        }
+    };
+
+    let ocr_res = match ocr_result {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("原位翻译文字识别失败: {e}");
+            return;
+        }
+    };
+
+    if ocr_res.blocks.is_empty() {
+        tracing::debug!("选区内未检测到有效文字，跳过原位翻译");
+        return;
+    }
+
+    let texts: Vec<String> = ocr_res.blocks.iter().map(|b| b.text.clone()).collect();
+    let translator = snapin_service::create_translator(&state.config.translate);
+    let target_lang = &state.config.translate.target_language;
+
+    let trans_fut = translator.translate_batch(&texts, "auto", target_lang);
+    let trans_result = match tokio::runtime::Handle::try_current() {
+        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(trans_fut)),
+        Err(_) => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build();
+            match rt {
+                Ok(runtime) => runtime.block_on(trans_fut),
+                Err(_) => return,
+            }
+        }
+    };
+
+    let translated_texts = match trans_result {
+        Ok(texts) => texts,
+        Err(e) => {
+            tracing::warn!("网络翻译服务调用失败: {e}");
+            return;
+        }
+    };
+
+    use snapin_core::annotation::action::AnnotationShape;
+    use snapin_core::annotation::shapes::{TranslationAction, TranslationShapeItem};
+
+    let mut shape_items = Vec::with_capacity(ocr_res.blocks.len());
+
+    for (idx, block) in ocr_res.blocks.into_iter().enumerate() {
+        let translated = if idx < translated_texts.len() {
+            translated_texts[idx].clone()
+        } else {
+            block.text.clone()
+        };
+
+        let (bx, by, bw, bh) = block.bbox;
+        let local_w = bw.max(2.0);
+        let local_h = bh.max(2.0);
+
+        let bg_color = estimate_dominant_background_color(
+            &cropped,
+            bx.floor().max(0.0) as u32,
+            by.floor().max(0.0) as u32,
+            local_w.ceil() as u32,
+            local_h.ceil() as u32,
+        );
+        let text_color = get_contrasting_text_color(bg_color);
+        let font_size = (local_h * 0.75).clamp(10.0, 36.0);
+
+        // 转换为全屏绝对坐标
+        let abs_x = (px as f32) + bx;
+        let abs_y = (py as f32) + by;
+
+        shape_items.push(TranslationShapeItem {
+            rect: (abs_x, abs_y, local_w, local_h),
+            original: block.text,
+            translated,
+            bg_color,
+            text_color,
+            font_size,
+            cover_mode: state.config.translate.cover_mode.clone(),
+        });
+    }
+
+    if !shape_items.is_empty() {
+        state
+            .annotations
+            .push(AnnotationShape::Translation(TranslationAction::new(
+                shape_items,
+            )));
+        tracing::info!("原位翻译完成，已成功压入标注动作栈");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,5 +470,40 @@ mod tests {
         handle_action_ocr(&mut state, &original);
 
         assert!(matches!(state.outcome, Some(SnipperOutcome::Copied(_))));
+    }
+
+    #[test]
+    fn test_estimate_dominant_background_and_contrast() {
+        let mut img = RgbaImage::new(100, 100);
+        for pixel in img.pixels_mut() {
+            *pixel = Rgba([200, 200, 200, 255]);
+        }
+        let bg = estimate_dominant_background_color(&img, 10, 10, 30, 20);
+        assert_eq!(bg, (200, 200, 200, 255));
+        let fg = get_contrasting_text_color(bg);
+        // 浅背景应该匹配深灰黑文字
+        assert_eq!(fg, (30, 30, 30, 255));
+
+        // 深黑背景测试
+        let dark_bg = (20, 20, 20, 255);
+        let dark_fg = get_contrasting_text_color(dark_bg);
+        assert_eq!(dark_fg, (245, 245, 245, 255));
+    }
+
+    #[test]
+    fn test_handle_action_translate_graceful_handling() {
+        let mut state = SnipperState::new();
+        state.selection = SelectionState::Locked {
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 50.0,
+                height: 50.0,
+            },
+            active_drag: None,
+        };
+        let original = RgbaImage::from_pixel(100, 100, Rgba([255, 255, 255, 255]));
+        // 无可用本地模型时安全返回，不崩溃
+        handle_action_translate(&mut state, &original);
     }
 }

@@ -36,6 +36,10 @@ pub fn dispatch_toolbar_action(
             super::super::actions::handle_action_ocr(state, original_rgba);
             true
         }
+        ToolbarItem::ActionTranslate => {
+            super::super::actions::handle_action_translate(state, original_rgba);
+            true
+        }
         ToolbarItem::ActionClose => {
             state.outcome = Some(SnipperOutcome::Cancelled);
             true

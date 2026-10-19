@@ -6,5 +6,5 @@ pub mod shapes;
 pub use action::{AnnotationAction, AnnotationHistory, AnnotationShape};
 pub use shapes::{
     ArrowAction, BadgeAction, EllipseAction, MarkerAction, MosaicAction, PenAction, RectAction,
-    TextAction,
+    TextAction, TranslationAction, TranslationShapeItem,
 };

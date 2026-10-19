@@ -5,7 +5,7 @@
 
 use crate::annotation::shapes::{
     ArrowAction, BadgeAction, EllipseAction, MarkerAction, MosaicAction, PenAction, RectAction,
-    TextAction,
+    TextAction, TranslationAction,
 };
 use serde::{Deserialize, Serialize};
 use tiny_skia::PixmapMut;
@@ -35,6 +35,7 @@ pub enum AnnotationShape {
     Mosaic(MosaicAction),
     Badge(BadgeAction),
     Text(TextAction),
+    Translation(TranslationAction),
 }
 
 impl AnnotationShape {
@@ -49,6 +50,7 @@ impl AnnotationShape {
             Self::Mosaic(a) => a.draw_offset(pixmap, offset_x, offset_y),
             Self::Badge(a) => a.draw_offset(pixmap, offset_x, offset_y),
             Self::Text(a) => a.draw_offset(pixmap, offset_x, offset_y),
+            Self::Translation(a) => a.draw_offset(pixmap, offset_x, offset_y),
         }
     }
 
@@ -68,6 +70,7 @@ impl AnnotationShape {
             Self::Mosaic(a) => a.adjust_size(stroke_w, font_sz),
             Self::Badge(a) => a.adjust_size(stroke_w, font_sz),
             Self::Text(a) => a.adjust_size(stroke_w, font_sz),
+            Self::Translation(a) => a.adjust_size(stroke_w, font_sz),
         }
     }
 }
@@ -147,6 +150,12 @@ impl AnnotationHistory {
     pub fn clear(&mut self) {
         self.undo_stack.clear();
         self.redo_stack.clear();
+    }
+}
+
+impl From<TranslationAction> for AnnotationShape {
+    fn from(action: TranslationAction) -> Self {
+        Self::Translation(action)
     }
 }
 
@@ -252,5 +261,41 @@ mod tests {
         let pixel = pixmap.pixel(25, 25).unwrap();
         assert_eq!(pixel.green(), 255);
         assert_eq!(pixel.alpha(), 255);
+    }
+
+    #[test]
+    fn test_translation_action_undo_redo_and_draw() {
+        use crate::annotation::shapes::TranslationShapeItem;
+        use tiny_skia::Pixmap;
+
+        let mut history = AnnotationHistory::default();
+        let item = TranslationShapeItem {
+            rect: (10.0, 10.0, 80.0, 30.0),
+            original: "Hello".to_string(),
+            translated: "你好".to_string(),
+            bg_color: (255, 255, 255, 255),
+            text_color: (0, 0, 0, 255),
+            font_size: 16.0,
+            cover_mode: "solid_color".to_string(),
+        };
+
+        let action = TranslationAction::new(vec![item]);
+        history.push(action.into());
+
+        assert!(history.can_undo());
+
+        let mut pixmap = Pixmap::new(100, 100).unwrap();
+        history.replay_all(&mut pixmap.as_mut());
+
+        // 验证擦除区域 (20, 20) 像素已填充白色
+        let pixel = pixmap.pixel(20, 20).unwrap();
+        assert_eq!(pixel.red(), 255);
+        assert_eq!(pixel.green(), 255);
+        assert_eq!(pixel.blue(), 255);
+
+        assert!(history.undo());
+        assert!(!history.can_undo());
+        assert!(history.redo());
+        assert!(history.can_undo());
     }
 }

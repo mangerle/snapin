@@ -5164,6 +5164,8 @@ name = "snapin-service"
 version = "0.3.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
+ "chrono",
  "hmac",
  "image 0.24.9",
  "md-5",
@@ -5171,6 +5173,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha1",
  "sha2",
  "snapin-core",
  "tempfile",
