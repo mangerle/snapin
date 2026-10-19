@@ -25,4 +25,8 @@ pub enum DaemonError {
     /// 消息载荷序列化/反序列化失败
     #[error("IPC 消息 JSON 编解码失败: {0}")]
     Json(#[from] serde_json::Error),
+
+    /// 守护进程业务处理返回失败
+    #[error("守护进程处理指令失败: {0}")]
+    Business(String),
 }

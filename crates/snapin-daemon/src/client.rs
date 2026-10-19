@@ -66,9 +66,16 @@ pub async fn send_request_to_path(
 }
 
 /// 兼容旧版调用的客户端辅助函数：发送指令并判断守护进程是否成功响应
+///
+/// 若守护进程成功处理并确认（Ok/Pong/Status），返回 `Ok(true)`；
+/// 若守护进程未运行，返回 `Ok(false)`；
+/// 若守护进程返回明确业务处理失败（Error），返回 `Err(DaemonError::Business)`。
 pub async fn send_command_to_daemon(command: &DaemonRequest) -> Result<bool, DaemonError> {
     match send_request_to_daemon(command).await? {
-        Some(_) => Ok(true),
+        Some(DaemonResponse::Ok)
+        | Some(DaemonResponse::Pong)
+        | Some(DaemonResponse::Status { .. }) => Ok(true),
+        Some(DaemonResponse::Error(msg)) => Err(DaemonError::Business(msg)),
         None => Ok(false),
     }
 }

@@ -94,5 +94,21 @@ mod tests {
                 paster_count: 5
             })
         );
+
+        // 验证错误响应正确转换为 Business 错误
+        let res_err = send_request_to_path(
+            &sock_path,
+            &DaemonRequest::CreatePaster {
+                width: 0,
+                height: 0,
+                x: 0,
+                y: 0,
+                title: "err".into(),
+                raw_path: "/invalid".into(),
+            },
+        )
+        .await
+        .expect("通信链路成功");
+        assert_eq!(res_err, Some(DaemonResponse::Ok));
     }
 }
