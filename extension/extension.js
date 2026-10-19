@@ -64,40 +64,100 @@ export default class SnapinHelperExtension extends Extension {
         box.add_child(icon);
         this._indicator.add_child(box);
 
-        // 添加托盘菜单项
-        let snipItem = new PopupMenu.PopupMenuItem('区域截图 (F1)');
+        // 添加托盘菜单项（严格匹配设计红框）
+        // 1. 截屏
+        let snipItem = new PopupMenu.PopupMenuItem('截屏');
         snipItem.connect('activate', () => {
             GLib.spawn_command_line_async('snapin snip');
         });
         this._indicator.menu.addMenuItem(snipItem);
 
-        let pasteItem = new PopupMenu.PopupMenuItem('固定贴图 / 便签 (F3)');
+        // 2. 截屏并自动复制
+        let snipCopyItem = new PopupMenu.PopupMenuItem('截屏并自动复制');
+        snipCopyItem.connect('activate', () => {
+            GLib.spawn_command_line_async('snapin snip');
+        });
+        this._indicator.menu.addMenuItem(snipCopyItem);
+
+        // 3. 自定义截屏
+        let customSnipItem = new PopupMenu.PopupMenuItem('自定义截屏');
+        customSnipItem.connect('activate', () => {
+            GLib.spawn_command_line_async('snapin snip');
+        });
+        this._indicator.menu.addMenuItem(customSnipItem);
+
+        // 4. 贴图
+        let pasteItem = new PopupMenu.PopupMenuItem('贴图');
         pasteItem.connect('activate', () => {
             GLib.spawn_command_line_async('snapin paste');
         });
         this._indicator.menu.addMenuItem(pasteItem);
 
-        let toggleItem = new PopupMenu.PopupMenuItem('显示 / 隐藏全部贴图');
+        // 5. 隐藏/显示所有贴图
+        let toggleItem = new PopupMenu.PopupMenuItem('隐藏/显示所有贴图');
         toggleItem.connect('activate', () => {
             GLib.spawn_command_line_async('snapin toggle');
         });
         this._indicator.menu.addMenuItem(toggleItem);
 
+        // 6. 切换到另一贴图组
+        let switchGroupItem = new PopupMenu.PopupMenuItem('切换到另一贴图组');
+        switchGroupItem.connect('activate', () => {
+            GLib.spawn_command_line_async('snapin switch-group 0');
+        });
+        this._indicator.menu.addMenuItem(switchGroupItem);
+
+        // 7. 清空截屏历史
+        let clearHistoryItem = new PopupMenu.PopupMenuItem('清空截屏历史');
+        clearHistoryItem.connect('activate', () => {
+            GLib.spawn_command_line_async('bash -c "rm -f /dev/shm/snapin_screen_*.png /tmp/snapin_screen_*.png ~/.cache/snapin/* 2>/dev/null || true"');
+        });
+        this._indicator.menu.addMenuItem(clearHistoryItem);
+
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        let prefsItem = new PopupMenu.PopupMenuItem('首选项 / 设置...');
+        // 8. 贴图 (二级子菜单)
+        let pasteSubMenu = new PopupMenu.PopupSubMenuMenuItem('贴图');
+        let subItemNew = new PopupMenu.PopupMenuItem('新建贴图');
+        subItemNew.connect('activate', () => {
+            GLib.spawn_command_line_async('snapin paste');
+        });
+        pasteSubMenu.menu.addMenuItem(subItemNew);
+
+        let subItemToggle = new PopupMenu.PopupMenuItem('隐藏/显示所有贴图');
+        subItemToggle.connect('activate', () => {
+            GLib.spawn_command_line_async('snapin toggle');
+        });
+        pasteSubMenu.menu.addMenuItem(subItemToggle);
+
+        let subItemClose = new PopupMenu.PopupMenuItem('关闭所有贴图');
+        subItemClose.connect('activate', () => {
+            GLib.spawn_command_line_async('pkill -f "snapin pin-file" || true');
+        });
+        pasteSubMenu.menu.addMenuItem(subItemClose);
+
+        this._indicator.menu.addMenuItem(pasteSubMenu);
+
+        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        // 9. 首选项...
+        let prefsItem = new PopupMenu.PopupMenuItem('首选项...');
         prefsItem.connect('activate', () => {
             GLib.spawn_command_line_async('snapin prefs');
         });
         this._indicator.menu.addMenuItem(prefsItem);
 
-        let syncItem = new PopupMenu.PopupMenuItem('同步系统快捷键');
-        syncItem.connect('activate', () => {
-            GLib.spawn_command_line_async('snapin sync-hotkeys');
-        });
-        this._indicator.menu.addMenuItem(syncItem);
+        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        let exitItem = new PopupMenu.PopupMenuItem('退出 Snapin');
+        // 10. 重新启动
+        let restartItem = new PopupMenu.PopupMenuItem('重新启动');
+        restartItem.connect('activate', () => {
+            GLib.spawn_command_line_async('bash -c "killall snapin; sleep 0.3; snapin daemon &"');
+        });
+        this._indicator.menu.addMenuItem(restartItem);
+
+        // 11. 退出
+        let exitItem = new PopupMenu.PopupMenuItem('退出');
         exitItem.connect('activate', () => {
             GLib.spawn_command_line_async('killall snapin');
         });
