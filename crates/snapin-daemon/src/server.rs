@@ -53,33 +53,47 @@ impl IpcListener {
                 Ok((mut stream, _addr)) => {
                     let sender = cmd_sender.clone();
                     tokio::spawn(async move {
-                        match read_framed_message::<_, DaemonRequest>(&mut stream).await {
-                            Ok(request) => {
+                        let read_res = timeout(
+                            IPC_TIMEOUT,
+                            read_framed_message::<_, DaemonRequest>(&mut stream),
+                        )
+                        .await;
+
+                        match read_res {
+                            Ok(Ok(request)) => {
                                 let (resp_tx, resp_rx) = oneshot::channel();
                                 let invocation = IpcInvocation {
                                     request,
                                     responder: resp_tx,
                                 };
                                 if sender.send(invocation).await.is_ok() {
-                                    if let Ok(Ok(response)) = timeout(IPC_TIMEOUT, resp_rx).await {
-                                        let _ = write_framed_message(&mut stream, &response).await;
-                                    } else {
-                                        let _ = write_framed_message(
-                                            &mut stream,
-                                            &DaemonResponse::Error("业务处理超时".to_string()),
-                                        )
-                                        .await;
-                                    }
+                                    let response = match timeout(IPC_TIMEOUT, resp_rx).await {
+                                        Ok(Ok(resp)) => resp,
+                                        _ => DaemonResponse::Error("业务处理超时".to_string()),
+                                    };
+                                    let _ = timeout(
+                                        IPC_TIMEOUT,
+                                        write_framed_message(&mut stream, &response),
+                                    )
+                                    .await;
                                 } else {
-                                    let _ = write_framed_message(
-                                        &mut stream,
-                                        &DaemonResponse::Error("守护进程主循环已关闭".to_string()),
+                                    let _ = timeout(
+                                        IPC_TIMEOUT,
+                                        write_framed_message(
+                                            &mut stream,
+                                            &DaemonResponse::Error(
+                                                "守护进程主循环已关闭".to_string(),
+                                            ),
+                                        ),
                                     )
                                     .await;
                                 }
                             }
-                            Err(e) => {
+                            Ok(Err(e)) => {
                                 tracing::warn!("接收客户端 IPC 请求异常: {e}");
+                            }
+                            Err(_) => {
+                                tracing::warn!("接收客户端 IPC 请求超时，主动断开连接");
                             }
                         }
                     });

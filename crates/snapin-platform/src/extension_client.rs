@@ -6,9 +6,13 @@
 use crate::dbus_session::get_session_connection;
 use crate::error::PlatformError;
 
+use std::time::Duration;
+use tokio::time::timeout;
+
 const EXT_BUS_NAME: &str = "org.gnome.Shell";
 const EXT_OBJECT_PATH: &str = "/org/gnome/Shell/Extensions/Snapin";
 const EXT_INTERFACE: &str = "org.gnome.Shell.Extensions.Snapin";
+const EXT_DBUS_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// 请求配套 GNOME Shell 扩展将指定标题的贴图窗口置顶
 pub async fn pin_window_above(window_title: &str) -> Result<bool, PlatformError> {
@@ -16,15 +20,20 @@ pub async fn pin_window_above(window_title: &str) -> Result<bool, PlatformError>
 
     tracing::debug!("正在请求 GNOME 扩展置顶窗口，标题: {}", window_title);
 
-    let msg = connection
-        .call_method(
-            Some(EXT_BUS_NAME),
-            EXT_OBJECT_PATH,
-            Some(EXT_INTERFACE),
-            "PinWindowByTitle",
-            &(window_title),
-        )
+    let call_fut = connection.call_method(
+        Some(EXT_BUS_NAME),
+        EXT_OBJECT_PATH,
+        Some(EXT_INTERFACE),
+        "PinWindowByTitle",
+        &(window_title),
+    );
+
+    let msg = timeout(EXT_DBUS_TIMEOUT, call_fut)
         .await
+        .map_err(|_| PlatformError::DBus {
+            service: EXT_BUS_NAME.to_string(),
+            message: "GNOME 扩展置顶 D-Bus 调用超时".to_string(),
+        })?
         .map_err(|e| PlatformError::DBus {
             service: EXT_BUS_NAME.to_string(),
             message: e.to_string(),
@@ -50,15 +59,20 @@ pub async fn capture_fullscreen_extension(target_path: &str) -> Result<bool, Pla
 
     tracing::debug!("正在向 GNOME 扩展请求原生极速全屏截屏: {}", target_path);
 
-    let msg = connection
-        .call_method(
-            Some(EXT_BUS_NAME),
-            EXT_OBJECT_PATH,
-            Some(EXT_INTERFACE),
-            "CaptureFullscreen",
-            &(target_path),
-        )
+    let call_fut = connection.call_method(
+        Some(EXT_BUS_NAME),
+        EXT_OBJECT_PATH,
+        Some(EXT_INTERFACE),
+        "CaptureFullscreen",
+        &(target_path),
+    );
+
+    let msg = timeout(EXT_DBUS_TIMEOUT, call_fut)
         .await
+        .map_err(|_| PlatformError::DBus {
+            service: EXT_BUS_NAME.to_string(),
+            message: "GNOME 扩展全屏截屏 D-Bus 调用超时".to_string(),
+        })?
         .map_err(|e| PlatformError::DBus {
             service: EXT_BUS_NAME.to_string(),
             message: e.to_string(),
@@ -85,15 +99,20 @@ pub async fn capture_fullscreen_extension_raw(
         target_path
     );
 
-    let msg = connection
-        .call_method(
-            Some(EXT_BUS_NAME),
-            EXT_OBJECT_PATH,
-            Some(EXT_INTERFACE),
-            "CaptureFullscreenRaw",
-            &(target_path),
-        )
+    let call_fut = connection.call_method(
+        Some(EXT_BUS_NAME),
+        EXT_OBJECT_PATH,
+        Some(EXT_INTERFACE),
+        "CaptureFullscreenRaw",
+        &(target_path),
+    );
+
+    let msg = timeout(EXT_DBUS_TIMEOUT, call_fut)
         .await
+        .map_err(|_| PlatformError::DBus {
+            service: EXT_BUS_NAME.to_string(),
+            message: "GNOME 扩展零拷贝原始像素截屏 D-Bus 调用超时".to_string(),
+        })?
         .map_err(|e| PlatformError::DBus {
             service: EXT_BUS_NAME.to_string(),
             message: e.to_string(),

@@ -15,18 +15,26 @@ pub async fn capture_fullscreen_portal() -> Result<RgbaImage, PlatformError> {
     tracing::debug!("正在向 XDG Desktop Portal 请求全屏快照...");
 
     let t_req_start = std::time::Instant::now();
-    let response = Screenshot::request()
-        .interactive(false)
-        .modal(false)
-        .send()
+    let portal_fut = async {
+        Screenshot::request()
+            .interactive(false)
+            .modal(false)
+            .send()
+            .await
+            .map_err(|e| PlatformError::Portal {
+                message: e.to_string(),
+            })?
+            .response()
+            .map_err(|e| PlatformError::Portal {
+                message: e.to_string(),
+            })
+    };
+
+    let response = tokio::time::timeout(std::time::Duration::from_secs(5), portal_fut)
         .await
-        .map_err(|e| PlatformError::Portal {
-            message: e.to_string(),
-        })?
-        .response()
-        .map_err(|e| PlatformError::Portal {
-            message: e.to_string(),
-        })?;
+        .map_err(|_| PlatformError::Portal {
+            message: "等待 XDG Desktop Portal 响应超时".to_string(),
+        })??;
     let t_req_end = std::time::Instant::now();
     tracing::info!(
         "Portal D-Bus 截屏请求与合成器捕获耗时: {:.2}ms",
