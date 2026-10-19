@@ -47,6 +47,30 @@ impl ContextMenuState {
         self.item_height = 28.0 * s;
     }
 
+    /// 计算完全展开上下文菜单（含可能的二级子菜单）所需的最小安全包围尺寸
+    pub fn required_menu_extent(&self, x: f32, y: f32, main_items: &[MenuItem]) -> (f32, f32) {
+        let s = self.ui_scale;
+        let sep_h = 8.0 * s;
+        let extra_h = 10.0 * s;
+        let total_h = main_items
+            .iter()
+            .map(|it| {
+                if it.is_separator {
+                    sep_h
+                } else {
+                    self.item_height
+                }
+            })
+            .sum::<f32>()
+            + extra_h;
+
+        // 包含主菜单与二级子菜单宽度的总预估（主菜单 170*s + 二级菜单 160*s）
+        let max_w = (170.0 + 160.0) * s;
+        let req_w = x + max_w + 10.0 * s;
+        let req_h = y + total_h + 10.0 * s;
+        (req_w, req_h)
+    }
+
     /// 在指定坐标弹出上下文菜单，并自适应窗口物理边界进行上下左右智能避让
     pub fn open_at(&mut self, x: f32, y: f32, win_w: f32, win_h: f32, main_items: &[MenuItem]) {
         self.is_open = true;

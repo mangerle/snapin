@@ -27,6 +27,7 @@ pub fn handle_paster_key(
     if state.context_menu.is_open {
         if let Key::Named(NamedKey::Escape) = key {
             state.context_menu.close();
+            apply_window_scale_resize(state, window);
             return true;
         }
     }
@@ -134,6 +135,9 @@ pub fn handle_paster_mouse_button(
 
     if button == MouseButton::Right {
         state.context_menu.set_ui_scale(state.ui_scale);
+        state.context_menu.is_open = true;
+        apply_window_scale_resize(state, window);
+
         let win_size = window.inner_size();
         let main_items = ContextMenuState::build_main_items(state.show_toolbar, state.has_shadow);
         state.context_menu.open_at(
@@ -158,6 +162,9 @@ pub fn handle_paster_mouse_button(
             );
             if let Some(act) = action {
                 dispatch_menu_action(state, act, window);
+            }
+            if !state.context_menu.is_open {
+                apply_window_scale_resize(state, window);
             }
             return true;
         }

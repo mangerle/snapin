@@ -51,12 +51,25 @@ impl PasterWindowState {
     }
 }
 
-/// 重新计算并应用根据缩放比例调整后的窗口尺寸
+/// 重新计算并应用根据缩放比例与右键菜单展开状态调整后的窗口尺寸
 pub(crate) fn apply_window_scale_resize(state: &PasterWindowState, window: &Window) {
     let base_w = state.item.pixmap.width() as f32;
     let base_h = state.item.pixmap.height() as f32;
     let scale = state.item.transform.scale;
-    let new_w = (base_w * scale).max(20.0) as u32;
-    let new_h = (base_h * scale).max(20.0) as u32;
-    let _ = window.request_inner_size(PhysicalSize::new(new_w, new_h));
+    let mut new_w = (base_w * scale).max(20.0);
+    let mut new_h = (base_h * scale).max(20.0);
+
+    // 若当前正在展示右键菜单，确保窗口物理尺寸足以容纳菜单而不被截断
+    if state.context_menu.is_open {
+        let main_items = ContextMenuState::build_main_items(state.show_toolbar, state.has_shadow);
+        let (req_w, req_h) = state.context_menu.required_menu_extent(
+            state.cursor_pos.0,
+            state.cursor_pos.1,
+            &main_items,
+        );
+        new_w = new_w.max(req_w);
+        new_h = new_h.max(req_h);
+    }
+
+    let _ = window.request_inner_size(PhysicalSize::new(new_w as u32, new_h as u32));
 }
