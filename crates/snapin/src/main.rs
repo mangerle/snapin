@@ -15,7 +15,7 @@ use clap::Parser;
 use cli::{Cli, Commands};
 use snapin_core::config;
 use snapin_daemon::{send_command_to_daemon, DaemonCommand};
-use snapin_platform::{exit_snapin_application, send_desktop_notification, sync_hotkeys_to_gnome};
+use snapin_platform::{exit_snapin_application, sync_hotkeys_to_gnome};
 use snapin_settings::run_settings_gui;
 use snapin_ui::snipper::SnipMode;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -65,8 +65,6 @@ async fn main() -> Result<()> {
         }
         Some(Commands::SwitchGroup { id }) => {
             let _ = send_command_to_daemon(&DaemonCommand::SwitchGroup(id)).await;
-            let msg = format!("已切换至贴图分组: {id}");
-            let _ = send_desktop_notification("Snapin 贴图组", &msg).await;
         }
         Some(Commands::ClearHistory) => {
             clear_snip_history().await?;

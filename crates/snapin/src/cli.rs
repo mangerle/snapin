@@ -32,11 +32,10 @@ pub enum Commands {
     Paste,
     /// 批量显示/隐藏当前活动组所有贴图 (默认绑定 Ctrl+F3)
     Toggle,
-    /// 切换贴图活动分组
+    /// 切换贴图活动分组（未指定 ID 时循环轮转至下一个分组）
     SwitchGroup {
-        /// 目标分组 ID
-        #[arg(default_value_t = 0)]
-        id: usize,
+        /// 目标分组 ID（可选）
+        id: Option<usize>,
     },
     /// 清空截屏与临时缓存历史
     ClearHistory,

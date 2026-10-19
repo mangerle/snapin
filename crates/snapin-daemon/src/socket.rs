@@ -28,8 +28,8 @@ pub enum DaemonRequest {
     Paste,
     /// 批量隐藏或显示当前所有贴图
     TogglePasters,
-    /// 切换活动贴图分组
-    SwitchGroup(usize),
+    /// 切换活动贴图分组（若为 None 则循环切换至下一个分组）
+    SwitchGroup(Option<usize>),
     /// 请求守护进程优雅平滑停机
     Shutdown,
     /// 心跳与存活检测
@@ -419,7 +419,7 @@ mod tests {
     async fn test_framed_message_roundtrip() {
         let (mut client, mut server) = tokio::io::duplex(1024);
 
-        let req = DaemonRequest::SwitchGroup(42);
+        let req = DaemonRequest::SwitchGroup(Some(42));
         tokio::spawn(async move {
             write_framed_message(&mut client, &req)
                 .await
@@ -433,7 +433,7 @@ mod tests {
         let received: DaemonRequest = read_framed_message(&mut server)
             .await
             .expect("服务端读取请求成功");
-        assert_eq!(received, DaemonRequest::SwitchGroup(42));
+        assert_eq!(received, DaemonRequest::SwitchGroup(Some(42)));
         write_framed_message(&mut server, &DaemonResponse::Ok)
             .await
             .expect("服务端写入响应成功");

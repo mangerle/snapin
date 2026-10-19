@@ -42,7 +42,7 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), SnapinError> {
     setup_keybinding(
         &switch_path,
         "Snapin 切换贴图组",
-        &format!("{current_exe} switch-group 1"),
+        &format!("{current_exe} switch-group"),
         &config.switch_group,
     );
 
@@ -116,12 +116,15 @@ fn ensure_custom_keybindings_registered(paths: &[&str]) -> Result<(), SnapinErro
 
 /// 获取 Snapin 当前或系统安装的可执行文件路径
 fn get_snapin_executable_path() -> String {
+    if let Ok(exe) = std::env::current_exe() {
+        if exe.exists() {
+            return exe.to_string_lossy().to_string();
+        }
+    }
     if std::path::Path::new("/usr/bin/snapin").exists() {
         "/usr/bin/snapin".to_string()
     } else {
-        std::env::current_exe()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "snapin".to_string())
+        "snapin".to_string()
     }
 }
 

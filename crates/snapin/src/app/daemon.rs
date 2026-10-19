@@ -104,12 +104,16 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
                 );
                 DaemonResponse::Ok
             }
-            DaemonCommand::SwitchGroup(id) => {
-                paster_manager.switch_group(id);
+            DaemonCommand::SwitchGroup(target_id) => {
+                let next_group = match target_id {
+                    Some(id) => id,
+                    None => (paster_manager.active_group() + 1) % 4,
+                };
+                paster_manager.switch_group(next_group);
                 let _ = paster_broadcast_tx.send(PasterControlEvent::SetVisibility(true));
                 let count = paster_manager.count_in_active_group();
-                tracing::info!("已切换至贴图分组: {id}，活动贴图数: {count}");
-                let msg = format!("已切换至贴图分组: {id}（活动贴图: {count}）");
+                tracing::info!("已切换至贴图分组: {next_group}，活动贴图数: {count}");
+                let msg = format!("已切换至贴图分组: {next_group}（活动贴图: {count}）");
                 let _ = send_desktop_notification("Snapin 贴图组", &msg).await;
                 DaemonResponse::Ok
             }
