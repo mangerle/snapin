@@ -84,6 +84,7 @@ impl AnnotationAction for TranslationAction {
         }
 
         // 2. 批量调用 cosmic-text 文本渲染器绘制译文
+        use crate::render::TextBoxOptions;
         with_thread_local_text_renderer(|renderer| {
             for item in &self.items {
                 if item.translated.trim().is_empty() {
@@ -92,15 +93,18 @@ impl AnnotationAction for TranslationAction {
 
                 let rx = item.rect.0 + offset_x + 2.0;
                 let ry = item.rect.1 + offset_y + 2.0;
+                let rw = (item.rect.2 - 4.0).max(10.0);
+                let rh = (item.rect.3 - 4.0).max(10.0);
                 let font_size = item.font_size.max(9.0);
 
-                renderer.draw_text_rgba(
+                renderer.draw_text_box_rgba(
                     pixmap,
                     &item.translated,
-                    rx,
-                    ry,
-                    font_size,
-                    item.text_color,
+                    TextBoxOptions {
+                        rect: (rx, ry, rw, rh),
+                        font_size,
+                        rgba: item.text_color,
+                    },
                 );
             }
         });

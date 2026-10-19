@@ -2,4 +2,4 @@
 
 pub mod text;
 
-pub use text::{with_thread_local_text_renderer, TextRenderer};
+pub use text::{with_thread_local_text_renderer, TextBoxOptions, TextRenderer};

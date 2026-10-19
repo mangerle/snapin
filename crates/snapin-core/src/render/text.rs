@@ -25,6 +25,17 @@ impl Default for TextRenderer {
     }
 }
 
+/// 文本排版外接矩形与样式参数配置
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextBoxOptions {
+    /// 矩形区域 (x, y, width, height)
+    pub rect: (f32, f32, f32, f32),
+    /// 建议字号 (pt)
+    pub font_size: f32,
+    /// 文本颜色 RGBA
+    pub rgba: (u8, u8, u8, u8),
+}
+
 impl TextRenderer {
     /// 构造新的文本渲染器并初始化字体缓存
     pub fn new() -> Self {
@@ -94,6 +105,64 @@ impl TextRenderer {
                 }
             },
         );
+    }
+
+    /// 在指定矩形包围盒内自适应换行排版并绘制文字（支持自动折行与字号动态调整）
+    pub fn draw_text_box_rgba(
+        &mut self,
+        pixmap: &mut PixmapMut,
+        text: &str,
+        options: TextBoxOptions,
+    ) {
+        let (x, y, box_w, box_h) = options.rect;
+        if text.trim().is_empty() || box_w <= 1.0 || box_h <= 1.0 {
+            return;
+        }
+
+        let mut font_size = options.font_size.clamp(9.0, 48.0);
+        let c_color = CosmicColor::rgba(
+            options.rgba.0,
+            options.rgba.1,
+            options.rgba.2,
+            options.rgba.3,
+        );
+        let width = pixmap.width() as i32;
+        let height = pixmap.height() as i32;
+
+        // 如果文本过长可能超出包围盒，自适应微调缩小字号
+        for _ in 0..3 {
+            let line_height = font_size * 1.25;
+            let metrics = Metrics::new(font_size, line_height);
+            let mut buffer = Buffer::new(&mut self.font_system, metrics);
+            buffer.set_size(&mut self.font_system, box_w, box_h);
+            buffer.set_text(&mut self.font_system, text, Attrs::new(), Shaping::Advanced);
+            buffer.shape_until_scroll(&mut self.font_system, false);
+
+            let total_lines = buffer.layout_runs().count();
+            let total_text_h = (total_lines as f32) * line_height;
+
+            if total_text_h <= box_h || font_size <= 9.0 {
+                let vertical_offset = ((box_h - total_text_h) / 2.0).max(0.0);
+                buffer.draw(
+                    &mut self.font_system,
+                    &mut self.swash_cache,
+                    c_color,
+                    |gx, gy, _w, _h, c| {
+                        let px = x as i32 + gx;
+                        let py = (y + vertical_offset) as i32 + gy;
+                        if px >= 0 && px < width && py >= 0 && py < height {
+                            let idx = ((py as usize) * (width as usize) + (px as usize)) * 4;
+                            blend_glyph_rgba(pixmap.data_mut(), idx, c.r(), c.g(), c.b(), c.a());
+                        }
+                    },
+                );
+                return;
+            }
+
+            font_size = (font_size * 0.85).max(9.0);
+        }
+
+        self.draw_text_rgba(pixmap, text, x, y, font_size, options.rgba);
     }
 
     /// 在气泡中心高精排版绘制加粗现代无衬线数字并实现光学绝对居中
@@ -273,5 +342,22 @@ mod tests {
         });
         let has_pixel = pixmap.data().iter().any(|&b| b > 0);
         assert!(has_pixel, "标号数字排版绘制应写入非零像素");
+    }
+
+    #[test]
+    fn test_draw_text_box_rgba_wrapping() {
+        let mut pixmap = Pixmap::new(120, 80).unwrap();
+        let mut renderer = TextRenderer::new();
+        renderer.draw_text_box_rgba(
+            &mut pixmap.as_mut(),
+            "This is a longer translation text that wraps",
+            TextBoxOptions {
+                rect: (5.0, 5.0, 100.0, 60.0),
+                font_size: 14.0,
+                rgba: (0, 0, 0, 255),
+            },
+        );
+        let has_pixel = pixmap.data().iter().any(|&b| b > 0);
+        assert!(has_pixel, "换行排版绘制应写入非零像素");
     }
 }

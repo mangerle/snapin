@@ -287,8 +287,8 @@ mod tests {
         let mut pixmap = Pixmap::new(100, 100).unwrap();
         history.replay_all(&mut pixmap.as_mut());
 
-        // 验证擦除区域 (20, 20) 像素已填充白色
-        let pixel = pixmap.pixel(20, 20).unwrap();
+        // 验证擦除区域左上角 (13, 13) 像素已填充白色背景
+        let pixel = pixmap.pixel(13, 13).unwrap();
         assert_eq!(pixel.red(), 255);
         assert_eq!(pixel.green(), 255);
         assert_eq!(pixel.blue(), 255);
