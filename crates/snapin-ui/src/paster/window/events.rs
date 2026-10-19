@@ -8,7 +8,8 @@ use crate::paster::transform::{
 use image::RgbaImage;
 use snapin_core::config::{Config, DoubleClickAction};
 use snapin_platform::{
-    read_clipboard_image, read_clipboard_text, send_desktop_notification, write_image_to_clipboard,
+    read_clipboard_image, read_clipboard_text, save_image_with_config, send_desktop_notification,
+    write_image_to_clipboard,
 };
 use std::path::PathBuf;
 use std::time::Instant;
@@ -356,23 +357,33 @@ fn copy_paster_to_clipboard(item: &PasterItem) {
     }
 }
 
-/// 保存贴图图像至 Pictures 目录
+/// 保存贴图图像并遵循全局输出配置（格式、质量与命名模板）
 fn save_paster_to_disk(state: &mut PasterWindowState) {
     let w = state.item.pixmap.width();
     let h = state.item.pixmap.height();
     if let Some(rgba) = RgbaImage::from_raw(w, h, state.item.pixmap.data().to_vec()) {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let pic_dir = PathBuf::from(home).join("Pictures");
-        let _ = std::fs::create_dir_all(&pic_dir);
-        let out = pic_dir.join(format!("{}.png", state.item.title));
-        if rgba.save(&out).is_ok() {
+        let out_res = save_image_with_config(&rgba, &state.config.output).or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            let pic_dir = PathBuf::from(home).join("Pictures");
+            let _ = std::fs::create_dir_all(&pic_dir);
+            let fallback_path = pic_dir.join(format!("{}.png", state.item.title));
+            rgba.save(&fallback_path)
+                .map(|_| fallback_path)
+                .map_err(|e| snapin_platform::PlatformError::Io {
+                    path: "Pictures".to_string(),
+                    source: std::io::Error::other(e.to_string()),
+                })
+        });
+
+        if let Ok(out) = out_res {
             state.file_path = Some(out.clone());
-            let cfg = snapin_core::config::load_or_create_config(None).unwrap_or_default();
-            if cfg.output.notify_on_save {
+            if state.config.output.notify_on_save {
                 let msg = format!("贴图图像已保存至: {}", out.display());
-                std::mem::drop(tokio::spawn(async move {
-                    let _ = send_desktop_notification("Snapin 贴图已保存", &msg).await;
-                }));
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.spawn(async move {
+                        let _ = send_desktop_notification("Snapin 贴图已保存", &msg).await;
+                    });
+                }
             }
         }
     }
