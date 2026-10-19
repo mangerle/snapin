@@ -1,0 +1,27 @@
+[package]
+name = "snapin"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "专为 Linux Wayland (Ubuntu 26 GNOME) 打造的纯 Rust 截图与贴图工具"
+
+[[bin]]
+name = "snapin"
+path = "src/main.rs"
+
+[dependencies]
+snapin-core.workspace = true
+snapin-daemon.workspace = true
+snapin-platform.workspace = true
+snapin-ui.workspace = true
+snapin-settings.workspace = true
+
+clap.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+image.workspace = true
+tiny-skia.workspace = true
+rustix.workspace = true

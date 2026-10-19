@@ -1,0 +1,21 @@
+[package]
+name = "snapin-platform"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Snapin Linux Wayland 平台底层驱动：Portal截屏、GNOME Shell扩展通信、剪贴板读写与系统热键"
+
+[dependencies]
+snapin-core.workspace = true
+snapin-daemon.workspace = true
+ashpd.workspace = true
+zbus.workspace = true
+arboard.workspace = true
+rustix.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+image.workspace = true
+chrono.workspace = true
+serde.workspace = true
+toml.workspace = true

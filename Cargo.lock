@@ -4725,28 +4725,94 @@ name = "snapin"
 version = "0.3.0"
 dependencies = [
  "anyhow",
- "arboard",
- "ashpd",
- "bytemuck",
- "chrono",
  "clap",
- "cosmic-text",
  "image 0.24.9",
  "rustix 0.38.44",
+ "snapin-core",
+ "snapin-daemon",
+ "snapin-platform",
+ "snapin-settings",
+ "snapin-ui",
+ "tiny-skia 0.11.4",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "snapin-core"
+version = "0.3.0"
+dependencies = [
+ "bytemuck",
+ "cosmic-text",
+ "image 0.24.9",
  "serde",
- "serde_json",
- "slint",
- "slint-build",
- "softbuffer",
  "tempfile",
  "thiserror 1.0.69",
  "tiny-skia 0.11.4",
+ "toml 0.8.23",
+ "tracing",
+]
+
+[[package]]
+name = "snapin-daemon"
+version = "0.3.0"
+dependencies = [
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "snapin-core",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "snapin-platform"
+version = "0.3.0"
+dependencies = [
+ "arboard",
+ "ashpd",
+ "chrono",
+ "image 0.24.9",
+ "rustix 0.38.44",
+ "serde",
+ "snapin-core",
+ "snapin-daemon",
  "tokio",
  "toml 0.8.23",
  "tracing",
- "tracing-subscriber",
- "winit 0.29.15",
  "zbus 4.4.0",
+]
+
+[[package]]
+name = "snapin-settings"
+version = "0.3.0"
+dependencies = [
+ "slint",
+ "slint-build",
+ "snapin-core",
+ "snapin-platform",
+ "tracing",
+]
+
+[[package]]
+name = "snapin-ui"
+version = "0.3.0"
+dependencies = [
+ "arboard",
+ "chrono",
+ "image 0.24.9",
+ "rustix 0.38.44",
+ "snapin-core",
+ "snapin-daemon",
+ "snapin-platform",
+ "softbuffer",
+ "tempfile",
+ "tiny-skia 0.11.4",
+ "tokio",
+ "tracing",
+ "winit 0.29.15",
 ]
 
 [[package]]

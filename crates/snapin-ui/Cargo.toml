@@ -1,0 +1,24 @@
+[package]
+name = "snapin-ui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Snapin 基于 Winit 与 Tiny-Skia 的全屏软光栅化截图选区与桌面贴图交互窗口"
+
+[dependencies]
+snapin-core.workspace = true
+snapin-daemon.workspace = true
+snapin-platform.workspace = true
+winit.workspace = true
+softbuffer.workspace = true
+tiny-skia.workspace = true
+image.workspace = true
+chrono.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+arboard.workspace = true
+rustix.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

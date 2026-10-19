@@ -1,0 +1,20 @@
+[package]
+name = "snapin-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Snapin 核心领域模型、配置、错误定义、矢量标注引擎与排版渲染基建"
+
+[dependencies]
+tiny-skia.workspace = true
+cosmic-text.workspace = true
+image.workspace = true
+serde.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+bytemuck.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

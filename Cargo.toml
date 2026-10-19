@@ -1,10 +1,29 @@
-[package]
-name = "snapin"
+[workspace]
+members = [
+    "crates/snapin-core",
+    "crates/snapin-daemon",
+    "crates/snapin-platform",
+    "crates/snapin-ui",
+    "crates/snapin-settings",
+    "crates/snapin",
+]
+resolver = "2"
+
+[workspace.package]
 version = "0.3.0"
 edition = "2021"
-description = "专为 Linux Wayland (Ubuntu 26 GNOME) 打造的纯 Rust 截图与贴图工具"
+authors = ["wangle"]
+license = "Apache-2.0"
+repository = "https://github.com/wangle/snapin"
 
-[dependencies]
+[workspace.dependencies]
+# 内部子包依赖
+snapin-core = { path = "crates/snapin-core", version = "0.3.0" }
+snapin-daemon = { path = "crates/snapin-daemon", version = "0.3.0" }
+snapin-platform = { path = "crates/snapin-platform", version = "0.3.0" }
+snapin-ui = { path = "crates/snapin-ui", version = "0.3.0" }
+snapin-settings = { path = "crates/snapin-settings", version = "0.3.0" }
+
 # 窗口事件循环与原生 Wayland 支持
 winit = { version = "0.29", default-features = false, features = ["wayland", "rwh_06"] }
 
@@ -43,10 +62,7 @@ arboard = { version = "3.4", default-features = false, features = ["wayland-data
 
 # 现代声明式设置中心图形界面
 slint = "1"
-
-[build-dependencies]
 slint-build = "1"
 
-[dev-dependencies]
+# 测试辅助依赖
 tempfile = "3"
-

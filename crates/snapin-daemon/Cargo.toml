@@ -1,0 +1,18 @@
+[package]
+name = "snapin-daemon"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Snapin Unix Domain Socket 进程间通信、强类型分帧协议与守护进程事件监听"
+
+[dependencies]
+snapin-core.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rustix.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
