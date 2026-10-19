@@ -320,6 +320,7 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::annotation::action::AnnotationShape;
     use crate::annotation::shapes::RectAction;
 
     #[test]
@@ -329,7 +330,7 @@ mod tests {
         assert_eq!(state.toolbar.sub_options.custom_stroke_width, 4.0);
 
         // 模拟已绘制一个矩形标注
-        state.annotations.push(Box::new(RectAction {
+        state.annotations.push(AnnotationShape::Rect(RectAction {
             rect: (10.0, 10.0, 100.0, 100.0),
             color: (255, 0, 0, 255),
             stroke_width: 4.0,

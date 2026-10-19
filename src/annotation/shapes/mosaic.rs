@@ -3,17 +3,21 @@
 //! 对指定矩形区域内的像素按照步长进行降采样网格填充，达到隐私遮蔽效果。
 
 use crate::annotation::action::AnnotationAction;
+use serde::{Deserialize, Serialize};
 use tiny_skia::{Paint, PixmapMut, Rect as SkiaRect, Transform};
 
 /// 马赛克遮罩动作
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MosaicAction {
     pub rect: (f32, f32, f32, f32),
     pub cell_size: u32,
 }
 
 impl AnnotationAction for MosaicAction {
-    fn draw(&self, pixmap: &mut PixmapMut) {
+    fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         let (rx, ry, rw, rh) = self.rect;
+        let rx = rx + offset_x;
+        let ry = ry + offset_y;
         let cell = self.cell_size.max(4) as f32;
 
         let start_x = rx.max(0.0);
@@ -51,5 +55,9 @@ impl AnnotationAction for MosaicAction {
             }
             y += cell;
         }
+    }
+
+    fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
+        self.cell_size = (stroke_w * 2.0).clamp(4.0, 50.0) as u32;
     }
 }

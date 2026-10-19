@@ -3,5 +3,8 @@
 pub mod action;
 pub mod shapes;
 
-pub use action::{AnnotationAction, AnnotationHistory};
-pub use shapes::{ArrowAction, MarkerAction, MosaicAction, PenAction, RectAction};
+pub use action::{AnnotationAction, AnnotationHistory, AnnotationShape};
+pub use shapes::{
+    ArrowAction, BadgeAction, EllipseAction, MarkerAction, MosaicAction, PenAction, RectAction,
+    TextAction,
+};

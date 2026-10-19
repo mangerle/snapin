@@ -2,14 +2,11 @@
 //!
 //! 基于 tiny-skia 实现全屏暗色遮罩、选区镂空聚焦、8 手柄线框以及像素放大镜复合渲染。
 
-use crate::annotation::action::AnnotationAction;
-use crate::annotation::shapes::{
-    ArrowAction, BadgeAction, EllipseAction, MarkerAction, MosaicAction, PenAction, RectAction,
-};
 use crate::annotation::AnnotationHistory;
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::toolbar::{Toolbar, ToolbarItem};
+use crate::snipper::window::annotation_builder::{render_draft_preview, AnnotationDraftParams};
 use crate::snipper::window::text_input::TextInputSession;
 use image::RgbaImage;
 use tiny_skia::{Paint, PathBuilder, Pixmap, PixmapMut, Rect as SkiaRect, Stroke, Transform};
@@ -193,85 +190,10 @@ impl<'a> SnipperCanvas<'a> {
         pts: &[(f32, f32)],
         badge_num: u32,
     ) {
-        if pts.is_empty() {
-            return;
-        }
-
-        let stroke_w = toolbar.sub_options.current_stroke_width();
-        let c = toolbar.sub_options.color;
-        let rgba = (
-            (c.red() * 255.0).round() as u8,
-            (c.green() * 255.0).round() as u8,
-            (c.blue() * 255.0).round() as u8,
-            (c.alpha() * 255.0).round() as u8,
-        );
-
-        match tool {
-            ToolbarItem::ToolRect => {
-                let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
-                let action = RectAction {
-                    rect: (rect.x, rect.y, rect.width, rect.height),
-                    color: rgba,
-                    stroke_width: stroke_w,
-                    is_filled: false,
-                };
-                action.draw(pixmap);
-            }
-            ToolbarItem::ToolEllipse => {
-                let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
-                let action = EllipseAction {
-                    rect: (rect.x, rect.y, rect.width, rect.height),
-                    color: rgba,
-                    stroke_width: stroke_w,
-                    is_filled: false,
-                };
-                action.draw(pixmap);
-            }
-            ToolbarItem::ToolArrow => {
-                let action = ArrowAction {
-                    start: pts[0],
-                    end: pts[pts.len() - 1],
-                    color: rgba,
-                    stroke_width: stroke_w,
-                };
-                action.draw(pixmap);
-            }
-            ToolbarItem::ToolPen => {
-                let action = PenAction {
-                    points: pts.to_vec(),
-                    color: rgba,
-                    stroke_width: stroke_w,
-                };
-                action.draw(pixmap);
-            }
-            ToolbarItem::ToolMarker => {
-                let action = MarkerAction {
-                    points: pts.to_vec(),
-                    color: (rgba.0, rgba.1, rgba.2),
-                    stroke_width: stroke_w * 2.0,
-                };
-                action.draw(pixmap);
-            }
-            ToolbarItem::ToolMosaic => {
-                let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
-                let action = MosaicAction {
-                    rect: (rect.x, rect.y, rect.width, rect.height),
-                    cell_size: 10,
-                };
-                action.draw(pixmap);
-            }
-            ToolbarItem::ToolBadge => {
-                let center = pts[pts.len() - 1];
-                let radius = (stroke_w * 3.0).clamp(10.0, 48.0) * toolbar.ui_scale;
-                let action = BadgeAction {
-                    center,
-                    radius,
-                    number: badge_num as usize,
-                    color: rgba,
-                };
-                action.draw(pixmap);
-            }
-            _ => {}
+        if let Some(params) =
+            AnnotationDraftParams::from_toolbar_and_points(toolbar, *tool, pts, badge_num)
+        {
+            render_draft_preview(&params, pixmap);
         }
     }
 }

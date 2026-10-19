@@ -1,9 +1,11 @@
 //! 指引箭头标注图元绘制实现。
 
 use crate::annotation::action::AnnotationAction;
+use serde::{Deserialize, Serialize};
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Transform};
 
 /// 指引箭头绘制动作
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ArrowAction {
     pub start: (f32, f32),
     pub end: (f32, f32),
@@ -12,9 +14,9 @@ pub struct ArrowAction {
 }
 
 impl AnnotationAction for ArrowAction {
-    fn draw(&self, pixmap: &mut PixmapMut) {
-        let (x1, y1) = self.start;
-        let (x2, y2) = self.end;
+    fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
+        let (x1, y1) = (self.start.0 + offset_x, self.start.1 + offset_y);
+        let (x2, y2) = (self.end.0 + offset_x, self.end.1 + offset_y);
 
         let dx = x2 - x1;
         let dy = y2 - y1;

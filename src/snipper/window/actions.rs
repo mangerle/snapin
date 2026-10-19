@@ -20,25 +20,24 @@ pub fn crop_selection_image(
     if let SelectionState::Locked { rect, .. } = &state.selection {
         let (px, py, pw, ph) = rect.to_pixel_bounds(original_rgba.width(), original_rgba.height());
         if pw > 0 && ph > 0 {
-            // 无任何标注时直接零拷贝原图切片
+            // 无论是否有标注，首先仅截取选区尺寸的子图
+            let sub_image = original_rgba.view(px, py, pw, ph).to_image();
             if !state.annotations.can_undo() {
-                return Some(original_rgba.view(px, py, pw, ph).to_image());
+                return Some(sub_image);
             }
 
-            // 存在标注时，在全屏画布上回放图元后裁剪选区
-            let mut full_pixmap =
-                tiny_skia::Pixmap::new(original_rgba.width(), original_rgba.height())?;
-            full_pixmap
+            // 存在标注时，仅分配选区尺寸大小的 Pixmap，基于负偏移量局部回放图元，节约数十倍瞬时内存与拷贝
+            let mut cropped_pixmap = tiny_skia::Pixmap::new(pw, ph)?;
+            cropped_pixmap
                 .data_mut()
-                .copy_from_slice(original_rgba.as_raw());
-            state.annotations.replay_all(&mut full_pixmap.as_mut());
+                .copy_from_slice(sub_image.as_raw());
+            state.annotations.replay_with_offset(
+                &mut cropped_pixmap.as_mut(),
+                -(px as f32),
+                -(py as f32),
+            );
 
-            let full_image = RgbaImage::from_raw(
-                original_rgba.width(),
-                original_rgba.height(),
-                full_pixmap.take(),
-            )?;
-            return Some(full_image.view(px, py, pw, ph).to_image());
+            return RgbaImage::from_raw(pw, ph, cropped_pixmap.take());
         }
     }
     None
@@ -108,6 +107,7 @@ fn chrono_stamp() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::annotation::action::AnnotationShape;
     use crate::annotation::shapes::RectAction;
     use crate::snipper::selection::Rect;
     use image::Rgba;
@@ -152,7 +152,7 @@ mod tests {
         };
 
         // 添加一个全红色的填充矩形标注到全屏坐标 (15, 15, 20, 20)
-        state.annotations.push(Box::new(RectAction {
+        state.annotations.push(AnnotationShape::Rect(RectAction {
             rect: (15.0, 15.0, 20.0, 20.0),
             color: (255, 0, 0, 255),
             stroke_width: 1.0,

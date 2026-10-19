@@ -2,9 +2,11 @@
 
 use crate::annotation::action::AnnotationAction;
 use crate::render::with_thread_local_text_renderer;
+use serde::{Deserialize, Serialize};
 use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 步骤序号标号动作
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BadgeAction {
     pub center: (f32, f32),
     pub number: usize,
@@ -13,8 +15,8 @@ pub struct BadgeAction {
 }
 
 impl AnnotationAction for BadgeAction {
-    fn draw(&self, pixmap: &mut PixmapMut) {
-        let (cx, cy) = self.center;
+    fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
+        let (cx, cy) = (self.center.0 + offset_x, self.center.1 + offset_y);
         let r = self.radius;
 
         // 1. 绘制气泡柔和外圈微阴影

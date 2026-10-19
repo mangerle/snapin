@@ -1,6 +1,6 @@
 //! 文本标注实时输入会话管理与即时输入光标渲染。
 
-use crate::annotation::action::AnnotationAction;
+use crate::annotation::action::AnnotationShape;
 use crate::annotation::shapes::TextAction;
 use crate::render::with_thread_local_text_renderer;
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
@@ -50,12 +50,12 @@ impl TextInputSession {
     }
 
     /// 将当前会话转换为持久化标注动作
-    pub fn commit(self) -> Option<Box<dyn AnnotationAction>> {
+    pub fn commit(self) -> Option<AnnotationShape> {
         let trimmed = self.text.trim();
         if trimmed.is_empty() {
             None
         } else {
-            Some(Box::new(TextAction {
+            Some(AnnotationShape::Text(TextAction {
                 pos: self.pos,
                 text: self.text,
                 color: self.color,
