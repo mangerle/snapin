@@ -1,8 +1,7 @@
 //! 贴图底部快捷工具条交互命中检测与动作处理模块。
 
 use super::menu_actions::{copy_paster_to_clipboard, save_paster_to_disk};
-use super::state::{apply_window_scale_resize, PasterWindowState};
-use crate::paster::transform::{flip_pixmap_horizontal, rotate_pixmap_cw};
+use super::state::PasterWindowState;
 use winit::window::Window;
 
 /// 检测并处理对贴图底部现代胶囊快捷工具条的点击
@@ -36,22 +35,13 @@ pub fn check_and_handle_toolbar_click(state: &mut PasterWindowState, window: &Wi
     let idx = (rel_x / item_w) as usize;
 
     match idx {
-        0 => {
-            copy_paster_to_clipboard(&state.item);
-        }
-        1 => {
-            save_paster_to_disk(state);
-        }
+        0 => copy_paster_to_clipboard(&state.item),
+        1 => save_paster_to_disk(state),
         2 => {
-            if let Some(rotated) = rotate_pixmap_cw(&state.item.pixmap) {
-                state.item.pixmap = rotated;
-                apply_window_scale_resize(state, window);
-            }
+            state.rotate_cw(window);
         }
         _ => {
-            if let Some(flipped) = flip_pixmap_horizontal(&state.item.pixmap) {
-                state.item.pixmap = flipped;
-            }
+            state.flip_horizontal();
         }
     }
     true

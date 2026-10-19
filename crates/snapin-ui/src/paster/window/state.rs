@@ -49,6 +49,71 @@ impl PasterWindowState {
         state.config = cfg;
         state
     }
+
+    /// 顺时针旋转 90 度并同步调整物理窗口尺寸
+    pub fn rotate_cw(&mut self, window: &Window) -> bool {
+        if let Some(rotated) = crate::paster::transform::rotate_pixmap_cw(&self.item.pixmap) {
+            self.item.pixmap = rotated;
+            apply_window_scale_resize(self, window);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 逆时针旋转 90 度并同步调整物理窗口尺寸
+    pub fn rotate_ccw(&mut self, window: &Window) -> bool {
+        if let Some(rotated) = crate::paster::transform::rotate_pixmap_ccw(&self.item.pixmap) {
+            self.item.pixmap = rotated;
+            apply_window_scale_resize(self, window);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 水平翻转图像
+    pub fn flip_horizontal(&mut self) -> bool {
+        if let Some(flipped) = crate::paster::transform::flip_pixmap_horizontal(&self.item.pixmap) {
+            self.item.pixmap = flipped;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 垂直翻转图像
+    pub fn flip_vertical(&mut self) -> bool {
+        if let Some(flipped) = crate::paster::transform::flip_pixmap_vertical(&self.item.pixmap) {
+            self.item.pixmap = flipped;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 设置缩放比例并同步调整物理窗口尺寸
+    pub fn set_scale(&mut self, scale: f32, window: &Window) {
+        self.item.transform.set_scale(scale);
+        apply_window_scale_resize(self, window);
+    }
+
+    /// 滚轮平滑缩放并同步调整物理窗口尺寸
+    pub fn zoom(&mut self, delta: f32, window: &Window) {
+        self.item.transform.zoom(delta);
+        apply_window_scale_resize(self, window);
+    }
+
+    /// 微调不透明度
+    pub fn adjust_opacity(&mut self, delta: f32) {
+        self.item.transform.adjust_opacity(delta);
+    }
+
+    /// 更新贴图像素内容并同步调整物理窗口尺寸
+    pub fn replace_pixmap(&mut self, pixmap: tiny_skia::Pixmap, window: &Window) {
+        self.item.pixmap = pixmap;
+        apply_window_scale_resize(self, window);
+    }
 }
 
 /// 重新计算并应用根据缩放比例与右键菜单展开状态调整后的窗口尺寸

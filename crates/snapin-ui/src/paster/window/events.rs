@@ -6,7 +6,6 @@ pub use super::toolbar_handler::check_and_handle_toolbar_click;
 use super::menu_actions::{copy_paster_to_clipboard, dispatch_menu_action, save_paster_to_disk};
 use super::state::apply_window_scale_resize;
 use crate::paster::context_menu::ContextMenuState;
-use crate::paster::transform::{flip_pixmap_horizontal, flip_pixmap_vertical, rotate_pixmap_cw};
 use snapin_core::config::DoubleClickAction;
 use std::time::Instant;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
@@ -38,38 +37,16 @@ pub fn handle_paster_key(
             true
         }
         Key::Character(c) if c == "1" => {
-            state.item.transform.adjust_opacity(-0.1);
+            state.adjust_opacity(-0.1);
             true
         }
         Key::Character(c) if c == "2" => {
-            state.item.transform.adjust_opacity(0.1);
+            state.adjust_opacity(0.1);
             true
         }
-        Key::Character(c) if c == "3" => {
-            if let Some(rotated) = rotate_pixmap_cw(&state.item.pixmap) {
-                state.item.pixmap = rotated;
-                apply_window_scale_resize(state, window);
-                true
-            } else {
-                false
-            }
-        }
-        Key::Character(c) if c.eq_ignore_ascii_case("h") => {
-            if let Some(flipped) = flip_pixmap_horizontal(&state.item.pixmap) {
-                state.item.pixmap = flipped;
-                true
-            } else {
-                false
-            }
-        }
-        Key::Character(c) if c.eq_ignore_ascii_case("v") => {
-            if let Some(flipped) = flip_pixmap_vertical(&state.item.pixmap) {
-                state.item.pixmap = flipped;
-                true
-            } else {
-                false
-            }
-        }
+        Key::Character(c) if c == "3" => state.rotate_cw(window),
+        Key::Character(c) if c.eq_ignore_ascii_case("h") => state.flip_horizontal(),
+        Key::Character(c) if c.eq_ignore_ascii_case("v") => state.flip_vertical(),
         Key::Character(c) if c.eq_ignore_ascii_case("c") => {
             copy_paster_to_clipboard(&state.item);
             false
@@ -114,8 +91,7 @@ pub fn handle_paster_scroll(
     };
 
     if delta_y.abs() > 0.01 {
-        state.item.transform.zoom(delta_y);
-        apply_window_scale_resize(state, window);
+        state.zoom(delta_y, window);
         true
     } else {
         false

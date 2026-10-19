@@ -1,11 +1,8 @@
 //! 贴图窗口上下文菜单命令与磁盘/剪贴板动作分发模块。
 
-use super::state::{apply_window_scale_resize, PasterWindowState};
+use super::state::PasterWindowState;
 use crate::paster::context_menu::MenuItemId;
 use crate::paster::manager::PasterItem;
-use crate::paster::transform::{
-    flip_pixmap_horizontal, flip_pixmap_vertical, rotate_pixmap_ccw, rotate_pixmap_cw,
-};
 use image::RgbaImage;
 use snapin_platform::{
     open_path_in_file_manager, read_clipboard_image, read_clipboard_text, save_image_with_config,
@@ -22,32 +19,19 @@ pub fn dispatch_menu_action(state: &mut PasterWindowState, action: MenuItemId, w
         MenuItemId::SaveImageAs => save_paster_to_disk(state),
         MenuItemId::ToggleToolbar => state.show_toolbar = !state.show_toolbar,
         MenuItemId::ToggleShadow => state.has_shadow = !state.has_shadow,
-        MenuItemId::Scale(s) => {
-            state.item.transform.set_scale(s);
-            apply_window_scale_resize(state, window);
-        }
+        MenuItemId::Scale(s) => state.set_scale(s, window),
         MenuItemId::ToggleSmoothScaling => state.smooth_scaling = !state.smooth_scaling,
         MenuItemId::RotateLeft => {
-            if let Some(rotated) = rotate_pixmap_ccw(&state.item.pixmap) {
-                state.item.pixmap = rotated;
-                apply_window_scale_resize(state, window);
-            }
+            state.rotate_ccw(window);
         }
         MenuItemId::RotateRight => {
-            if let Some(rotated) = rotate_pixmap_cw(&state.item.pixmap) {
-                state.item.pixmap = rotated;
-                apply_window_scale_resize(state, window);
-            }
+            state.rotate_cw(window);
         }
         MenuItemId::FlipHorizontal => {
-            if let Some(flipped) = flip_pixmap_horizontal(&state.item.pixmap) {
-                state.item.pixmap = flipped;
-            }
+            state.flip_horizontal();
         }
         MenuItemId::FlipVertical => {
-            if let Some(flipped) = flip_pixmap_vertical(&state.item.pixmap) {
-                state.item.pixmap = flipped;
-            }
+            state.flip_vertical();
         }
         MenuItemId::PasteFromClipboard => paste_from_clipboard_to_paster(state, window),
         MenuItemId::OpenInFolder => open_paster_in_folder(state),
@@ -115,8 +99,7 @@ pub fn paste_from_clipboard_to_paster(state: &mut PasterWindowState, window: &Wi
     if let Ok(Some(img)) = read_clipboard_image() {
         if let Some(mut pixmap) = Pixmap::new(img.width(), img.height()) {
             pixmap.data_mut().copy_from_slice(img.as_raw());
-            state.item.pixmap = pixmap;
-            apply_window_scale_resize(state, window);
+            state.replace_pixmap(pixmap, window);
             return;
         }
     }
@@ -125,8 +108,7 @@ pub fn paste_from_clipboard_to_paster(state: &mut PasterWindowState, window: &Wi
         if let Some(pixmap) =
             crate::paster::render_simple_text_card(&text.lines().collect::<Vec<_>>())
         {
-            state.item.pixmap = pixmap;
-            apply_window_scale_resize(state, window);
+            state.replace_pixmap(pixmap, window);
         }
     }
 }
