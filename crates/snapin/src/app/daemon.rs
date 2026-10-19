@@ -5,13 +5,12 @@ use anyhow::{Context, Result};
 use snapin_core::config::Config;
 use snapin_daemon::{
     send_command_to_daemon, DaemonCommand, DaemonResponse, IpcInvocation, IpcListener,
-    PasterControlEvent,
 };
 use snapin_platform::{generate_unique_id, send_desktop_notification, sync_hotkeys_to_gnome};
 use snapin_ui::paster::{spawn_paster_workspace_thread, PasterItem};
 use std::path::PathBuf;
 use tiny_skia::Pixmap;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::mpsc;
 
 /// 运行后台守护服务
 pub async fn run_daemon_server(cfg: Config) -> Result<()> {
@@ -41,11 +40,9 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
         .await
         .context("绑定 IPC 监听套接字失败")?;
     let (tx, mut rx) = mpsc::channel::<IpcInvocation>(32);
-    let (dummy_b_tx, _) = broadcast::channel::<PasterControlEvent>(16);
 
-    let dummy_b_clone = dummy_b_tx.clone();
     tokio::spawn(async move {
-        listener.run_loop(tx, dummy_b_clone).await;
+        listener.run_loop(tx).await;
     });
 
     tracing::info!("Snapin 守护服务已就绪，等待热键指令...");
@@ -120,10 +117,6 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
                     let _ = send_desktop_notification("Snapin 贴图组", "已切换贴图活动分组").await;
                     DaemonResponse::Ok
                 }
-            }
-            DaemonCommand::RegisterPaster { .. } | DaemonCommand::UnregisterPaster(_) => {
-                // 兼容外部独立进程注册，在集中工作区模式下由工作区自动纳管
-                DaemonResponse::PasterRegistered
             }
             DaemonCommand::Shutdown => {
                 tracing::info!("接收到平滑停机指令，退出守护进程事件循环");

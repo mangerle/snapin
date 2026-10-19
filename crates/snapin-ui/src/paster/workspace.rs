@@ -267,7 +267,7 @@ fn handle_workspace_user_event(
         PasterAppEvent::ClosePaster(id) => {
             if let Some((&win_id, _)) = instances.iter().find(|(_, inst)| inst.item_id == id) {
                 if let Some(removed) = instances.remove(&win_id) {
-                    manager.unregister_instance(removed.item_id);
+                    manager.remove_paster(removed.item_id);
                     tracing::info!("已通过指令关闭贴图: {id}");
                 }
             }
@@ -344,7 +344,7 @@ fn create_new_paster_window(
     let group_id = item.group_id;
     let win_id = window.id();
 
-    manager.register_instance(item_id, group_id);
+    manager.add_item(item.clone());
     window.request_redraw();
 
     let instance = PasterInstance {
@@ -437,7 +437,7 @@ fn handle_workspace_window_event(
 
     if should_close {
         if let Some(removed) = instances.remove(&window_id) {
-            manager.unregister_instance(removed.item_id);
+            manager.remove_paster(removed.item_id);
             tracing::info!(
                 "贴图已安全关闭: {}，工作区剩余活动贴图: {}",
                 removed.item_id,

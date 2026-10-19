@@ -126,29 +126,11 @@ impl PasterManager {
         }
     }
 
-    /// 注册外部运行的贴图实例元数据
-    pub fn register_instance(&mut self, id: u64, group_id: usize) {
-        if !self.items.iter().any(|it| it.id == id) {
-            let item = PasterItem {
-                id,
-                title: format!("Snapin_Paster_{id}"),
-                pixmap: Pixmap::new(1, 1).unwrap(),
-                position: (0, 0),
-                transform: PasterTransform::default(),
-                is_visible: group_id == self.active_group,
-                group_id,
-            };
+    /// 纳入一个贴图图元项
+    pub fn add_item(&mut self, mut item: PasterItem) {
+        if !self.items.iter().any(|it| it.id == item.id) {
+            item.is_visible = item.group_id == self.active_group;
             self.items.push(item);
-        }
-    }
-
-    /// 注销贴图实例
-    pub fn unregister_instance(&mut self, id: u64) -> bool {
-        if let Some(idx) = self.items.iter().position(|it| it.id == id) {
-            self.items.remove(idx);
-            true
-        } else {
-            false
         }
     }
 
@@ -194,21 +176,25 @@ mod tests {
     }
 
     #[test]
-    fn test_paster_instance_registration() {
+    fn test_paster_add_item_and_remove() {
         let mut mgr = PasterManager::default();
-        mgr.register_instance(101, 0);
+        let dummy = Pixmap::new(10, 10).unwrap();
+        let item1 = PasterItem::new(101, "item_101".to_string(), dummy.clone(), (0, 0));
+        mgr.add_item(item1);
         assert_eq!(mgr.count_in_active_group(), 1);
 
-        // 注册到非活动组
-        mgr.register_instance(102, 1);
+        // 添加到非活动组
+        let mut item2 = PasterItem::new(102, "item_102".to_string(), dummy.clone(), (0, 0));
+        item2.group_id = 1;
+        mgr.add_item(item2);
         assert_eq!(mgr.count_in_active_group(), 1);
 
         // 切换组
         mgr.switch_group(1);
         assert_eq!(mgr.count_in_active_group(), 1);
 
-        // 注销实例
-        assert!(mgr.unregister_instance(102));
+        // 移除贴图
+        assert!(mgr.remove_paster(102).is_some());
         assert_eq!(mgr.count_in_active_group(), 0);
     }
 }

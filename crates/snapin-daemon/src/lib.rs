@@ -1,9 +1,96 @@
 //! 单实例守护进程管理与 Unix Domain Socket 进程间通信模块。
 
-pub mod socket;
+pub mod client;
+pub mod codec;
+pub mod protocol;
+pub mod server;
 
-pub use socket::{
-    get_socket_path, listen_paster_events, read_framed_message, send_command_to_daemon,
-    send_request_to_daemon, write_framed_message, DaemonCommand, DaemonRequest, DaemonResponse,
-    IpcInvocation, IpcListener, PasterControlEvent,
+pub use client::{send_command_to_daemon, send_request_to_daemon, send_request_to_path};
+pub use codec::{read_framed_message, write_framed_message};
+pub use protocol::{
+    get_socket_path, DaemonCommand, DaemonRequest, DaemonResponse, IpcInvocation,
+    MAX_IPC_FRAME_SIZE,
 };
+pub use server::IpcListener;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_framed_message_roundtrip() {
+        let (mut client, mut server) = tokio::io::duplex(1024);
+
+        let req = DaemonRequest::SwitchGroup(Some(42));
+        tokio::spawn(async move {
+            write_framed_message(&mut client, &req)
+                .await
+                .expect("写入分帧请求成功");
+            let resp: DaemonResponse = read_framed_message(&mut client)
+                .await
+                .expect("读取分帧响应成功");
+            assert_eq!(resp, DaemonResponse::Ok);
+        });
+
+        let received: DaemonRequest = read_framed_message(&mut server)
+            .await
+            .expect("服务端读取请求成功");
+        assert_eq!(received, DaemonRequest::SwitchGroup(Some(42)));
+        write_framed_message(&mut server, &DaemonResponse::Ok)
+            .await
+            .expect("服务端写入响应成功");
+    }
+
+    #[tokio::test]
+    async fn test_ipc_listener_and_client_dialogue() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录成功");
+        let sock_path = temp_dir.path().join("test_daemon.sock");
+
+        let listener = IpcListener::bind(Some(sock_path.clone()))
+            .await
+            .expect("绑定测试套接字成功");
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<IpcInvocation>(4);
+
+        tokio::spawn(async move {
+            listener.run_loop(tx).await;
+        });
+
+        // 模拟守护进程主循环响应逻辑
+        tokio::spawn(async move {
+            while let Some(inv) = rx.recv().await {
+                match inv.request {
+                    DaemonRequest::Ping => {
+                        let _ = inv.responder.send(DaemonResponse::Pong);
+                    }
+                    DaemonRequest::GetStatus => {
+                        let _ = inv.responder.send(DaemonResponse::Status {
+                            active_group: 1,
+                            paster_count: 5,
+                        });
+                    }
+                    _ => {
+                        let _ = inv.responder.send(DaemonResponse::Ok);
+                    }
+                }
+            }
+        });
+
+        // 客户端发起 Ping
+        let res = send_request_to_path(&sock_path, &DaemonRequest::Ping)
+            .await
+            .expect("Ping 通信成功");
+        assert_eq!(res, Some(DaemonResponse::Pong));
+
+        // 客户端发起 GetStatus
+        let res = send_request_to_path(&sock_path, &DaemonRequest::GetStatus)
+            .await
+            .expect("GetStatus 通信成功");
+        assert_eq!(
+            res,
+            Some(DaemonResponse::Status {
+                active_group: 1,
+                paster_count: 5
+            })
+        );
+    }
+}
