@@ -27,7 +27,7 @@ pub(crate) fn hit_test_main_items(
     let mut cur_x = main_rect.x + padding;
 
     for (idx, &item) in items.iter().enumerate() {
-        if idx == 7 || idx == 9 {
+        if idx == 7 || idx == 11 {
             cur_x += 8.0 * s;
         }
 

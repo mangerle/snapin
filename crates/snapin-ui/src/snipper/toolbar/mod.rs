@@ -62,19 +62,21 @@ impl Default for Toolbar {
 impl Toolbar {
     /// 主工具列表定义 (严格对齐经典工具栏规范)
     pub const MAIN_ITEMS: &'static [ToolbarItem] = &[
-        ToolbarItem::ToolRect,    // 0: 几何形状 (矩形+椭圆)
-        ToolbarItem::ToolBadge,   // 1: 序号步骤印章 (圆圈数字1)
-        ToolbarItem::ToolArrow,   // 2: 折线箭头 (带颜色指示圆点)
-        ToolbarItem::ToolPen,     // 3: 铅笔画笔
-        ToolbarItem::ToolMarker,  // 4: 荧光记号笔
-        ToolbarItem::ToolMosaic,  // 5: 黑白四宫格马赛克
-        ToolbarItem::ToolText,    // 6: 文字 T
-        ToolbarItem::ActionUndo,  // 7: 撤销 (前置分隔线 1)
-        ToolbarItem::ActionRedo,  // 8: 重做
-        ToolbarItem::ActionClose, // 9: 关闭取消 X (前置分隔线 2)
-        ToolbarItem::ActionPin,   // 10: 贴图置顶 (图钉)
-        ToolbarItem::ActionSave,  // 11: 保存文件 (软盘)
-        ToolbarItem::ActionCopy,  // 12: 复制到剪贴板 (双重叠矩形)
+        ToolbarItem::ToolRect,        // 0: 几何形状 (矩形+椭圆)
+        ToolbarItem::ToolBadge,       // 1: 序号步骤印章 (圆圈数字1)
+        ToolbarItem::ToolArrow,       // 2: 折线箭头 (带颜色指示圆点)
+        ToolbarItem::ToolPen,         // 3: 铅笔画笔
+        ToolbarItem::ToolMarker,      // 4: 荧光记号笔
+        ToolbarItem::ToolMosaic,      // 5: 黑白四宫格马赛克
+        ToolbarItem::ToolText,        // 6: 文字 T
+        ToolbarItem::ActionUndo,      // 7: 撤销 (前置分隔线 1)
+        ToolbarItem::ActionRedo,      // 8: 重做
+        ToolbarItem::ActionOcr,       // 9: OCR 扫描提取纯文本
+        ToolbarItem::ActionTranslate, // 10: 截图原位翻译
+        ToolbarItem::ActionClose,     // 11: 关闭取消 X (前置分隔线 2)
+        ToolbarItem::ActionPin,       // 12: 贴图置顶 (图钉)
+        ToolbarItem::ActionSave,      // 13: 保存文件 (软盘)
+        ToolbarItem::ActionCopy,      // 14: 复制到剪贴板 (双重叠矩形)
     ];
 
     /// 根据选区与屏幕宽高重新计算工具栏自适应摆放位置 (自适应 HiDPI 缩放)

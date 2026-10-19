@@ -25,6 +25,10 @@ pub enum ToolbarItem {
     ActionUndo,
     /// 重做
     ActionRedo,
+    /// OCR 文字识别并复制到剪贴板
+    ActionOcr,
+    /// 截图原位翻译
+    ActionTranslate,
     /// 贴图置顶到屏幕 (F3)
     ActionPin,
     /// 复制到剪贴板并退出

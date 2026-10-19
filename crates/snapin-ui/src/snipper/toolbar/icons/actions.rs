@@ -167,3 +167,66 @@ pub fn render_icon_copy(
         pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
     }
 }
+
+/// 图标 14: OCR 扫描识别
+pub fn render_icon_ocr(
+    pixmap: &mut PixmapMut,
+    cx: f32,
+    cy: f32,
+    s: f32,
+    paint: &Paint,
+    stroke: &Stroke,
+) {
+    let mut pb = PathBuilder::new();
+    // 左上角
+    pb.move_to(cx - 6.5 * s, cy - 3.5 * s);
+    pb.line_to(cx - 6.5 * s, cy - 6.5 * s);
+    pb.line_to(cx - 3.5 * s, cy - 6.5 * s);
+    // 右上角
+    pb.move_to(cx + 3.5 * s, cy - 6.5 * s);
+    pb.line_to(cx + 6.5 * s, cy - 6.5 * s);
+    pb.line_to(cx + 6.5 * s, cy - 3.5 * s);
+    // 左下角
+    pb.move_to(cx - 6.5 * s, cy + 3.5 * s);
+    pb.line_to(cx - 6.5 * s, cy + 6.5 * s);
+    pb.line_to(cx - 3.5 * s, cy + 6.5 * s);
+    // 右下角
+    pb.move_to(cx + 3.5 * s, cy + 3.5 * s);
+    pb.line_to(cx + 6.5 * s, cy + 6.5 * s);
+    pb.line_to(cx + 6.5 * s, cy + 3.5 * s);
+
+    // 中间横向扫描文字线
+    pb.move_to(cx - 4.5 * s, cy);
+    pb.line_to(cx + 4.5 * s, cy);
+
+    if let Some(path) = pb.finish() {
+        pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
+    }
+}
+
+/// 图标 15: 截图翻译
+pub fn render_icon_translate(
+    pixmap: &mut PixmapMut,
+    cx: f32,
+    cy: f32,
+    s: f32,
+    paint: &Paint,
+    stroke: &Stroke,
+) {
+    let mut pb = PathBuilder::new();
+    // 绘制左侧大写字母 A 笔画
+    pb.move_to(cx - 6.0 * s, cy + 5.0 * s);
+    pb.line_to(cx - 2.5 * s, cy - 5.0 * s);
+    pb.line_to(cx + 1.0 * s, cy + 5.0 * s);
+    pb.move_to(cx - 5.0 * s, cy + 1.5 * s);
+    pb.line_to(cx, cy + 1.5 * s);
+
+    // 绘制右侧文字折角符号
+    pb.move_to(cx + 2.0 * s, cy - 3.0 * s);
+    pb.line_to(cx + 6.5 * s, cy - 3.0 * s);
+    pb.line_to(cx + 4.5 * s, cy + 5.0 * s);
+
+    if let Some(path) = pb.finish() {
+        pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
+    }
+}

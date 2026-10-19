@@ -54,6 +54,10 @@ pub fn handle_key_input(
             handle_action_pin(state, original_rgba);
             true
         }
+        Key::Character(c) if c.eq_ignore_ascii_case("o") && !state.modifiers.control_key() => {
+            super::actions::handle_action_ocr(state, original_rgba);
+            true
+        }
         Key::Character(c) if c == "," => handle_history_back(state, original_rgba),
         Key::Character(c) if c == "." => handle_history_forward(state, original_rgba),
         _ => false,

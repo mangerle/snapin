@@ -32,6 +32,10 @@ pub fn dispatch_toolbar_action(
             handle_action_pin(state, original_rgba);
             true
         }
+        ToolbarItem::ActionOcr => {
+            super::super::actions::handle_action_ocr(state, original_rgba);
+            true
+        }
         ToolbarItem::ActionClose => {
             state.outcome = Some(SnipperOutcome::Cancelled);
             true

@@ -7,7 +7,9 @@ pub mod ocr;
 pub mod translate;
 
 pub use error::ServiceError;
-pub use ocr::{load_character_dict, LocalOcrPaths, OcrEngine, OcrResult, OcrTextBlock};
+pub use ocr::{
+    load_character_dict, LocalOcrPaths, LocalPpOcrEngine, OcrEngine, OcrResult, OcrTextBlock,
+};
 pub use translate::{TranslateOptions, TranslateResult, TranslationItem, Translator};
 
 #[cfg(test)]

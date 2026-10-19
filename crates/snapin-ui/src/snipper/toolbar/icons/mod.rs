@@ -44,6 +44,10 @@ pub fn render_item_icon(
         ToolbarItem::ActionPin => actions::render_icon_pin(pixmap, cx, cy, s, &paint, &stroke),
         ToolbarItem::ActionSave => actions::render_icon_save(pixmap, cx, cy, s, &paint, &stroke),
         ToolbarItem::ActionCopy => actions::render_icon_copy(pixmap, cx, cy, s, &paint, &stroke),
+        ToolbarItem::ActionOcr => actions::render_icon_ocr(pixmap, cx, cy, s, &paint, &stroke),
+        ToolbarItem::ActionTranslate => {
+            actions::render_icon_translate(pixmap, cx, cy, s, &paint, &stroke)
+        }
         ToolbarItem::ToolEllipse => tools::render_icon_ellipse(pixmap, cx, cy, s, &paint, &stroke),
     }
 }

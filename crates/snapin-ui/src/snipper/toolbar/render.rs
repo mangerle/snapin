@@ -80,7 +80,7 @@ fn render_main_buttons(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
     let mut cur_x = toolbar.main_rect.x + padding;
 
     for (idx, &item) in Toolbar::MAIN_ITEMS.iter().enumerate() {
-        if idx == 7 || idx == 9 {
+        if idx == 7 || idx == 11 {
             render_divider(pixmap, cur_x + 3.0 * s, toolbar.main_rect.y + padding, s);
             cur_x += 8.0 * s;
         }

@@ -5202,6 +5202,7 @@ dependencies = [
  "rustix 0.38.44",
  "snapin-core",
  "snapin-platform",
+ "snapin-service",
  "softbuffer",
  "tempfile",
  "thiserror 1.0.69",

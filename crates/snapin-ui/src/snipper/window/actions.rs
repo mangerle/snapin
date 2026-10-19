@@ -104,6 +104,54 @@ pub fn handle_action_pin(state: &mut SnipperState, original_rgba: &RgbaImage) {
     }
 }
 
+/// 执行选区 OCR 文字识别并静默复制全文至系统剪贴板
+pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    if let Some(cropped) = crop_selection_image(state, original_rgba) {
+        if let SelectionState::Locked { rect, .. } = &state.selection {
+            save_last_selection((rect.x, rect.y, rect.width, rect.height));
+        }
+
+        let custom_dir = if state.config.ocr.local.model_dir.is_empty() {
+            None
+        } else {
+            Some(std::path::Path::new(&state.config.ocr.local.model_dir))
+        };
+
+        match snapin_service::LocalPpOcrEngine::new(custom_dir) {
+            Ok(engine) => {
+                use snapin_service::OcrEngine;
+                let recognize_fut = engine.recognize(&cropped);
+                let ocr_result = match tokio::runtime::Handle::try_current() {
+                    Ok(handle) => tokio::task::block_in_place(|| handle.block_on(recognize_fut)),
+                    Err(_) => {
+                        let rt = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build();
+                        match rt {
+                            Ok(runtime) => runtime.block_on(recognize_fut),
+                            Err(_) => Ok(snapin_service::OcrResult::default()),
+                        }
+                    }
+                };
+
+                if let Ok(res) = ocr_result {
+                    let text = res.full_text;
+                    if !text.is_empty() {
+                        if let Err(e) = snapin_platform::write_text_to_clipboard(&text) {
+                            tracing::warn!("复制 OCR 文本至系统剪贴板失败: {e}");
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("本地 OCR 引擎未能初始化: {e}，请检查离线模型文件是否已部署");
+            }
+        }
+
+        state.outcome = Some(SnipperOutcome::Copied(cropped));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,5 +241,23 @@ mod tests {
             }
             _ => panic!("预期输出 Pinned 状态"),
         }
+    }
+
+    #[test]
+    fn test_handle_action_ocr_sets_outcome() {
+        let mut state = SnipperState::new();
+        state.selection = SelectionState::Locked {
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 50.0,
+                height: 50.0,
+            },
+            active_drag: None,
+        };
+        let original = RgbaImage::from_pixel(100, 100, Rgba([255, 255, 255, 255]));
+        handle_action_ocr(&mut state, &original);
+
+        assert!(matches!(state.outcome, Some(SnipperOutcome::Copied(_))));
     }
 }
