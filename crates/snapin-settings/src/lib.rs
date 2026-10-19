@@ -15,6 +15,65 @@ use snapin_platform::{
 };
 use std::sync::{Arc, Mutex};
 
+/// 预设强调色表（顺序与 Slint interface_tab 中的 ComboBox 严格一一对应）
+const ACCENT_COLORS: &[&str] = &[
+    "#00AEFF", // 0: 天海晴蓝
+    "#10B981", // 1: 翡翠青绿
+    "#F59E0B", // 2: 日光亮橙
+    "#8B5CF6", // 3: 优雅紫罗兰
+];
+
+/// 预设标注颜色表（顺序与 Slint snip_tab 中的 ComboBox 严格一一对应）
+const DEFAULT_SNIP_COLORS: &[&str] = &[
+    "#EF4444", // 0: 醒目赤红
+    "#00AEFF", // 1: 天海晴蓝
+    "#10B981", // 2: 清新翠绿
+    "#F59E0B", // 3: 明艳亮黄
+    "#FFFFFF", // 4: 纯洁雪白
+    "#000000", // 5: 深邃墨黑
+];
+
+/// 预设放大镜倍率表（顺序与 Slint interface_tab 中的 ComboBox 严格一一对应）
+const MAGNIFIER_SCALES: &[u32] = &[4, 8, 16];
+
+fn accent_color_to_index(color: &HexColor) -> i32 {
+    let hex = color.to_hex_string();
+    ACCENT_COLORS
+        .iter()
+        .position(|&c| c.eq_ignore_ascii_case(&hex))
+        .unwrap_or(0) as i32
+}
+
+fn index_to_accent_color(index: i32) -> HexColor {
+    let idx = index.clamp(0, (ACCENT_COLORS.len() - 1) as i32) as usize;
+    HexColor::from_hex(ACCENT_COLORS[idx]).unwrap_or_else(|| HexColor::new(0, 174, 255, 255))
+}
+
+fn snip_color_to_index(color: &HexColor) -> i32 {
+    let hex = color.to_hex_string();
+    DEFAULT_SNIP_COLORS
+        .iter()
+        .position(|&c| c.eq_ignore_ascii_case(&hex))
+        .unwrap_or(0) as i32
+}
+
+fn index_to_snip_color(index: i32) -> HexColor {
+    let idx = index.clamp(0, (DEFAULT_SNIP_COLORS.len() - 1) as i32) as usize;
+    HexColor::from_hex(DEFAULT_SNIP_COLORS[idx]).unwrap_or_else(|| HexColor::new(239, 68, 68, 255))
+}
+
+fn magnifier_scale_to_index(scale: u32) -> i32 {
+    MAGNIFIER_SCALES
+        .iter()
+        .position(|&s| s == scale)
+        .unwrap_or(1) as i32
+}
+
+fn index_to_magnifier_scale(index: i32) -> u32 {
+    let idx = index.clamp(0, (MAGNIFIER_SCALES.len() - 1) as i32) as usize;
+    MAGNIFIER_SCALES[idx]
+}
+
 /// 运行 Slint 偏好设置中心图形界面
 pub fn run_settings_gui() -> Result<(), SnapinError> {
     let window = SettingsWindow::new().map_err(|e| SnapinError::SoftbufferError {
@@ -87,21 +146,9 @@ fn sync_general_to_window(win: &SettingsWindow, g: &config::model::GeneralConfig
 /// 同步界面外观板块设置
 fn sync_interface_to_window(win: &SettingsWindow, i: &config::model::InterfaceConfig) {
     win.set_theme_index(i.theme.to_index());
-    let accent_str = i.accent_color.to_hex_string();
-    let accent_idx = match accent_str.as_str() {
-        "#10B981" => 1,
-        "#F59E0B" => 2,
-        "#8B5CF6" => 3,
-        _ => 0,
-    };
-    win.set_accent_color_index(accent_idx);
+    win.set_accent_color_index(accent_color_to_index(&i.accent_color));
     win.set_enable_magnifier(i.enable_magnifier);
-    let mag_idx = match i.magnifier_scale {
-        4 => 0,
-        16 => 2,
-        _ => 1,
-    };
-    win.set_magnifier_scale_index(mag_idx);
+    win.set_magnifier_scale_index(magnifier_scale_to_index(i.magnifier_scale));
     win.set_color_format_index(i.color_format.to_index());
     win.set_show_grid_lines(i.show_grid_lines);
     win.set_toolbar_scale_percent(i.toolbar_scale * 100.0);
@@ -113,16 +160,7 @@ fn sync_snip_to_window(win: &SettingsWindow, s: &config::model::SnipConfig) {
     win.set_smart_window_snapping(s.smart_window_snapping);
     win.set_remember_last_selection(s.remember_last_selection);
     win.set_default_tool_index(s.default_tool.to_index());
-    let col_str = s.default_color.to_hex_string();
-    let col_idx = match col_str.as_str() {
-        "#00AEFF" => 1,
-        "#10B981" => 2,
-        "#F59E0B" => 3,
-        "#FFFFFF" => 4,
-        "#000000" => 5,
-        _ => 0,
-    };
-    win.set_default_color_index(col_idx);
+    win.set_default_color_index(snip_color_to_index(&s.default_color));
     win.set_default_stroke_width(s.default_stroke_width);
     win.set_snip_font_size(s.default_font_size);
 }
@@ -175,19 +213,9 @@ fn extract_general_from_window(win: &SettingsWindow, g: &mut config::model::Gene
 /// 提取界面外观设置
 fn extract_interface_from_window(win: &SettingsWindow, i: &mut config::model::InterfaceConfig) {
     i.theme = config::model::Theme::from_index(win.get_theme_index());
-    let hex = match win.get_accent_color_index() {
-        1 => "#10B981",
-        2 => "#F59E0B",
-        3 => "#8B5CF6",
-        _ => "#00AEFF",
-    };
-    i.accent_color = HexColor::from_hex(hex).unwrap_or_else(|| HexColor::new(0, 174, 255, 255));
+    i.accent_color = index_to_accent_color(win.get_accent_color_index());
     i.enable_magnifier = win.get_enable_magnifier();
-    i.magnifier_scale = match win.get_magnifier_scale_index() {
-        0 => 4,
-        2 => 16,
-        _ => 8,
-    };
+    i.magnifier_scale = index_to_magnifier_scale(win.get_magnifier_scale_index());
     i.color_format = config::model::ColorFormat::from_index(win.get_color_format_index());
     i.show_grid_lines = win.get_show_grid_lines();
     i.toolbar_scale = win.get_toolbar_scale_percent() / 100.0;
@@ -199,15 +227,7 @@ fn extract_snip_from_window(win: &SettingsWindow, s: &mut config::model::SnipCon
     s.smart_window_snapping = win.get_smart_window_snapping();
     s.remember_last_selection = win.get_remember_last_selection();
     s.default_tool = config::model::DefaultTool::from_index(win.get_default_tool_index());
-    let hex = match win.get_default_color_index() {
-        1 => "#00AEFF",
-        2 => "#10B981",
-        3 => "#F59E0B",
-        4 => "#FFFFFF",
-        5 => "#000000",
-        _ => "#EF4444",
-    };
-    s.default_color = HexColor::from_hex(hex).unwrap_or_else(|| HexColor::new(239, 68, 68, 255));
+    s.default_color = index_to_snip_color(win.get_default_color_index());
     s.default_stroke_width = win.get_default_stroke_width();
     s.default_font_size = win.get_snip_font_size();
 }
@@ -277,4 +297,41 @@ fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_accent_color_mapping() {
+        let green = HexColor::from_hex("#10B981").unwrap();
+        assert_eq!(accent_color_to_index(&green), 1);
+        assert_eq!(index_to_accent_color(1), green);
+
+        // 未知颜色兜底为默认天蓝 (索引 0)
+        let unknown = HexColor::from_hex("#123456").unwrap();
+        assert_eq!(accent_color_to_index(&unknown), 0);
+    }
+
+    #[test]
+    fn test_snip_color_mapping() {
+        let white = HexColor::from_hex("#FFFFFF").unwrap();
+        assert_eq!(snip_color_to_index(&white), 4);
+        assert_eq!(index_to_snip_color(4), white);
+
+        let red = HexColor::from_hex("#EF4444").unwrap();
+        assert_eq!(snip_color_to_index(&red), 0);
+        assert_eq!(index_to_snip_color(0), red);
+    }
+
+    #[test]
+    fn test_magnifier_scale_mapping() {
+        assert_eq!(magnifier_scale_to_index(4), 0);
+        assert_eq!(magnifier_scale_to_index(8), 1);
+        assert_eq!(magnifier_scale_to_index(16), 2);
+        assert_eq!(index_to_magnifier_scale(0), 4);
+        assert_eq!(index_to_magnifier_scale(1), 8);
+        assert_eq!(index_to_magnifier_scale(2), 16);
+    }
 }
