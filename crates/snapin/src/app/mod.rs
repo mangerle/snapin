@@ -3,5 +3,6 @@
 pub mod cleaner;
 pub mod daemon;
 pub mod installer;
+pub mod lifecycle;
 pub mod paste;
 pub mod snip;

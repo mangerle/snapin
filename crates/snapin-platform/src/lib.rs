@@ -17,7 +17,7 @@ pub use extension_client::{capture_fullscreen_extension, pin_window_above};
 pub use hotkey_manager::{
     convert_to_gnome_accelerator, suspend_hotkeys_for_settings, sync_hotkeys_to_gnome,
 };
-pub use lifecycle::exit_snapin_application;
+pub use lifecycle::{disable_gnome_extension, stop_systemd_service};
 pub use notification::send_desktop_notification;
 pub use portal::capture_fullscreen_portal;
 pub use save_helper::{

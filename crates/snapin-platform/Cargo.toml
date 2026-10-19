@@ -8,7 +8,6 @@ description = "Snapin Linux Wayland 平台底层驱动：Portal截屏、GNOME Sh
 
 [dependencies]
 snapin-core.workspace = true
-snapin-daemon.workspace = true
 ashpd.workspace = true
 zbus.workspace = true
 arboard.workspace = true
