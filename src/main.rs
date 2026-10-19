@@ -33,7 +33,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 #[command(
     name = "snapin",
     author = "wangle",
-    version = "0.1.0",
+    version = env!("CARGO_PKG_VERSION"),
     about = "专为 Linux Wayland (Ubuntu 26 GNOME) 打造的纯 Rust 截图与贴图工具"
 )]
 pub struct Cli {

@@ -22,8 +22,8 @@ export component SettingsWindow inherits Window {
     // 导航项索引 (0: 常规, 1: 界面外观, 2: 截图流程, 3: 贴图窗口, 4: 输出保存, 5: 快捷键, 6: 关于)
     in-out property <int> active_tab: 0;
 
-    // 应用程序版本（由 Rust 在启动时通过 env!("CARGO_PKG_VERSION") 动态注入）
-    in-out property <string> app_version: "0.1.0";
+    // 应用程序版本（由 Rust 在启动时通过 env!("CARGO_PKG_VERSION") 动态注入，无需在此硬编码）
+    in-out property <string> app_version: "";
 
     // 底部状态提示信息
     in-out property <string> status_message: "";
