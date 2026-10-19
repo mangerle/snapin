@@ -10,6 +10,8 @@ pub mod notification;
 pub mod portal;
 pub mod save_helper;
 
+pub(crate) mod dbus_session;
+
 pub use autostart::sync_autostart_desktop_file;
 pub use clipboard::{
     read_clipboard_image, read_clipboard_text, write_image_to_clipboard,

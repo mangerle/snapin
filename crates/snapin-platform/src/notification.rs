@@ -1,9 +1,9 @@
 //! 基于 Freedesktop 标准的桌面通知发送实现。
 
+use crate::dbus_session::get_session_connection;
 use crate::error::PlatformError;
 use std::collections::HashMap;
 use zbus::zvariant::Value;
-use zbus::Connection;
 
 const NOTIFICATION_BUS_NAME: &str = "org.freedesktop.Notifications";
 const NOTIFICATION_PATH: &str = "/org/freedesktop/Notifications";
@@ -11,12 +11,7 @@ const NOTIFICATION_INTERFACE: &str = "org.freedesktop.Notifications";
 
 /// 向系统通知中心发送一条自消除的气泡通知
 pub async fn send_desktop_notification(summary: &str, body: &str) -> Result<u32, PlatformError> {
-    let connection = Connection::session()
-        .await
-        .map_err(|e| PlatformError::DBus {
-            service: NOTIFICATION_BUS_NAME.to_string(),
-            message: e.to_string(),
-        })?;
+    let connection = get_session_connection().await?;
 
     let app_name = "Snapin";
     let replaces_id: u32 = 0;

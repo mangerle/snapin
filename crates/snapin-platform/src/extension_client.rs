@@ -3,29 +3,12 @@
 //! 通过向 Mutter 内部暴露的 D-Bus 接口发送指定贴图窗口的唯一标题，
 //! 请求合成器调用 `meta_window.make_above()` 赋予其最高层级置顶特权。
 
+use crate::dbus_session::get_session_connection;
 use crate::error::PlatformError;
-use tokio::sync::OnceCell;
-use zbus::Connection;
 
 const EXT_BUS_NAME: &str = "org.gnome.Shell";
 const EXT_OBJECT_PATH: &str = "/org/gnome/Shell/Extensions/Snapin";
 const EXT_INTERFACE: &str = "org.gnome.Shell.Extensions.Snapin";
-
-static SESSION_CONNECTION: OnceCell<Connection> = OnceCell::const_new();
-
-/// 获取或初始化全局复用的 D-Bus Session 会话总线单例连接
-async fn get_session_connection() -> Result<&'static Connection, PlatformError> {
-    SESSION_CONNECTION
-        .get_or_try_init(|| async {
-            Connection::session()
-                .await
-                .map_err(|e| PlatformError::DBus {
-                    service: "D-Bus Session Bus".to_string(),
-                    message: e.to_string(),
-                })
-        })
-        .await
-}
 
 /// 请求配套 GNOME Shell 扩展将指定标题的贴图窗口置顶
 pub async fn pin_window_above(window_title: &str) -> Result<bool, PlatformError> {

@@ -21,30 +21,43 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError>
 
     let current_exe = get_snapin_executable_path();
 
-    setup_keybinding(
-        &snip_path,
-        "Snapin 区域截图",
-        &format!("{current_exe} snip"),
-        &config.snip.to_gnome_accelerator(),
-    );
-    setup_keybinding(
-        &paste_path,
-        "Snapin 贴图",
-        &format!("{current_exe} paste"),
-        &config.paste.to_gnome_accelerator(),
-    );
-    setup_keybinding(
-        &toggle_path,
-        "Snapin 隐藏/显示贴图",
-        &format!("{current_exe} toggle"),
-        &config.toggle_pasters.to_gnome_accelerator(),
-    );
-    setup_keybinding(
-        &switch_path,
-        "Snapin 切换贴图组",
-        &format!("{current_exe} switch-group"),
-        &config.switch_group.to_gnome_accelerator(),
-    );
+    let snip_schema =
+        format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{snip_path}");
+    let snip_cmd = format!("{current_exe} snip");
+    let snip_binding = convert_to_gnome_accelerator(&config.snip.to_gnome_accelerator());
+
+    let paste_schema =
+        format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{paste_path}");
+    let paste_cmd = format!("{current_exe} paste");
+    let paste_binding = convert_to_gnome_accelerator(&config.paste.to_gnome_accelerator());
+
+    let toggle_schema =
+        format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{toggle_path}");
+    let toggle_cmd = format!("{current_exe} toggle");
+    let toggle_binding =
+        convert_to_gnome_accelerator(&config.toggle_pasters.to_gnome_accelerator());
+
+    let switch_schema =
+        format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{switch_path}");
+    let switch_cmd = format!("{current_exe} switch-group");
+    let switch_binding = convert_to_gnome_accelerator(&config.switch_group.to_gnome_accelerator());
+
+    let batch_items = [
+        (snip_schema.as_str(), "name", "Snapin 区域截图"),
+        (snip_schema.as_str(), "command", snip_cmd.as_str()),
+        (snip_schema.as_str(), "binding", snip_binding.as_str()),
+        (paste_schema.as_str(), "name", "Snapin 贴图"),
+        (paste_schema.as_str(), "command", paste_cmd.as_str()),
+        (paste_schema.as_str(), "binding", paste_binding.as_str()),
+        (toggle_schema.as_str(), "name", "Snapin 隐藏/显示贴图"),
+        (toggle_schema.as_str(), "command", toggle_cmd.as_str()),
+        (toggle_schema.as_str(), "binding", toggle_binding.as_str()),
+        (switch_schema.as_str(), "name", "Snapin 切换贴图组"),
+        (switch_schema.as_str(), "command", switch_cmd.as_str()),
+        (switch_schema.as_str(), "binding", switch_binding.as_str()),
+    ];
+
+    execute_gsettings_batch(&batch_items);
 
     tracing::info!("GNOME 快捷键同步完成");
     Ok(())
@@ -53,16 +66,27 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError>
 /// 临时清空 Snapin 在 GNOME 中的快捷键绑定，避免在设置中心录制按键时被系统全局拦截
 pub fn suspend_hotkeys_for_settings() -> Result<(), PlatformError> {
     let base_path = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
-    let snip_path = format!("{base_path}/snapin-snip/");
-    let paste_path = format!("{base_path}/snapin-paste/");
-    let toggle_path = format!("{base_path}/snapin-toggle/");
-    let switch_path = format!("{base_path}/snapin-switch-group/");
+    let schemas = [
+        format!(
+            "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-snip/"
+        ),
+        format!(
+            "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-paste/"
+        ),
+        format!(
+            "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-toggle/"
+        ),
+        format!(
+            "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-switch-group/"
+        ),
+    ];
 
-    for path in [&snip_path, &paste_path, &toggle_path, &switch_path] {
-        let schema_with_path =
-            format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{path}");
-        run_gsettings_set(&schema_with_path, "binding", "");
-    }
+    let items: Vec<(&str, &str, &str)> = schemas
+        .iter()
+        .map(|s| (s.as_str(), "binding", ""))
+        .collect();
+
+    execute_gsettings_batch(&items);
     tracing::info!("已临时挂起 Snapin 全局快捷键，以确保设置中心自由录入按键");
     Ok(())
 }
@@ -90,26 +114,30 @@ fn ensure_custom_keybindings_registered(paths: &[&str]) -> Result<(), PlatformEr
         .map(|s| s.to_string())
         .collect();
 
+    let mut changed = false;
     for path in paths {
         if !bindings.iter().any(|b| b == *path) {
             bindings.push((*path).to_string());
+            changed = true;
         }
     }
 
-    let formatted_list = format!(
-        "[{}]",
-        bindings
-            .iter()
-            .map(|s| format!("'{s}'"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
+    if changed {
+        let formatted_list = format!(
+            "[{}]",
+            bindings
+                .iter()
+                .map(|s| format!("'{s}'"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
 
-    run_gsettings_set(
-        "org.gnome.settings-daemon.plugins.media-keys",
-        "custom-keybindings",
-        &formatted_list,
-    );
+        run_gsettings_set(
+            "org.gnome.settings-daemon.plugins.media-keys",
+            "custom-keybindings",
+            &formatted_list,
+        );
+    }
 
     Ok(())
 }
@@ -128,6 +156,34 @@ fn get_snapin_executable_path() -> String {
     }
 }
 
+/// 批量执行 gsettings set 命令，通过单一子进程批处理减少频繁创建进程的开销
+fn execute_gsettings_batch(items: &[(&str, &str, &str)]) {
+    if items.is_empty() {
+        return;
+    }
+
+    let mut script = String::with_capacity(items.len() * 128);
+    for (schema, key, val) in items {
+        let escaped_schema = schema.replace('\'', "'\\''");
+        let escaped_key = key.replace('\'', "'\\''");
+        let escaped_val = val.replace('\'', "'\\''");
+        script.push_str(&format!(
+            "gsettings set '{escaped_schema}' '{escaped_key}' '{escaped_val}'\n"
+        ));
+    }
+
+    match Command::new("sh").arg("-c").arg(&script).output() {
+        Ok(out) if !out.status.success() => {
+            let err = String::from_utf8_lossy(&out.stderr);
+            tracing::warn!("批量更新 GNOME 快捷键配置出现警告: {err}");
+        }
+        Err(e) => {
+            tracing::warn!("执行 GNOME 快捷键配置批处理命令失败: {e}");
+        }
+        _ => {}
+    }
+}
+
 fn run_gsettings_set(schema_with_path: &str, key: &str, value: &str) {
     match Command::new("gsettings")
         .args(["set", schema_with_path, key, value])
@@ -142,17 +198,6 @@ fn run_gsettings_set(schema_with_path: &str, key: &str, value: &str) {
         }
         _ => {}
     }
-}
-
-fn setup_keybinding(path: &str, name: &str, command: &str, binding: &str) {
-    let schema_with_path =
-        format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{path}");
-
-    run_gsettings_set(&schema_with_path, "name", name);
-    run_gsettings_set(&schema_with_path, "command", command);
-
-    let effective_binding = convert_to_gnome_accelerator(binding);
-    run_gsettings_set(&schema_with_path, "binding", &effective_binding);
 }
 
 /// 将人类可读的快捷键格式（如 "Ctrl+Alt+A"、"Ctrl+F3"、"F1"）转换为 GNOME / GTK Accelerator 标准格式
