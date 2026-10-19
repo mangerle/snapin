@@ -9,7 +9,9 @@ pub mod shortcut;
 
 use crate::config::{self, Config};
 use crate::error::SnapinError;
-use crate::platform::{sync_autostart_desktop_file, sync_hotkeys_to_gnome};
+use crate::platform::{
+    suspend_hotkeys_for_settings, sync_autostart_desktop_file, sync_hotkeys_to_gnome,
+};
 use slint::{ComponentHandle, SharedString};
 use std::sync::{Arc, Mutex};
 
@@ -48,10 +50,19 @@ pub fn run_settings_gui() -> Result<(), SnapinError> {
     // 2. 注册界面交互与保存回调
     register_callbacks(&window, config_arc);
 
-    window.run().map_err(|e| SnapinError::SoftbufferError {
-        message: format!("设置中心事件循环运行异常: {e}"),
-    })?;
+    // 3. 临时挂起 Snapin 系统全局快捷键，确保录制时按键不被系统拦截触发
+    let _ = suspend_hotkeys_for_settings();
 
+    let run_res = window.run().map_err(|e| SnapinError::SoftbufferError {
+        message: format!("设置中心事件循环运行异常: {e}"),
+    });
+
+    // 4. 设置窗口退出后，从磁盘恢复最新的有效全局快捷键
+    if let Ok(latest_cfg) = config::load_or_create_config(None) {
+        let _ = sync_hotkeys_to_gnome(&latest_cfg.hotkeys);
+    }
+
+    run_res?;
     Ok(())
 }
 

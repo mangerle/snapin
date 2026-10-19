@@ -344,10 +344,10 @@ fn default_jpeg_quality() -> u8 {
     90
 }
 fn default_snip_hotkey() -> String {
-    "F1".to_string()
+    "Ctrl+Alt+A".to_string()
 }
 fn default_paste_hotkey() -> String {
-    "F3".to_string()
+    "F1".to_string()
 }
 fn default_toggle_hotkey() -> String {
     "Ctrl+F3".to_string()

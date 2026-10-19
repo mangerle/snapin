@@ -50,6 +50,25 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), SnapinError> {
     Ok(())
 }
 
+/// 临时清空 Snapin 在 GNOME 中的快捷键绑定，避免在设置中心录制按键时被系统全局拦截
+pub fn suspend_hotkeys_for_settings() -> Result<(), SnapinError> {
+    let base_path = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
+    let snip_path = format!("{base_path}/snapin-snip/");
+    let paste_path = format!("{base_path}/snapin-paste/");
+    let toggle_path = format!("{base_path}/snapin-toggle/");
+    let switch_path = format!("{base_path}/snapin-switch-group/");
+
+    for path in [&snip_path, &paste_path, &toggle_path, &switch_path] {
+        let schema_with_path =
+            format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{path}");
+        let _ = Command::new("gsettings")
+            .args(["set", &schema_with_path, "binding", ""])
+            .output();
+    }
+    tracing::info!("已临时挂起 Snapin 全局快捷键，以确保设置中心自由录入按键");
+    Ok(())
+}
+
 /// 确保指定的自定义按键路径已写入 GNOME custom-keybindings 列表
 fn ensure_custom_keybindings_registered(paths: &[&str]) -> Result<(), SnapinError> {
     let output = Command::new("gsettings")

@@ -358,8 +358,11 @@ async fn run_daemon_server(cfg: config::Config) -> Result<()> {
 
     tracing::info!("Snapin 守护服务已就绪，等待热键指令...");
     if cfg.general.notify_on_startup {
-        let _ = send_desktop_notification("Snapin 截图贴图", "服务已就绪：按 F1 截图，按 F3 贴图")
-            .await;
+        let _ = send_desktop_notification(
+            "Snapin 截图贴图",
+            "服务已就绪：按 Ctrl+Alt+A 截图，按 F1 贴图",
+        )
+        .await;
     }
 
     while let Some(cmd) = rx.recv().await {
