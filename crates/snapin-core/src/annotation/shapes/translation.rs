@@ -3,7 +3,7 @@
 use crate::annotation::action::AnnotationAction;
 use crate::render::with_thread_local_text_renderer;
 use serde::{Deserialize, Serialize};
-use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Rect, Transform};
+use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Transform};
 
 /// 单个原位翻译文本项
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -66,11 +66,19 @@ impl AnnotationAction for TranslationAction {
             paint.set_color(bg_c);
             paint.anti_alias = true;
 
-            // 绘制擦除矩形
+            // 绘制平滑微圆角擦除矩形 (平滑过渡边缘)
             let mut pb = PathBuilder::new();
-            if let Some(skia_rect) = Rect::from_xywh(rx, ry, rw, rh) {
-                pb.push_rect(skia_rect);
-            }
+            let radius = 3.0_f32.min(rw / 2.0).min(rh / 2.0);
+            pb.move_to(rx + radius, ry);
+            pb.line_to(rx + rw - radius, ry);
+            pb.quad_to(rx + rw, ry, rx + rw, ry + radius);
+            pb.line_to(rx + rw, ry + rh - radius);
+            pb.quad_to(rx + rw, ry + rh, rx + rw - radius, ry + rh);
+            pb.line_to(rx + radius, ry + rh);
+            pb.quad_to(rx, ry + rh, rx, ry + rh - radius);
+            pb.line_to(rx, ry + radius);
+            pb.quad_to(rx, ry, rx + radius, ry);
+            pb.close();
 
             if let Some(path) = pb.finish() {
                 pixmap.fill_path(

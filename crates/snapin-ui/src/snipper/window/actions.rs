@@ -152,7 +152,7 @@ pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
     }
 }
 
-/// 估算指定局部矩形周边的背景主导色 (对四条外边缘进行采样求平均)
+/// 估算指定局部矩形周边的背景主导色 (对四条外边缘进行采样，并采用截尾均值算法剔除边缘深色与高光噪点)
 fn estimate_dominant_background_color(
     image: &RgbaImage,
     min_x: u32,
@@ -166,48 +166,61 @@ fn estimate_dominant_background_color(
         return (255, 255, 255, 255);
     }
 
-    let mut r_sum: u64 = 0;
-    let mut g_sum: u64 = 0;
-    let mut b_sum: u64 = 0;
-    let mut count: u64 = 0;
+    // 稍微向外外扩 1 像素采样，避免贴合文字边缘笔画
+    let x1 = min_x.saturating_sub(1);
+    let y1 = min_y.saturating_sub(1);
+    let x2 = (min_x + w + 1).min(img_w.saturating_sub(1));
+    let y2 = (min_y + h + 1).min(img_h.saturating_sub(1));
 
-    let x1 = min_x.min(img_w.saturating_sub(1));
-    let y1 = min_y.min(img_h.saturating_sub(1));
-    let x2 = (min_x + w).min(img_w.saturating_sub(1));
-    let y2 = (min_y + h).min(img_h.saturating_sub(1));
+    let mut samples = Vec::with_capacity(((x2 - x1 + y2 - y1) * 2) as usize);
 
     // 顶部与底部边缘采样
     for x in x1..=x2 {
         let p_top = image.get_pixel(x, y1);
-        r_sum += p_top[0] as u64;
-        g_sum += p_top[1] as u64;
-        b_sum += p_top[2] as u64;
-
+        samples.push((p_top[0], p_top[1], p_top[2]));
         let p_bot = image.get_pixel(x, y2);
-        r_sum += p_bot[0] as u64;
-        g_sum += p_bot[1] as u64;
-        b_sum += p_bot[2] as u64;
-        count += 2;
+        samples.push((p_bot[0], p_bot[1], p_bot[2]));
     }
 
     // 左侧与右侧边缘采样
     for y in (y1 + 1)..y2 {
         let p_left = image.get_pixel(x1, y);
-        r_sum += p_left[0] as u64;
-        g_sum += p_left[1] as u64;
-        b_sum += p_left[2] as u64;
-
+        samples.push((p_left[0], p_left[1], p_left[2]));
         let p_right = image.get_pixel(x2, y);
-        r_sum += p_right[0] as u64;
-        g_sum += p_right[1] as u64;
-        b_sum += p_right[2] as u64;
-        count += 2;
+        samples.push((p_right[0], p_right[1], p_right[2]));
     }
 
-    if count == 0 {
+    if samples.is_empty() {
         return (255, 255, 255, 255);
     }
 
+    // 按灰度亮度排序
+    samples.sort_by(|a, b| {
+        let lum_a = 0.299 * (a.0 as f32) + 0.587 * (a.1 as f32) + 0.114 * (a.2 as f32);
+        let lum_b = 0.299 * (b.0 as f32) + 0.587 * (b.1 as f32) + 0.114 * (b.2 as f32);
+        lum_a
+            .partial_cmp(&lum_b)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    // 截尾均值：剔除前后 15% 离群值（如深色文字笔画或异常反光点）
+    let trim_count = (samples.len() as f32 * 0.15) as usize;
+    let valid_slice = if samples.len() > trim_count * 2 && trim_count > 0 {
+        &samples[trim_count..(samples.len() - trim_count)]
+    } else {
+        &samples[..]
+    };
+
+    let mut r_sum: u64 = 0;
+    let mut g_sum: u64 = 0;
+    let mut b_sum: u64 = 0;
+    for &(r, g, b) in valid_slice {
+        r_sum += r as u64;
+        g_sum += g as u64;
+        b_sum += b as u64;
+    }
+
+    let count = valid_slice.len() as u64;
     (
         (r_sum / count) as u8,
         (g_sum / count) as u8,
