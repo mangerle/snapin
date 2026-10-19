@@ -5,10 +5,10 @@ use super::text_input::TextInputSession;
 use super::types::SnipperOutcome;
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{SelectionHistory, SelectionState};
-use crate::snipper::toolbar::Toolbar;
+use crate::snipper::toolbar::{Toolbar, ToolbarItem};
 use image::RgbaImage;
 use snapin_core::annotation::AnnotationHistory;
-use snapin_core::config::{Config, InterfaceConfig, SnipConfig};
+use snapin_core::config::{Config, DefaultTool, InterfaceConfig, SnipConfig};
 use snapin_platform::write_text_to_clipboard;
 use winit::event::ElementState;
 use winit::keyboard::{Key, ModifiersState, NamedKey};
@@ -96,14 +96,14 @@ fn apply_snip_config(state: &mut SnipperState, snip: &SnipConfig, mode: super::t
 
 /// 在选区锁定后，若用户配置了默认标注工具，则激活对应的工具项
 pub fn activate_default_tool_if_configured(state: &mut SnipperState) {
-    state.toolbar.active_tool = match state.config.snip.default_tool.as_str() {
-        "rectangle" => Some(crate::snipper::toolbar::ToolbarItem::ToolRect),
-        "pen" => Some(crate::snipper::toolbar::ToolbarItem::ToolPen),
-        "marker" => Some(crate::snipper::toolbar::ToolbarItem::ToolMarker),
-        "arrow" => Some(crate::snipper::toolbar::ToolbarItem::ToolArrow),
-        "text" => Some(crate::snipper::toolbar::ToolbarItem::ToolText),
-        "badge" => Some(crate::snipper::toolbar::ToolbarItem::ToolBadge),
-        _ => None,
+    state.toolbar.active_tool = match state.config.snip.default_tool {
+        DefaultTool::Rectangle => Some(ToolbarItem::ToolRect),
+        DefaultTool::Pen => Some(ToolbarItem::ToolPen),
+        DefaultTool::Marker => Some(ToolbarItem::ToolMarker),
+        DefaultTool::Arrow => Some(ToolbarItem::ToolArrow),
+        DefaultTool::Text => Some(ToolbarItem::ToolText),
+        DefaultTool::Badge => Some(ToolbarItem::ToolBadge),
+        DefaultTool::None => None,
     };
 }
 

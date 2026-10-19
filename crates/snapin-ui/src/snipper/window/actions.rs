@@ -5,7 +5,9 @@ use super::types::SnipperOutcome;
 use crate::paster::PasterItem;
 use crate::snipper::selection::SelectionState;
 use image::{GenericImageView, RgbaImage};
-use snapin_platform::write_image_to_clipboard;
+use snapin_platform::{
+    generate_unique_id, save_image_with_config, save_last_selection, write_image_to_clipboard,
+};
 use std::path::PathBuf;
 
 /// 裁剪当前选区图像并合成已绘制的矢量标注
@@ -47,7 +49,7 @@ pub fn crop_selection_image(
 pub fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
         if let SelectionState::Locked { rect, .. } = &state.selection {
-            snapin_platform::save_last_selection((rect.x, rect.y, rect.width, rect.height));
+            save_last_selection((rect.x, rect.y, rect.width, rect.height));
         }
         let _ = write_image_to_clipboard(&cropped);
         state.outcome = Some(SnipperOutcome::Copied(cropped));
@@ -58,17 +60,16 @@ pub fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
 pub fn handle_action_save(state: &mut SnipperState, original_rgba: &RgbaImage) {
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
         if let SelectionState::Locked { rect, .. } = &state.selection {
-            snapin_platform::save_last_selection((rect.x, rect.y, rect.width, rect.height));
+            save_last_selection((rect.x, rect.y, rect.width, rect.height));
         }
 
-        let out_path = match snapin_platform::save_image_with_config(&cropped, &state.config.output)
-        {
+        let out_path = match save_image_with_config(&cropped, &state.config.output) {
             Ok(p) => p,
             Err(_) => {
                 let pictures_dir = std::env::var("HOME")
                     .map(|h| PathBuf::from(h).join("Pictures"))
                     .unwrap_or_else(|_| PathBuf::from("."));
-                let p = pictures_dir.join(format!("snapin_{}.png", chrono_stamp()));
+                let p = pictures_dir.join(format!("snapin_{}.png", generate_unique_id()));
                 let _ = cropped.save(&p);
                 p
             }
@@ -89,19 +90,11 @@ pub fn handle_action_pin(state: &mut SnipperState, original_rgba: &RgbaImage) {
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
         if let Some(mut pixmap) = tiny_skia::Pixmap::new(cropped.width(), cropped.height()) {
             pixmap.data_mut().copy_from_slice(cropped.as_raw());
-            let id = chrono_stamp();
+            let id = generate_unique_id();
             let item = PasterItem::new(id, format!("pin_{id}"), pixmap, pin_pos);
             state.outcome = Some(SnipperOutcome::Pinned(item));
         }
     }
-}
-
-/// 秒级时间戳生成
-fn chrono_stamp() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }
 
 #[cfg(test)]
