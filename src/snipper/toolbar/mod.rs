@@ -56,12 +56,12 @@ impl Toolbar {
     /// 主工具列表定义 (严格对齐经典工具栏规范)
     pub const MAIN_ITEMS: &'static [ToolbarItem] = &[
         ToolbarItem::ToolRect,    // 0: 几何形状 (矩形+椭圆)
-        ToolbarItem::ToolArrow,   // 1: 折线箭头 (带颜色指示圆点)
-        ToolbarItem::ToolPen,     // 2: 铅笔画笔
-        ToolbarItem::ToolMarker,  // 3: 荧光记号笔
-        ToolbarItem::ToolMosaic,  // 4: 黑白四宫格马赛克
-        ToolbarItem::ToolText,    // 5: 文字 T
-        ToolbarItem::ToolBadge,   // 6: 序号气泡/印章
+        ToolbarItem::ToolBadge,   // 1: 序号步骤印章 (圆圈数字1)
+        ToolbarItem::ToolArrow,   // 2: 折线箭头 (带颜色指示圆点)
+        ToolbarItem::ToolPen,     // 3: 铅笔画笔
+        ToolbarItem::ToolMarker,  // 4: 荧光记号笔
+        ToolbarItem::ToolMosaic,  // 5: 黑白四宫格马赛克
+        ToolbarItem::ToolText,    // 6: 文字 T
         ToolbarItem::ActionUndo,  // 7: 撤销 (前置分隔线 1)
         ToolbarItem::ActionRedo,  // 8: 重做
         ToolbarItem::ActionClose, // 9: 关闭取消 X (前置分隔线 2)

@@ -133,7 +133,7 @@ fn render_icon_rect(
     }
 }
 
-/// 图标 2: 折线上升指示箭头 + 右上当前所选颜色微圆点
+/// 图标 2: 坚挺斜向指示箭头 + 右上当前所选颜色微圆点
 fn render_icon_arrow(
     pixmap: &mut PixmapMut,
     cx: f32,
@@ -144,19 +144,19 @@ fn render_icon_arrow(
     stroke: &Stroke,
 ) {
     let mut pb = PathBuilder::new();
-    pb.move_to(cx - 7.0 * s, cy + 3.5 * s);
-    pb.line_to(cx - 3.0 * s, cy + 6.0 * s);
-    pb.line_to(cx + 1.0 * s, cy - 1.5 * s);
-    pb.line_to(cx + 6.0 * s, cy - 4.5 * s);
-    pb.move_to(cx + 2.0 * s, cy - 5.5 * s);
-    pb.line_to(cx + 6.5 * s, cy - 5.0 * s);
-    pb.line_to(cx + 5.5 * s, cy - 0.5 * s);
+    // 主干箭杆：从左下坚挺刺向右上
+    pb.move_to(cx - 6.5 * s, cy + 6.5 * s);
+    pb.line_to(cx + 4.5 * s, cy - 4.5 * s);
+    // 锐利对称箭头翼
+    pb.move_to(cx - 0.5 * s, cy - 4.5 * s);
+    pb.line_to(cx + 4.5 * s, cy - 4.5 * s);
+    pb.line_to(cx + 4.5 * s, cy + 0.5 * s);
     if let Some(path) = pb.finish() {
         pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
     }
 
     let mut dpb = PathBuilder::new();
-    dpb.push_circle(cx + 6.5 * s, cy - 7.0 * s, 2.2 * s);
+    dpb.push_circle(cx + 6.5 * s, cy - 6.5 * s, 2.2 * s);
     if let Some(dpath) = dpb.finish() {
         let dot_paint = make_paint(active_color);
         pixmap.fill_path(
@@ -169,7 +169,7 @@ fn render_icon_arrow(
     }
 }
 
-/// 图标 3: 45度经典木质铅笔
+/// 图标 3: 45度涂鸦画笔 + 笔尖波浪涂鸦轨迹
 fn render_icon_pen(
     pixmap: &mut PixmapMut,
     cx: f32,
@@ -179,32 +179,22 @@ fn render_icon_pen(
     stroke: &Stroke,
 ) {
     let mut pb = PathBuilder::new();
-    pb.move_to(cx - 2.5 * s, cy + 2.5 * s);
-    pb.line_to(cx + 3.5 * s, cy - 3.5 * s);
-    pb.line_to(cx + 6.0 * s, cy - 1.0 * s);
-    pb.line_to(cx, cy + 5.0 * s);
+    // 笔身与金属箍
+    pb.move_to(cx - 1.5 * s, cy + 1.5 * s);
+    pb.line_to(cx + 4.5 * s, cy - 4.5 * s);
+    pb.line_to(cx + 6.5 * s, cy - 2.5 * s);
+    pb.line_to(cx + 0.5 * s, cy + 3.5 * s);
     pb.close();
-    pb.move_to(cx - 2.5 * s, cy + 2.5 * s);
-    pb.line_to(cx - 6.5 * s, cy + 6.5 * s);
-    pb.line_to(cx, cy + 5.0 * s);
-    pb.close();
+    // 聚拢笔尖
+    pb.move_to(cx - 1.5 * s, cy + 1.5 * s);
+    pb.line_to(cx - 4.0 * s, cy + 4.0 * s);
+    pb.line_to(cx + 0.5 * s, cy + 3.5 * s);
+    // 笔尖下方涂鸦轨迹线条
+    pb.move_to(cx - 6.5 * s, cy + 6.5 * s);
+    pb.quad_to(cx - 3.5 * s, cy + 4.5 * s, cx - 1.5 * s, cy + 7.0 * s);
+    pb.quad_to(cx + 0.5 * s, cy + 9.0 * s, cx + 3.5 * s, cy + 6.5 * s);
     if let Some(path) = pb.finish() {
         pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
-    }
-
-    let mut tip_pb = PathBuilder::new();
-    tip_pb.move_to(cx - 4.5 * s, cy + 4.5 * s);
-    tip_pb.line_to(cx - 6.5 * s, cy + 6.5 * s);
-    tip_pb.line_to(cx - 3.5 * s, cy + 5.8 * s);
-    tip_pb.close();
-    if let Some(tpath) = tip_pb.finish() {
-        pixmap.fill_path(
-            &tpath,
-            paint,
-            tiny_skia::FillRule::Winding,
-            Transform::identity(),
-            None,
-        );
     }
 }
 
@@ -299,7 +289,7 @@ fn render_icon_text(
     }
 }
 
-/// 图标 7: 步骤序号印章徽标
+/// 图标 7: 圆圈数字 1 步骤序号徽标
 fn render_icon_badge(
     pixmap: &mut PixmapMut,
     cx: f32,
@@ -309,9 +299,14 @@ fn render_icon_badge(
     stroke: &Stroke,
 ) {
     let mut pb = PathBuilder::new();
-    pb.push_circle(cx - 1.5 * s, cy + 1.5 * s, 5.5 * s);
-    pb.move_to(cx + 2.5 * s, cy - 2.5 * s);
-    pb.line_to(cx + 6.5 * s, cy - 6.5 * s);
+    // 外部规整正圆
+    pb.push_circle(cx, cy, 7.5 * s);
+    // 内部数字 1：顶部左小折撇，垂直主干线，底部横托
+    pb.move_to(cx - 1.8 * s, cy - 1.8 * s);
+    pb.line_to(cx + 0.3 * s, cy - 3.8 * s);
+    pb.line_to(cx + 0.3 * s, cy + 3.8 * s);
+    pb.move_to(cx - 1.8 * s, cy + 3.8 * s);
+    pb.line_to(cx + 2.5 * s, cy + 3.8 * s);
     if let Some(path) = pb.finish() {
         pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
     }
@@ -390,7 +385,7 @@ fn render_icon_close(
     }
 }
 
-/// 图标 11: 45度立体图钉
+/// 图标 11: 经典大头工字图钉 (贴图置顶)
 fn render_icon_pin(
     pixmap: &mut PixmapMut,
     cx: f32,
@@ -400,15 +395,19 @@ fn render_icon_pin(
     stroke: &Stroke,
 ) {
     let mut pb = PathBuilder::new();
-    pb.move_to(cx - 2.0 * s, cy - 7.0 * s);
-    pb.line_to(cx + 7.0 * s, cy + 2.0 * s);
-    pb.move_to(cx, cy - 5.0 * s);
-    pb.line_to(cx - 4.5 * s, cy - 0.5 * s);
-    pb.line_to(cx - 2.0 * s, cy + 2.0 * s);
-    pb.line_to(cx - 7.0 * s, cy + 7.0 * s);
-    pb.line_to(cx - 2.0 * s, cy + 7.0 * s);
-    pb.line_to(cx - 0.5 * s, cy + 4.5 * s);
-    pb.line_to(cx + 5.0 * s, cy);
+    // 钉帽与钉身轮廓：平顶帽盖、内收腰身、展开托盘
+    pb.move_to(cx - 5.5 * s, cy - 6.5 * s);
+    pb.line_to(cx + 5.5 * s, cy - 6.5 * s);
+    pb.line_to(cx + 4.0 * s, cy - 4.0 * s);
+    pb.line_to(cx + 2.0 * s, cy - 1.0 * s);
+    pb.line_to(cx + 5.2 * s, cy + 2.0 * s);
+    pb.line_to(cx - 5.2 * s, cy + 2.0 * s);
+    pb.line_to(cx - 2.0 * s, cy - 1.0 * s);
+    pb.line_to(cx - 4.0 * s, cy - 4.0 * s);
+    pb.close();
+    // 垂直扎下的锋利尖针
+    pb.move_to(cx, cy + 2.0 * s);
+    pb.line_to(cx, cy + 7.5 * s);
     if let Some(path) = pb.finish() {
         pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
     }

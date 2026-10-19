@@ -72,24 +72,25 @@ impl TextInputSession {
         }
     }
 
-    /// 在画布上渲染当前输入的文字以及尾随光标
+    /// 在画布上渲染当前输入的文字以及尾随光标与黑色边界框
     pub fn render(&self, pixmap: &mut PixmapMut) {
         let (x, y) = self.pos;
         let font_size = self.font_size.max(8.0);
         let line_height = font_size * 1.25;
 
-        let mut cursor_x = x;
-        let cursor_y = y;
+        let cursor_x = if self.text.is_empty() {
+            let min_w = (font_size * 3.0).max(64.0);
+            render_input_box(pixmap, x - 6.0, y - 4.0, min_w, line_height + 8.0);
+            x
+        } else {
+            self.draw_box_and_text(pixmap, x, y, font_size, line_height)
+        };
 
-        if !self.text.is_empty() {
-            cursor_x = self.draw_text_content(pixmap, x, y, font_size, line_height);
-        }
-
-        render_input_cursor(pixmap, cursor_x, cursor_y, font_size, self.color);
+        render_input_cursor(pixmap, cursor_x, y, font_size, self.color);
     }
 
-    /// 绘制当前已输入的文字内容并返回末尾光标 X 坐标
-    fn draw_text_content(
+    /// 测量输入框范围、绘制黑色外框底衬与文字像素，并返回末尾光标 X 坐标
+    fn draw_box_and_text(
         &self,
         pixmap: &mut PixmapMut,
         x: f32,
@@ -109,10 +110,23 @@ impl TextInputSession {
             buffer.set_text(font_system, &self.text, Attrs::new(), Shaping::Advanced);
             buffer.shape_until_scroll(font_system, false);
 
+            let mut line_w: f32 = 0.0;
+            for run in buffer.layout_runs() {
+                if run.line_w > line_w {
+                    line_w = run.line_w;
+                }
+            }
+
+            // 1. 优先绘制黑色外框与底衬
+            let min_w = (font_size * 3.0).max(64.0);
+            let box_w = (line_w + 16.0).max(min_w);
+            let box_h = line_height + 8.0;
+            render_input_box(pixmap, x - 6.0, y - 4.0, box_w, box_h);
+
+            // 2. 绘制文字像素
             let c_color = CosmicColor::rgba(self.color.0, self.color.1, self.color.2, self.color.3);
             let width = pixmap.width() as i32;
             let height = pixmap.height() as i32;
-
             let mut max_gx: f32 = x;
 
             buffer.draw(font_system, swash_cache, c_color, |gx, gy, w, _h, c| {
@@ -146,6 +160,55 @@ impl TextInputSession {
         });
 
         cursor_x
+    }
+}
+
+/// 绘制文字输入过程中的黑色外边框与高对比度浅白背景衬底
+fn render_input_box(pixmap: &mut PixmapMut, box_x: f32, box_y: f32, box_w: f32, box_h: f32) {
+    let mut pb = PathBuilder::new();
+    let r = 2.5;
+    pb.move_to(box_x + r, box_y);
+    pb.line_to(box_x + box_w - r, box_y);
+    pb.quad_to(box_x + box_w, box_y, box_x + box_w, box_y + r);
+    pb.line_to(box_x + box_w, box_y + box_h - r);
+    pb.quad_to(
+        box_x + box_w,
+        box_y + box_h,
+        box_x + box_w - r,
+        box_y + box_h,
+    );
+    pb.line_to(box_x + r, box_y + box_h);
+    pb.quad_to(box_x, box_y + box_h, box_x, box_y + box_h - r);
+    pb.line_to(box_x, box_y + r);
+    pb.quad_to(box_x, box_y, box_x + r, box_y);
+    pb.close();
+
+    if let Some(path) = pb.finish() {
+        // 1. 半透明微白底色，确保在深色或复杂底图上文字和光标依然清晰
+        let mut bg_paint = Paint {
+            anti_alias: true,
+            ..Default::default()
+        };
+        bg_paint.set_color_rgba8(255, 255, 255, 210);
+        pixmap.fill_path(
+            &path,
+            &bg_paint,
+            tiny_skia::FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+
+        // 2. 经典深黑外边框
+        let mut border_paint = Paint {
+            anti_alias: true,
+            ..Default::default()
+        };
+        border_paint.set_color_rgba8(15, 23, 42, 240);
+        let stroke = Stroke {
+            width: 1.5,
+            ..Default::default()
+        };
+        pixmap.stroke_path(&path, &border_paint, &stroke, Transform::identity(), None);
     }
 }
 
@@ -221,5 +284,24 @@ mod tests {
             .iter()
             .any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_content);
+    }
+
+    #[test]
+    fn test_empty_text_input_renders_box() {
+        let mut pixmap = Pixmap::new(200, 100).unwrap();
+        pixmap.fill(tiny_skia::Color::BLACK);
+
+        let session = TextInputSession::new((10.0, 20.0), (255, 0, 0, 255), 20.0);
+        assert!(session.text.is_empty());
+        session.render(&mut pixmap.as_mut());
+
+        // 验证空输入时仍绘制了黑色外框底衬与光标
+        let has_pixels = pixmap
+            .data()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
+        assert!(has_pixels);
     }
 }
