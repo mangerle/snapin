@@ -8,13 +8,14 @@ pub mod events;
 pub mod mouse;
 pub mod presenter;
 pub mod session;
+pub mod state;
 pub mod text_input;
 pub mod types;
 
 pub use event_dispatcher::SnipperEventDispatcher;
-pub use events::SnipperState;
 pub use presenter::{create_dimmed_pixmap_fast, SnipperPresenter};
 pub use session::SnipperSession;
+pub use state::SnipperState;
 pub use types::{SnipMode, SnipperOutcome};
 
 use crate::error::UiError;

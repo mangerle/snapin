@@ -1,13 +1,13 @@
 //! 截图交互鼠标移动、按键点击、滚轮缩放与选区拖拽处理。
 
-use super::actions::{handle_action_copy, handle_action_pin, handle_action_save};
+pub mod toolbar_action;
+
 use super::annotation_builder::commit_annotation;
 use super::events::{commit_active_text_input, handle_escape, SnipperState};
-use super::text_input::TextInputSession;
-use super::types::SnipperOutcome;
 use crate::snipper::selection::{DragMode, Rect, SelectionState};
 use crate::snipper::toolbar::{StrokeWidthLevel, ToolbarItem};
 use image::RgbaImage;
+use toolbar_action::{dispatch_toolbar_action, handle_text_tool_click};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 use winit::window::Window;
 
@@ -90,63 +90,7 @@ fn handle_left_press(
     original_rgba: &RgbaImage,
 ) -> bool {
     if let SelectionState::Locked { rect, .. } = state.selection {
-        // 优先检测是否点击在工具栏（主工具栏或二级属性栏）范围内，坚决拦截阻止事件穿透到画布
-        if state.toolbar.contains_point(cx, cy) {
-            commit_active_text_input(state);
-            if let Some(item) = state.toolbar.handle_click(cx, cy) {
-                dispatch_toolbar_action(state, item, original_rgba);
-            }
-            return true;
-        }
-
-        if state.toolbar.active_tool == Some(ToolbarItem::ToolText) {
-            return handle_text_tool_click(state, cx, cy);
-        }
-
-        commit_active_text_input(state);
-
-        // 如果未激活特定标注工具，优先检测是否命中 8 个控制手柄中的任意一个进行选区微调缩放
-        if state.toolbar.active_tool.is_none() {
-            let handle_tolerance = 8.0 * state.toolbar.ui_scale;
-            if let Some(handle) = rect.hit_test_handle(cx, cy, handle_tolerance) {
-                if let SelectionState::Locked {
-                    ref mut active_drag,
-                    ..
-                } = state.selection
-                {
-                    *active_drag = Some(DragMode::Resize(handle));
-                }
-                return true;
-            }
-        }
-
-        if rect.contains(cx, cy) {
-            if state.toolbar.active_tool.is_some() {
-                state.pending_stroke_points.clear();
-                state.pending_stroke_points.push((cx, cy));
-                return true;
-            }
-            if let SelectionState::Locked {
-                ref mut active_drag,
-                ..
-            } = state.selection
-            {
-                *active_drag = Some(DragMode::Move {
-                    offset_x: (cx - rect.x) as i32,
-                    offset_y: (cy - rect.y) as i32,
-                });
-            }
-            return true;
-        }
-
-        // 点击在已有选区外部：清除当前选区，允许用户重新框选全新区域
-        state.toolbar.active_tool = None;
-        state.pending_stroke_points.clear();
-        state.selection = SelectionState::Creating {
-            start: (cx, cy),
-            current: (cx, cy),
-        };
-        return true;
+        return handle_locked_press(state, rect, cx, cy, original_rgba);
     }
 
     if matches!(state.selection, SelectionState::Idle) {
@@ -160,25 +104,71 @@ fn handle_left_press(
     false
 }
 
-/// 处理文字工具点击选区开启输入
-fn handle_text_tool_click(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
-    if let SelectionState::Locked { rect, .. } = &state.selection {
-        if rect.contains(cx, cy) {
-            commit_active_text_input(state);
-            let c = state.toolbar.sub_options.color;
-            let rgba = (
-                (c.red() * 255.0).round() as u8,
-                (c.green() * 255.0).round() as u8,
-                (c.blue() * 255.0).round() as u8,
-                (c.alpha() * 255.0).round() as u8,
-            );
-            let font_sz = state.toolbar.sub_options.font_size;
-            state.active_text_input = Some(TextInputSession::new((cx, cy), rgba, font_sz));
+/// 处理选区已锁定状态下的左键按下分支
+fn handle_locked_press(
+    state: &mut SnipperState,
+    rect: Rect,
+    cx: f32,
+    cy: f32,
+    original_rgba: &RgbaImage,
+) -> bool {
+    // 优先检测是否点击在工具栏范围内，坚决拦截阻止事件穿透到画布
+    if state.toolbar.contains_point(cx, cy) {
+        commit_active_text_input(state);
+        if let Some(item) = state.toolbar.handle_click(cx, cy) {
+            dispatch_toolbar_action(state, item, original_rgba);
+        }
+        return true;
+    }
+
+    if state.toolbar.active_tool == Some(ToolbarItem::ToolText) {
+        return handle_text_tool_click(state, cx, cy);
+    }
+
+    commit_active_text_input(state);
+
+    // 未激活标注工具时，优先检测是否命中 8 个控制手柄中的任意一个进行微调缩放
+    if state.toolbar.active_tool.is_none() {
+        let handle_tolerance = 8.0 * state.toolbar.ui_scale;
+        if let Some(handle) = rect.hit_test_handle(cx, cy, handle_tolerance) {
+            if let SelectionState::Locked {
+                ref mut active_drag,
+                ..
+            } = state.selection
+            {
+                *active_drag = Some(DragMode::Resize(handle));
+            }
             return true;
         }
     }
-    commit_active_text_input(state);
-    false
+
+    if rect.contains(cx, cy) {
+        if state.toolbar.active_tool.is_some() {
+            state.pending_stroke_points.clear();
+            state.pending_stroke_points.push((cx, cy));
+            return true;
+        }
+        if let SelectionState::Locked {
+            ref mut active_drag,
+            ..
+        } = state.selection
+        {
+            *active_drag = Some(DragMode::Move {
+                offset_x: (cx - rect.x) as i32,
+                offset_y: (cy - rect.y) as i32,
+            });
+        }
+        return true;
+    }
+
+    // 点击在已有选区外部：清除当前选区，允许重新框选
+    state.toolbar.active_tool = None;
+    state.pending_stroke_points.clear();
+    state.selection = SelectionState::Creating {
+        start: (cx, cy),
+        current: (cx, cy),
+    };
+    true
 }
 
 /// 鼠标左键抬起交互
@@ -234,38 +224,6 @@ fn handle_left_release(
             }
         }
         _ => false,
-    }
-}
-
-/// 执行工具栏动作派发
-fn dispatch_toolbar_action(
-    state: &mut SnipperState,
-    item: ToolbarItem,
-    original_rgba: &RgbaImage,
-) -> bool {
-    match item {
-        ToolbarItem::ActionUndo => {
-            state.next_badge_number = state.next_badge_number.saturating_sub(1).max(1);
-            state.annotations.undo()
-        }
-        ToolbarItem::ActionRedo => state.annotations.redo(),
-        ToolbarItem::ActionCopy => {
-            handle_action_copy(state, original_rgba);
-            true
-        }
-        ToolbarItem::ActionSave => {
-            handle_action_save(state, original_rgba);
-            true
-        }
-        ToolbarItem::ActionPin => {
-            handle_action_pin(state, original_rgba);
-            true
-        }
-        ToolbarItem::ActionClose => {
-            state.outcome = Some(SnipperOutcome::Cancelled);
-            true
-        }
-        _ => true,
     }
 }
 
