@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::oneshot;
 
-/// 最大允许的 IPC 数据包尺寸（64MB，满足全屏高分图像在 Unix Socket 极速内存流式传输）
-pub const MAX_IPC_FRAME_SIZE: usize = 64 * 1024 * 1024;
+/// 最大允许的 IPC 数据包尺寸（1MB，满足指令、状态快照与安全物理路径传输，防范异常内存滥用）
+pub const MAX_IPC_FRAME_SIZE: usize = 1024 * 1024;
 
 /// IPC 通信读写超时阈值（2 秒，避免套接字挂起导致的协程泄漏）
 pub const IPC_TIMEOUT: Duration = Duration::from_secs(2);
