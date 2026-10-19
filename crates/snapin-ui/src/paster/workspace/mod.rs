@@ -37,9 +37,11 @@ pub fn spawn_paster_workspace_thread(
     exit_on_all_closed: bool,
 ) -> Result<PasterWorkspaceProxy, UiError> {
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let tokio_handle = tokio::runtime::Handle::try_current().ok();
     std::thread::Builder::new()
         .name("snapin-paster-gui".to_string())
         .spawn(move || {
+            let _guard = tokio_handle.as_ref().map(|h| h.enter());
             let (event_loop, proxy) = match create_paster_workspace() {
                 Ok(pair) => pair,
                 Err(e) => {

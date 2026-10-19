@@ -63,10 +63,26 @@ pub fn create_new_paster_window(
     // 自动置顶与 GNOME 扩展协调
     if cfg.paster.enable_above_extension {
         let t_clone = title.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            let _ = pin_window_above(&t_clone).await;
-        });
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                let _ = pin_window_above(&t_clone).await;
+            });
+        } else {
+            // 降级保护：在没有 Tokio 运行时的线程环境下派生后台线程执行，杜绝 panic 崩溃
+            std::thread::Builder::new()
+                .name("snapin-paster-pin".to_string())
+                .spawn(move || {
+                    std::thread::sleep(Duration::from_millis(50));
+                    if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                    {
+                        let _ = rt.block_on(pin_window_above(&t_clone));
+                    }
+                })
+                .ok();
+        }
     }
 
     let scale_factor = window.scale_factor() as f32;
