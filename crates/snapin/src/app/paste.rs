@@ -69,7 +69,7 @@ pub async fn run_oneshot_paste() -> Result<()> {
 }
 
 /// 独立启动贴图并挂载置顶窗口
-pub fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
+pub async fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
     if !path.exists() {
         return Ok(());
     }
@@ -115,10 +115,7 @@ pub fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
             raw_path: raw_temp.to_string_lossy().to_string(),
         };
 
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-        if let Ok(true) = rt.block_on(snapin_daemon::send_command_to_daemon(&req)) {
+        if let Ok(true) = snapin_daemon::send_command_to_daemon(&req).await {
             tracing::info!("外部图片已通过零序列化膨胀安全路径委托常驻集中工作区展示");
             if path.extension().and_then(|e| e.to_str()) == Some("raw") {
                 let _ = std::fs::remove_file(&path);
@@ -129,7 +126,9 @@ pub fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
     }
 
     let item = PasterItem::new(uid, title, pixmap, (x, y));
-    let res = spawn_paster_window(item);
+    let res = tokio::task::spawn_blocking(move || spawn_paster_window(item))
+        .await
+        .context("贴图任务调度失败")?;
 
     if path.extension().and_then(|e| e.to_str()) == Some("raw") {
         let _ = std::fs::remove_file(&path);

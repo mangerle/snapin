@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
             }
         }
         Some(Commands::PinFile { path, x, y }) => {
-            run_pin_file(path, x, y)?;
+            run_pin_file(path, x, y).await?;
         }
         Some(Commands::Prefs) => {
             tracing::info!("正在启动 Snapin 现代化偏好设置中心...");
