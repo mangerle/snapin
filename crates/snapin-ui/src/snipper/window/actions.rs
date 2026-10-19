@@ -51,7 +51,9 @@ pub fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
         if let SelectionState::Locked { rect, .. } = &state.selection {
             save_last_selection((rect.x, rect.y, rect.width, rect.height));
         }
-        let _ = write_image_to_clipboard(&cropped);
+        if let Err(e) = write_image_to_clipboard(&cropped) {
+            tracing::warn!("复制选区图像到系统剪贴板失败: {e}");
+        }
         state.outcome = Some(SnipperOutcome::Copied(cropped));
     }
 }
@@ -65,17 +67,22 @@ pub fn handle_action_save(state: &mut SnipperState, original_rgba: &RgbaImage) {
 
         let out_path = match save_image_with_config(&cropped, &state.config.output) {
             Ok(p) => p,
-            Err(_) => {
+            Err(e) => {
+                tracing::warn!("按配置保存截图失败: {e}，尝试降级保存至用户 Pictures 目录");
                 let pictures_dir = std::env::var("HOME")
                     .map(|h| PathBuf::from(h).join("Pictures"))
                     .unwrap_or_else(|_| PathBuf::from("."));
                 let p = pictures_dir.join(format!("snapin_{}.png", generate_unique_id()));
-                let _ = cropped.save(&p);
+                if let Err(save_err) = cropped.save(&p) {
+                    tracing::error!("降级保存截图失败: {save_err}");
+                }
                 p
             }
         };
 
-        let _ = write_image_to_clipboard(&cropped);
+        if let Err(e) = write_image_to_clipboard(&cropped) {
+            tracing::warn!("保存后同步复制到系统剪贴板失败: {e}");
+        }
         state.outcome = Some(SnipperOutcome::Saved(out_path));
     }
 }

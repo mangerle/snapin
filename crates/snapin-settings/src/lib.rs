@@ -81,7 +81,9 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
     register_callbacks(&window, config_arc);
 
     // 3. 临时挂起 Snapin 系统全局快捷键，确保录制时按键不被系统拦截触发
-    let _ = suspend_hotkeys_for_settings();
+    if let Err(e) = suspend_hotkeys_for_settings() {
+        tracing::warn!("进入设置中心临时挂起系统全局快捷键失败: {e}");
+    }
 
     let run_res = window
         .run()
@@ -89,7 +91,9 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
 
     // 4. 设置窗口退出后，从磁盘恢复最新的有效全局快捷键
     if let Ok(latest_cfg) = config::load_or_create_config(None) {
-        let _ = sync_hotkeys_to_gnome(&latest_cfg.hotkeys);
+        if let Err(e) = sync_hotkeys_to_gnome(&latest_cfg.hotkeys) {
+            tracing::warn!("退出设置中心恢复系统全局快捷键失败: {e}");
+        }
     }
 
     run_res?;

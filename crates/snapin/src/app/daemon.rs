@@ -27,7 +27,9 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
     tracing::info!("Snapin 守护服务启动中...");
 
     // 自动确保 GNOME 快捷键注册与配套扩展原地热重载
-    let _ = sync_hotkeys_to_gnome(&cfg.hotkeys);
+    if let Err(e) = sync_hotkeys_to_gnome(&cfg.hotkeys) {
+        tracing::warn!("启动守护服务时向系统注册快捷键失败: {e}");
+    }
     enable_gnome_extension();
 
     // 2. 启动贴图集中工作区（常驻单一 GUI 事件循环独立线程）
@@ -46,11 +48,14 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
 
     tracing::info!("Snapin 守护服务已就绪，等待热键指令...");
     if cfg.general.notify_on_startup {
-        let _ = send_desktop_notification(
+        if let Err(e) = send_desktop_notification(
             "Snapin 截图贴图",
             "服务已就绪：按 Ctrl+Alt+A 截图，按 F1 贴图",
         )
-        .await;
+        .await
+        {
+            tracing::debug!("发送启动就绪通知失败或系统通知不可用: {e}");
+        }
     }
 
     // 4. IPC 指令调度主循环：将贴图与分组操作直接在单一工作区内微秒级分发
