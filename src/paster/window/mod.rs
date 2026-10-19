@@ -12,12 +12,25 @@ use crate::platform::pin_window_above;
 use events::{
     handle_paster_cursor_move, handle_paster_key, handle_paster_mouse_button, handle_paster_scroll,
 };
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
 use winit::platform::wayland::{EventLoopBuilderExtWayland, WindowBuilderExtWayland};
 use winit::window::{Window, WindowBuilder};
+
+/// 获取贴图子系统全局共享的后台异步运行时（单工作线程，避免每个贴图窗口重复派生线程和运行时）
+fn shared_paster_runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .expect("初始化贴图子系统共享异步运行时失败")
+    })
+}
 
 /// 贴图窗口自定义用户事件
 #[derive(Debug, Clone, Copy)]
@@ -63,18 +76,10 @@ pub fn spawn_paster_window(item: PasterItem) -> Result<(), SnapinError> {
     // 触发配套 GNOME 扩展将本窗口强制置顶 (受配置开关控制)
     if enable_above {
         let title_clone = title.clone();
-        std::thread::spawn(move || {
-            // 短暂延迟 80ms 等待 Mutter 建立窗口映射
-            std::thread::sleep(std::time::Duration::from_millis(80));
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build();
-            if let Ok(rt) = rt {
-                rt.block_on(async {
-                    if let Err(e) = pin_window_above(&title_clone).await {
-                        tracing::warn!("调用 GNOME 扩展置顶窗口失败: {e}");
-                    }
-                });
+        shared_paster_runtime().spawn(async move {
+            tokio::time::sleep(Duration::from_millis(80)).await;
+            if let Err(e) = pin_window_above(&title_clone).await {
+                tracing::warn!("调用 GNOME 扩展置顶窗口失败: {e}");
             }
         });
     }
@@ -86,20 +91,13 @@ pub fn spawn_paster_window(item: PasterItem) -> Result<(), SnapinError> {
     state.context_menu.set_ui_scale(auto_scale);
 
     // 监听 SIGUSR1 信号，收到信号后批量切换窗口显示/隐藏状态
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build();
-        if let Ok(rt) = rt {
-            rt.block_on(async move {
-                if let Ok(mut sig) =
-                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::user_defined1())
-                {
-                    while sig.recv().await.is_some() {
-                        let _ = event_proxy.send_event(PasterUserEvent::ToggleVisibility);
-                    }
-                }
-            });
+    shared_paster_runtime().spawn(async move {
+        if let Ok(mut sig) =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::user_defined1())
+        {
+            while sig.recv().await.is_some() {
+                let _ = event_proxy.send_event(PasterUserEvent::ToggleVisibility);
+            }
         }
     });
 

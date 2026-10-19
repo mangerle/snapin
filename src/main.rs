@@ -125,10 +125,12 @@ async fn main() -> Result<()> {
             open_preferences().await?;
         }
         Some(Commands::Toggle) => {
-            let _ = send_command_to_daemon(&DaemonCommand::TogglePasters).await;
-            let _ = std::process::Command::new("pkill")
-                .args(["-USR1", "-f", "snapin pin-file"])
-                .output();
+            // 通过 IPC 委托常驻守护服务统一调度贴图显隐状态
+            if let Ok(true) = send_command_to_daemon(&DaemonCommand::TogglePasters).await {
+                tracing::info!("已通过 IPC 请求守护进程批量切换贴图显隐状态");
+            } else {
+                tracing::info!("未检测到常驻守护服务，无活动贴图需要切换");
+            }
         }
         Some(Commands::SwitchGroup { id }) => {
             let _ = send_command_to_daemon(&DaemonCommand::SwitchGroup(id)).await;
@@ -238,26 +240,26 @@ async fn run_oneshot_snip(cfg: config::Config, mode: SnipMode) -> Result<()> {
                 let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
                     .map(PathBuf::from)
                     .unwrap_or_else(|_| std::env::temp_dir());
-                let pin_path = runtime_dir.join(format!("snapin_pin_{stamp}.png"));
+                let pin_path = runtime_dir.join(format!("snapin_pin_{stamp}.raw"));
                 let (px, py) = item.position;
 
-                if let Some(img) = image::RgbaImage::from_raw(
-                    item.pixmap.width(),
-                    item.pixmap.height(),
-                    item.pixmap.data().to_vec(),
-                ) {
-                    if img.save(&pin_path).is_ok() {
-                        let current_exe =
-                            std::env::current_exe().unwrap_or_else(|_| PathBuf::from("snapin"));
-                        let _ = std::process::Command::new(current_exe)
-                            .args([
-                                "pin-file",
-                                &pin_path.to_string_lossy(),
-                                &px.to_string(),
-                                &py.to_string(),
-                            ])
-                            .spawn();
-                    }
+                // 采用零编码开销的原生像素格式存储，在 tmpfs 内存中实现亚毫秒极速中转
+                let mut data = Vec::with_capacity(8 + item.pixmap.data().len());
+                data.extend_from_slice(&item.pixmap.width().to_be_bytes());
+                data.extend_from_slice(&item.pixmap.height().to_be_bytes());
+                data.extend_from_slice(item.pixmap.data());
+
+                if std::fs::write(&pin_path, data).is_ok() {
+                    let current_exe =
+                        std::env::current_exe().unwrap_or_else(|_| PathBuf::from("snapin"));
+                    let _ = std::process::Command::new(current_exe)
+                        .args([
+                            "pin-file",
+                            &pin_path.to_string_lossy(),
+                            &px.to_string(),
+                            &py.to_string(),
+                        ])
+                        .spawn();
                 }
             }
             SnipperOutcome::Cancelled => {
@@ -275,11 +277,31 @@ fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
         return Ok(());
     }
 
-    let img = image::open(&path).context("无法读取贴图临时文件")?;
-    let rgba = img.to_rgba8();
-    let mut pixmap = Pixmap::new(rgba.width(), rgba.height())
-        .ok_or_else(|| anyhow::anyhow!("分配贴图 Pixmap 失败"))?;
-    pixmap.data_mut().copy_from_slice(rgba.as_raw());
+    let pixmap = if path.extension().and_then(|e| e.to_str()) == Some("raw") {
+        // 读取原生二进制像素格式，零解压计算开销
+        let bytes = std::fs::read(&path).context("读取贴图原生像素文件失败")?;
+        if bytes.len() < 8 {
+            anyhow::bail!("贴图原生数据损坏");
+        }
+        let width = u32::from_be_bytes(bytes[0..4].try_into()?);
+        let height = u32::from_be_bytes(bytes[4..8].try_into()?);
+        let expected_len = 8 + (width as usize) * (height as usize) * 4;
+        if bytes.len() != expected_len {
+            anyhow::bail!("贴图像素尺寸与数据长度不一致");
+        }
+        let mut p =
+            Pixmap::new(width, height).ok_or_else(|| anyhow::anyhow!("分配贴图 Pixmap 失败"))?;
+        p.data_mut().copy_from_slice(&bytes[8..]);
+        p
+    } else {
+        // 兼容外部常规图像文件（PNG / JPEG）
+        let img = image::open(&path).context("无法读取外部贴图图像文件")?;
+        let rgba = img.to_rgba8();
+        let mut p = Pixmap::new(rgba.width(), rgba.height())
+            .ok_or_else(|| anyhow::anyhow!("分配贴图 Pixmap 失败"))?;
+        p.data_mut().copy_from_slice(rgba.as_raw());
+        p
+    };
 
     let stamp = now_timestamp();
     let item = PasterItem::new(stamp, format!("pin_{stamp}"), pixmap, (x, y));
@@ -287,8 +309,10 @@ fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
     // 运行贴图窗口直至用户关闭
     let res = spawn_paster_window(item);
 
-    // 窗口退出后自动清理临时文件
-    let _ = std::fs::remove_file(&path);
+    // 窗口退出后自动清理临时文件（如果是 .raw 运行时文件）
+    if path.extension().and_then(|e| e.to_str()) == Some("raw") {
+        let _ = std::fs::remove_file(&path);
+    }
 
     res.context("贴图窗口运行异常")
 }
