@@ -11,7 +11,7 @@ pub fn exit_snapin_application() {
         .output();
     // 2. 禁用 GNOME 扩展以彻底收起顶栏托盘图标
     let _ = Command::new("gnome-extensions")
-        .args(["disable", "snapin-helper@wangle.local"])
+        .args(["disable", "snapin@wangle.local"])
         .output();
     // 3. 强制清理所有贴图窗口与前台进程
     let _ = Command::new("pkill")

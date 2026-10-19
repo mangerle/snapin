@@ -43,12 +43,11 @@ chmod 755 "${STAGE_DIR}/usr/bin/snapin"
 cp "${PROJECT_ROOT}/assets/icons/snapin.svg" "${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps/snapin.svg"
 cp "${PROJECT_ROOT}/assets/icons/snapin-tray.svg" "${STAGE_DIR}/usr/share/icons/hicolor/scalable/status/snapin-tray.svg"
 
-# 5. 生成桌面快捷方式 entry 与系统开机自启项
 cat << 'EOF' > "${STAGE_DIR}/usr/share/applications/snapin.desktop"
 [Desktop Entry]
 Name=Snapin
 Comment=纯 Rust Wayland 原生截图与置顶贴图工具
-Exec=snapin daemon
+Exec=snapin
 Icon=snapin
 Terminal=false
 Type=Application
@@ -72,10 +71,6 @@ StartupNotify=false
 StartupWMClass=snapin
 Keywords=screenshot;snip;paste;pin;settings;截图;贴图;设置;
 EOF
-
-# 放入系统标准自启动目录，登录桌面时自动常驻后台
-mkdir -p "${STAGE_DIR}/etc/xdg/autostart"
-cp "${STAGE_DIR}/usr/share/applications/snapin.desktop" "${STAGE_DIR}/etc/xdg/autostart/snapin.desktop"
 
 # 6. 生成 systemd 用户服务单元 (现代 Linux 桌面标准常驻守护机制)
 mkdir -p "${STAGE_DIR}/usr/lib/systemd/user"
@@ -166,6 +161,10 @@ if which loginctl > /dev/null 2>&1; then
         # 1. 清理旧版扩展目录，同步最新扩展至用户目录
         old_user_ext_dir="$user_home/.local/share/gnome-shell/extensions/snapin-helper@wangle.local"
         rm -rf "$old_user_ext_dir" 2>/dev/null || true
+
+        # 清理旧版可能冲突的 autostart 桌面文件，统一由 systemd user 服务调度守护进程
+        rm -f /etc/xdg/autostart/snapin.desktop 2>/dev/null || true
+        rm -f "$user_home/.config/autostart/snapin.desktop" 2>/dev/null || true
 
         user_ext_dir="$user_home/.local/share/gnome-shell/extensions/snapin@wangle.local"
         mkdir -p "$user_ext_dir"

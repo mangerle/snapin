@@ -341,16 +341,22 @@ fn now_timestamp() -> u64 {
 
 /// 运行后台守护服务
 async fn run_daemon_server(cfg: config::Config) -> Result<()> {
+    // 1. 若已有守护服务在运行，保持幂等性静默退出，不做多余改变
+    if let Ok(true) = send_command_to_daemon(&DaemonCommand::Ping).await {
+        tracing::info!("Snapin 守护服务已在后台运行中，无需重复启动。");
+        let _ = std::process::Command::new("gnome-extensions")
+            .args(["enable", "snapin@wangle.local"])
+            .spawn();
+        return Ok(());
+    }
+
     tracing::info!("Snapin 守护服务启动中...");
 
     // 自动确保 GNOME 快捷键注册与配套扩展原地热重载
     let _ = sync_hotkeys_to_gnome(&cfg.hotkeys);
     let _ = std::process::Command::new("gnome-extensions")
-        .args(["disable", "snapin-helper@wangle.local"])
-        .output();
-    let _ = std::process::Command::new("gnome-extensions")
-        .args(["enable", "snapin-helper@wangle.local"])
-        .output();
+        .args(["enable", "snapin@wangle.local"])
+        .spawn();
 
     let listener = IpcListener::bind(None)
         .await
@@ -445,7 +451,7 @@ async fn clear_snip_history() -> Result<()> {
 /// 安装配套 GNOME Shell 扩展
 fn install_gnome_extension() -> Result<()> {
     let home = std::env::var("HOME").context("未找到 HOME 环境变量")?;
-    let uuid = "snapin-helper@wangle.local";
+    let uuid = "snapin@wangle.local";
     let target_dir = PathBuf::from(home)
         .join(".local/share/gnome-shell/extensions")
         .join(uuid);
