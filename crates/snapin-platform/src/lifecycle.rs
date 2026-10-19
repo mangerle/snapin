@@ -4,34 +4,6 @@
 
 use std::ffi::{OsStr, OsString};
 use std::process::{Command, Stdio};
-use std::sync::mpsc::{sync_channel, SyncSender};
-use std::sync::OnceLock;
-
-static COMMAND_DISPATCHER: OnceLock<SyncSender<(String, Vec<OsString>)>> = OnceLock::new();
-
-fn get_command_dispatcher() -> &'static SyncSender<(String, Vec<OsString>)> {
-    COMMAND_DISPATCHER.get_or_init(|| {
-        let (tx, rx) = sync_channel::<(String, Vec<OsString>)>(32);
-        std::thread::Builder::new()
-            .name("snapin-cmd-reaper".to_string())
-            .spawn(move || {
-                while let Ok((prog, args)) = rx.recv() {
-                    if let Ok(mut child) = Command::new(&prog)
-                        .args(&args)
-                        .stdin(Stdio::null())
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .spawn()
-                    {
-                        let _ = child.wait();
-                    }
-                }
-            })
-            .expect("初始化系统命令收割线程失败");
-        tx
-    })
-}
-
 /// 停止 systemd 用户服务以防被系统重启守活
 pub fn stop_systemd_service() {
     let _ = Command::new("systemctl")
@@ -52,23 +24,47 @@ pub fn enable_gnome_extension() {
 }
 
 /// 在后台异步启动并收割外部系统子进程，防止在操作系统中残留僵尸进程 (Zombie PCB)
+///
+/// 1. 优先使用当前 Tokio 异步运行时在独立异步任务中通过 tokio::process 调度收割；
+/// 2. 在非异步环境下，派生独立短生命周期守护线程异步等待退出，严禁阻塞当前调用线程。
 pub fn spawn_detached_system_command<P: AsRef<OsStr>>(program: &str, args: &[P]) {
     let prog = program.to_string();
     let arg_list: Vec<OsString> = args.iter().map(|a| a.as_ref().to_os_string()).collect();
 
-    // 优先尝试将任务分发给全局常驻单例收割器线程，避免无节制为每次命令创建系统原生线程栈
-    if let Err(e) = get_command_dispatcher().try_send((prog.clone(), arg_list.clone())) {
-        tracing::debug!("命令收割器通道繁忙或降级，采用就地异步子进程执行: {e}");
-        if let Ok(mut child) = Command::new(&prog)
-            .args(&arg_list)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-        {
-            let _ = child.wait();
-        }
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(async move {
+            match tokio::process::Command::new(&prog)
+                .args(&arg_list)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                Ok(mut child) => {
+                    let _ = child.wait().await;
+                }
+                Err(e) => {
+                    tracing::warn!("派生后台异步子进程失败 [{prog}]: {e}");
+                }
+            }
+        });
+        return;
     }
+
+    std::thread::Builder::new()
+        .name(format!("reaper-{prog}"))
+        .spawn(move || {
+            if let Ok(mut child) = Command::new(&prog)
+                .args(&arg_list)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                let _ = child.wait();
+            }
+        })
+        .ok();
 }
 
 /// 在系统文件管理器中打开指定目录或文件并自动收割子进程，杜绝僵尸进程
