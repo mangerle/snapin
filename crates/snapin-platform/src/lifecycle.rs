@@ -16,6 +16,33 @@ pub fn disable_gnome_extension() {
         .output();
 }
 
+/// 启用配套 GNOME Shell 扩展并自动收割子进程状态，杜绝僵尸进程
+pub fn enable_gnome_extension() {
+    spawn_detached_system_command("gnome-extensions", &["enable", "snapin@wangle.local"]);
+}
+
+/// 在后台异步启动并收割外部系统子进程，防止在操作系统中残留僵尸进程 (Zombie PCB)
+pub fn spawn_detached_system_command<P: AsRef<std::ffi::OsStr>>(program: &str, args: &[P]) {
+    let prog = program.to_string();
+    let arg_list: Vec<std::ffi::OsString> =
+        args.iter().map(|a| a.as_ref().to_os_string()).collect();
+
+    std::thread::Builder::new()
+        .name("snapin-reaper".to_string())
+        .spawn(move || {
+            if let Ok(mut child) = Command::new(&prog).args(&arg_list).spawn() {
+                let _ = child.wait();
+            }
+        })
+        .ok();
+}
+
+/// 在系统文件管理器中打开指定目录或文件并自动收割子进程，杜绝僵尸进程
+pub fn open_path_in_file_manager<P: AsRef<std::path::Path>>(path: P) {
+    let p = path.as_ref().to_path_buf();
+    spawn_detached_system_command("xdg-open", &[p.as_os_str()]);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

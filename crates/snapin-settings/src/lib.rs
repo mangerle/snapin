@@ -21,7 +21,8 @@ use slint::{ComponentHandle, SharedString};
 use snapin_core::config::{self, Config, Hotkey};
 use snapin_core::error::CoreError;
 use snapin_platform::{
-    suspend_hotkeys_for_settings, sync_autostart_desktop_file, sync_hotkeys_to_gnome, PlatformError,
+    open_path_in_file_manager, suspend_hotkeys_for_settings, sync_autostart_desktop_file,
+    sync_hotkeys_to_gnome, PlatformError,
 };
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
@@ -264,7 +265,7 @@ fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
     win.on_open_config_folder(|| {
         if let Ok(cfg_path) = config::get_default_config_path() {
             if let Some(parent) = cfg_path.parent() {
-                let _ = std::process::Command::new("xdg-open").arg(parent).spawn();
+                open_path_in_file_manager(parent);
             }
         }
     });

@@ -8,7 +8,8 @@ use crate::paster::transform::{
 use image::RgbaImage;
 use snapin_core::config::{Config, DoubleClickAction};
 use snapin_platform::{
-    read_clipboard_image, read_clipboard_text, save_image_with_config, send_desktop_notification,
+    open_path_in_file_manager, read_clipboard_image, read_clipboard_text, save_image_with_config,
+    send_desktop_notification,
 };
 use std::path::PathBuf;
 use std::time::Instant;
@@ -393,7 +394,7 @@ fn open_paster_in_folder(state: &mut PasterWindowState) {
     }
     if let Some(ref path) = state.file_path {
         if let Some(parent) = path.parent() {
-            let _ = std::process::Command::new("xdg-open").arg(parent).spawn();
+            open_path_in_file_manager(parent);
         }
     }
 }

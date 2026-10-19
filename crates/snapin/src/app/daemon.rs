@@ -6,7 +6,10 @@ use snapin_core::config::Config;
 use snapin_daemon::{
     send_command_to_daemon, DaemonCommand, DaemonResponse, IpcInvocation, IpcListener,
 };
-use snapin_platform::{generate_unique_id, send_desktop_notification, sync_hotkeys_to_gnome};
+use snapin_platform::{
+    enable_gnome_extension, generate_unique_id, send_desktop_notification,
+    spawn_detached_system_command, sync_hotkeys_to_gnome,
+};
 use snapin_ui::paster::{spawn_paster_workspace_thread, PasterItem};
 use std::path::PathBuf;
 use tiny_skia::Pixmap;
@@ -17,9 +20,7 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
     // 1. 若已有守护服务在运行，保持幂等性静默退出，不做多余改变
     if let Ok(true) = send_command_to_daemon(&DaemonCommand::Ping).await {
         tracing::info!("Snapin 守护服务已在后台运行中，无需重复启动。");
-        let _ = std::process::Command::new("gnome-extensions")
-            .args(["enable", "snapin@wangle.local"])
-            .spawn();
+        enable_gnome_extension();
         return Ok(());
     }
 
@@ -27,9 +28,7 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
 
     // 自动确保 GNOME 快捷键注册与配套扩展原地热重载
     let _ = sync_hotkeys_to_gnome(&cfg.hotkeys);
-    let _ = std::process::Command::new("gnome-extensions")
-        .args(["enable", "snapin@wangle.local"])
-        .spawn();
+    enable_gnome_extension();
 
     // 2. 启动贴图集中工作区（常驻单一 GUI 事件循环独立线程）
     let workspace_proxy =
@@ -41,7 +40,7 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
         .context("绑定 IPC 监听套接字失败")?;
     let (tx, mut rx) = mpsc::channel::<IpcInvocation>(32);
 
-    tokio::spawn(async move {
+    let listener_handle = tokio::spawn(async move {
         listener.run_loop(tx).await;
     });
 
@@ -61,12 +60,8 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
             DaemonCommand::Snip => {
                 let current_exe =
                     std::env::current_exe().unwrap_or_else(|_| PathBuf::from("snapin"));
-                if let Err(e) = std::process::Command::new(current_exe).arg("snip").spawn() {
-                    tracing::error!("调起截图前台子进程失败: {e}");
-                    DaemonResponse::Error(format!("调起截图子进程失败: {e}"))
-                } else {
-                    DaemonResponse::Ok
-                }
+                spawn_detached_system_command(&current_exe.to_string_lossy(), &["snip"]);
+                DaemonResponse::Ok
             }
             DaemonCommand::Paste => {
                 let proxy = workspace_proxy.clone();
@@ -161,6 +156,10 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
         };
         let _ = inv.responder.send(resp);
     }
+
+    // 平滑退出：中止后台 IPC 监听协程
+    listener_handle.abort();
+    let _ = listener_handle.await;
 
     Ok(())
 }
