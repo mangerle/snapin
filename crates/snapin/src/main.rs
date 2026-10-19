@@ -47,7 +47,12 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Paste) => {
             tracing::info!("正在检查剪贴板生成贴图...");
-            run_oneshot_paste().await?;
+            if let Ok(true) = send_command_to_daemon(&DaemonCommand::Paste).await {
+                tracing::info!("已通过轻量 IPC 委托常驻守护服务完成贴图");
+            } else {
+                tracing::info!("守护服务未运行，降级为本地直接执行贴图");
+                run_oneshot_paste().await?;
+            }
         }
         Some(Commands::PinFile { path, x, y }) => {
             run_pin_file(path, x, y)?;
@@ -64,7 +69,11 @@ async fn main() -> Result<()> {
             }
         }
         Some(Commands::SwitchGroup { id }) => {
-            let _ = send_command_to_daemon(&DaemonCommand::SwitchGroup(id)).await;
+            if let Ok(true) = send_command_to_daemon(&DaemonCommand::SwitchGroup(id)).await {
+                tracing::info!("已通过 IPC 请求守护进程切换贴图分组至: {id:?}");
+            } else {
+                tracing::info!("未检测到常驻守护服务，无活动贴图分组需要切换");
+            }
         }
         Some(Commands::ClearHistory) => {
             clear_snip_history().await?;
