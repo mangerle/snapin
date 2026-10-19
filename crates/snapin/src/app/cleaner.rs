@@ -1,8 +1,7 @@
 //! 截屏共享内存与历史临时缓存清理模块。
 
 use anyhow::Result;
-use snapin_platform::{get_secure_runtime_dir, send_desktop_notification};
-use std::path::PathBuf;
+use snapin_platform::{clear_selection_cache, get_secure_runtime_dir, send_desktop_notification};
 
 /// 清理本用户所有截屏共享内存与历史选区缓存
 pub async fn clear_snip_history() -> Result<()> {
@@ -18,13 +17,8 @@ pub async fn clear_snip_history() -> Result<()> {
         }
     }
 
-    // 2. 清理历史选区记忆缓存文件
-    if let Ok(home) = std::env::var("HOME") {
-        let cache_file = PathBuf::from(home).join(".cache/snapin/last_selection.txt");
-        if cache_file.exists() && std::fs::remove_file(cache_file).is_ok() {
-            count += 1;
-        }
-    }
+    // 2. 清理历史选区记忆缓存文件 (由 save_helper 统一负责路径与格式)
+    count += clear_selection_cache();
 
     send_desktop_notification(
         "Snapin 截屏历史已清空",

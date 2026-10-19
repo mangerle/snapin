@@ -151,6 +151,22 @@ pub fn load_last_selection() -> Option<(f32, f32, f32, f32)> {
     None
 }
 
+/// 清理历史选区记忆缓存文件（包括 TOML 与旧版 txt 缓存）
+pub fn clear_selection_cache() -> usize {
+    let mut count = 0;
+    if let Some(cache_dir) = get_cache_dir() {
+        let toml_path = cache_dir.join("last_selection.toml");
+        if toml_path.exists() && std::fs::remove_file(&toml_path).is_ok() {
+            count += 1;
+        }
+        let legacy_path = cache_dir.join("last_selection.txt");
+        if legacy_path.exists() && std::fs::remove_file(&legacy_path).is_ok() {
+            count += 1;
+        }
+    }
+    count
+}
+
 /// 获取 Snapin 缓存目录
 fn get_cache_dir() -> Option<PathBuf> {
     let dir = std::env::var("XDG_CACHE_HOME")
@@ -242,5 +258,14 @@ mod tests {
         let p2 = generate_secure_temp_path("snapin_test", "tmp");
         assert_ne!(p1, p2, "生成的安全临时路径不应相同");
         assert!(p1.to_string_lossy().contains("snapin_test"));
+    }
+
+    #[test]
+    fn test_clear_selection_cache() {
+        save_last_selection((50.0, 60.0, 200.0, 150.0));
+        assert!(load_last_selection().is_some());
+        let cleared = clear_selection_cache();
+        assert!(cleared >= 1);
+        assert!(load_last_selection().is_none());
     }
 }
