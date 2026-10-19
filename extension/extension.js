@@ -152,14 +152,14 @@ export default class SnapinHelperExtension extends Extension {
         // 10. 重新启动
         let restartItem = new PopupMenu.PopupMenuItem('重新启动');
         restartItem.connect('activate', () => {
-            GLib.spawn_command_line_async('bash -c "killall snapin; sleep 0.3; snapin daemon &"');
+            GLib.spawn_command_line_async('bash -c "systemctl --user restart snapin 2>/dev/null || (killall -9 snapin 2>/dev/null; sleep 0.3; snapin daemon &)"');
         });
         this._indicator.menu.addMenuItem(restartItem);
 
         // 11. 退出
         let exitItem = new PopupMenu.PopupMenuItem('退出');
         exitItem.connect('activate', () => {
-            GLib.spawn_command_line_async('killall snapin');
+            GLib.spawn_command_line_async('snapin exit');
         });
         this._indicator.menu.addMenuItem(exitItem);
 

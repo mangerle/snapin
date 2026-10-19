@@ -19,8 +19,8 @@ use paster::{
     PasterItem,
 };
 use platform::{
-    capture_fullscreen_extension, capture_fullscreen_portal, read_clipboard_image,
-    read_clipboard_text, send_desktop_notification, sync_hotkeys_to_gnome,
+    capture_fullscreen_extension, capture_fullscreen_portal, exit_snapin_application,
+    read_clipboard_image, read_clipboard_text, send_desktop_notification, sync_hotkeys_to_gnome,
 };
 use snipper::{run_snipper_session, SnipMode, SnipperOutcome};
 use std::path::PathBuf;
@@ -65,6 +65,8 @@ pub enum Commands {
     },
     /// 清空截屏与临时缓存历史
     ClearHistory,
+    /// 完全退出 Snapin（停止守护服务、关闭贴图并收起托盘图标）
+    Exit,
     /// 在前台启动常驻守护进程
     Daemon,
     /// 独立启动一个置顶贴图窗口展示指定图像文件
@@ -134,6 +136,9 @@ async fn main() -> Result<()> {
         }
         Some(Commands::ClearHistory) => {
             clear_snip_history().await?;
+        }
+        Some(Commands::Exit) => {
+            exit_snapin_application();
         }
         Some(Commands::InstallExtension) => {
             install_gnome_extension()?;
