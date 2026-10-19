@@ -1,6 +1,5 @@
 //! 贴图窗口快捷键、鼠标拖拽、滚轮缩放与右键上下文菜单事件响应。
 
-use crate::paster::context_menu::render::TextRenderer;
 use crate::paster::context_menu::{ContextMenuState, MenuItemId};
 use crate::paster::manager::PasterItem;
 use crate::paster::transform::{
@@ -29,7 +28,6 @@ pub struct PasterWindowState {
     pub smooth_scaling: bool,
     pub file_path: Option<PathBuf>,
     pub context_menu: ContextMenuState,
-    pub text_renderer: TextRenderer,
     pub cursor_pos: (f32, f32),
     pub ui_scale: f32,
     pub config: Config,
@@ -47,7 +45,6 @@ impl PasterWindowState {
             smooth_scaling: true,
             file_path: None,
             context_menu: ContextMenuState::default(),
-            text_renderer: TextRenderer::default(),
             cursor_pos: (0.0, 0.0),
             ui_scale: 1.0,
             config: Config::default(),

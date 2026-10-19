@@ -4,6 +4,7 @@ use super::events::PasterWindowState;
 use crate::paster::context_menu::render::render_context_menu;
 use crate::surface::blit_pixmap_to_surface;
 use snapin_core::error::SnapinError;
+use snapin_core::render::{with_thread_local_text_renderer, TextRenderer};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use tiny_skia::{Color, FilterQuality, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform};
@@ -71,27 +72,29 @@ pub fn render_paster_to_surface(
         state.has_shadow,
     );
 
-    // 4. 绘制现代化胶囊快捷工具条 (若用户通过右键菜单勾选开启)
-    if state.show_toolbar {
-        render_paster_toolbar(
-            &mut target_pixmap,
-            &mut state.text_renderer,
-            width as f32,
-            height as f32,
-            state.ui_scale,
-        );
-    }
-
-    // 5. 叠加渲染右键上下文菜单与二级子菜单 (若当前处于激活展开状态)
-    if state.context_menu.is_open {
-        render_context_menu(
-            &state.context_menu,
-            &mut target_pixmap.as_mut(),
-            &mut state.text_renderer,
-            state.show_toolbar,
-            state.has_shadow,
-            state.smooth_scaling,
-        );
+    // 4. 绘制现代化胶囊快捷工具条与右键上下文菜单 (统一复用线程局部高精度文本排版引擎)
+    if state.show_toolbar || state.context_menu.is_open {
+        with_thread_local_text_renderer(|tr| {
+            if state.show_toolbar {
+                render_paster_toolbar(
+                    &mut target_pixmap,
+                    tr,
+                    width as f32,
+                    height as f32,
+                    state.ui_scale,
+                );
+            }
+            if state.context_menu.is_open {
+                render_context_menu(
+                    &state.context_menu,
+                    &mut target_pixmap.as_mut(),
+                    tr,
+                    state.show_toolbar,
+                    state.has_shadow,
+                    state.smooth_scaling,
+                );
+            }
+        });
     }
 
     // 5. 提交渲染至 softbuffer 显存呈现
@@ -168,7 +171,7 @@ fn render_paster_border_and_shadow(pixmap: &mut Pixmap, w: f32, h: f32, has_shad
 /// 绘制贴图底部现代胶囊快捷工具条
 fn render_paster_toolbar(
     pixmap: &mut Pixmap,
-    text_renderer: &mut crate::paster::context_menu::render::TextRenderer,
+    text_renderer: &mut TextRenderer,
     w: f32,
     h: f32,
     ui_scale: f32,

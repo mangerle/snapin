@@ -3,7 +3,7 @@
 //! 当系统未处于截图状态而用户直接按下贴图键时，检查剪贴板内容：
 //! 若包含纯文本或颜色值，自动排版并烘焙为带圆角与投影的精致便签图片。
 
-use snapin_core::render::TextRenderer;
+use snapin_core::render::with_thread_local_text_renderer;
 use tiny_skia::{Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 
 /// 判断字符串是否为标准 HEX 颜色格式 (如 `#FF5500` 或 `#F50`)
@@ -113,24 +113,24 @@ pub fn render_simple_text_card(lines: &[&str]) -> Option<Pixmap> {
         pixmap.stroke_path(&path, &border_paint, &stroke, Transform::identity(), None);
     }
 
-    // 4. 逐行真实排版渲染文本内容
-    let mut text_renderer = TextRenderer::default();
+    // 4. 逐行真实排版渲染文本内容 (统一复用线程局部排版渲染器)
     let text_color = tiny_skia::Color::from_rgba8(240, 242, 248, 255);
-    let mut cur_y = padding_y + 4.0;
-
-    for line in lines {
-        if !line.is_empty() {
-            text_renderer.draw_text(
-                &mut pixmap.as_mut(),
-                line,
-                padding_x,
-                cur_y,
-                font_size,
-                text_color,
-            );
+    with_thread_local_text_renderer(|text_renderer| {
+        let mut cur_y = padding_y + 4.0;
+        for line in lines {
+            if !line.is_empty() {
+                text_renderer.draw_text(
+                    &mut pixmap.as_mut(),
+                    line,
+                    padding_x,
+                    cur_y,
+                    font_size,
+                    text_color,
+                );
+            }
+            cur_y += line_height;
         }
-        cur_y += line_height;
-    }
+    });
 
     Some(pixmap)
 }
