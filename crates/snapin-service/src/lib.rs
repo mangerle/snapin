@@ -113,8 +113,8 @@ mod tests {
         let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
         let model_dir = workspace_root.join("assets").join("models").join("ppocrv6");
 
-        if !model_dir.exists() || !model_dir.join("rec").join("inference.onnx").exists() {
-            // 模型文件尚在下载或不存在时安全返回
+        if !model_dir.exists() || !model_dir.join("ppocrv6_small_rec.onnx").exists() {
+            // 模型文件尚不存在时安全返回
             return;
         }
 

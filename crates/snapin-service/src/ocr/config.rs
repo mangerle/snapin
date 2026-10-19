@@ -33,34 +33,40 @@ pub struct LocalOcrPaths {
 impl LocalOcrPaths {
     /// 在指定根目录中探测并定位模型文件
     pub fn discover_in_root(root: &Path) -> Option<Self> {
-        let rec_model = root.join("rec").join("inference.onnx");
-        let det_model = root.join("det").join("inference.onnx");
+        // 1. 优先探测完整命名的识别模型，次选兼容旧版或子目录结构
+        let rec_candidates = [
+            root.join("ppocrv6_small_rec.onnx"),
+            root.join("rec").join("ppocrv6_small_rec.onnx"),
+            root.join("rec").join("inference.onnx"),
+            root.join("ch_PP-OCRv6_small_rec.onnx"),
+        ];
+        let rec_model = rec_candidates.into_iter().find(|p| p.exists())?;
 
-        if !rec_model.exists() || !det_model.exists() {
-            // 兼容扁平目录结构
-            let flat_rec = root.join("ppocrv6_small_rec.onnx");
-            let flat_det = root.join("ppocrv6_det.onnx");
-            if flat_rec.exists() && flat_det.exists() {
-                let rec_cfg = root.join("inference.yml");
-                return Some(Self {
-                    rec_model: flat_rec,
-                    rec_config: rec_cfg,
-                    det_model: flat_det,
-                });
-            }
-            return None;
-        }
+        // 2. 优先探测完整命名的检测模型
+        let det_candidates = [
+            root.join("ppocrv6_small_det.onnx"),
+            root.join("det").join("ppocrv6_small_det.onnx"),
+            root.join("ppocrv6_det.onnx"),
+            root.join("det").join("inference.onnx"),
+            root.join("ch_PP-OCRv6_small_det.onnx"),
+        ];
+        let det_model = det_candidates.into_iter().find(|p| p.exists())?;
 
-        // 优先探测 yml，其次探测 txt 或 json
-        let rec_yml = root.join("rec").join("inference.yml");
-        let rec_dict = root.join("rec").join("ppocrv6_dict.txt");
-        let rec_config = if rec_yml.exists() {
-            rec_yml
-        } else if rec_dict.exists() {
-            rec_dict
-        } else {
-            root.join("rec").join("inference.json")
-        };
+        // 3. 优先探测识别模型对应的完整命名配置文件与字典
+        let config_candidates = [
+            root.join("ppocrv6_small_rec.yml"),
+            root.join("ppocrv6_small_rec.json"),
+            root.join("rec").join("ppocrv6_small_rec.yml"),
+            root.join("rec").join("inference.yml"),
+            root.join("rec").join("ppocrv6_dict.txt"),
+            root.join("rec").join("inference.json"),
+            root.join("inference.yml"),
+            root.join("ppocrv6_dict.txt"),
+        ];
+        let rec_config = config_candidates
+            .into_iter()
+            .find(|p| p.exists())
+            .unwrap_or_else(|| root.join("ppocrv6_small_rec.yml"));
 
         Some(Self {
             rec_model,

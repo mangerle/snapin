@@ -12,7 +12,7 @@ async fn test_real_ppocrv6_assets_integrity_and_inference_pipeline() {
     let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
     let model_dir = workspace_root.join("assets").join("models").join("ppocrv6");
 
-    if !model_dir.exists() || !model_dir.join("rec").join("inference.onnx").exists() {
+    if !model_dir.exists() || !model_dir.join("ppocrv6_small_rec.onnx").exists() {
         // 模型若未就绪则安全跳过，防止 CI 运行失败
         return;
     }
