@@ -5,12 +5,19 @@
 //! 支持自适应屏幕边缘检测，防止超出可视区域。
 
 pub mod icons;
+mod interaction;
 pub mod items;
+mod layout;
 pub mod render;
+
+#[cfg(test)]
+mod tests;
 
 pub use items::{preset_colors, StrokeWidthLevel, SubToolOptions, ToolbarItem};
 
 use crate::snipper::selection::Rect;
+use interaction::{cycle_stroke_width_level, handle_sub_click, hit_test_main_items};
+use layout::{calculate_main_layout, calculate_sub_layout};
 use render::render_toolbar;
 use tiny_skia::PixmapMut;
 
@@ -72,71 +79,19 @@ impl Toolbar {
 
     /// 根据选区与屏幕宽高重新计算工具栏自适应摆放位置 (自适应 HiDPI 缩放)
     pub fn update_layout(&mut self, selection: &Rect, screen_w: f32, screen_h: f32) {
-        let s = self.ui_scale;
-        let btn_size = 32.0 * s;
-        let padding = 6.0 * s;
-        let spacing = 4.0 * s;
-        let divider_width = 8.0 * s;
-
-        let total_items = Self::MAIN_ITEMS.len() as f32;
-        let width = padding * 2.0
-            + total_items * btn_size
-            + (total_items - 1.0) * spacing
-            + divider_width * 2.0;
-        let height = padding * 2.0 + btn_size;
-
-        let mut x = (selection.x + selection.width) - width;
-        let mut y = selection.y + selection.height + 8.0 * s;
-
-        if x + width > screen_w - 8.0 * s {
-            x = screen_w - width - 8.0 * s;
-        }
-        if x < 8.0 * s {
-            x = 8.0 * s;
-        }
-
-        if y + height > screen_h - 8.0 * s {
-            let above_y = selection.y - height - 8.0 * s;
-            if above_y >= 8.0 * s {
-                y = above_y;
-            } else {
-                y = (selection.y + selection.height - height - 8.0 * s).max(8.0 * s);
-            }
-        }
-
-        self.main_rect = Rect {
-            x,
-            y,
-            width,
-            height,
-        };
-
+        self.main_rect = calculate_main_layout(
+            selection,
+            screen_w,
+            screen_h,
+            self.ui_scale,
+            Self::MAIN_ITEMS.len(),
+        );
         self.update_sub_rect();
     }
 
     /// 根据当前主工具栏位置重新定位二级属性栏 (自适应 HiDPI 缩放)
     fn update_sub_rect(&mut self) {
-        if self.active_tool.is_some() && self.main_rect.width > 0.0 {
-            let s = self.ui_scale;
-            let sub_h = 36.0 * s;
-            let is_geo = self.active_tool == Some(ToolbarItem::ToolRect)
-                || self.active_tool == Some(ToolbarItem::ToolEllipse);
-            let sub_w = if is_geo { 400.0 * s } else { 340.0 * s };
-            let sub_x = self.main_rect.x;
-            let sub_y = if self.main_rect.y >= sub_h + 8.0 * s {
-                self.main_rect.y - sub_h - 4.0 * s
-            } else {
-                self.main_rect.y + self.main_rect.height + 4.0 * s
-            };
-            self.sub_rect = Some(Rect {
-                x: sub_x,
-                y: sub_y,
-                width: sub_w,
-                height: sub_h,
-            });
-        } else {
-            self.sub_rect = None;
-        }
+        self.sub_rect = calculate_sub_layout(&self.main_rect, self.active_tool, self.ui_scale);
     }
 
     /// 鼠标移动命中检测
@@ -148,36 +103,7 @@ impl Toolbar {
 
     /// 主栏命中测试 (自适应 HiDPI 缩放)
     pub fn hit_test_main(&self, px: f32, py: f32) -> Option<ToolbarItem> {
-        if !self.main_rect.contains(px, py) {
-            return None;
-        }
-
-        let s = self.ui_scale;
-        let btn_size = 32.0 * s;
-        let padding = 6.0 * s;
-        let spacing = 4.0 * s;
-        let mut cur_x = self.main_rect.x + padding;
-
-        for (idx, &item) in Self::MAIN_ITEMS.iter().enumerate() {
-            if idx == 7 || idx == 9 {
-                cur_x += 8.0 * s;
-            }
-
-            let btn_rect = Rect {
-                x: cur_x,
-                y: self.main_rect.y + padding,
-                width: btn_size,
-                height: btn_size,
-            };
-
-            if btn_rect.contains(px, py) {
-                return Some(item);
-            }
-
-            cur_x += btn_size + spacing;
-        }
-
-        None
+        hit_test_main_items(&self.main_rect, Self::MAIN_ITEMS, self.ui_scale, px, py)
     }
 
     /// 检查指定坐标是否落在主工具栏或二级属性栏范围内 (防止事件穿透到画布)
@@ -229,208 +155,31 @@ impl Toolbar {
 
         if let Some(sub_rect) = self.sub_rect {
             if sub_rect.contains(px, py) {
-                self.handle_sub_click(px, py, sub_rect);
+                handle_sub_click(
+                    sub_rect,
+                    &mut self.active_tool,
+                    &mut self.sub_options,
+                    self.ui_scale,
+                    px,
+                    py,
+                );
             }
         }
 
         None
     }
 
-    /// 处理二级属性栏内的形状、粗细与颜色点击 (自适应 HiDPI 缩放)
-    fn handle_sub_click(&mut self, px: f32, py: f32, sub_rect: Rect) {
-        let s = self.ui_scale;
-        let padding = 8.0 * s;
-        let mut cur_x = sub_rect.x + padding;
-        let center_y = sub_rect.y + sub_rect.height / 2.0;
-
-        let is_geo = self.active_tool == Some(ToolbarItem::ToolRect)
-            || self.active_tool == Some(ToolbarItem::ToolEllipse);
-        if is_geo {
-            let rect_btn = Rect {
-                x: cur_x - 4.0 * s,
-                y: center_y - 12.0 * s,
-                width: 24.0 * s,
-                height: 24.0 * s,
-            };
-            if rect_btn.contains(px, py) {
-                self.active_tool = Some(ToolbarItem::ToolRect);
-                return;
-            }
-            cur_x += 26.0 * s;
-
-            let ellipse_btn = Rect {
-                x: cur_x - 4.0 * s,
-                y: center_y - 12.0 * s,
-                width: 24.0 * s,
-                height: 24.0 * s,
-            };
-            if ellipse_btn.contains(px, py) {
-                self.active_tool = Some(ToolbarItem::ToolEllipse);
-                return;
-            }
-            cur_x += 26.0 * s + 16.0 * s;
-        }
-
-        for level in [
-            StrokeWidthLevel::Thin,
-            StrokeWidthLevel::Medium,
-            StrokeWidthLevel::Thick,
-        ] {
-            let hit_box = Rect {
-                x: cur_x - 6.0 * s,
-                y: center_y - 12.0 * s,
-                width: 24.0 * s,
-                height: 24.0 * s,
-            };
-            if hit_box.contains(px, py) {
-                self.sub_options.stroke_width = level;
-                self.sub_options.custom_stroke_width = level.to_pixel();
-                return;
-            }
-            cur_x += 24.0 * s;
-        }
-
-        cur_x += 16.0 * s;
-
-        for color in preset_colors() {
-            let hit_box = Rect {
-                x: cur_x - 4.0 * s,
-                y: center_y - 12.0 * s,
-                width: 24.0 * s,
-                height: 24.0 * s,
-            };
-            if hit_box.contains(px, py) {
-                self.sub_options.color = color;
-                return;
-            }
-            cur_x += 26.0 * s;
-        }
-    }
-
     /// 根据鼠标滚轮滚动方向阶梯调节标注粗细 (向前滚轮变粗，向后滚轮变细)
     pub fn cycle_stroke_width(&mut self, increase: bool) -> bool {
-        let prev = self.sub_options.stroke_width;
-        let next = if increase {
-            match prev {
-                StrokeWidthLevel::Thin => StrokeWidthLevel::Medium,
-                StrokeWidthLevel::Medium | StrokeWidthLevel::Thick => StrokeWidthLevel::Thick,
-            }
-        } else {
-            match prev {
-                StrokeWidthLevel::Thick => StrokeWidthLevel::Medium,
-                StrokeWidthLevel::Medium | StrokeWidthLevel::Thin => StrokeWidthLevel::Thin,
-            }
-        };
-
-        if next != prev {
+        let (next, changed) = cycle_stroke_width_level(self.sub_options.stroke_width, increase);
+        if changed {
             self.sub_options.stroke_width = next;
-            true
-        } else {
-            false
         }
+        changed
     }
 
     /// 使用 tiny-skia 将工具栏绘制到目标 Pixmap
     pub fn render(&self, pixmap: &mut PixmapMut) {
         render_toolbar(self, pixmap);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_toolbar_layout_adaptation() {
-        let mut tb = Toolbar::default();
-        let selection = Rect {
-            x: 100.0,
-            y: 100.0,
-            width: 500.0,
-            height: 400.0,
-        };
-        tb.update_layout(&selection, 1920.0, 1080.0);
-        assert!(tb.main_rect.x > 0.0);
-        assert!(tb.main_rect.y >= selection.y + selection.height);
-
-        let bottom_selection = Rect {
-            x: 100.0,
-            y: 900.0,
-            width: 500.0,
-            height: 160.0,
-        };
-        tb.update_layout(&bottom_selection, 1920.0, 1080.0);
-        assert!(tb.main_rect.y + tb.main_rect.height <= 1080.0);
-    }
-
-    #[test]
-    fn test_toolbar_hit_test() {
-        let mut tb = Toolbar::default();
-        let selection = Rect {
-            x: 200.0,
-            y: 200.0,
-            width: 600.0,
-            height: 400.0,
-        };
-        tb.update_layout(&selection, 1920.0, 1080.0);
-
-        assert_eq!(tb.hit_test_main(0.0, 0.0), None);
-
-        let first_btn_x = tb.main_rect.x + 10.0;
-        let first_btn_y = tb.main_rect.y + 10.0;
-        let clicked = tb.handle_click(first_btn_x, first_btn_y);
-        assert_eq!(clicked, Some(ToolbarItem::ToolRect));
-        assert_eq!(tb.active_tool, Some(ToolbarItem::ToolRect));
-        assert!(tb.sub_rect.is_some());
-    }
-
-    #[test]
-    fn test_toolbar_cycle_stroke_width() {
-        let mut tb = Toolbar::default();
-        assert_eq!(tb.sub_options.stroke_width, StrokeWidthLevel::Medium);
-
-        // 滚轮向上增大粗细：Medium -> Thick
-        assert!(tb.cycle_stroke_width(true));
-        assert_eq!(tb.sub_options.stroke_width, StrokeWidthLevel::Thick);
-        // 到顶不再变化
-        assert!(!tb.cycle_stroke_width(true));
-
-        // 滚轮向下减小粗细：Thick -> Medium -> Thin
-        assert!(tb.cycle_stroke_width(false));
-        assert_eq!(tb.sub_options.stroke_width, StrokeWidthLevel::Medium);
-        assert!(tb.cycle_stroke_width(false));
-        assert_eq!(tb.sub_options.stroke_width, StrokeWidthLevel::Thin);
-        // 到底不再变化
-        assert!(!tb.cycle_stroke_width(false));
-    }
-
-    #[test]
-    fn test_toolbar_rect_ellipse_switching() {
-        let mut tb = Toolbar::default();
-        let selection = Rect {
-            x: 100.0,
-            y: 100.0,
-            width: 500.0,
-            height: 300.0,
-        };
-        tb.update_layout(&selection, 1920.0, 1080.0);
-
-        let btn_x = tb.main_rect.x + 10.0;
-        let btn_y = tb.main_rect.y + 10.0;
-
-        // 第一次点击主按钮：进入 ToolRect
-        assert_eq!(tb.handle_click(btn_x, btn_y), Some(ToolbarItem::ToolRect));
-        assert_eq!(tb.active_tool, Some(ToolbarItem::ToolRect));
-
-        // 第二次点击主按钮：轮转切换为 ToolEllipse
-        assert_eq!(
-            tb.handle_click(btn_x, btn_y),
-            Some(ToolbarItem::ToolEllipse)
-        );
-        assert_eq!(tb.active_tool, Some(ToolbarItem::ToolEllipse));
-
-        // 第三次点击主按钮：取消选择
-        assert_eq!(tb.handle_click(btn_x, btn_y), None);
-        assert_eq!(tb.active_tool, None);
     }
 }
