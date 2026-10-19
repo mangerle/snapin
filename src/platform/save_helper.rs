@@ -4,6 +4,7 @@ use crate::config::{ImageFormat, OutputConfig};
 use crate::error::SnapinError;
 use chrono::Local;
 use image::RgbaImage;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// 根据输出配置生成目标文件绝对路径
@@ -78,30 +79,75 @@ fn format_template(template: &str, dt: &chrono::DateTime<Local>) -> String {
         .replace("{ss}", &dt.format("%S").to_string())
 }
 
+/// 持久化缓存的历史选区矩形数据契约
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct SelectionRectRecord {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl SelectionRectRecord {
+    pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.width > 10.0 && self.height > 10.0 && self.x >= 0.0 && self.y >= 0.0
+    }
+}
+
 /// 保存上次选区坐标至运行时缓存文件
 pub fn save_last_selection(rect: (f32, f32, f32, f32)) {
+    let record = SelectionRectRecord::new(rect.0, rect.1, rect.2, rect.3);
+    if !record.is_valid() {
+        return;
+    }
+
     if let Some(cache_dir) = get_cache_dir() {
-        let path = cache_dir.join("last_selection.txt");
-        let content = format!("{},{},{},{}", rect.0, rect.1, rect.2, rect.3);
-        let _ = std::fs::write(path, content);
+        let toml_path = cache_dir.join("last_selection.toml");
+        if let Ok(toml_content) = toml::to_string(&record) {
+            let _ = std::fs::write(toml_path, toml_content);
+        }
     }
 }
 
 /// 读取上次保存的历史选区
 pub fn load_last_selection() -> Option<(f32, f32, f32, f32)> {
     let cache_dir = get_cache_dir()?;
-    let path = cache_dir.join("last_selection.txt");
-    let content = std::fs::read_to_string(path).ok()?;
-    let parts: Vec<&str> = content.split(',').collect();
-    if parts.len() == 4 {
-        let x: f32 = parts[0].trim().parse().ok()?;
-        let y: f32 = parts[1].trim().parse().ok()?;
-        let w: f32 = parts[2].trim().parse().ok()?;
-        let h: f32 = parts[3].trim().parse().ok()?;
-        if w > 10.0 && h > 10.0 {
-            return Some((x, y, w, h));
+    let toml_path = cache_dir.join("last_selection.toml");
+
+    // 优先读取强类型结构化的 TOML 缓存文件
+    if let Ok(content) = std::fs::read_to_string(&toml_path) {
+        if let Ok(record) = toml::from_str::<SelectionRectRecord>(&content) {
+            if record.is_valid() {
+                return Some((record.x, record.y, record.width, record.height));
+            }
         }
     }
+
+    // 兜底兼容旧版逗号拼接 txt 缓存文件
+    let legacy_path = cache_dir.join("last_selection.txt");
+    if let Ok(content) = std::fs::read_to_string(legacy_path) {
+        let parts: Vec<&str> = content.split(',').collect();
+        if parts.len() == 4 {
+            let x: f32 = parts[0].trim().parse().ok()?;
+            let y: f32 = parts[1].trim().parse().ok()?;
+            let w: f32 = parts[2].trim().parse().ok()?;
+            let h: f32 = parts[3].trim().parse().ok()?;
+            let record = SelectionRectRecord::new(x, y, w, h);
+            if record.is_valid() {
+                return Some((x, y, w, h));
+            }
+        }
+    }
+
     None
 }
 
@@ -132,5 +178,18 @@ mod tests {
     fn test_expand_home_dir() {
         let res = expand_home_dir("~/Pictures");
         assert!(!res.to_string_lossy().starts_with('~'));
+    }
+
+    #[test]
+    fn test_selection_record_serde_and_validation() {
+        let record = SelectionRectRecord::new(10.0, 20.0, 100.0, 80.0);
+        assert!(record.is_valid());
+
+        let toml_str = toml::to_string(&record).expect("序列化选区记录成功");
+        let decoded: SelectionRectRecord = toml::from_str(&toml_str).expect("反序列化选区记录成功");
+        assert_eq!(record, decoded);
+
+        let invalid = SelectionRectRecord::new(-1.0, 0.0, 5.0, 5.0);
+        assert!(!invalid.is_valid());
     }
 }

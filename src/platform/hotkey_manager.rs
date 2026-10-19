@@ -61,9 +61,7 @@ pub fn suspend_hotkeys_for_settings() -> Result<(), SnapinError> {
     for path in [&snip_path, &paste_path, &toggle_path, &switch_path] {
         let schema_with_path =
             format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{path}");
-        let _ = Command::new("gsettings")
-            .args(["set", &schema_with_path, "binding", ""])
-            .output();
+        run_gsettings_set(&schema_with_path, "binding", "");
     }
     tracing::info!("已临时挂起 Snapin 全局快捷键，以确保设置中心自由录入按键");
     Ok(())
@@ -107,14 +105,11 @@ fn ensure_custom_keybindings_registered(paths: &[&str]) -> Result<(), SnapinErro
             .join(", ")
     );
 
-    let _ = Command::new("gsettings")
-        .args([
-            "set",
-            "org.gnome.settings-daemon.plugins.media-keys",
-            "custom-keybindings",
-            &formatted_list,
-        ])
-        .output();
+    run_gsettings_set(
+        "org.gnome.settings-daemon.plugins.media-keys",
+        "custom-keybindings",
+        &formatted_list,
+    );
 
     Ok(())
 }
@@ -130,23 +125,31 @@ fn get_snapin_executable_path() -> String {
     }
 }
 
+fn run_gsettings_set(schema_with_path: &str, key: &str, value: &str) {
+    match Command::new("gsettings")
+        .args(["set", schema_with_path, key, value])
+        .output()
+    {
+        Ok(out) if !out.status.success() => {
+            let err = String::from_utf8_lossy(&out.stderr);
+            tracing::warn!("调用 gsettings set 失败 [{key}={value}]: {err}");
+        }
+        Err(e) => {
+            tracing::warn!("无法执行 gsettings 命令: {e}");
+        }
+        _ => {}
+    }
+}
+
 fn setup_keybinding(path: &str, name: &str, command: &str, binding: &str) {
     let schema_with_path =
         format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{path}");
 
-    let _ = Command::new("gsettings")
-        .args(["set", &schema_with_path, "name", name])
-        .output();
-
-    let _ = Command::new("gsettings")
-        .args(["set", &schema_with_path, "command", command])
-        .output();
+    run_gsettings_set(&schema_with_path, "name", name);
+    run_gsettings_set(&schema_with_path, "command", command);
 
     let effective_binding = convert_to_gnome_accelerator(binding);
-
-    let _ = Command::new("gsettings")
-        .args(["set", &schema_with_path, "binding", &effective_binding])
-        .output();
+    run_gsettings_set(&schema_with_path, "binding", &effective_binding);
 }
 
 /// 将人类可读的快捷键格式（如 "Ctrl+Alt+A"、"Ctrl+F3"、"F1"）转换为 GNOME / GTK Accelerator 标准格式

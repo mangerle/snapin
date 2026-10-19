@@ -7,24 +7,60 @@ use crate::error::SnapinError;
 use arboard::{Clipboard, ImageData};
 use image::RgbaImage;
 use std::borrow::Cow;
+use std::sync::Mutex;
+
+static CLIPBOARD_INSTANCE: Mutex<Option<Clipboard>> = Mutex::new(None);
+
+/// 在全局复用的剪贴板实例上执行操作闭包，具备断开连接时的单次自动重建自愈能力
+fn with_clipboard<R, F: FnMut(&mut Clipboard) -> Result<R, arboard::Error>>(
+    mut f: F,
+) -> Result<R, SnapinError> {
+    let mut guard = CLIPBOARD_INSTANCE
+        .lock()
+        .map_err(|e| SnapinError::ClipboardError {
+            message: format!("剪贴板互斥锁中毒: {e}"),
+        })?;
+
+    if guard.is_none() {
+        *guard = Clipboard::new().ok();
+    }
+
+    if let Some(ref mut cb) = *guard {
+        match f(cb) {
+            Ok(val) => Ok(val),
+            Err(e) => {
+                // 若底层句柄损坏，尝试重建一次剪贴板句柄自愈
+                tracing::warn!("剪贴板操作失败，尝试重建连接句柄: {e}");
+                if let Ok(mut new_cb) = Clipboard::new() {
+                    let res = f(&mut new_cb);
+                    *guard = Some(new_cb);
+                    res.map_err(|retry_err| SnapinError::ClipboardError {
+                        message: format!("剪贴板重试操作失败: {retry_err}"),
+                    })
+                } else {
+                    Err(SnapinError::ClipboardError {
+                        message: format!("剪贴板操作失败: {e}"),
+                    })
+                }
+            }
+        }
+    } else {
+        Err(SnapinError::ClipboardError {
+            message: "无法初始化系统剪贴板".to_string(),
+        })
+    }
+}
 
 /// 将 RGBA 图像写入系统剪贴板
 pub fn write_image_to_clipboard(img: &RgbaImage) -> Result<(), SnapinError> {
-    let mut clipboard = Clipboard::new().map_err(|e| SnapinError::ClipboardError {
-        message: format!("初始化剪贴板失败: {e}"),
+    with_clipboard(|cb| {
+        let image_data = ImageData {
+            width: img.width() as usize,
+            height: img.height() as usize,
+            bytes: Cow::Borrowed(img.as_raw()),
+        };
+        cb.set_image(image_data)
     })?;
-
-    let image_data = ImageData {
-        width: img.width() as usize,
-        height: img.height() as usize,
-        bytes: Cow::Borrowed(img.as_raw()),
-    };
-
-    clipboard
-        .set_image(image_data)
-        .map_err(|e| SnapinError::ClipboardError {
-            message: format!("写入剪贴板图像失败: {e}"),
-        })?;
 
     tracing::info!(
         "已成功将裁剪图像写入系统剪贴板，尺寸: {}x{}",
@@ -36,15 +72,7 @@ pub fn write_image_to_clipboard(img: &RgbaImage) -> Result<(), SnapinError> {
 
 /// 将纯文本字符串写入系统剪贴板
 pub fn write_text_to_clipboard(text: &str) -> Result<(), SnapinError> {
-    let mut clipboard = Clipboard::new().map_err(|e| SnapinError::ClipboardError {
-        message: format!("初始化剪贴板失败: {e}"),
-    })?;
-
-    clipboard
-        .set_text(text)
-        .map_err(|e| SnapinError::ClipboardError {
-            message: format!("写入剪贴板文本失败: {e}"),
-        })?;
+    with_clipboard(|cb| cb.set_text(text))?;
 
     tracing::info!("已将文本写入系统剪贴板: {text}");
     Ok(())
@@ -52,11 +80,7 @@ pub fn write_text_to_clipboard(text: &str) -> Result<(), SnapinError> {
 
 /// 从系统剪贴板读取纯文本内容 (若不存在则返回 None)
 pub fn read_clipboard_text() -> Result<Option<String>, SnapinError> {
-    let mut clipboard = Clipboard::new().map_err(|e| SnapinError::ClipboardError {
-        message: format!("初始化剪贴板失败: {e}"),
-    })?;
-
-    match clipboard.get_text() {
+    let res = with_clipboard(|cb| match cb.get_text() {
         Ok(text) => {
             let trimmed = text.trim();
             if trimmed.is_empty() {
@@ -65,17 +89,20 @@ pub fn read_clipboard_text() -> Result<Option<String>, SnapinError> {
                 Ok(Some(text))
             }
         }
-        Err(_) => Ok(None),
+        Err(arboard::Error::ContentNotAvailable) => Ok(None),
+        Err(e) => Err(e),
+    });
+
+    match res {
+        Ok(opt) => Ok(opt),
+        Err(SnapinError::ClipboardError { .. }) => Ok(None),
+        Err(e) => Err(e),
     }
 }
 
 /// 从系统剪贴板读取 RGBA 图像 (若不存在则返回 None)
 pub fn read_clipboard_image() -> Result<Option<RgbaImage>, SnapinError> {
-    let mut clipboard = Clipboard::new().map_err(|e| SnapinError::ClipboardError {
-        message: format!("初始化剪贴板失败: {e}"),
-    })?;
-
-    match clipboard.get_image() {
+    let res = with_clipboard(|cb| match cb.get_image() {
         Ok(img_data) => {
             let width = img_data.width as u32;
             let height = img_data.height as u32;
@@ -85,7 +112,14 @@ pub fn read_clipboard_image() -> Result<Option<RgbaImage>, SnapinError> {
                 Ok(None)
             }
         }
-        Err(_) => Ok(None),
+        Err(arboard::Error::ContentNotAvailable) => Ok(None),
+        Err(e) => Err(e),
+    });
+
+    match res {
+        Ok(opt) => Ok(opt),
+        Err(SnapinError::ClipboardError { .. }) => Ok(None),
+        Err(e) => Err(e),
     }
 }
 
