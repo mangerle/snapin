@@ -1,6 +1,6 @@
 //! 图像输出存储、文件名模板解析与历史选区持久化辅助模块。
 
-use crate::config::OutputConfig;
+use crate::config::{ImageFormat, OutputConfig};
 use crate::error::SnapinError;
 use chrono::Local;
 use image::RgbaImage;
@@ -15,11 +15,7 @@ pub fn resolve_save_path(cfg: &OutputConfig) -> PathBuf {
 
     let now = Local::now();
     let file_name = format_template(&cfg.file_name_template, &now);
-    let ext = match cfg.default_format.to_lowercase().as_str() {
-        "jpeg" | "jpg" => "jpg",
-        "webp" => "webp",
-        _ => "png",
-    };
+    let ext = cfg.default_format.extension();
 
     base_dir.join(format!("{file_name}.{ext}"))
 }
@@ -27,10 +23,9 @@ pub fn resolve_save_path(cfg: &OutputConfig) -> PathBuf {
 /// 按照用户配置格式将图像编码并写入磁盘
 pub fn save_image_with_config(img: &RgbaImage, cfg: &OutputConfig) -> Result<PathBuf, SnapinError> {
     let out_path = resolve_save_path(cfg);
-    let ext = cfg.default_format.to_lowercase();
 
-    match ext.as_str() {
-        "jpeg" | "jpg" => {
+    match cfg.default_format {
+        ImageFormat::Jpeg => {
             let rgb = image::DynamicImage::ImageRgba8(img.clone()).to_rgb8();
             let mut file = std::fs::File::create(&out_path).map_err(|e| SnapinError::IoError {
                 path: out_path.display().to_string(),
@@ -47,7 +42,7 @@ pub fn save_image_with_config(img: &RgbaImage, cfg: &OutputConfig) -> Result<Pat
                     source: std::io::Error::other(e.to_string()),
                 })?;
         }
-        _ => {
+        ImageFormat::Png | ImageFormat::Webp => {
             img.save(&out_path).map_err(|e| SnapinError::IoError {
                 path: out_path.display().to_string(),
                 source: std::io::Error::other(e.to_string()),

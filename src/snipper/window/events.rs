@@ -64,11 +64,7 @@ fn apply_interface_config(state: &mut SnipperState, iface: &crate::config::Inter
     state.magnifier.enabled = iface.enable_magnifier;
     state.magnifier.scale = iface.magnifier_scale;
     state.magnifier.show_grid = iface.show_grid_lines;
-    state.magnifier.format = match iface.color_format.to_lowercase().as_str() {
-        "rgb" => crate::snipper::magnifier::ColorFormat::Rgb,
-        "hsl" => crate::snipper::magnifier::ColorFormat::Hsl,
-        _ => crate::snipper::magnifier::ColorFormat::Hex,
-    };
+    state.magnifier.format = iface.color_format;
     state.toolbar.ui_scale = iface.toolbar_scale;
 }
 

@@ -1,5 +1,6 @@
 //! 贴图窗口快捷键、鼠标拖拽、滚轮缩放与右键上下文菜单事件响应。
 
+use crate::config::DoubleClickAction;
 use crate::paster::context_menu::render::TextRenderer;
 use crate::paster::context_menu::{ContextMenuState, MenuItemId};
 use crate::paster::manager::PasterItem;
@@ -216,15 +217,15 @@ pub fn handle_paster_mouse_button(
         if let Some(prev) = state.last_click_time {
             if now.duration_since(prev).as_millis() < 300 {
                 state.last_click_time = None;
-                match state.config.paster.double_click_action.as_str() {
-                    "copy_and_close" => {
+                match state.config.paster.double_click_action {
+                    DoubleClickAction::CopyAndClose => {
                         copy_paster_to_clipboard(&state.item);
                         state.should_close = true;
                     }
-                    "copy" => {
+                    DoubleClickAction::Copy => {
                         copy_paster_to_clipboard(&state.item);
                     }
-                    _ => {
+                    DoubleClickAction::Close => {
                         state.should_close = true;
                     }
                 }

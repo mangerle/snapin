@@ -5,37 +5,7 @@
 use image::RgbaImage;
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Rect as SkiaRect, Stroke, Transform};
 
-/// 取色格式枚举
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ColorFormat {
-    #[default]
-    Hex,
-    Rgb,
-    Hsl,
-}
-
-impl ColorFormat {
-    /// 轮转切换至下一种取色格式 (Shift+C 触发)
-    pub fn next(&self) -> Self {
-        match self {
-            Self::Hex => Self::Rgb,
-            Self::Rgb => Self::Hsl,
-            Self::Hsl => Self::Hex,
-        }
-    }
-
-    /// 格式化 RGBA 颜色为可读文本
-    pub fn format_color(&self, r: u8, g: u8, b: u8) -> String {
-        match self {
-            Self::Hex => format!("#{r:02X}{g:02X}{b:02X}"),
-            Self::Rgb => format!("rgb({r}, {g}, {b})"),
-            Self::Hsl => {
-                let (h, s, l) = rgb_to_hsl(r, g, b);
-                format!("hsl({h}, {s}%, {l}%)")
-            }
-        }
-    }
-}
+pub use crate::config::ColorFormat;
 
 /// 放大镜控制器
 pub struct Magnifier {
@@ -177,46 +147,6 @@ impl Magnifier {
             }
         }
     }
-}
-
-/// 辅助 RGB 转换为 HSL 算法
-fn rgb_to_hsl(r: u8, g: u8, b: u8) -> (u16, u8, u8) {
-    let rf = r as f32 / 255.0;
-    let gf = g as f32 / 255.0;
-    let bf = b as f32 / 255.0;
-
-    let max = rf.max(gf).max(bf);
-    let min = rf.min(gf).min(bf);
-    let delta = max - min;
-
-    let l = (max + min) / 2.0;
-
-    let (h, s) = if delta == 0.0 {
-        (0.0, 0.0)
-    } else {
-        let s = if l < 0.5 {
-            delta / (max + min)
-        } else {
-            delta / (2.0 - max - min)
-        };
-
-        let h = if max == rf {
-            ((gf - bf) / delta) % 6.0
-        } else if max == gf {
-            ((bf - rf) / delta) + 2.0
-        } else {
-            ((rf - gf) / delta) + 4.0
-        } * 60.0;
-
-        let h = if h < 0.0 { h + 360.0 } else { h };
-        (h, s)
-    };
-
-    (
-        h.round() as u16,
-        (s * 100.0).round() as u8,
-        (l * 100.0).round() as u8,
-    )
 }
 
 #[cfg(test)]

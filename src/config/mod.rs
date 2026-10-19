@@ -6,7 +6,9 @@ pub mod model;
 
 use crate::error::SnapinError;
 pub use model::{
-    Config, GeneralConfig, HotkeyConfig, InterfaceConfig, OutputConfig, PasterConfig, SnipConfig,
+    ColorFormat, Config, DefaultTool, DoubleClickAction, GeneralConfig, HotkeyConfig, ImageFormat,
+    InterfaceConfig, LogLevel, OutputConfig, PasterConfig, SnipConfig, Theme, TrayTheme,
+    ZoomAnchor,
 };
 use std::fs;
 use std::path::{Path, PathBuf};

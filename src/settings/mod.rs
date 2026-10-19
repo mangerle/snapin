@@ -80,30 +80,13 @@ fn sync_config_to_window(win: &SettingsWindow, cfg: &Config) {
 fn sync_general_to_window(win: &SettingsWindow, g: &config::model::GeneralConfig) {
     win.set_autostart(g.autostart);
     win.set_notify_on_startup(g.notify_on_startup);
-    let log_idx = match g.log_level.as_str() {
-        "trace" => 0,
-        "debug" => 1,
-        "warn" => 3,
-        "error" => 4,
-        _ => 2,
-    };
-    win.set_log_level_index(log_idx);
-    let tray_idx = match g.tray_theme.as_str() {
-        "dark" => 1,
-        "light" => 2,
-        _ => 0,
-    };
-    win.set_tray_theme_index(tray_idx);
+    win.set_log_level_index(g.log_level.to_index());
+    win.set_tray_theme_index(g.tray_theme.to_index());
 }
 
 /// 同步界面外观板块设置
 fn sync_interface_to_window(win: &SettingsWindow, i: &config::model::InterfaceConfig) {
-    let theme_idx = match i.theme.as_str() {
-        "dark" => 1,
-        "light" => 2,
-        _ => 0,
-    };
-    win.set_theme_index(theme_idx);
+    win.set_theme_index(i.theme.to_index());
     let accent_idx = match i.accent_color.to_uppercase().as_str() {
         "#10B981" => 1,
         "#F59E0B" => 2,
@@ -118,12 +101,7 @@ fn sync_interface_to_window(win: &SettingsWindow, i: &config::model::InterfaceCo
         _ => 1,
     };
     win.set_magnifier_scale_index(mag_idx);
-    let fmt_idx = match i.color_format.as_str() {
-        "rgb" => 1,
-        "hsl" => 2,
-        _ => 0,
-    };
-    win.set_color_format_index(fmt_idx);
+    win.set_color_format_index(i.color_format.to_index());
     win.set_show_grid_lines(i.show_grid_lines);
     win.set_toolbar_scale_percent(i.toolbar_scale * 100.0);
 }
@@ -133,16 +111,7 @@ fn sync_snip_to_window(win: &SettingsWindow, s: &config::model::SnipConfig) {
     win.set_capture_cursor(s.capture_cursor);
     win.set_smart_window_snapping(s.smart_window_snapping);
     win.set_remember_last_selection(s.remember_last_selection);
-    let tool_idx = match s.default_tool.as_str() {
-        "rectangle" => 1,
-        "pen" => 2,
-        "marker" => 3,
-        "arrow" => 4,
-        "text" => 5,
-        "badge" => 6,
-        _ => 0,
-    };
-    win.set_default_tool_index(tool_idx);
+    win.set_default_tool_index(s.default_tool.to_index());
     let col_idx = match s.default_color.to_uppercase().as_str() {
         "#00AEFF" => 1,
         "#10B981" => 2,
@@ -160,13 +129,8 @@ fn sync_snip_to_window(win: &SettingsWindow, s: &config::model::SnipConfig) {
 fn sync_paster_to_window(win: &SettingsWindow, p: &config::model::PasterConfig) {
     win.set_enable_above_extension(p.enable_above_extension);
     win.set_initial_opacity_percent(p.initial_opacity * 100.0);
-    win.set_zoom_anchor_index(if p.zoom_anchor == "center" { 1 } else { 0 });
-    let act_idx = match p.double_click_action.as_str() {
-        "copy_and_close" => 1,
-        "copy" => 2,
-        _ => 0,
-    };
-    win.set_double_click_action_index(act_idx);
+    win.set_zoom_anchor_index(p.zoom_anchor.to_index());
+    win.set_double_click_action_index(p.double_click_action.to_index());
     win.set_max_history_count(p.max_history_count as f32);
 }
 
@@ -174,12 +138,7 @@ fn sync_paster_to_window(win: &SettingsWindow, p: &config::model::PasterConfig) 
 fn sync_output_to_window(win: &SettingsWindow, o: &config::model::OutputConfig) {
     win.set_quick_save_dir(SharedString::from(&o.quick_save_dir));
     win.set_file_name_template(SharedString::from(&o.file_name_template));
-    let fmt_idx = match o.default_format.as_str() {
-        "jpeg" | "jpg" => 1,
-        "webp" => 2,
-        _ => 0,
-    };
-    win.set_format_index(fmt_idx);
+    win.set_format_index(o.default_format.to_index());
     win.set_jpeg_quality(o.jpeg_quality as f32);
     win.set_notify_on_copy(o.notify_on_copy);
     win.set_notify_on_save(o.notify_on_save);
@@ -207,30 +166,13 @@ fn extract_config_from_window(win: &SettingsWindow, cfg: &mut Config) {
 fn extract_general_from_window(win: &SettingsWindow, g: &mut config::model::GeneralConfig) {
     g.autostart = win.get_autostart();
     g.notify_on_startup = win.get_notify_on_startup();
-    g.log_level = match win.get_log_level_index() {
-        0 => "trace",
-        1 => "debug",
-        3 => "warn",
-        4 => "error",
-        _ => "info",
-    }
-    .to_string();
-    g.tray_theme = match win.get_tray_theme_index() {
-        1 => "dark",
-        2 => "light",
-        _ => "auto",
-    }
-    .to_string();
+    g.log_level = config::model::LogLevel::from_index(win.get_log_level_index());
+    g.tray_theme = config::model::TrayTheme::from_index(win.get_tray_theme_index());
 }
 
 /// 提取界面外观设置
 fn extract_interface_from_window(win: &SettingsWindow, i: &mut config::model::InterfaceConfig) {
-    i.theme = match win.get_theme_index() {
-        1 => "dark",
-        2 => "light",
-        _ => "system",
-    }
-    .to_string();
+    i.theme = config::model::Theme::from_index(win.get_theme_index());
     i.accent_color = match win.get_accent_color_index() {
         1 => "#10B981",
         2 => "#F59E0B",
@@ -244,12 +186,7 @@ fn extract_interface_from_window(win: &SettingsWindow, i: &mut config::model::In
         2 => 16,
         _ => 8,
     };
-    i.color_format = match win.get_color_format_index() {
-        1 => "rgb",
-        2 => "hsl",
-        _ => "hex",
-    }
-    .to_string();
+    i.color_format = config::model::ColorFormat::from_index(win.get_color_format_index());
     i.show_grid_lines = win.get_show_grid_lines();
     i.toolbar_scale = win.get_toolbar_scale_percent() / 100.0;
 }
@@ -259,16 +196,7 @@ fn extract_snip_from_window(win: &SettingsWindow, s: &mut config::model::SnipCon
     s.capture_cursor = win.get_capture_cursor();
     s.smart_window_snapping = win.get_smart_window_snapping();
     s.remember_last_selection = win.get_remember_last_selection();
-    s.default_tool = match win.get_default_tool_index() {
-        1 => "rectangle",
-        2 => "pen",
-        3 => "marker",
-        4 => "arrow",
-        5 => "text",
-        6 => "badge",
-        _ => "none",
-    }
-    .to_string();
+    s.default_tool = config::model::DefaultTool::from_index(win.get_default_tool_index());
     s.default_color = match win.get_default_color_index() {
         1 => "#00AEFF",
         2 => "#10B981",
@@ -286,17 +214,9 @@ fn extract_snip_from_window(win: &SettingsWindow, s: &mut config::model::SnipCon
 fn extract_paster_from_window(win: &SettingsWindow, p: &mut config::model::PasterConfig) {
     p.enable_above_extension = win.get_enable_above_extension();
     p.initial_opacity = win.get_initial_opacity_percent() / 100.0;
-    p.zoom_anchor = if win.get_zoom_anchor_index() == 1 {
-        "center".to_string()
-    } else {
-        "cursor".to_string()
-    };
-    p.double_click_action = match win.get_double_click_action_index() {
-        1 => "copy_and_close",
-        2 => "copy",
-        _ => "close",
-    }
-    .to_string();
+    p.zoom_anchor = config::model::ZoomAnchor::from_index(win.get_zoom_anchor_index());
+    p.double_click_action =
+        config::model::DoubleClickAction::from_index(win.get_double_click_action_index());
     p.max_history_count = win.get_max_history_count() as usize;
 }
 
@@ -304,12 +224,7 @@ fn extract_paster_from_window(win: &SettingsWindow, p: &mut config::model::Paste
 fn extract_output_from_window(win: &SettingsWindow, o: &mut config::model::OutputConfig) {
     o.quick_save_dir = win.get_quick_save_dir().to_string();
     o.file_name_template = win.get_file_name_template().to_string();
-    o.default_format = match win.get_format_index() {
-        1 => "jpeg",
-        2 => "webp",
-        _ => "png",
-    }
-    .to_string();
+    o.default_format = config::model::ImageFormat::from_index(win.get_format_index());
     o.jpeg_quality = win.get_jpeg_quality() as u8;
     o.notify_on_copy = win.get_notify_on_copy();
     o.notify_on_save = win.get_notify_on_save();
