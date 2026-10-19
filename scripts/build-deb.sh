@@ -56,22 +56,17 @@ Type=Application
 Categories=Utility;Graphics;
 Keywords=screenshot;snip;paste;pin;截图;贴图;
 StartupNotify=false
-EOF
+Actions=Snip;Prefs;
 
-cat << 'EOF' > "${STAGE_DIR}/usr/share/applications/snapin-settings.desktop"
-[Desktop Entry]
-Name=Snapin Settings
-Name[zh_CN]=Snapin 设置
-Comment=Preferences for Snapin Screenshot and Pin Tool
-Comment[zh_CN]=Snapin 截图与贴图偏好设置中心
+[Desktop Action Snip]
+Name=Take Screenshot
+Name[zh_CN]=开始截图
+Exec=snapin snip
+
+[Desktop Action Prefs]
+Name=Preferences
+Name[zh_CN]=偏好设置
 Exec=snapin prefs
-Icon=snapin
-Terminal=false
-Type=Application
-Categories=Settings;DesktopSettings;Utility;Graphics;
-StartupNotify=false
-StartupWMClass=snapin
-Keywords=screenshot;snip;paste;pin;settings;截图;贴图;设置;
 EOF
 
 # 6. 生成 systemd 用户服务单元 (现代 Linux 桌面标准常驻守护机制)
@@ -139,6 +134,9 @@ chmod 755 "${STAGE_DIR}/DEBIAN/prerm"
 cat << 'EOF' > "${STAGE_DIR}/DEBIAN/postinst"
 #!/usr/bin/env bash
 set -e
+
+# 清理可能残留的独立设置桌面快捷方式（收敛为单一主应用图标）
+rm -f /usr/share/applications/snapin-settings.desktop
 
 # 刷新桌面数据库与图标缓存
 if which update-desktop-database > /dev/null 2>&1; then
