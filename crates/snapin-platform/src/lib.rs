@@ -1,6 +1,7 @@
 //! 平台特定系统集成层（Ubuntu 26 GNOME / Wayland）。
 
 pub mod autostart;
+pub mod capabilities;
 pub mod clipboard;
 pub mod error;
 pub mod extension_client;
@@ -13,6 +14,10 @@ pub mod save_helper;
 pub(crate) mod dbus_session;
 
 pub use autostart::sync_autostart_desktop_file;
+pub use capabilities::{
+    get_platform_capabilities, init_platform_capabilities, refresh_platform_capabilities,
+    CaptureChannelPreference, PlatformCapabilities,
+};
 pub use clipboard::{
     read_clipboard_image, read_clipboard_text, write_image_to_clipboard,
     write_raw_image_to_clipboard, write_text_to_clipboard,

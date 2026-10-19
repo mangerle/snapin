@@ -1,0 +1,166 @@
+//! 系统平台能力探测与全局运行期缓存单例。
+//!
+//! 在程序或守护进程启动时预先对当前桌面环境（Wayland 会话、GNOME Mutter 扩展、XDG Desktop Portal）
+//! 执行一次系统能力探测，并缓存为全局只读快照，避免业务路径（如全屏截屏、窗口置顶）重复发起
+//! 无效的 D-Bus 探测与超时降级。
+
+use crate::dbus_session::get_session_connection;
+use std::sync::{Arc, OnceLock, RwLock};
+use std::time::Duration;
+
+/// 截图捕获通道首选偏好
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureChannelPreference {
+    /// GNOME Shell 扩展原生零延迟 Raw 原始物理像素通道
+    GnomeExtensionRaw,
+    /// GNOME Shell 扩展 PNG 图像通道
+    GnomeExtensionPng,
+    /// XDG Desktop Portal 跨桌面标准通道
+    XdgPortal,
+}
+
+/// 系统底层平台能力快照
+#[derive(Debug, Clone)]
+pub struct PlatformCapabilities {
+    /// 是否运行在 Wayland 显示服务器下
+    pub is_wayland: bool,
+    /// 桌面环境名称（例如 GNOME, KDE, Sway 等）
+    pub desktop_env: String,
+    /// 配套 GNOME Shell Mutter 特权扩展是否在线就绪
+    pub gnome_extension_active: bool,
+    /// 首选推荐的屏幕捕获通道
+    pub preferred_capture_channel: CaptureChannelPreference,
+}
+
+impl PlatformCapabilities {
+    /// 执行全系统能力异步探测
+    pub async fn detect() -> Self {
+        let (is_wayland, desktop_env) = probe_desktop_environment();
+        let gnome_extension_active = probe_gnome_extension().await;
+
+        let preferred_capture_channel = if gnome_extension_active {
+            CaptureChannelPreference::GnomeExtensionRaw
+        } else {
+            CaptureChannelPreference::XdgPortal
+        };
+
+        tracing::info!(
+            "系统平台能力探测完成: Wayland={}, 桌面={}, GNOME特权扩展在线={}, 首选截屏通道={:?}",
+            is_wayland,
+            desktop_env,
+            gnome_extension_active,
+            preferred_capture_channel
+        );
+
+        Self {
+            is_wayland,
+            desktop_env,
+            gnome_extension_active,
+            preferred_capture_channel,
+        }
+    }
+}
+
+/// 探测当前会话是否为 Wayland 以及桌面环境标识
+fn probe_desktop_environment() -> (bool, String) {
+    let session_type = std::env::var("XDG_SESSION_TYPE")
+        .unwrap_or_default()
+        .to_lowercase();
+    let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
+    let is_wayland = session_type == "wayland" || !wayland_display.is_empty();
+
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP")
+        .or_else(|_| std::env::var("DESKTOP_SESSION"))
+        .unwrap_or_else(|_| "Unknown".to_string());
+
+    (is_wayland, desktop)
+}
+
+/// 快速轻量探测 GNOME Shell 扩展是否在 D-Bus 上导出服务并正常应答
+async fn probe_gnome_extension() -> bool {
+    let Ok(connection) = get_session_connection().await else {
+        return false;
+    };
+
+    let probe_fut = connection.call_method(
+        Some("org.gnome.Shell"),
+        "/org/gnome/Shell/Extensions/Snapin",
+        Some("org.freedesktop.DBus.Peer"),
+        "Ping",
+        &(),
+    );
+
+    // 限制在 300 毫秒内响应，避免 D-Bus 未就绪导致阻塞
+    matches!(
+        tokio::time::timeout(Duration::from_millis(300), probe_fut).await,
+        Ok(Ok(_))
+    )
+}
+
+static GLOBAL_CAPABILITIES: OnceLock<RwLock<Arc<PlatformCapabilities>>> = OnceLock::new();
+
+/// 初始化或获取全局平台能力快照（异步）
+pub async fn init_platform_capabilities() -> Arc<PlatformCapabilities> {
+    let caps = Arc::new(PlatformCapabilities::detect().await);
+    let cell = GLOBAL_CAPABILITIES.get_or_init(|| RwLock::new(caps.clone()));
+    if let Ok(mut lock) = cell.write() {
+        *lock = caps.clone();
+    }
+    caps
+}
+
+/// 重新刷新平台能力快照（例如用户在设置中心重新部署或重载了扩展后调用）
+pub async fn refresh_platform_capabilities() -> Arc<PlatformCapabilities> {
+    let caps = Arc::new(PlatformCapabilities::detect().await);
+    if let Some(cell) = GLOBAL_CAPABILITIES.get() {
+        if let Ok(mut lock) = cell.write() {
+            *lock = caps.clone();
+        }
+    } else {
+        let _ = GLOBAL_CAPABILITIES.set(RwLock::new(caps.clone()));
+    }
+    caps
+}
+
+/// 获取当前已缓存的全局平台能力快照
+///
+/// 若尚未显式初始化，将执行同步快速启发式推断作为兜底
+pub fn get_platform_capabilities() -> Arc<PlatformCapabilities> {
+    if let Some(cell) = GLOBAL_CAPABILITIES.get() {
+        if let Ok(lock) = cell.read() {
+            return lock.clone();
+        }
+    }
+
+    // 兜底同步构造
+    let (is_wayland, desktop_env) = probe_desktop_environment();
+    Arc::new(PlatformCapabilities {
+        is_wayland,
+        desktop_env,
+        gnome_extension_active: false,
+        preferred_capture_channel: CaptureChannelPreference::XdgPortal,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_desktop_environment_probe_fallback() {
+        let (is_wayland, desktop) = probe_desktop_environment();
+        // 确认不会触发 panic 且返回了有效字符串
+        assert!(!desktop.is_empty());
+        let _ = is_wayland;
+    }
+
+    #[test]
+    fn test_capabilities_fallback_singleton() {
+        let caps = get_platform_capabilities();
+        assert!(!caps.gnome_extension_active);
+        assert_eq!(
+            caps.preferred_capture_channel,
+            CaptureChannelPreference::XdgPortal
+        );
+    }
+}
