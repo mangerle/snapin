@@ -38,9 +38,9 @@ export default class SnapinHelperExtension extends Extension {
             '/org/gnome/Shell/Extensions/Snapin'
         );
 
-        // 2. 创建 GNOME 顶栏原生托盘指示器与菜单
-        this._indicator = new PanelMenu.Button(0.0, 'Snapin Indicator', false);
-        // 紧凑模式水平内边距，防止托盘按钮被横向过度拉伸导致药丸圆角过宽
+        // 2. 创建 GNOME 顶栏原生托盘指示器与菜单（设置 0.5 居中对齐，使菜单在托盘正下方居中弹出）
+        this._indicator = new PanelMenu.Button(0.5, 'Snapin Indicator', false);
+        this._indicator.menu.setSourceAlignment(0.5);
         this._indicator.set_style('-natural-hpadding: 6px; -minimum-hpadding: 4px; margin: 0; padding: 0;');
 
         let box = new St.BoxLayout({

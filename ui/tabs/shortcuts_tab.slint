@@ -1,4 +1,4 @@
-import { SettingCard, Keycap, SecondaryButton, ShortcutRecorder } from "../common.slint";
+import { SettingCard, Keycap, ShortcutRecorder } from "../common.slint";
 
 export component ShortcutsTab inherits VerticalLayout {
     spacing: 16px;
@@ -7,8 +7,6 @@ export component ShortcutsTab inherits VerticalLayout {
     in-out property <string> snip_hotkey: "F1";
     in-out property <string> paste_hotkey: "F3";
     in-out property <string> toggle_hotkey: "Ctrl+F3";
-
-    callback sync_gnome_hotkeys();
 
     SettingCard {
         title: "系统全局快捷键";
@@ -66,16 +64,11 @@ export component ShortcutsTab inherits VerticalLayout {
             Rectangle { height: 1px; background: #f1f5f9; }
 
             HorizontalLayout {
-                alignment: space-between;
                 Text {
-                    text: "热键修改后需重新写入系统 settings-daemon。";
+                    text: "提示：快捷键录制修改后，点击界面下方“保存并应用”即可自动同步生效至系统。";
                     font-size: 12px;
                     color: #94a3b8;
                     vertical-alignment: center;
-                }
-                SecondaryButton {
-                    text: "同步至 GNOME 系统";
-                    clicked => { root.sync_gnome_hotkeys(); }
                 }
             }
         }

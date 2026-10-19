@@ -78,7 +78,6 @@ export component SettingsWindow inherits Window {
     callback save_and_apply();
     callback restore_defaults();
     callback open_config_folder();
-    callback sync_gnome_hotkeys();
 
     HorizontalLayout {
         // ---------------- 左侧导航栏 ----------------
@@ -269,7 +268,6 @@ export component SettingsWindow inherits Window {
                         snip_hotkey <=> root.snip_hotkey;
                         paste_hotkey <=> root.paste_hotkey;
                         toggle_hotkey <=> root.toggle_hotkey;
-                        sync_gnome_hotkeys => { root.sync_gnome_hotkeys(); }
                     }
 
                     if root.active_tab == 6: AboutTab {

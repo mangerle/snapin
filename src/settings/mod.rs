@@ -314,12 +314,6 @@ fn extract_hotkeys_from_window(win: &SettingsWindow, h: &mut config::model::Hotk
 
 /// 注册界面操作按钮回调事件
 fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
-    register_config_callbacks(win, config_arc.clone());
-    register_gnome_sync_callback(win, config_arc);
-}
-
-/// 注册配置保存、恢复与文件夹打开回调
-fn register_config_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
     let win_weak = win.as_weak();
     let cfg_clone = config_arc.clone();
     win.on_save_and_apply(move || {
@@ -351,24 +345,6 @@ fn register_config_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>
         if let Ok(cfg_path) = config::get_default_config_path() {
             if let Some(parent) = cfg_path.parent() {
                 let _ = std::process::Command::new("xdg-open").arg(parent).spawn();
-            }
-        }
-    });
-}
-
-/// 注册手动同步 GNOME 系统快捷键回调
-fn register_gnome_sync_callback(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
-    let win_weak = win.as_weak();
-    win.on_sync_gnome_hotkeys(move || {
-        if let Some(w) = win_weak.upgrade() {
-            if let Ok(cfg_guard) = config_arc.lock() {
-                if sync_hotkeys_to_gnome(&cfg_guard.hotkeys).is_ok() {
-                    w.set_status_message(SharedString::from("系统快捷键已成功重新同步至 GNOME！"));
-                } else {
-                    w.set_status_message(SharedString::from(
-                        "同步 GNOME 快捷键失败，请检查 dconf 权限",
-                    ));
-                }
             }
         }
     });
