@@ -83,17 +83,11 @@ fn apply_snip_config(
     if let Some(col) = parse_hex_color(&snip.default_color) {
         state.toolbar.sub_options.color = col;
     }
-    state.toolbar.active_tool = match snip.default_tool.as_str() {
-        "rectangle" => Some(crate::snipper::toolbar::ToolbarItem::ToolRect),
-        "pen" => Some(crate::snipper::toolbar::ToolbarItem::ToolPen),
-        "marker" => Some(crate::snipper::toolbar::ToolbarItem::ToolMarker),
-        "arrow" => Some(crate::snipper::toolbar::ToolbarItem::ToolArrow),
-        "text" => Some(crate::snipper::toolbar::ToolbarItem::ToolText),
-        "badge" => Some(crate::snipper::toolbar::ToolbarItem::ToolBadge),
-        _ => None,
-    };
+    // 初始进入截图时，未完成选区前不激活标注工具，确保左键优先用于选区拉框
+    state.toolbar.active_tool = None;
 
-    if mode == super::types::SnipMode::Custom || snip.remember_last_selection {
+    // 仅在明确触发“自定义截屏”模式时才恢复上次历史选区，常规截图始终从空白选区开始
+    if mode == super::types::SnipMode::Custom {
         if let Some((lx, ly, lw, lh)) = crate::platform::load_last_selection() {
             let rect = crate::snipper::selection::Rect {
                 x: lx,
@@ -107,6 +101,19 @@ fn apply_snip_config(
             };
         }
     }
+}
+
+/// 在选区锁定后，若用户配置了默认标注工具，则激活对应的工具项
+pub fn activate_default_tool_if_configured(state: &mut SnipperState) {
+    state.toolbar.active_tool = match state.config.snip.default_tool.as_str() {
+        "rectangle" => Some(crate::snipper::toolbar::ToolbarItem::ToolRect),
+        "pen" => Some(crate::snipper::toolbar::ToolbarItem::ToolPen),
+        "marker" => Some(crate::snipper::toolbar::ToolbarItem::ToolMarker),
+        "arrow" => Some(crate::snipper::toolbar::ToolbarItem::ToolArrow),
+        "text" => Some(crate::snipper::toolbar::ToolbarItem::ToolText),
+        "badge" => Some(crate::snipper::toolbar::ToolbarItem::ToolBadge),
+        _ => None,
+    };
 }
 
 /// 解析 HEX 格式颜色为 tiny_skia Color

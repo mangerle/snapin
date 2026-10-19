@@ -53,15 +53,17 @@ pub fn handle_cursor_move(
                 true
             } else if state.toolbar.active_tool.is_some() && !state.pending_stroke_points.is_empty()
             {
+                let px = cx.clamp(rect.x, rect.x + rect.width);
+                let py = cy.clamp(rect.y, rect.y + rect.height);
                 match state.toolbar.active_tool {
                     Some(ToolbarItem::ToolPen) | Some(ToolbarItem::ToolMarker) => {
-                        state.pending_stroke_points.push((cx, cy));
+                        state.pending_stroke_points.push((px, py));
                     }
                     _ => {
                         if state.pending_stroke_points.len() > 1 {
-                            state.pending_stroke_points[1] = (cx, cy);
+                            state.pending_stroke_points[1] = (px, py);
                         } else {
-                            state.pending_stroke_points.push((cx, cy));
+                            state.pending_stroke_points.push((px, py));
                         }
                     }
                 }
@@ -103,7 +105,7 @@ fn handle_left_press(
     cy: f32,
     original_rgba: &RgbaImage,
 ) -> bool {
-    if matches!(state.selection, SelectionState::Locked { .. }) {
+    if let SelectionState::Locked { rect, .. } = state.selection {
         if let Some(item) = state.toolbar.handle_click(cx, cy) {
             commit_active_text_input(state);
             return dispatch_toolbar_action(state, item, original_rgba);
@@ -115,33 +117,44 @@ fn handle_left_press(
 
         commit_active_text_input(state);
 
-        if state.toolbar.active_tool.is_some() {
-            state.pending_stroke_points.clear();
-            state.pending_stroke_points.push((cx, cy));
+        if rect.contains(cx, cy) {
+            if state.toolbar.active_tool.is_some() {
+                state.pending_stroke_points.clear();
+                state.pending_stroke_points.push((cx, cy));
+                return true;
+            }
+            if let SelectionState::Locked {
+                ref mut active_drag,
+                ..
+            } = state.selection
+            {
+                *active_drag = Some(DragMode::Move {
+                    offset_x: (cx - rect.x) as i32,
+                    offset_y: (cy - rect.y) as i32,
+                });
+            }
             return true;
         }
+
+        // 点击在已有选区外部：清除当前选区，允许用户重新框选全新区域
+        state.toolbar.active_tool = None;
+        state.pending_stroke_points.clear();
+        state.selection = SelectionState::Creating {
+            start: (cx, cy),
+            current: (cx, cy),
+        };
+        return true;
     }
 
-    match state.selection {
-        SelectionState::Idle => {
-            state.selection = SelectionState::Creating {
-                start: (cx, cy),
-                current: (cx, cy),
-            };
-            true
-        }
-        SelectionState::Locked {
-            rect,
-            ref mut active_drag,
-        } if rect.contains(cx, cy) => {
-            *active_drag = Some(DragMode::Move {
-                offset_x: (cx - rect.x) as i32,
-                offset_y: (cy - rect.y) as i32,
-            });
-            true
-        }
-        _ => false,
+    if matches!(state.selection, SelectionState::Idle) {
+        state.selection = SelectionState::Creating {
+            start: (cx, cy),
+            current: (cx, cy),
+        };
+        return true;
     }
+
+    false
 }
 
 /// 处理文字工具点击选区开启输入
@@ -186,6 +199,7 @@ fn handle_left_release(
                     rect,
                     active_drag: None,
                 };
+                super::events::activate_default_tool_if_configured(state);
                 if state.mode == super::types::SnipMode::AutoCopy {
                     super::actions::handle_action_copy(state, original_rgba);
                 }
