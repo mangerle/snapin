@@ -12,6 +12,7 @@ pub use text_to_pin::{render_color_swatch_card, render_simple_text_card, try_par
 pub use transform::PasterTransform;
 pub use window::spawn_paster_window;
 pub use workspace::{
-    create_paster_workspace, run_paster_workspace_loop, spawn_paster_workspace_thread,
-    PasterAppEvent, PasterWorkspaceProxy, WorkspaceStatus,
+    create_paster_workspace, get_paster_observer, register_paster_observer,
+    run_paster_workspace_loop, spawn_paster_workspace_thread, PasterAppEvent,
+    PasterLifecycleObserver, PasterWorkspaceProxy, WorkspaceStatus,
 };

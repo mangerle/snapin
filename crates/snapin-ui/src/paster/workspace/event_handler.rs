@@ -165,6 +165,9 @@ pub fn handle_workspace_window_event(
     if should_close {
         if let Some(removed) = instances.remove(&window_id) {
             manager.remove_paster(removed.item_id);
+            if let Some(observer) = super::get_paster_observer() {
+                observer.on_paster_closed(window_id);
+            }
             tracing::info!(
                 "贴图已安全关闭: {}，工作区剩余活动贴图: {}",
                 removed.item_id,

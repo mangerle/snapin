@@ -9,3 +9,4 @@ pub mod surface;
 
 pub use error::UiError;
 pub use surface::blit_pixmap_to_surface;
+pub use winit;

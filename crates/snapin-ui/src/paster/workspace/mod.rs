@@ -15,10 +15,31 @@ use super::manager::PasterManager;
 use crate::error::UiError;
 use event_handler::{handle_workspace_user_event, handle_workspace_window_event};
 use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
 use winit::event::Event;
 use winit::event_loop::{ControlFlow, EventLoop, EventLoopBuilder};
 use winit::platform::wayland::EventLoopBuilderExtWayland;
 use winit::window::WindowId;
+
+/// 贴图窗口物理生命周期观察者契约 Trait
+pub trait PasterLifecycleObserver: Send + Sync + 'static {
+    /// 当贴图物理窗口完成创建并映射后触发
+    fn on_paster_created(&self, title: &str, window_id: WindowId);
+    /// 当贴图物理窗口关闭析构后触发
+    fn on_paster_closed(&self, window_id: WindowId);
+}
+
+static PASTER_OBSERVER: OnceLock<Arc<dyn PasterLifecycleObserver>> = OnceLock::new();
+
+/// 注册全局贴图生命周期观察者（供外部平台集成层注入特权置顶等行为）
+pub fn register_paster_observer(observer: Arc<dyn PasterLifecycleObserver>) {
+    let _ = PASTER_OBSERVER.set(observer);
+}
+
+/// 获取全局贴图生命周期观察者引用
+pub fn get_paster_observer() -> Option<&'static Arc<dyn PasterLifecycleObserver>> {
+    PASTER_OBSERVER.get()
+}
 
 /// 创建集中多窗口贴图工作区事件循环与配套代理
 pub fn create_paster_workspace(

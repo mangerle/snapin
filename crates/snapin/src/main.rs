@@ -29,6 +29,9 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    // 2. 注册贴图窗口平台特权观察者（解耦 UI 层直接调用 GNOME 扩展）
+    app::setup_paster_platform_observer();
+
     let cli = Cli::parse();
 
     // 2. 加载或初始化配置

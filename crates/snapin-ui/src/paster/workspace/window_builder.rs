@@ -5,10 +5,8 @@ use super::super::window::events::PasterWindowState;
 use super::proxy::PasterAppEvent;
 use crate::error::UiError;
 use snapin_core::config::Config;
-use snapin_platform::pin_window_above;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::EventLoopWindowTarget;
 use winit::platform::wayland::WindowBuilderExtWayland;
@@ -60,31 +58,6 @@ pub fn create_new_paster_window(
             message: format!("创建贴图软渲染帧缓冲表面失败: {e}"),
         })?;
 
-    // 自动置顶与 GNOME 扩展协调
-    if cfg.paster.enable_above_extension {
-        let t_clone = title.clone();
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(async move {
-                tokio::time::sleep(Duration::from_millis(50)).await;
-                let _ = pin_window_above(&t_clone).await;
-            });
-        } else {
-            // 降级保护：在没有 Tokio 运行时的线程环境下派生后台线程执行，杜绝 panic 崩溃
-            std::thread::Builder::new()
-                .name("snapin-paster-pin".to_string())
-                .spawn(move || {
-                    std::thread::sleep(Duration::from_millis(50));
-                    if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                    {
-                        let _ = rt.block_on(pin_window_above(&t_clone));
-                    }
-                })
-                .ok();
-        }
-    }
-
     let scale_factor = window.scale_factor() as f32;
     let auto_scale = if scale_factor > 0.0 {
         scale_factor
@@ -117,6 +90,11 @@ pub fn create_new_paster_window(
         "已成功在集中工作区创建贴图: {title} ({initial_w}x{initial_h})，工作区活跃窗口数: {}",
         instances.len()
     );
+
+    // 通知贴图生命周期观察者（由外部注入 GNOME 扩展置顶等平台行为，解耦 UI 表现层与平台特权）
+    if let Some(observer) = super::get_paster_observer() {
+        observer.on_paster_created(&title, win_id);
+    }
 
     Ok(())
 }
