@@ -286,6 +286,13 @@ mod tests {
         assert_eq!(png_path.extension().and_then(|s| s.to_str()), Some("png"));
         let _ = std::fs::remove_file(&png_path);
 
+        // 3. 测试 WebP 格式保存
+        cfg.default_format = ImageFormat::Webp;
+        let webp_path = save_image_with_config(&img, &cfg).expect("保存 WebP 图像成功");
+        assert!(webp_path.exists());
+        assert_eq!(webp_path.extension().and_then(|s| s.to_str()), Some("webp"));
+        let _ = std::fs::remove_file(&webp_path);
+
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
