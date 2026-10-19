@@ -4,7 +4,11 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="0.1.0"
+CARGO_VERSION=$(grep -m 1 '^version = ' "${PROJECT_ROOT}/Cargo.toml" | cut -d '"' -f 2)
+# 优先使用传入环境变量 VERSION，其次使用 GITHUB_REF_NAME (去除 v 前缀)，最后回退到 Cargo.toml
+VERSION="${VERSION:-${GITHUB_REF_NAME:-}}"
+VERSION="${VERSION#v}"
+VERSION="${VERSION:-${CARGO_VERSION:-0.1.0}}"
 ARCH="amd64"
 PACKAGE_NAME="snapin"
 DEB_NAME="${PACKAGE_NAME}_${VERSION}_${ARCH}.deb"

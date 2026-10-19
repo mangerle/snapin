@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-release:
+    name: 构建 Debian 软件包并通过 git-cliff 自动发布 Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出完整代码与提交历史 (fetch-depth 0)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 配置 Rust 稳定版工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 启用 Rust 依赖缓存
+        uses: Swatinem/rust-cache@v2
+
+      - name: 安装系统开发依赖库与打包工具
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libdbus-1-dev \
+            pkg-config
+
+      - name: 基于 Commit 规范自动生成当前版本分类 Changelog (git-cliff)
+        uses: orhun/git-cliff-action@v4
+        id: git-cliff
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          OUTPUT: RELEASE_CHANGELOG.md
+
+      - name: 运行构建与打包脚本
+        run: |
+          chmod +x scripts/build-deb.sh
+          ./scripts/build-deb.sh
+
+      - name: 发布 GitHub Release 并挂载 Changelog 与软件包
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: RELEASE_CHANGELOG.md
+          files: |
+            snapin_*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
