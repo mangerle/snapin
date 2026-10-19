@@ -342,3 +342,113 @@ export component AppSlider inherits Rectangle {
         }
     }
 }
+
+/// 快捷键格式化全局辅助函数门面
+export global ShortcutHelper {
+    pure callback format_key(bool, bool, bool, bool, string) -> string;
+}
+
+/// 现代化胶囊外观的按键捕获与录制组件
+export component ShortcutRecorder inherits Rectangle {
+    in-out property <string> shortcut: "已禁用";
+    in-out property <bool> is_recording: false;
+    in property <bool> enabled: true;
+    callback shortcut_changed(string);
+
+    height: 28px;
+    min-width: 120px;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: root.is_recording ? #2563eb : (touch.has-hover ? #94a3b8 : #cbd5e1);
+    background: root.is_recording ? #eff6ff : (touch.has-hover ? #f8fafc : #ffffff);
+    clip: true;
+
+    animate border-color { duration: 150ms; }
+    animate background { duration: 150ms; }
+
+    fs := FocusScope {
+        enabled: root.enabled && root.is_recording;
+        key-pressed(event) => {
+            if (!root.is_recording) {
+                return reject;
+            }
+            if (event.text == Key.Escape) {
+                root.is_recording = false;
+                return accept;
+            }
+            if (event.text == Key.Backspace || event.text == Key.Delete) {
+                root.shortcut = "已禁用";
+                root.is_recording = false;
+                root.shortcut_changed(root.shortcut);
+                return accept;
+            }
+            let res = ShortcutHelper.format_key(
+                event.modifiers.control,
+                event.modifiers.alt,
+                event.modifiers.shift,
+                event.modifiers.meta,
+                event.text
+            );
+            if (res != "") {
+                root.shortcut = res;
+                root.is_recording = false;
+                root.shortcut_changed(root.shortcut);
+            }
+            accept
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 8px;
+        spacing: 6px;
+
+        // 左侧主要区域：点击进入录制状态
+        Rectangle {
+            horizontal-stretch: 1;
+
+            touch := TouchArea {
+                enabled: root.enabled;
+                clicked => {
+                    root.is_recording = true;
+                    fs.focus();
+                }
+            }
+
+            Text {
+                text: root.is_recording ? "请按下快捷键..." : (root.shortcut == "" || root.shortcut == "已禁用" ? "已禁用" : root.shortcut);
+                font-size: 12px;
+                font-weight: root.is_recording ? 600 : 500;
+                color: root.is_recording ? #2563eb : (root.shortcut == "" || root.shortcut == "已禁用" ? #94a3b8 : #1e293b);
+                vertical-alignment: center;
+                horizontal-alignment: left;
+            }
+        }
+
+        // 右侧清除圆圈叉号按钮 (x)
+        if (!root.is_recording && root.shortcut != "" && root.shortcut != "已禁用"): Rectangle {
+            width: 16px;
+            height: 16px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 8px;
+            background: clear_touch.has-hover ? #cbd5e1 : #e2e8f0;
+
+            Text {
+                text: "×";
+                font-size: 11px;
+                font-weight: 700;
+                color: clear_touch.has-hover ? #0f172a : #64748b;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            clear_touch := TouchArea {
+                clicked => {
+                    root.shortcut = "已禁用";
+                    root.shortcut_changed(root.shortcut);
+                }
+            }
+        }
+    }
+}
+

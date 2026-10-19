@@ -11,13 +11,40 @@ use std::process::Command;
 pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), SnapinError> {
     tracing::info!("正在向 GNOME 系统注册/同步自定义快捷键...");
 
-    // 配置基础路径
     let base_path = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
     let snip_path = format!("{base_path}/snapin-snip/");
     let paste_path = format!("{base_path}/snapin-paste/");
     let toggle_path = format!("{base_path}/snapin-toggle/");
 
-    // 1. 读取当前已有的自定义快捷键列表
+    ensure_custom_keybindings_registered(&[&snip_path, &paste_path, &toggle_path])?;
+
+    let current_exe = get_snapin_executable_path();
+
+    setup_keybinding(
+        &snip_path,
+        "Snapin 区域截图",
+        &format!("{current_exe} snip"),
+        &config.snip,
+    );
+    setup_keybinding(
+        &paste_path,
+        "Snapin 贴图",
+        &format!("{current_exe} paste"),
+        &config.paste,
+    );
+    setup_keybinding(
+        &toggle_path,
+        "Snapin 隐藏/显示贴图",
+        &format!("{current_exe} toggle"),
+        &config.toggle_pasters,
+    );
+
+    tracing::info!("GNOME 快捷键同步完成");
+    Ok(())
+}
+
+/// 确保指定的自定义按键路径已写入 GNOME custom-keybindings 列表
+fn ensure_custom_keybindings_registered(paths: &[&str]) -> Result<(), SnapinError> {
     let output = Command::new("gsettings")
         .args([
             "get",
@@ -39,14 +66,12 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), SnapinError> {
         .map(|s| s.to_string())
         .collect();
 
-    // 2. 确保 snapin 的三个条目已加入列表
-    for path in [&snip_path, &paste_path, &toggle_path] {
-        if !bindings.contains(path) {
-            bindings.push(path.clone());
+    for path in paths {
+        if !bindings.iter().any(|b| b == *path) {
+            bindings.push((*path).to_string());
         }
     }
 
-    // 将更新后的列表写回 gsettings
     let formatted_list = format!(
         "[{}]",
         bindings
@@ -65,38 +90,18 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), SnapinError> {
         ])
         .output();
 
-    // 3. 配置每个具体快捷键项的名称、执行命令与键位
-    let current_exe = if std::path::Path::new("/usr/bin/snapin").exists() {
+    Ok(())
+}
+
+/// 获取 Snapin 当前或系统安装的可执行文件路径
+fn get_snapin_executable_path() -> String {
+    if std::path::Path::new("/usr/bin/snapin").exists() {
         "/usr/bin/snapin".to_string()
     } else {
         std::env::current_exe()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| "snapin".to_string())
-    };
-
-    setup_keybinding(
-        &snip_path,
-        "Snapin 区域截图",
-        &format!("{current_exe} snip"),
-        &config.snip,
-    );
-
-    setup_keybinding(
-        &paste_path,
-        "Snapin 贴图",
-        &format!("{current_exe} paste"),
-        &config.paste,
-    );
-
-    setup_keybinding(
-        &toggle_path,
-        "Snapin 隐藏/显示贴图",
-        &format!("{current_exe} toggle"),
-        &config.toggle_pasters,
-    );
-
-    tracing::info!("GNOME 快捷键同步完成");
-    Ok(())
+    }
 }
 
 fn setup_keybinding(path: &str, name: &str, command: &str, binding: &str) {
@@ -111,7 +116,13 @@ fn setup_keybinding(path: &str, name: &str, command: &str, binding: &str) {
         .args(["set", &schema_with_path, "command", command])
         .output();
 
+    let effective_binding = if binding == "已禁用" || binding.trim().is_empty() {
+        ""
+    } else {
+        binding
+    };
+
     let _ = Command::new("gsettings")
-        .args(["set", &schema_with_path, "binding", binding])
+        .args(["set", &schema_with_path, "binding", effective_binding])
         .output();
 }

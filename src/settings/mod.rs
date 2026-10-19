@@ -5,6 +5,8 @@
 
 slint::include_modules!();
 
+pub mod shortcut;
+
 use crate::config::{self, Config};
 use crate::error::SnapinError;
 use crate::platform::hotkey_manager::sync_hotkeys_to_gnome;
@@ -24,6 +26,18 @@ pub fn run_settings_gui() -> Result<(), SnapinError> {
         .window()
         .set_size(slint::LogicalSize::new(900.0, 620.0));
     window.set_app_version(SharedString::from(env!("CARGO_PKG_VERSION")));
+
+    // 注册全局快捷键按键捕获与格式化回调
+    let shortcut_helper = window.global::<ShortcutHelper>();
+    shortcut_helper.on_format_key(|ctrl, alt, shift, meta, text| {
+        let text_str = text.as_str();
+        if let Some(formatted) = shortcut::format_key_combination(ctrl, alt, shift, meta, text_str)
+        {
+            SharedString::from(formatted)
+        } else {
+            SharedString::from("")
+        }
+    });
 
     let config = config::load_or_create_config(None)?;
     let config_arc = Arc::new(Mutex::new(config.clone()));
@@ -170,10 +184,19 @@ fn sync_hotkeys_to_window(win: &SettingsWindow, h: &config::model::HotkeyConfig)
 
 /// 从界面提取最新值更新到内存 Config 结构体
 fn extract_config_from_window(win: &SettingsWindow, cfg: &mut Config) {
-    // 1. 常规
-    cfg.general.autostart = win.get_autostart();
-    cfg.general.notify_on_startup = win.get_notify_on_startup();
-    cfg.general.log_level = match win.get_log_level_index() {
+    extract_general_from_window(win, &mut cfg.general);
+    extract_interface_from_window(win, &mut cfg.interface);
+    extract_snip_from_window(win, &mut cfg.snip);
+    extract_paster_from_window(win, &mut cfg.paster);
+    extract_output_from_window(win, &mut cfg.output);
+    extract_hotkeys_from_window(win, &mut cfg.hotkeys);
+}
+
+/// 提取常规设置
+fn extract_general_from_window(win: &SettingsWindow, g: &mut config::model::GeneralConfig) {
+    g.autostart = win.get_autostart();
+    g.notify_on_startup = win.get_notify_on_startup();
+    g.log_level = match win.get_log_level_index() {
         0 => "trace",
         1 => "debug",
         3 => "warn",
@@ -181,47 +204,51 @@ fn extract_config_from_window(win: &SettingsWindow, cfg: &mut Config) {
         _ => "info",
     }
     .to_string();
-    cfg.general.tray_theme = match win.get_tray_theme_index() {
+    g.tray_theme = match win.get_tray_theme_index() {
         1 => "dark",
         2 => "light",
         _ => "auto",
     }
     .to_string();
+}
 
-    // 2. 界面外观
-    cfg.interface.theme = match win.get_theme_index() {
+/// 提取界面外观设置
+fn extract_interface_from_window(win: &SettingsWindow, i: &mut config::model::InterfaceConfig) {
+    i.theme = match win.get_theme_index() {
         1 => "dark",
         2 => "light",
         _ => "system",
     }
     .to_string();
-    cfg.interface.accent_color = match win.get_accent_color_index() {
+    i.accent_color = match win.get_accent_color_index() {
         1 => "#10B981",
         2 => "#F59E0B",
         3 => "#8B5CF6",
         _ => "#00AEFF",
     }
     .to_string();
-    cfg.interface.enable_magnifier = win.get_enable_magnifier();
-    cfg.interface.magnifier_scale = match win.get_magnifier_scale_index() {
+    i.enable_magnifier = win.get_enable_magnifier();
+    i.magnifier_scale = match win.get_magnifier_scale_index() {
         0 => 4,
         2 => 16,
         _ => 8,
     };
-    cfg.interface.color_format = match win.get_color_format_index() {
+    i.color_format = match win.get_color_format_index() {
         1 => "rgb",
         2 => "hsl",
         _ => "hex",
     }
     .to_string();
-    cfg.interface.show_grid_lines = win.get_show_grid_lines();
-    cfg.interface.toolbar_scale = win.get_toolbar_scale_percent() / 100.0;
+    i.show_grid_lines = win.get_show_grid_lines();
+    i.toolbar_scale = win.get_toolbar_scale_percent() / 100.0;
+}
 
-    // 3. 截图流程
-    cfg.snip.capture_cursor = win.get_capture_cursor();
-    cfg.snip.smart_window_snapping = win.get_smart_window_snapping();
-    cfg.snip.remember_last_selection = win.get_remember_last_selection();
-    cfg.snip.default_tool = match win.get_default_tool_index() {
+/// 提取截图设置
+fn extract_snip_from_window(win: &SettingsWindow, s: &mut config::model::SnipConfig) {
+    s.capture_cursor = win.get_capture_cursor();
+    s.smart_window_snapping = win.get_smart_window_snapping();
+    s.remember_last_selection = win.get_remember_last_selection();
+    s.default_tool = match win.get_default_tool_index() {
         1 => "rectangle",
         2 => "pen",
         3 => "marker",
@@ -231,7 +258,7 @@ fn extract_config_from_window(win: &SettingsWindow, cfg: &mut Config) {
         _ => "none",
     }
     .to_string();
-    cfg.snip.default_color = match win.get_default_color_index() {
+    s.default_color = match win.get_default_color_index() {
         1 => "#00AEFF",
         2 => "#10B981",
         3 => "#F59E0B",
@@ -240,48 +267,59 @@ fn extract_config_from_window(win: &SettingsWindow, cfg: &mut Config) {
         _ => "#EF4444",
     }
     .to_string();
-    cfg.snip.default_stroke_width = win.get_default_stroke_width();
-    cfg.snip.default_font_size = win.get_snip_font_size();
+    s.default_stroke_width = win.get_default_stroke_width();
+    s.default_font_size = win.get_snip_font_size();
+}
 
-    // 4. 贴图
-    cfg.paster.enable_above_extension = win.get_enable_above_extension();
-    cfg.paster.initial_opacity = win.get_initial_opacity_percent() / 100.0;
-    cfg.paster.zoom_anchor = if win.get_zoom_anchor_index() == 1 {
+/// 提取贴图设置
+fn extract_paster_from_window(win: &SettingsWindow, p: &mut config::model::PasterConfig) {
+    p.enable_above_extension = win.get_enable_above_extension();
+    p.initial_opacity = win.get_initial_opacity_percent() / 100.0;
+    p.zoom_anchor = if win.get_zoom_anchor_index() == 1 {
         "center".to_string()
     } else {
         "cursor".to_string()
     };
-    cfg.paster.double_click_action = match win.get_double_click_action_index() {
+    p.double_click_action = match win.get_double_click_action_index() {
         1 => "copy_and_close",
         2 => "copy",
         _ => "close",
     }
     .to_string();
-    cfg.paster.max_history_count = win.get_max_history_count() as usize;
+    p.max_history_count = win.get_max_history_count() as usize;
+}
 
-    // 5. 输出保存
-    cfg.output.quick_save_dir = win.get_quick_save_dir().to_string();
-    cfg.output.file_name_template = win.get_file_name_template().to_string();
-    cfg.output.default_format = match win.get_format_index() {
+/// 提取输出保存设置
+fn extract_output_from_window(win: &SettingsWindow, o: &mut config::model::OutputConfig) {
+    o.quick_save_dir = win.get_quick_save_dir().to_string();
+    o.file_name_template = win.get_file_name_template().to_string();
+    o.default_format = match win.get_format_index() {
         1 => "jpeg",
         2 => "webp",
         _ => "png",
     }
     .to_string();
-    cfg.output.jpeg_quality = win.get_jpeg_quality() as u8;
-    cfg.output.notify_on_copy = win.get_notify_on_copy();
-    cfg.output.notify_on_save = win.get_notify_on_save();
-    cfg.output.auto_backup_raw = win.get_auto_backup_raw();
+    o.jpeg_quality = win.get_jpeg_quality() as u8;
+    o.notify_on_copy = win.get_notify_on_copy();
+    o.notify_on_save = win.get_notify_on_save();
+    o.auto_backup_raw = win.get_auto_backup_raw();
+}
 
-    // 6. 快捷键
-    cfg.hotkeys.snip = win.get_snip_hotkey().to_string();
-    cfg.hotkeys.paste = win.get_paste_hotkey().to_string();
-    cfg.hotkeys.toggle_pasters = win.get_toggle_hotkey().to_string();
+/// 提取快捷键设置
+fn extract_hotkeys_from_window(win: &SettingsWindow, h: &mut config::model::HotkeyConfig) {
+    h.snip = win.get_snip_hotkey().to_string();
+    h.paste = win.get_paste_hotkey().to_string();
+    h.toggle_pasters = win.get_toggle_hotkey().to_string();
 }
 
 /// 注册界面操作按钮回调事件
 fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
-    // 保存并应用
+    register_config_callbacks(win, config_arc.clone());
+    register_gnome_sync_callback(win, config_arc);
+}
+
+/// 注册配置保存、恢复与文件夹打开回调
+fn register_config_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
     let win_weak = win.as_weak();
     let cfg_clone = config_arc.clone();
     win.on_save_and_apply(move || {
@@ -297,21 +335,18 @@ fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
         }
     });
 
-    // 恢复默认配置
-    let win_weak = win.as_weak();
-    let cfg_clone = config_arc.clone();
+    let win_weak2 = win.as_weak();
     win.on_restore_defaults(move || {
-        if let Some(w) = win_weak.upgrade() {
+        if let Some(w) = win_weak2.upgrade() {
             let default_cfg = Config::default();
             sync_config_to_window(&w, &default_cfg);
-            if let Ok(mut cfg_guard) = cfg_clone.lock() {
+            if let Ok(mut cfg_guard) = config_arc.lock() {
                 *cfg_guard = default_cfg;
             }
             w.set_status_message(SharedString::from("已还原为默认推荐配置（点击保存后生效）"));
         }
     });
 
-    // 打开配置文件夹
     win.on_open_config_folder(|| {
         if let Ok(cfg_path) = config::get_default_config_path() {
             if let Some(parent) = cfg_path.parent() {
@@ -319,13 +354,14 @@ fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
             }
         }
     });
+}
 
-    // 手动同步 GNOME 系统快捷键
+/// 注册手动同步 GNOME 系统快捷键回调
+fn register_gnome_sync_callback(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
     let win_weak = win.as_weak();
-    let cfg_clone = config_arc;
     win.on_sync_gnome_hotkeys(move || {
         if let Some(w) = win_weak.upgrade() {
-            if let Ok(cfg_guard) = cfg_clone.lock() {
+            if let Ok(cfg_guard) = config_arc.lock() {
                 if sync_hotkeys_to_gnome(&cfg_guard.hotkeys).is_ok() {
                     w.set_status_message(SharedString::from("系统快捷键已成功重新同步至 GNOME！"));
                 } else {

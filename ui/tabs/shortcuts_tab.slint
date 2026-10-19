@@ -1,4 +1,4 @@
-import { SettingCard, Keycap, SecondaryButton } from "../common.slint";
+import { SettingCard, Keycap, SecondaryButton, ShortcutRecorder } from "../common.slint";
 
 export component ShortcutsTab inherits VerticalLayout {
     spacing: 16px;
@@ -11,8 +11,8 @@ export component ShortcutsTab inherits VerticalLayout {
     callback sync_gnome_hotkeys();
 
     SettingCard {
-        title: "系统全局全局热键";
-        subtitle: "在任何应用全屏或前台状态下随时唤起 Snapin 核心功能";
+        title: "系统全局快捷键";
+        subtitle: "点击按键胶囊即可自主录制专属快捷键（支持 F1~F12、单键及多键组合，按 Backspace 或 × 清空）";
 
         VerticalLayout {
             spacing: 14px;
@@ -26,7 +26,9 @@ export component ShortcutsTab inherits VerticalLayout {
                     Text { text: "区域截图 (Snip)"; font-size: 13px; font-weight: 600; color: #0f172a; }
                     Text { text: "定格屏幕并进入交互式选区裁切与标注模式"; font-size: 12px; color: #64748b; }
                 }
-                Keycap { text: root.snip_hotkey; }
+                ShortcutRecorder {
+                    shortcut <=> root.snip_hotkey;
+                }
             }
 
             Rectangle { height: 1px; background: #f1f5f9; }
@@ -40,7 +42,9 @@ export component ShortcutsTab inherits VerticalLayout {
                     Text { text: "快速贴图 (Paste)"; font-size: 13px; font-weight: 600; color: #0f172a; }
                     Text { text: "读取剪贴板图片或文字，瞬间将其转换为置顶独立窗口"; font-size: 12px; color: #64748b; }
                 }
-                Keycap { text: root.paste_hotkey; }
+                ShortcutRecorder {
+                    shortcut <=> root.paste_hotkey;
+                }
             }
 
             Rectangle { height: 1px; background: #f1f5f9; }
@@ -54,7 +58,9 @@ export component ShortcutsTab inherits VerticalLayout {
                     Text { text: "批量显隐贴图 (Toggle)"; font-size: 13px; font-weight: 600; color: #0f172a; }
                     Text { text: "一键隐藏当前桌面所有贴图，再次按下恢复显示"; font-size: 12px; color: #64748b; }
                 }
-                Keycap { text: root.toggle_hotkey; }
+                ShortcutRecorder {
+                    shortcut <=> root.toggle_hotkey;
+                }
             }
 
             Rectangle { height: 1px; background: #f1f5f9; }
