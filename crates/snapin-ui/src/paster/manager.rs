@@ -126,6 +126,32 @@ impl PasterManager {
         }
     }
 
+    /// 注册外部运行的贴图实例元数据
+    pub fn register_instance(&mut self, id: u64, group_id: usize) {
+        if !self.items.iter().any(|it| it.id == id) {
+            let item = PasterItem {
+                id,
+                title: format!("Snapin_Paster_{id}"),
+                pixmap: Pixmap::new(1, 1).unwrap(),
+                position: (0, 0),
+                transform: PasterTransform::default(),
+                is_visible: group_id == self.active_group,
+                group_id,
+            };
+            self.items.push(item);
+        }
+    }
+
+    /// 注销贴图实例
+    pub fn unregister_instance(&mut self, id: u64) -> bool {
+        if let Some(idx) = self.items.iter().position(|it| it.id == id) {
+            self.items.remove(idx);
+            true
+        } else {
+            false
+        }
+    }
+
     /// 获取当前活动组的贴图数量
     pub fn count_in_active_group(&self) -> usize {
         self.items
@@ -164,6 +190,25 @@ mod tests {
         assert!(state); // 变为全部显示
 
         mgr.remove_paster(id1);
+        assert_eq!(mgr.count_in_active_group(), 0);
+    }
+
+    #[test]
+    fn test_paster_instance_registration() {
+        let mut mgr = PasterManager::default();
+        mgr.register_instance(101, 0);
+        assert_eq!(mgr.count_in_active_group(), 1);
+
+        // 注册到非活动组
+        mgr.register_instance(102, 1);
+        assert_eq!(mgr.count_in_active_group(), 1);
+
+        // 切换组
+        mgr.switch_group(1);
+        assert_eq!(mgr.count_in_active_group(), 1);
+
+        // 注销实例
+        assert!(mgr.unregister_instance(102));
         assert_eq!(mgr.count_in_active_group(), 0);
     }
 }

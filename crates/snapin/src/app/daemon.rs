@@ -5,10 +5,12 @@ use anyhow::{Context, Result};
 use snapin_core::config::Config;
 use snapin_daemon::{
     send_command_to_daemon, DaemonCommand, DaemonResponse, IpcInvocation, IpcListener,
+    PasterControlEvent,
 };
 use snapin_platform::{send_desktop_notification, sync_hotkeys_to_gnome};
+use snapin_ui::paster::PasterManager;
 use std::path::PathBuf;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
 /// 运行后台守护服务
 pub async fn run_daemon_server(cfg: Config) -> Result<()> {
@@ -33,10 +35,14 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
         .await
         .context("绑定 IPC 监听套接字失败")?;
     let (tx, mut rx) = mpsc::channel::<IpcInvocation>(32);
+    let (paster_broadcast_tx, _) = broadcast::channel::<PasterControlEvent>(32);
 
+    let listener_broadcast_tx = paster_broadcast_tx.clone();
     tokio::spawn(async move {
-        listener.run_loop(tx).await;
+        listener.run_loop(tx, listener_broadcast_tx).await;
     });
+
+    let mut paster_manager = PasterManager::default();
 
     tracing::info!("Snapin 守护服务已就绪，等待热键指令...");
     if cfg.general.notify_on_startup {
@@ -68,16 +74,42 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
                     DaemonResponse::Ok
                 }
             }
+            DaemonCommand::RegisterPaster { id, group_id } => {
+                paster_manager.register_instance(id, group_id);
+                tracing::info!(
+                    "已注册贴图实例: {id}，所属组: {group_id}，当前组贴图总数: {}",
+                    paster_manager.count_in_active_group()
+                );
+                DaemonResponse::PasterRegistered
+            }
+            DaemonCommand::UnregisterPaster(id) => {
+                paster_manager.unregister_instance(id);
+                tracing::info!(
+                    "已注销贴图实例: {id}，当前组贴图总数: {}",
+                    paster_manager.count_in_active_group()
+                );
+                DaemonResponse::Ok
+            }
             DaemonCommand::TogglePasters => {
-                tracing::info!("批量切换贴图显示状态");
-                let _ = std::process::Command::new("pkill")
-                    .args(["-USR1", "-f", "snapin pin-file"])
-                    .output();
+                let new_state = paster_manager.toggle_current_group_visibility();
+                let _ = paster_broadcast_tx.send(PasterControlEvent::ToggleVisibility);
+                tracing::info!(
+                    "已通过 IPC 广播批量切换贴图显隐状态，新状态: {}，活动贴图数: {}",
+                    if new_state {
+                        "全部显示"
+                    } else {
+                        "全部隐藏"
+                    },
+                    paster_manager.count_in_active_group()
+                );
                 DaemonResponse::Ok
             }
             DaemonCommand::SwitchGroup(id) => {
-                tracing::info!("切换至贴图分组: {id}");
-                let msg = format!("已切换至贴图分组: {id}");
+                paster_manager.switch_group(id);
+                let _ = paster_broadcast_tx.send(PasterControlEvent::SetVisibility(true));
+                let count = paster_manager.count_in_active_group();
+                tracing::info!("已切换至贴图分组: {id}，活动贴图数: {count}");
+                let msg = format!("已切换至贴图分组: {id}（活动贴图: {count}）");
                 let _ = send_desktop_notification("Snapin 贴图组", &msg).await;
                 DaemonResponse::Ok
             }
@@ -91,8 +123,8 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
                 DaemonResponse::Pong
             }
             DaemonCommand::GetStatus => DaemonResponse::Status {
-                active_group: 1,
-                paster_count: 0,
+                active_group: paster_manager.active_group(),
+                paster_count: paster_manager.count_in_active_group(),
             },
         };
         let _ = inv.responder.send(resp);

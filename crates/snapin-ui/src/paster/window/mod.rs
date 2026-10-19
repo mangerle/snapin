@@ -36,6 +36,7 @@ fn shared_paster_runtime() -> &'static tokio::runtime::Runtime {
 #[derive(Debug, Clone, Copy)]
 pub enum PasterUserEvent {
     ToggleVisibility,
+    SetVisibility(bool),
 }
 
 /// 启动独立贴图浮动置顶窗口
@@ -95,15 +96,20 @@ pub fn spawn_paster_window(item: PasterItem) -> Result<(), SnapinError> {
     state.ui_scale = auto_scale;
     state.context_menu.set_ui_scale(auto_scale);
 
-    // 监听 SIGUSR1 信号，收到信号后批量切换窗口显示/隐藏状态
+    // 接入守护进程长连接监听广播事件，淘汰脆弱的 OS 信号机制
+    let paster_id = state.item.id;
+    let group_id = state.item.group_id;
+    let event_proxy_clone = event_proxy.clone();
     shared_paster_runtime().spawn(async move {
-        if let Ok(mut sig) =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::user_defined1())
-        {
-            while sig.recv().await.is_some() {
-                let _ = event_proxy.send_event(PasterUserEvent::ToggleVisibility);
+        snapin_daemon::listen_paster_events(paster_id, group_id, move |ev| match ev {
+            snapin_daemon::PasterControlEvent::ToggleVisibility => {
+                let _ = event_proxy_clone.send_event(PasterUserEvent::ToggleVisibility);
             }
-        }
+            snapin_daemon::PasterControlEvent::SetVisibility(visible) => {
+                let _ = event_proxy_clone.send_event(PasterUserEvent::SetVisibility(visible));
+            }
+        })
+        .await;
     });
 
     event_loop
@@ -114,6 +120,10 @@ pub fn spawn_paster_window(item: PasterItem) -> Result<(), SnapinError> {
                 Event::UserEvent(PasterUserEvent::ToggleVisibility) => {
                     state.item.is_visible = !state.item.is_visible;
                     window.set_visible(state.item.is_visible);
+                }
+                Event::UserEvent(PasterUserEvent::SetVisibility(visible)) => {
+                    state.item.is_visible = visible;
+                    window.set_visible(visible);
                 }
                 Event::WindowEvent { event, .. } => {
                     let mut ctx = PasterWindowContext {

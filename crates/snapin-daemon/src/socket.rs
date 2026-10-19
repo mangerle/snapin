@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
+use tokio::sync::broadcast;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
@@ -35,10 +36,23 @@ pub enum DaemonRequest {
     Ping,
     /// 查询守护进程当前运行状态
     GetStatus,
+    /// 贴图窗口向守护进程注册长连接
+    RegisterPaster { id: u64, group_id: usize },
+    /// 贴图窗口注销通知
+    UnregisterPaster(u64),
 }
 
 /// 兼容别名：保留 DaemonCommand 便于渐进过渡
 pub type DaemonCommand = DaemonRequest;
+
+/// 守护进程向贴图客户端下发的控制事件
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PasterControlEvent {
+    /// 批量切换当前组贴图显示/隐藏
+    ToggleVisibility,
+    /// 显式设置可见性（用于切换贴图分组）
+    SetVisibility(bool),
+}
 
 /// 守护进程向 IPC 客户端返回的强类型响应协议
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +61,8 @@ pub enum DaemonResponse {
     Ok,
     /// 心跳存活确认
     Pong,
+    /// 贴图注册成功确认
+    PasterRegistered,
     /// 状态查询结果快照
     Status {
         active_group: usize,
@@ -252,14 +268,66 @@ impl IpcListener {
         })
     }
 
-    /// 启动常驻异步监听循环，将解码出的请求与响应回执派发给有界通道
-    pub async fn run_loop(self, cmd_sender: Sender<IpcInvocation>) {
+    /// 启动常驻异步监听循环，将解码出的请求与响应回执派发给有界通道，并支持贴图长连接广播控制
+    pub async fn run_loop(
+        self,
+        cmd_sender: Sender<IpcInvocation>,
+        paster_broadcast_tx: broadcast::Sender<PasterControlEvent>,
+    ) {
         loop {
             match self.listener.accept().await {
                 Ok((mut stream, _addr)) => {
                     let sender = cmd_sender.clone();
+                    let b_tx = paster_broadcast_tx.clone();
                     tokio::spawn(async move {
                         match read_framed_message::<_, DaemonRequest>(&mut stream).await {
+                            Ok(DaemonRequest::RegisterPaster { id, group_id }) => {
+                                let (resp_tx, resp_rx) = oneshot::channel();
+                                let invocation = IpcInvocation {
+                                    request: DaemonRequest::RegisterPaster { id, group_id },
+                                    responder: resp_tx,
+                                };
+                                if sender.send(invocation).await.is_ok() {
+                                    if let Ok(Ok(response)) = timeout(IPC_TIMEOUT, resp_rx).await {
+                                        let _ = write_framed_message(&mut stream, &response).await;
+                                    }
+                                }
+
+                                // 转入长连接控制指令接收循环
+                                let mut sub_rx = b_tx.subscribe();
+                                loop {
+                                    tokio::select! {
+                                        ev_res = sub_rx.recv() => {
+                                            match ev_res {
+                                                Ok(ev) => {
+                                                    if write_framed_message(&mut stream, &ev).await.is_err() {
+                                                        break;
+                                                    }
+                                                }
+                                                Err(broadcast::error::RecvError::Lagged(_)) => {}
+                                                Err(broadcast::error::RecvError::Closed) => break,
+                                            }
+                                        }
+                                        read_res = read_framed_message::<_, DaemonRequest>(&mut stream) => {
+                                            match read_res {
+                                                Ok(DaemonRequest::UnregisterPaster(_)) | Err(_) => {
+                                                    break;
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 客户端连接退出，通知守护进程注销实例
+                                let (unreg_tx, _) = oneshot::channel();
+                                let _ = sender
+                                    .send(IpcInvocation {
+                                        request: DaemonRequest::UnregisterPaster(id),
+                                        responder: unreg_tx,
+                                    })
+                                    .await;
+                            }
                             Ok(request) => {
                                 let (resp_tx, resp_rx) = oneshot::channel();
                                 let invocation = IpcInvocation {
@@ -295,6 +363,42 @@ impl IpcListener {
                 }
             }
         }
+    }
+}
+
+/// 贴图窗口与守护进程长连接监听实时控制事件
+pub async fn listen_paster_events<F>(paster_id: u64, group_id: usize, mut on_event: F)
+where
+    F: FnMut(PasterControlEvent) + Send + 'static,
+{
+    let socket_path = get_socket_path();
+    if !socket_path.exists() {
+        return;
+    }
+
+    let Ok(Ok(mut stream)) = timeout(IPC_TIMEOUT, UnixStream::connect(&socket_path)).await else {
+        return;
+    };
+
+    let req = DaemonRequest::RegisterPaster {
+        id: paster_id,
+        group_id,
+    };
+    if write_framed_message(&mut stream, &req).await.is_err() {
+        return;
+    }
+
+    let Ok(Ok(DaemonResponse::PasterRegistered)) = timeout(
+        IPC_TIMEOUT,
+        read_framed_message::<_, DaemonResponse>(&mut stream),
+    )
+    .await
+    else {
+        return;
+    };
+
+    while let Ok(event) = read_framed_message::<_, PasterControlEvent>(&mut stream).await {
+        on_event(event);
     }
 }
 
@@ -344,9 +448,11 @@ mod tests {
             .await
             .expect("绑定测试套接字成功");
         let (tx, mut rx) = tokio::sync::mpsc::channel::<IpcInvocation>(4);
+        let (b_tx, _) = tokio::sync::broadcast::channel::<PasterControlEvent>(8);
+        let b_tx_clone = b_tx.clone();
 
         tokio::spawn(async move {
-            listener.run_loop(tx).await;
+            listener.run_loop(tx, b_tx_clone).await;
         });
 
         // 模拟守护进程主循环响应逻辑
@@ -361,6 +467,9 @@ mod tests {
                             active_group: 1,
                             paster_count: 5,
                         });
+                    }
+                    DaemonRequest::RegisterPaster { .. } => {
+                        let _ = inv.responder.send(DaemonResponse::PasterRegistered);
                     }
                     _ => {
                         let _ = inv.responder.send(DaemonResponse::Ok);

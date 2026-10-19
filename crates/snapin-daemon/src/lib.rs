@@ -3,6 +3,7 @@
 pub mod socket;
 
 pub use socket::{
-    get_socket_path, read_framed_message, send_command_to_daemon, send_request_to_daemon,
-    write_framed_message, DaemonCommand, DaemonRequest, DaemonResponse, IpcInvocation, IpcListener,
+    get_socket_path, listen_paster_events, read_framed_message, send_command_to_daemon,
+    send_request_to_daemon, write_framed_message, DaemonCommand, DaemonRequest, DaemonResponse,
+    IpcInvocation, IpcListener, PasterControlEvent,
 };
