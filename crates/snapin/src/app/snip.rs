@@ -4,23 +4,17 @@ use anyhow::{Context, Result};
 use image::RgbaImage;
 use snapin_core::config::Config;
 use snapin_platform::{
-    capture_fullscreen_extension, capture_fullscreen_portal, send_desktop_notification,
+    capture_fullscreen_extension, capture_fullscreen_portal, generate_secure_temp_path,
+    send_desktop_notification,
 };
 use snapin_ui::snipper::{run_snipper_session, SnipMode, SnipperOutcome};
-use std::path::{Path, PathBuf};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::path::PathBuf;
+use std::time::Instant;
 
 /// 获取屏幕快照（优先扩展零白闪通道，自动优雅降级 Portal）
 pub async fn acquire_screen_snapshot() -> Result<RgbaImage> {
     let t_start = Instant::now();
-    let stamp = now_timestamp();
-    let shm_dir = Path::new("/dev/shm");
-    let target_dir = if shm_dir.exists() {
-        shm_dir
-    } else {
-        Path::new("/tmp")
-    };
-    let target_path = target_dir.join(format!("snapin_screen_{stamp}.png"));
+    let target_path = generate_secure_temp_path("screen", "png");
     let target_str = target_path.to_string_lossy().to_string();
 
     let t_dbus_start = Instant::now();
@@ -88,11 +82,7 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode) -> Result<()> {
                 }
             }
             SnipperOutcome::Pinned(item) => {
-                let stamp = now_timestamp();
-                let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|_| std::env::temp_dir());
-                let pin_path = runtime_dir.join(format!("snapin_pin_{stamp}.raw"));
+                let pin_path = generate_secure_temp_path("pin", "raw");
                 let (px, py) = item.position;
 
                 // 采用零编码开销的原生像素格式存储，在 tmpfs 内存中实现极速中转
@@ -121,11 +111,4 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn now_timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }

@@ -21,5 +21,6 @@ pub use lifecycle::exit_snapin_application;
 pub use notification::send_desktop_notification;
 pub use portal::capture_fullscreen_portal;
 pub use save_helper::{
-    load_last_selection, resolve_save_path, save_image_with_config, save_last_selection,
+    generate_secure_temp_path, generate_unique_id, get_secure_runtime_dir, load_last_selection,
+    resolve_save_path, save_image_with_config, save_last_selection,
 };

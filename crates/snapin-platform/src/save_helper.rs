@@ -162,6 +162,45 @@ fn get_cache_dir() -> Option<PathBuf> {
     Some(dir)
 }
 
+static SEQUENCE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// 生成高并发安全的 64 位全局唯一序列 ID（结合纳秒时间戳与原子自增计数器）
+pub fn generate_unique_id() -> u64 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let seq = SEQUENCE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    now.wrapping_add(seq)
+}
+
+/// 获取当前用户专属的安全运行时临时目录（具备多用户权限隔离与 tmpfs 内存提速）
+pub fn get_secure_runtime_dir() -> PathBuf {
+    if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
+        let p = PathBuf::from(runtime_dir).join("snapin");
+        let _ = std::fs::create_dir_all(&p);
+        return p;
+    }
+
+    let uid = rustix::process::getuid().as_raw();
+    let shm_dir = std::path::Path::new("/dev/shm");
+    let base = if shm_dir.exists() {
+        shm_dir.join(format!("snapin-{uid}"))
+    } else {
+        std::env::temp_dir().join(format!("snapin-{uid}"))
+    };
+    let _ = std::fs::create_dir_all(&base);
+    base
+}
+
+/// 生成安全防碰撞的临时文件路径（包含 UID 隔离、进程 PID 与纳秒唯一序列）
+pub fn generate_secure_temp_path(prefix: &str, ext: &str) -> PathBuf {
+    let dir = get_secure_runtime_dir();
+    let id = generate_unique_id();
+    let pid = std::process::id();
+    dir.join(format!("{prefix}_{pid}_{id}.{ext}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,5 +230,17 @@ mod tests {
 
         let invalid = SelectionRectRecord::new(-1.0, 0.0, 5.0, 5.0);
         assert!(!invalid.is_valid());
+    }
+
+    #[test]
+    fn test_generate_unique_id_and_secure_temp_path() {
+        let id1 = generate_unique_id();
+        let id2 = generate_unique_id();
+        assert_ne!(id1, id2, "连续生成的唯一 ID 不应相同");
+
+        let p1 = generate_secure_temp_path("snapin_test", "tmp");
+        let p2 = generate_secure_temp_path("snapin_test", "tmp");
+        assert_ne!(p1, p2, "生成的安全临时路径不应相同");
+        assert!(p1.to_string_lossy().contains("snapin_test"));
     }
 }

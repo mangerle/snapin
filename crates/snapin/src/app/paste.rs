@@ -1,13 +1,14 @@
 //! 贴图生成与窗口展示模块。
 
 use anyhow::{Context, Result};
-use snapin_platform::{read_clipboard_image, read_clipboard_text, send_desktop_notification};
+use snapin_platform::{
+    generate_unique_id, read_clipboard_image, read_clipboard_text, send_desktop_notification,
+};
 use snapin_ui::paster::{
     render_color_swatch_card, render_simple_text_card, spawn_paster_window, try_parse_hex_color,
     PasterItem,
 };
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tiny_skia::Pixmap;
 
 /// 检查系统剪贴板并就地生成贴图
@@ -17,15 +18,15 @@ pub async fn run_oneshot_paste() -> Result<()> {
     if let Ok(Some(img)) = read_clipboard_image() {
         if let Some(mut pixmap) = Pixmap::new(img.width(), img.height()) {
             pixmap.data_mut().copy_from_slice(img.as_raw());
-            let stamp = now_timestamp();
-            let item = PasterItem::new(stamp, format!("clip_img_{stamp}"), pixmap, (200, 200));
+            let uid = generate_unique_id();
+            let item = PasterItem::new(uid, format!("clip_img_{uid}"), pixmap, (200, 200));
             spawn_paster_window(item).context("贴图窗口运行异常")?;
             return Ok(());
         }
     }
 
     if let Ok(Some(text)) = read_clipboard_text() {
-        let stamp = now_timestamp();
+        let uid = generate_unique_id();
         let pixmap = if let Some((r, g, b)) = try_parse_hex_color(&text) {
             render_color_swatch_card(r, g, b).context("生成色彩卡片失败")?
         } else {
@@ -33,7 +34,7 @@ pub async fn run_oneshot_paste() -> Result<()> {
             render_simple_text_card(&lines).context("生成文本便签卡片失败")?
         };
 
-        let item = PasterItem::new(stamp, format!("clip_note_{stamp}"), pixmap, (250, 250));
+        let item = PasterItem::new(uid, format!("clip_note_{uid}"), pixmap, (250, 250));
         spawn_paster_window(item).context("贴图窗口运行异常")?;
         return Ok(());
     }
@@ -74,8 +75,8 @@ pub fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
         p
     };
 
-    let stamp = now_timestamp();
-    let item = PasterItem::new(stamp, format!("pin_{stamp}"), pixmap, (x, y));
+    let uid = generate_unique_id();
+    let item = PasterItem::new(uid, format!("pin_{uid}"), pixmap, (x, y));
 
     // 运行贴图窗口直至用户关闭
     let res = spawn_paster_window(item);
@@ -86,11 +87,4 @@ pub fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
     }
 
     res.context("贴图窗口运行异常")
-}
-
-fn now_timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }
