@@ -3,7 +3,6 @@
 use crate::error::PlatformError;
 use chrono::Local;
 use image::RgbaImage;
-use serde::{Deserialize, Serialize};
 use snapin_core::config::{ImageFormat, OutputConfig};
 use std::path::PathBuf;
 
@@ -80,29 +79,7 @@ fn format_template(template: &str, dt: &chrono::DateTime<Local>) -> String {
         .replace("{ss}", &dt.format("%S").to_string())
 }
 
-/// 持久化缓存的历史选区矩形数据契约
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct SelectionRectRecord {
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
-}
-
-impl SelectionRectRecord {
-    pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self {
-            x,
-            y,
-            width,
-            height,
-        }
-    }
-
-    pub fn is_valid(&self) -> bool {
-        self.width > 10.0 && self.height > 10.0 && self.x >= 0.0 && self.y >= 0.0
-    }
-}
+pub use snapin_core::config::SelectionRectRecord;
 
 /// 保存上次选区坐标至运行时缓存文件
 pub fn save_last_selection(rect: (f32, f32, f32, f32)) {

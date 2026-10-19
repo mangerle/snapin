@@ -15,7 +15,7 @@ pub use model::{
 };
 use std::fs;
 use std::path::{Path, PathBuf};
-pub use types::{HexColor, Hotkey};
+pub use types::{HexColor, Hotkey, SelectionRectRecord};
 
 /// 获取 Snapin 默认配置文件存储路径：`~/.config/snapin/config.toml`
 pub fn get_default_config_path() -> Result<PathBuf, CoreError> {
