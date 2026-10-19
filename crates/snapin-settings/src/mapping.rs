@@ -217,6 +217,66 @@ pub fn index_to_image_format(idx: i32) -> ImageFormat {
     SettingEnum::from_index(idx)
 }
 
+/// 预设翻译服务商列表（顺序与 Slint ocr_tab 中的 ComboBox 严格一一对应）
+pub const TRANSLATE_PROVIDERS: &[&str] = &[
+    "bing_free",   // 0: 微软必应 (免 Key)
+    "google_free", // 1: 谷歌翻译 (免 Key)
+    "baidu",       // 2: 百度翻译
+    "youdao",      // 3: 网易有道翻译
+    "aliyun",      // 4: 阿里云翻译
+];
+
+pub fn translate_provider_to_index(provider: &str) -> i32 {
+    TRANSLATE_PROVIDERS
+        .iter()
+        .position(|&p| p == provider)
+        .unwrap_or(0) as i32
+}
+
+pub fn index_to_translate_provider(index: i32) -> &'static str {
+    let idx = index.clamp(0, (TRANSLATE_PROVIDERS.len() - 1) as i32) as usize;
+    TRANSLATE_PROVIDERS[idx]
+}
+
+/// 预设目标翻译语言列表（顺序与 Slint ocr_tab 中的 ComboBox 严格一一对应）
+pub const TARGET_LANGUAGES: &[&str] = &[
+    "zh", // 0: 中文 (简体)
+    "en", // 1: 英语
+    "ja", // 2: 日语
+    "ko", // 3: 韩语
+    "fr", // 4: 法语
+    "de", // 5: 德语
+    "es", // 6: 西班牙语
+    "ru", // 7: 俄语
+];
+
+pub fn target_language_to_index(lang: &str) -> i32 {
+    TARGET_LANGUAGES
+        .iter()
+        .position(|&l| l == lang)
+        .unwrap_or(0) as i32
+}
+
+pub fn index_to_target_language(index: i32) -> &'static str {
+    let idx = index.clamp(0, (TARGET_LANGUAGES.len() - 1) as i32) as usize;
+    TARGET_LANGUAGES[idx]
+}
+
+/// 截图原位覆盖模式列表（顺序与 Slint ocr_tab 中的 ComboBox 严格一一对应）
+pub const COVER_MODES: &[&str] = &[
+    "solid_color",   // 0: 智能取色平铺填充
+    "frosted_glass", // 1: 半透明磨砂高斯模糊
+];
+
+pub fn cover_mode_to_index(mode: &str) -> i32 {
+    COVER_MODES.iter().position(|&m| m == mode).unwrap_or(0) as i32
+}
+
+pub fn index_to_cover_mode(index: i32) -> &'static str {
+    let idx = index.clamp(0, (COVER_MODES.len() - 1) as i32) as usize;
+    COVER_MODES[idx]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,6 +301,16 @@ mod tests {
         check_roundtrip::<ZoomAnchor>();
         check_roundtrip::<DoubleClickAction>();
         check_roundtrip::<ImageFormat>();
+    }
+
+    #[test]
+    fn test_translate_mappings() {
+        assert_eq!(translate_provider_to_index("bing_free"), 0);
+        assert_eq!(index_to_translate_provider(0), "bing_free");
+        assert_eq!(target_language_to_index("zh"), 0);
+        assert_eq!(index_to_target_language(0), "zh");
+        assert_eq!(cover_mode_to_index("solid_color"), 0);
+        assert_eq!(index_to_cover_mode(0), "solid_color");
     }
 
     #[test]

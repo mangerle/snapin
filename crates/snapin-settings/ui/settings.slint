@@ -6,6 +6,7 @@ import { SnipTab } from "tabs/snip_tab.slint";
 import { PasterTab } from "tabs/paster_tab.slint";
 import { OutputTab } from "tabs/output_tab.slint";
 import { ShortcutsTab } from "tabs/shortcuts_tab.slint";
+import { OcrTab } from "tabs/ocr_tab.slint";
 import { AboutTab } from "tabs/about_tab.slint";
 
 export { ShortcutHelper } from "common.slint";
@@ -69,7 +70,19 @@ export component SettingsWindow inherits Window {
     in-out property <bool> notify_on_save: true;
     in-out property <bool> auto_backup_raw: false;
 
-    // 6. 快捷键
+    // 6. 文字识别与翻译
+    in-out property <string> ocr_model_dir: "";
+    in-out property <int> translate_provider_index: 0;
+    in-out property <int> target_language_index: 0;
+    in-out property <int> cover_mode_index: 0;
+    in-out property <string> baidu_app_id: "";
+    in-out property <string> baidu_secret_key: "";
+    in-out property <string> youdao_app_key: "";
+    in-out property <string> youdao_app_secret: "";
+    in-out property <string> aliyun_access_key_id: "";
+    in-out property <string> aliyun_access_key_secret: "";
+
+    // 7. 快捷键
     in-out property <string> snip_hotkey: "Ctrl+Alt+A";
     in-out property <string> paste_hotkey: "F1";
     in-out property <string> toggle_hotkey: "Ctrl+F3";
@@ -154,16 +167,22 @@ export component SettingsWindow inherits Window {
                 clicked => { root.active_tab = 4; }
             }
             NavItem {
-                icon: @image-url("../assets/icons/nav_shortcuts.svg");
-                title: "快捷键与操作";
+                icon: @image-url("../assets/icons/nav_ocr.svg");
+                title: "识别与翻译";
                 active: root.active_tab == 5;
                 clicked => { root.active_tab = 5; }
             }
             NavItem {
-                icon: @image-url("../assets/icons/nav_about.svg");
-                title: "关于";
+                icon: @image-url("../assets/icons/nav_shortcuts.svg");
+                title: "快捷键与操作";
                 active: root.active_tab == 6;
                 clicked => { root.active_tab = 6; }
+            }
+            NavItem {
+                icon: @image-url("../assets/icons/nav_about.svg");
+                title: "关于";
+                active: root.active_tab == 7;
+                clicked => { root.active_tab = 7; }
             }
 
             Rectangle { } // 弹性占位
@@ -190,7 +209,8 @@ export component SettingsWindow inherits Window {
                           root.active_tab == 2 ? "截图流程" :
                           root.active_tab == 3 ? "贴图窗口" :
                           root.active_tab == 4 ? "存储与输出" :
-                          root.active_tab == 5 ? "全局快捷键与贴图操作" : "关于 Snapin";
+                          root.active_tab == 5 ? "文字识别与截图翻译" :
+                          root.active_tab == 6 ? "全局快捷键与贴图操作" : "关于 Snapin";
                     font-size: 20px;
                     font-weight: 700;
                     color: #0f172a;
@@ -201,7 +221,8 @@ export component SettingsWindow inherits Window {
                           root.active_tab == 2 ? "配置全屏捕获是否包含鼠标、窗口边缘智能磁吸对齐以及默认激活的标注形状与字号" :
                           root.active_tab == 3 ? "配置贴图绝对置顶特权、新贴图初始透明度、缩放锚点以及双击关闭响应行为" :
                           root.active_tab == 4 ? "配置截图另存为落盘路径、自动时间戳命名规则、图片无损压缩格式与通知偏好" :
-                          root.active_tab == 5 ? "自定义全局截图与贴图唤起热键，查看贴图窗口单键旋转、翻转、缩放快捷操作指南" : "查看 Snapin 架构设计、纯 Rust 软件光栅化特性与自由开源许可声明";
+                          root.active_tab == 5 ? "配置轻量离线 PP-OCRv6 引擎路径、五大多语言翻译服务商凭证与截图原位智能背景擦除策略" :
+                          root.active_tab == 6 ? "自定义全局截图与贴图唤起热键，查看贴图窗口单键旋转、翻转、缩放快捷操作指南" : "查看 Snapin 架构设计、纯 Rust 软件光栅化特性与自由开源许可声明";
                     font-size: 12px;
                     color: #64748b;
                 }
@@ -265,14 +286,27 @@ export component SettingsWindow inherits Window {
                         auto_backup_raw <=> root.auto_backup_raw;
                     }
 
-                    if root.active_tab == 5: ShortcutsTab {
+                    if root.active_tab == 5: OcrTab {
+                        ocr_model_dir <=> root.ocr_model_dir;
+                        translate_provider_index <=> root.translate_provider_index;
+                        target_language_index <=> root.target_language_index;
+                        cover_mode_index <=> root.cover_mode_index;
+                        baidu_app_id <=> root.baidu_app_id;
+                        baidu_secret_key <=> root.baidu_secret_key;
+                        youdao_app_key <=> root.youdao_app_key;
+                        youdao_app_secret <=> root.youdao_app_secret;
+                        aliyun_access_key_id <=> root.aliyun_access_key_id;
+                        aliyun_access_key_secret <=> root.aliyun_access_key_secret;
+                    }
+
+                    if root.active_tab == 6: ShortcutsTab {
                         snip_hotkey <=> root.snip_hotkey;
                         paste_hotkey <=> root.paste_hotkey;
                         toggle_hotkey <=> root.toggle_hotkey;
                         switch_group_hotkey <=> root.switch_group_hotkey;
                     }
 
-                    if root.active_tab == 6: AboutTab {
+                    if root.active_tab == 7: AboutTab {
                         app_version: root.app_version;
                     }
                 }

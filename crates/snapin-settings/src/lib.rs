@@ -9,13 +9,14 @@ pub mod mapping;
 pub mod shortcut;
 
 use mapping::{
-    accent_color_to_index, color_format_to_index, default_tool_to_index,
+    accent_color_to_index, color_format_to_index, cover_mode_to_index, default_tool_to_index,
     double_click_action_to_index, image_format_to_index, index_to_accent_color,
-    index_to_color_format, index_to_default_tool, index_to_double_click_action,
-    index_to_image_format, index_to_log_level, index_to_magnifier_scale, index_to_snip_color,
-    index_to_theme, index_to_tray_theme, index_to_zoom_anchor, log_level_to_index,
-    magnifier_scale_to_index, snip_color_to_index, theme_to_index, tray_theme_to_index,
-    zoom_anchor_to_index,
+    index_to_color_format, index_to_cover_mode, index_to_default_tool,
+    index_to_double_click_action, index_to_image_format, index_to_log_level,
+    index_to_magnifier_scale, index_to_snip_color, index_to_target_language, index_to_theme,
+    index_to_translate_provider, index_to_tray_theme, index_to_zoom_anchor, log_level_to_index,
+    magnifier_scale_to_index, snip_color_to_index, target_language_to_index, theme_to_index,
+    translate_provider_to_index, tray_theme_to_index, zoom_anchor_to_index,
 };
 use slint::{ComponentHandle, SharedString};
 use snapin_core::config::{self, Config, Hotkey};
@@ -116,6 +117,8 @@ fn sync_config_to_window(win: &SettingsWindow, cfg: &Config) {
     sync_snip_to_window(win, &cfg.snip);
     sync_paster_to_window(win, &cfg.paster);
     sync_output_to_window(win, &cfg.output);
+    sync_ocr_to_window(win, &cfg.ocr);
+    sync_translate_to_window(win, &cfg.translate);
     sync_hotkeys_to_window(win, &cfg.hotkeys);
 }
 
@@ -177,6 +180,25 @@ fn sync_hotkeys_to_window(win: &SettingsWindow, h: &config::model::HotkeyConfig)
     win.set_switch_group_hotkey(SharedString::from(h.switch_group.to_display_string()));
 }
 
+/// 同步文字识别板块设置
+fn sync_ocr_to_window(win: &SettingsWindow, o: &config::model::OcrConfig) {
+    win.set_ocr_model_dir(SharedString::from(&o.local.model_dir));
+}
+
+/// 同步翻译板块设置
+fn sync_translate_to_window(win: &SettingsWindow, t: &config::model::TranslateConfig) {
+    win.set_translate_provider_index(translate_provider_to_index(&t.provider));
+    win.set_target_language_index(target_language_to_index(&t.target_language));
+    win.set_cover_mode_index(cover_mode_to_index(&t.cover_mode));
+
+    win.set_baidu_app_id(SharedString::from(&t.api_keys.baidu_app_id));
+    win.set_baidu_secret_key(SharedString::from(&t.api_keys.baidu_secret_key));
+    win.set_youdao_app_key(SharedString::from(&t.api_keys.youdao_app_key));
+    win.set_youdao_app_secret(SharedString::from(&t.api_keys.youdao_app_secret));
+    win.set_aliyun_access_key_id(SharedString::from(&t.api_keys.aliyun_access_key_id));
+    win.set_aliyun_access_key_secret(SharedString::from(&t.api_keys.aliyun_access_key_secret));
+}
+
 /// 从界面提取最新值更新到内存 Config 结构体
 fn extract_config_from_window(win: &SettingsWindow, cfg: &mut Config) {
     extract_general_from_window(win, &mut cfg.general);
@@ -184,6 +206,8 @@ fn extract_config_from_window(win: &SettingsWindow, cfg: &mut Config) {
     extract_snip_from_window(win, &mut cfg.snip);
     extract_paster_from_window(win, &mut cfg.paster);
     extract_output_from_window(win, &mut cfg.output);
+    extract_ocr_from_window(win, &mut cfg.ocr);
+    extract_translate_from_window(win, &mut cfg.translate);
     extract_hotkeys_from_window(win, &mut cfg.hotkeys);
 }
 
@@ -243,6 +267,25 @@ fn extract_hotkeys_from_window(win: &SettingsWindow, h: &mut config::model::Hotk
     h.paste = Hotkey::parse_str(win.get_paste_hotkey().as_str());
     h.toggle_pasters = Hotkey::parse_str(win.get_toggle_hotkey().as_str());
     h.switch_group = Hotkey::parse_str(win.get_switch_group_hotkey().as_str());
+}
+
+/// 提取文字识别设置
+fn extract_ocr_from_window(win: &SettingsWindow, o: &mut config::model::OcrConfig) {
+    o.local.model_dir = win.get_ocr_model_dir().to_string();
+}
+
+/// 提取翻译设置
+fn extract_translate_from_window(win: &SettingsWindow, t: &mut config::model::TranslateConfig) {
+    t.provider = index_to_translate_provider(win.get_translate_provider_index()).to_string();
+    t.target_language = index_to_target_language(win.get_target_language_index()).to_string();
+    t.cover_mode = index_to_cover_mode(win.get_cover_mode_index()).to_string();
+
+    t.api_keys.baidu_app_id = win.get_baidu_app_id().to_string();
+    t.api_keys.baidu_secret_key = win.get_baidu_secret_key().to_string();
+    t.api_keys.youdao_app_key = win.get_youdao_app_key().to_string();
+    t.api_keys.youdao_app_secret = win.get_youdao_app_secret().to_string();
+    t.api_keys.aliyun_access_key_id = win.get_aliyun_access_key_id().to_string();
+    t.api_keys.aliyun_access_key_secret = win.get_aliyun_access_key_secret().to_string();
 }
 
 /// 注册界面操作按钮回调事件

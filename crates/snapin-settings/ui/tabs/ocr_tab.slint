@@ -1,0 +1,179 @@
+import { ComboBox, LineEdit } from "std-widgets.slint";
+import { SettingCard } from "../common.slint";
+
+export component OcrTab inherits VerticalLayout {
+    spacing: 16px;
+    padding-right: 8px;
+
+    // OCR 模型路径
+    in-out property <string> ocr_model_dir: "";
+
+    // 翻译基础配置
+    in-out property <int> translate_provider_index: 0;   // 0: 微软必应, 1: 谷歌, 2: 百度, 3: 有道, 4: 阿里云
+    in-out property <int> target_language_index: 0;      // 0: 中文, 1: 英文, 2: 日文, 3: 韩文, 4: 法文, 5: 德文, 6: 西班牙文, 7: 俄文
+    in-out property <int> cover_mode_index: 0;           // 0: 智能取色平铺填充, 1: 半透明磨砂高斯模糊
+
+    // 第三方翻译 API 凭证
+    in-out property <string> baidu_app_id: "";
+    in-out property <string> baidu_secret_key: "";
+    in-out property <string> youdao_app_key: "";
+    in-out property <string> youdao_app_secret: "";
+    in-out property <string> aliyun_access_key_id: "";
+    in-out property <string> aliyun_access_key_secret: "";
+
+    SettingCard {
+        title: "PP-OCRv6 离线文字识别引擎";
+        subtitle: "采用轻量级 PP-OCRv6 small ONNX 模型，纯离线零网络传输保护用户隐私";
+
+        VerticalLayout {
+            spacing: 14px;
+
+            VerticalLayout {
+                spacing: 6px;
+                Text { text: "离线模型资产安装目录 (留空将自动按 XDG 规范层级自适应探测):"; font-size: 13px; font-weight: 600; color: #334155; }
+                LineEdit {
+                    text <=> root.ocr_model_dir;
+                    placeholder-text: "/usr/share/snapin/models/ppocrv6 或 ~/.local/share/snapin/models/ppocrv6";
+                }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            Text {
+                text: "运行策略说明: 在截图选区点击工具栏 [OCR] 图标或按快捷键 O，系统将在毫秒级提取全文并静默复制到系统剪贴板，无需额外弹窗打扰。";
+                font-size: 12px;
+                color: #64748b;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    SettingCard {
+        title: "机器翻译与原位替换覆盖策略";
+        subtitle: "支持各大主流翻译引擎与原图无缝文字抹平替换";
+
+        VerticalLayout {
+            spacing: 14px;
+
+            HorizontalLayout {
+                spacing: 24px;
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "默认机器翻译服务商:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    ComboBox {
+                        model: [
+                            "微软必应翻译 (免 Key 极速)",
+                            "谷歌翻译 (免 Key 稳定)",
+                            "百度翻译 (支持超大字符量)",
+                            "网易有道翻译 (专业多语言)",
+                            "阿里云机器翻译 (企业级引擎)"
+                        ];
+                        current-index <=> root.translate_provider_index;
+                        width: 240px;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "默认翻译目标语言:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    ComboBox {
+                        model: [
+                            "中文 (简体)",
+                            "英语 (English)",
+                            "日语 (日本語)",
+                            "韩语 (한국어)",
+                            "法语 (Français)",
+                            "德语 (Deutsch)",
+                            "西班牙语 (Español)",
+                            "俄语 (Русский)"
+                        ];
+                        current-index <=> root.target_language_index;
+                        width: 200px;
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            VerticalLayout {
+                spacing: 6px;
+                Text { text: "截图原位背景擦除覆盖模式:"; font-size: 13px; font-weight: 600; color: #334155; }
+                ComboBox {
+                    model: [
+                        "智能取色平铺填充 (采样原文字周边色调，平滑融合实色背景)",
+                        "半透明磨砂模糊 (覆盖高斯半透明磨砂遮罩，突出译文层次感)"
+                    ];
+                    current-index <=> root.cover_mode_index;
+                }
+            }
+        }
+    }
+
+    SettingCard {
+        title: "第三方翻译服务商 API 凭证配置";
+        subtitle: "若选用百度、有道或阿里翻译，需在此填入对应开放平台颁发的密钥凭证";
+
+        VerticalLayout {
+            spacing: 14px;
+
+            // 百度
+            VerticalLayout {
+                spacing: 8px;
+                Text { text: "百度翻译开放平台:"; font-size: 13px; font-weight: 600; color: #334155; }
+                HorizontalLayout {
+                    spacing: 12px;
+                    LineEdit {
+                        text <=> root.baidu_app_id;
+                        placeholder-text: "百度 App ID";
+                    }
+                    LineEdit {
+                        text <=> root.baidu_secret_key;
+                        placeholder-text: "百度 Secret Key";
+                        input-type: password;
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            // 网易有道
+            VerticalLayout {
+                spacing: 8px;
+                Text { text: "网易有道智云平台:"; font-size: 13px; font-weight: 600; color: #334155; }
+                HorizontalLayout {
+                    spacing: 12px;
+                    LineEdit {
+                        text <=> root.youdao_app_key;
+                        placeholder-text: "有道 App Key";
+                    }
+                    LineEdit {
+                        text <=> root.youdao_app_secret;
+                        placeholder-text: "有道 App Secret";
+                        input-type: password;
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            // 阿里云
+            VerticalLayout {
+                spacing: 8px;
+                Text { text: "阿里云机器翻译 API:"; font-size: 13px; font-weight: 600; color: #334155; }
+                HorizontalLayout {
+                    spacing: 12px;
+                    LineEdit {
+                        text <=> root.aliyun_access_key_id;
+                        placeholder-text: "阿里云 AccessKey ID";
+                    }
+                    LineEdit {
+                        text <=> root.aliyun_access_key_secret;
+                        placeholder-text: "阿里云 AccessKey Secret";
+                        input-type: password;
+                    }
+                }
+            }
+        }
+    }
+}
