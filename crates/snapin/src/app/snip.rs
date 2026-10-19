@@ -5,61 +5,72 @@ use image::RgbaImage;
 use snapin_core::config::Config;
 use snapin_platform::{
     capture_fullscreen_extension, capture_fullscreen_extension_raw, capture_fullscreen_portal,
-    generate_secure_temp_path, send_desktop_notification,
+    generate_secure_temp_path, get_platform_capabilities, send_desktop_notification,
 };
 use snapin_ui::snipper::{run_snipper_session, SnipMode, SnipperOutcome};
 use std::time::Instant;
 
-/// 获取屏幕快照（优先扩展零白闪 Raw 物理像素通道，自动优雅降级 PNG 扩展与 Portal）
+/// 获取屏幕快照（依据全局平台能力缓存选择最优通道，彻底消除无用 D-Bus 探测等待）
 pub async fn acquire_screen_snapshot() -> Result<RgbaImage> {
     let t_start = Instant::now();
+    let caps = get_platform_capabilities();
 
-    // 1. 优先尝试 GNOME 扩展零延迟 Raw 原始物理像素截屏（跳过任何压缩编码与解码）
-    let raw_path = generate_secure_temp_path("screen", "raw");
-    let raw_str = raw_path.to_string_lossy().to_string();
-    if let Ok(Some((w, h))) = capture_fullscreen_extension_raw(&raw_str).await {
-        if let Ok(bytes) = std::fs::read(&raw_path) {
-            let _ = std::fs::remove_file(&raw_path);
-            if bytes.len() == (w as usize) * (h as usize) * 4 {
-                if let Some(rgba) = RgbaImage::from_raw(w, h, bytes) {
+    // 1. 若全局能力缓存确认 GNOME 扩展在线，优先尝试扩展极速通道
+    if caps.gnome_extension_active {
+        // 1.1 尝试零延迟 Raw 原始物理像素截屏（跳过压缩与解码）
+        let raw_path = generate_secure_temp_path("screen", "raw");
+        let raw_str = raw_path.to_string_lossy().to_string();
+        if let Ok(Some((w, h))) = capture_fullscreen_extension_raw(&raw_str).await {
+            if let Ok(bytes) = std::fs::read(&raw_path) {
+                let _ = std::fs::remove_file(&raw_path);
+                if bytes.len() == (w as usize) * (h as usize) * 4 {
+                    if let Some(rgba) = RgbaImage::from_raw(w, h, bytes) {
+                        tracing::info!(
+                            "命中 GNOME 扩展原生零延迟 Raw 像素通道，全屏截屏总耗时: {:.2}ms",
+                            t_start.elapsed().as_secs_f64() * 1000.0
+                        );
+                        return Ok(rgba);
+                    }
+                }
+            }
+        }
+
+        // 1.2 降级尝试 GNOME 扩展 PNG 截屏通道
+        let target_path = generate_secure_temp_path("screen", "png");
+        let target_str = target_path.to_string_lossy().to_string();
+
+        let t_dbus_start = Instant::now();
+        if let Ok(true) = capture_fullscreen_extension(&target_str).await {
+            let t_dbus_end = Instant::now();
+            tracing::info!(
+                "命中 GNOME 扩展原生零白闪截屏通道，D-Bus 耗时: {:.2}ms",
+                (t_dbus_end - t_dbus_start).as_secs_f64() * 1000.0
+            );
+
+            let t_decode_start = Instant::now();
+            if let Ok(bytes) = std::fs::read(&target_path) {
+                let _ = std::fs::remove_file(&target_path);
+                if let Ok(dynamic_img) = image::load_from_memory(&bytes) {
+                    let rgba = dynamic_img.into_rgba8();
+                    let t_decode_end = Instant::now();
                     tracing::info!(
-                        "命中 GNOME 扩展原生零延迟 Raw 像素通道，全屏截屏总耗时: {:.2}ms",
-                        t_start.elapsed().as_secs_f64() * 1000.0
+                        "PNG 读取并内存解码耗时: {:.2}ms, 原生全屏截屏总耗时: {:.2}ms",
+                        (t_decode_end - t_decode_start).as_secs_f64() * 1000.0,
+                        (t_decode_end - t_start).as_secs_f64() * 1000.0
                     );
                     return Ok(rgba);
                 }
             }
         }
-    }
-
-    // 2. 降级尝试 GNOME 扩展 PNG 截屏通道
-    let target_path = generate_secure_temp_path("screen", "png");
-    let target_str = target_path.to_string_lossy().to_string();
-
-    let t_dbus_start = Instant::now();
-    if let Ok(true) = capture_fullscreen_extension(&target_str).await {
-        let t_dbus_end = Instant::now();
-        tracing::info!(
-            "命中 GNOME 扩展原生零白闪截屏通道，D-Bus 耗时: {:.2}ms",
-            (t_dbus_end - t_dbus_start).as_secs_f64() * 1000.0
+    } else {
+        tracing::debug!(
+            "GNOME 扩展未在线（环境: {}，Wayland: {}），直接走 XDG Portal 通道，消除 D-Bus 试探延迟",
+            caps.desktop_env,
+            caps.is_wayland
         );
-
-        let t_decode_start = Instant::now();
-        if let Ok(bytes) = std::fs::read(&target_path) {
-            let _ = std::fs::remove_file(&target_path);
-            if let Ok(dynamic_img) = image::load_from_memory(&bytes) {
-                let rgba = dynamic_img.into_rgba8();
-                let t_decode_end = Instant::now();
-                tracing::info!(
-                    "PNG 读取并内存解码耗时: {:.2}ms, 原生全屏截屏总耗时: {:.2}ms",
-                    (t_decode_end - t_decode_start).as_secs_f64() * 1000.0,
-                    (t_decode_end - t_start).as_secs_f64() * 1000.0
-                );
-                return Ok(rgba);
-            }
-        }
     }
 
+    // 2. 扩展未激活或调用失败时，走 XDG Desktop Portal 通道
     tracing::info!(
         "当前走 XDG Desktop Portal 通道 (注销重新登录桌面后将自动激活 GNOME 原生零白闪通道)"
     );

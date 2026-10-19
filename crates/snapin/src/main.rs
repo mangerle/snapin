@@ -16,7 +16,7 @@ use clap::Parser;
 use cli::{Cli, Commands};
 use snapin_core::config;
 use snapin_daemon::{send_command_to_daemon, DaemonCommand};
-use snapin_platform::sync_hotkeys_to_gnome;
+use snapin_platform::{init_platform_capabilities, sync_hotkeys_to_gnome};
 use snapin_settings::run_settings_gui;
 use snapin_ui::snipper::SnipMode;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -29,7 +29,10 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // 2. 注册贴图窗口平台特权观察者（解耦 UI 层直接调用 GNOME 扩展）
+    // 2. 初始化底层平台能力探测（探测 Wayland、GNOME Mutter 扩展等环境并全局缓存）
+    init_platform_capabilities().await;
+
+    // 3. 注册贴图窗口平台特权观察者（解耦 UI 层直接调用 GNOME 扩展）
     app::setup_paster_platform_observer();
 
     let cli = Cli::parse();

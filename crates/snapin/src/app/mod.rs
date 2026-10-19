@@ -18,6 +18,12 @@ pub fn setup_paster_platform_observer() {
 
     impl PasterLifecycleObserver for GnomeExtensionPasterObserver {
         fn on_paster_created(&self, title: &str, _window_id: WindowId) {
+            let caps = snapin_platform::get_platform_capabilities();
+            if !caps.gnome_extension_active {
+                tracing::debug!("GNOME 扩展未在线，跳过请求置顶贴图 [{title}]");
+                return;
+            }
+
             let t = title.to_string();
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 handle.spawn(async move {

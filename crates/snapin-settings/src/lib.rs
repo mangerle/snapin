@@ -21,8 +21,8 @@ use slint::{ComponentHandle, SharedString};
 use snapin_core::config::{self, Config, Hotkey};
 use snapin_core::error::CoreError;
 use snapin_platform::{
-    open_path_in_file_manager, suspend_hotkeys_for_settings, sync_autostart_desktop_file,
-    sync_hotkeys_to_gnome, PlatformError,
+    get_platform_capabilities, open_path_in_file_manager, suspend_hotkeys_for_settings,
+    sync_autostart_desktop_file, sync_hotkeys_to_gnome, PlatformError,
 };
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
@@ -58,6 +58,14 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
         .window()
         .set_size(slint::LogicalSize::new(900.0, 620.0));
     window.set_app_version(SharedString::from(env!("CARGO_PKG_VERSION")));
+
+    let caps = get_platform_capabilities();
+    let status_text = if caps.gnome_extension_active {
+        "GNOME Shell 原生特权扩展已在线运行"
+    } else {
+        "GNOME Shell 原生特权扩展未激活 (当前自动使用 XDG Portal)"
+    };
+    window.set_extension_status_text(SharedString::from(status_text));
 
     // 注册全局快捷键按键捕获与格式化回调
     let shortcut_helper = window.global::<ShortcutHelper>();
