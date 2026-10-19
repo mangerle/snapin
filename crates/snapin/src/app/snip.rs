@@ -102,17 +102,26 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode) -> Result<()> {
             }
             SnipperOutcome::Pinned(item) => {
                 tracing::info!("正在向常驻集中贴图工作区投递选区窗口...");
-                let req = snapin_daemon::DaemonCommand::CreatePaster {
-                    width: item.pixmap.width(),
-                    height: item.pixmap.height(),
-                    x: item.position.0,
-                    y: item.position.1,
-                    title: item.title.clone(),
-                    rgba: item.pixmap.data().to_vec(),
-                };
-                if let Ok(true) = snapin_daemon::send_command_to_daemon(&req).await {
-                    tracing::info!("已成功通过 IPC 移交常驻集中贴图工作区展示");
-                } else {
+                let raw_path = generate_secure_temp_path("paster_ipc", "raw");
+                let mut delivered = false;
+                if std::fs::write(&raw_path, item.pixmap.data()).is_ok() {
+                    let req = snapin_daemon::DaemonCommand::CreatePaster {
+                        width: item.pixmap.width(),
+                        height: item.pixmap.height(),
+                        x: item.position.0,
+                        y: item.position.1,
+                        title: item.title.clone(),
+                        raw_path: raw_path.to_string_lossy().to_string(),
+                    };
+                    if let Ok(true) = snapin_daemon::send_command_to_daemon(&req).await {
+                        tracing::info!("已成功通过零序列化膨胀安全路径移交常驻集中贴图工作区展示");
+                        delivered = true;
+                    } else {
+                        let _ = std::fs::remove_file(&raw_path);
+                    }
+                }
+
+                if !delivered {
                     tracing::info!("未检测到常驻守护服务，就地启动集中贴图工作区");
                     tokio::task::spawn_blocking(move || {
                         if let Err(e) = snapin_ui::paster::spawn_paster_window(item) {

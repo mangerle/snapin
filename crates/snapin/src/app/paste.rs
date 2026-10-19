@@ -2,7 +2,8 @@
 
 use anyhow::{Context, Result};
 use snapin_platform::{
-    generate_unique_id, read_clipboard_image, read_clipboard_text, send_desktop_notification,
+    generate_secure_temp_path, generate_unique_id, read_clipboard_image, read_clipboard_text,
+    send_desktop_notification,
 };
 use snapin_ui::paster::{
     render_color_swatch_card, render_simple_text_card, spawn_paster_window, try_parse_hex_color,
@@ -103,27 +104,28 @@ pub fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
     let title = format!("pin_{uid}");
     let width = pixmap.width();
     let height = pixmap.height();
-    let rgba = pixmap.data().to_vec();
+    let raw_temp = generate_secure_temp_path("paster_pin", "raw");
+    if std::fs::write(&raw_temp, pixmap.data()).is_ok() {
+        let req = snapin_daemon::DaemonCommand::CreatePaster {
+            width,
+            height,
+            x,
+            y,
+            title: title.clone(),
+            raw_path: raw_temp.to_string_lossy().to_string(),
+        };
 
-    // 优先尝试通过 IPC 将外部图片委托给常驻守护服务的集中工作区展示
-    let req = snapin_daemon::DaemonCommand::CreatePaster {
-        width,
-        height,
-        x,
-        y,
-        title: title.clone(),
-        rgba,
-    };
-
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-    if let Ok(true) = rt.block_on(snapin_daemon::send_command_to_daemon(&req)) {
-        tracing::info!("外部图片已通过 IPC 委托常驻集中工作区展示");
-        if path.extension().and_then(|e| e.to_str()) == Some("raw") {
-            let _ = std::fs::remove_file(&path);
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        if let Ok(true) = rt.block_on(snapin_daemon::send_command_to_daemon(&req)) {
+            tracing::info!("外部图片已通过零序列化膨胀安全路径委托常驻集中工作区展示");
+            if path.extension().and_then(|e| e.to_str()) == Some("raw") {
+                let _ = std::fs::remove_file(&path);
+            }
+            return Ok(());
         }
-        return Ok(());
+        let _ = std::fs::remove_file(&raw_temp);
     }
 
     let item = PasterItem::new(uid, title, pixmap, (x, y));

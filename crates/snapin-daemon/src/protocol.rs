@@ -18,14 +18,14 @@ pub enum DaemonRequest {
     Snip,
     /// 触发贴图（由剪贴板生成）
     Paste,
-    /// 客户端直接向常驻守护进程投递像素数据创建贴图窗口
+    /// 客户端直接向常驻守护进程投递像素数据创建贴图窗口（通过内存文件系统 Raw 路径零膨胀传输）
     CreatePaster {
         width: u32,
         height: u32,
         x: i32,
         y: i32,
         title: String,
-        rgba: Vec<u8>,
+        raw_path: String,
     },
     /// 批量隐藏或显示当前活动组所有贴图
     TogglePasters,
