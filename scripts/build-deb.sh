@@ -18,9 +18,11 @@ fi
 ARCH="amd64"
 PACKAGE_NAME="snapin"
 DEB_NAME="${PACKAGE_NAME}_${VERSION}_${ARCH}.deb"
-STAGE_DIR="${PROJECT_ROOT}/dist/deb-staging"
+OUTPUT_DIR="${PROJECT_ROOT}/target"
+OUTPUT_DEB="${OUTPUT_DIR}/${DEB_NAME}"
+STAGE_DIR="${OUTPUT_DIR}/deb-staging"
 
-echo "[信息] 开始构建 Snapin Debian 安装包: ${DEB_NAME}"
+echo "[信息] 开始构建 Snapin Debian 安装包: ${OUTPUT_DEB}"
 
 # 1. 确保最新发布版本可执行文件已就绪
 echo "[信息] 编译发布版本目标..."
@@ -197,11 +199,12 @@ chmod 755 "${STAGE_DIR}/DEBIAN/postinst"
 
 # 9. 调用 dpkg-deb 生成安装包
 echo "[信息] 正在打包生成 .deb 文件..."
-dpkg-deb --build --root-owner-group "${STAGE_DIR}" "${PROJECT_ROOT}/${DEB_NAME}"
+mkdir -p "${OUTPUT_DIR}"
+dpkg-deb --build --root-owner-group "${STAGE_DIR}" "${OUTPUT_DEB}"
 
 # 10. 清理临时打包目录
 rm -rf "${STAGE_DIR}"
 
-echo "[成功] 打包完成！安装包输出路径: ${PROJECT_ROOT}/${DEB_NAME}"
+echo "[成功] 打包完成！安装包输出路径: ${OUTPUT_DEB}"
 echo "[提示] 可通过以下命令直接进行本地安装与测试:"
-echo "       sudo dpkg -i ${PROJECT_ROOT}/${DEB_NAME}"
+echo "       sudo dpkg -i ${OUTPUT_DEB}"

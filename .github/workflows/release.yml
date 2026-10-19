@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -57,6 +58,6 @@ jobs:
         with:
           body_path: RELEASE_CHANGELOG.md
           files: |
-            snapin_*.deb
+            target/snapin_*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
