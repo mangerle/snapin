@@ -5,6 +5,7 @@
 pub mod enums;
 pub mod model;
 pub mod sections;
+pub mod types;
 
 use crate::error::SnapinError;
 pub use model::{
@@ -14,6 +15,7 @@ pub use model::{
 };
 use std::fs;
 use std::path::{Path, PathBuf};
+pub use types::{HexColor, Hotkey};
 
 /// 获取 Snapin 默认配置文件存储路径：`~/.config/snapin/config.toml`
 pub fn get_default_config_path() -> Result<PathBuf, SnapinError> {

@@ -25,25 +25,25 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), SnapinError> {
         &snip_path,
         "Snapin 区域截图",
         &format!("{current_exe} snip"),
-        &config.snip,
+        &config.snip.to_gnome_accelerator(),
     );
     setup_keybinding(
         &paste_path,
         "Snapin 贴图",
         &format!("{current_exe} paste"),
-        &config.paste,
+        &config.paste.to_gnome_accelerator(),
     );
     setup_keybinding(
         &toggle_path,
         "Snapin 隐藏/显示贴图",
         &format!("{current_exe} toggle"),
-        &config.toggle_pasters,
+        &config.toggle_pasters.to_gnome_accelerator(),
     );
     setup_keybinding(
         &switch_path,
         "Snapin 切换贴图组",
         &format!("{current_exe} switch-group"),
-        &config.switch_group,
+        &config.switch_group.to_gnome_accelerator(),
     );
 
     tracing::info!("GNOME 快捷键同步完成");
@@ -162,43 +162,10 @@ pub fn convert_to_gnome_accelerator(binding: &str) -> String {
     if trimmed.is_empty() || trimmed == "已禁用" || trimmed == "none" {
         return String::new();
     }
-
-    // 如果已经是 GTK 尖括号加速键格式，直接返回
     if trimmed.starts_with('<') {
         return trimmed.to_string();
     }
-
-    let parts: Vec<&str> = trimmed.split('+').map(|s| s.trim()).collect();
-    if parts.is_empty() {
-        return String::new();
-    }
-
-    let mut result = String::new();
-    let main_key = parts.last().unwrap_or(&"");
-
-    for &mod_key in &parts[..parts.len() - 1] {
-        match mod_key.to_lowercase().as_str() {
-            "ctrl" | "control" => result.push_str("<Control>"),
-            "alt" => result.push_str("<Alt>"),
-            "shift" => result.push_str("<Shift>"),
-            "super" | "win" | "meta" => result.push_str("<Super>"),
-            _ => {}
-        }
-    }
-
-    // 对单字母转为小写；特殊键与功能键（如 F1~F12, Print, Space 等）保留标准名称
-    let formatted_main_key = match *main_key {
-        k if k.len() == 1 && k.chars().next().unwrap_or(' ').is_ascii_alphabetic() => {
-            k.to_ascii_lowercase()
-        }
-        "Space" | "space" => "space".to_string(),
-        "PageUp" | "pageup" => "Page_Up".to_string(),
-        "PageDown" | "pagedown" => "Page_Down".to_string(),
-        other => other.to_string(),
-    };
-
-    result.push_str(&formatted_main_key);
-    result
+    snapin_core::config::Hotkey::parse_str(trimmed).to_gnome_accelerator()
 }
 
 #[cfg(test)]

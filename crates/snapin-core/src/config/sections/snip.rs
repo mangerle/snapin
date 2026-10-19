@@ -1,6 +1,7 @@
 //! 截图交互流程与标注工具默认设置模型定义。
 
 use crate::config::enums::DefaultTool;
+use crate::config::types::HexColor;
 use serde::{Deserialize, Serialize};
 
 /// 截图流程设置板块
@@ -22,9 +23,9 @@ pub struct SnipConfig {
     #[serde(default)]
     pub default_tool: DefaultTool,
 
-    /// 默认标注颜色（HEX 格式）
+    /// 默认标注颜色（强类型 HEX）
     #[serde(default = "default_draw_color")]
-    pub default_color: String,
+    pub default_color: HexColor,
 
     /// 默认矢量描边粗细像素
     #[serde(default = "default_stroke_width")]
@@ -53,8 +54,8 @@ fn default_true() -> bool {
     true
 }
 
-fn default_draw_color() -> String {
-    "#FF3B30".to_string()
+fn default_draw_color() -> HexColor {
+    HexColor::new(255, 59, 48, 255)
 }
 
 fn default_stroke_width() -> f32 {

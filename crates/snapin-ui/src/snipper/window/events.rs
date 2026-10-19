@@ -73,9 +73,7 @@ fn apply_interface_config(state: &mut SnipperState, iface: &InterfaceConfig) {
 fn apply_snip_config(state: &mut SnipperState, snip: &SnipConfig, mode: super::types::SnipMode) {
     state.toolbar.sub_options.custom_stroke_width = snip.default_stroke_width;
     state.toolbar.sub_options.font_size = snip.default_font_size;
-    if let Some(col) = parse_hex_color(&snip.default_color) {
-        state.toolbar.sub_options.color = col;
-    }
+    state.toolbar.sub_options.color = snip.default_color.to_tiny_skia_color();
     // 初始进入截图时，未完成选区前不激活标注工具，确保左键优先用于选区拉框
     state.toolbar.active_tool = None;
 
@@ -107,19 +105,6 @@ pub fn activate_default_tool_if_configured(state: &mut SnipperState) {
         "badge" => Some(crate::snipper::toolbar::ToolbarItem::ToolBadge),
         _ => None,
     };
-}
-
-/// 解析 HEX 格式颜色为 tiny_skia Color
-fn parse_hex_color(hex: &str) -> Option<tiny_skia::Color> {
-    let s = hex.trim().strip_prefix('#').unwrap_or(hex.trim());
-    if s.len() == 6 {
-        let r = u8::from_str_radix(&s[0..2], 16).ok()?;
-        let g = u8::from_str_radix(&s[2..4], 16).ok()?;
-        let b = u8::from_str_radix(&s[4..6], 16).ok()?;
-        Some(tiny_skia::Color::from_rgba8(r, g, b, 255))
-    } else {
-        None
-    }
 }
 
 impl Default for SnipperState {

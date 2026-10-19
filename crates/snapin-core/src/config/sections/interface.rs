@@ -1,6 +1,7 @@
 //! 界面视觉与外观设置模型定义。
 
 use crate::config::enums::{ColorFormat, Theme};
+use crate::config::types::HexColor;
 use serde::{Deserialize, Serialize};
 
 /// 界面视觉设置板块
@@ -10,9 +11,9 @@ pub struct InterfaceConfig {
     #[serde(default)]
     pub theme: Theme,
 
-    /// 选区边框与高亮强调色（HEX 格式）
+    /// 选区边框与高亮强调色（强类型 HEX）
     #[serde(default = "default_accent_color")]
-    pub accent_color: String,
+    pub accent_color: HexColor,
 
     /// 是否开启鼠标跟随取色放大镜
     #[serde(default = "default_true")]
@@ -53,8 +54,8 @@ fn default_true() -> bool {
     true
 }
 
-fn default_accent_color() -> String {
-    "#00AEFF".to_string()
+fn default_accent_color() -> HexColor {
+    HexColor::new(0, 174, 255, 255)
 }
 
 fn default_magnifier_scale() -> u32 {

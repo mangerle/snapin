@@ -8,7 +8,7 @@ slint::include_modules!();
 pub mod shortcut;
 
 use slint::{ComponentHandle, SharedString};
-use snapin_core::config::{self, Config};
+use snapin_core::config::{self, Config, HexColor, Hotkey};
 use snapin_core::error::SnapinError;
 use snapin_platform::{
     suspend_hotkeys_for_settings, sync_autostart_desktop_file, sync_hotkeys_to_gnome,
@@ -87,7 +87,8 @@ fn sync_general_to_window(win: &SettingsWindow, g: &config::model::GeneralConfig
 /// 同步界面外观板块设置
 fn sync_interface_to_window(win: &SettingsWindow, i: &config::model::InterfaceConfig) {
     win.set_theme_index(i.theme.to_index());
-    let accent_idx = match i.accent_color.to_uppercase().as_str() {
+    let accent_str = i.accent_color.to_hex_string();
+    let accent_idx = match accent_str.as_str() {
         "#10B981" => 1,
         "#F59E0B" => 2,
         "#8B5CF6" => 3,
@@ -112,7 +113,8 @@ fn sync_snip_to_window(win: &SettingsWindow, s: &config::model::SnipConfig) {
     win.set_smart_window_snapping(s.smart_window_snapping);
     win.set_remember_last_selection(s.remember_last_selection);
     win.set_default_tool_index(s.default_tool.to_index());
-    let col_idx = match s.default_color.to_uppercase().as_str() {
+    let col_str = s.default_color.to_hex_string();
+    let col_idx = match col_str.as_str() {
         "#00AEFF" => 1,
         "#10B981" => 2,
         "#F59E0B" => 3,
@@ -147,9 +149,9 @@ fn sync_output_to_window(win: &SettingsWindow, o: &config::model::OutputConfig) 
 
 /// 同步快捷键板块设置
 fn sync_hotkeys_to_window(win: &SettingsWindow, h: &config::model::HotkeyConfig) {
-    win.set_snip_hotkey(SharedString::from(&h.snip));
-    win.set_paste_hotkey(SharedString::from(&h.paste));
-    win.set_toggle_hotkey(SharedString::from(&h.toggle_pasters));
+    win.set_snip_hotkey(SharedString::from(h.snip.to_display_string()));
+    win.set_paste_hotkey(SharedString::from(h.paste.to_display_string()));
+    win.set_toggle_hotkey(SharedString::from(h.toggle_pasters.to_display_string()));
 }
 
 /// 从界面提取最新值更新到内存 Config 结构体
@@ -173,13 +175,13 @@ fn extract_general_from_window(win: &SettingsWindow, g: &mut config::model::Gene
 /// 提取界面外观设置
 fn extract_interface_from_window(win: &SettingsWindow, i: &mut config::model::InterfaceConfig) {
     i.theme = config::model::Theme::from_index(win.get_theme_index());
-    i.accent_color = match win.get_accent_color_index() {
+    let hex = match win.get_accent_color_index() {
         1 => "#10B981",
         2 => "#F59E0B",
         3 => "#8B5CF6",
         _ => "#00AEFF",
-    }
-    .to_string();
+    };
+    i.accent_color = HexColor::from_hex(hex).unwrap_or_else(|| HexColor::new(0, 174, 255, 255));
     i.enable_magnifier = win.get_enable_magnifier();
     i.magnifier_scale = match win.get_magnifier_scale_index() {
         0 => 4,
@@ -197,15 +199,15 @@ fn extract_snip_from_window(win: &SettingsWindow, s: &mut config::model::SnipCon
     s.smart_window_snapping = win.get_smart_window_snapping();
     s.remember_last_selection = win.get_remember_last_selection();
     s.default_tool = config::model::DefaultTool::from_index(win.get_default_tool_index());
-    s.default_color = match win.get_default_color_index() {
+    let hex = match win.get_default_color_index() {
         1 => "#00AEFF",
         2 => "#10B981",
         3 => "#F59E0B",
         4 => "#FFFFFF",
         5 => "#000000",
         _ => "#EF4444",
-    }
-    .to_string();
+    };
+    s.default_color = HexColor::from_hex(hex).unwrap_or_else(|| HexColor::new(239, 68, 68, 255));
     s.default_stroke_width = win.get_default_stroke_width();
     s.default_font_size = win.get_snip_font_size();
 }
@@ -233,9 +235,9 @@ fn extract_output_from_window(win: &SettingsWindow, o: &mut config::model::Outpu
 
 /// 提取快捷键设置
 fn extract_hotkeys_from_window(win: &SettingsWindow, h: &mut config::model::HotkeyConfig) {
-    h.snip = win.get_snip_hotkey().to_string();
-    h.paste = win.get_paste_hotkey().to_string();
-    h.toggle_pasters = win.get_toggle_hotkey().to_string();
+    h.snip = Hotkey::parse_str(win.get_snip_hotkey().as_str());
+    h.paste = Hotkey::parse_str(win.get_paste_hotkey().as_str());
+    h.toggle_pasters = Hotkey::parse_str(win.get_toggle_hotkey().as_str());
 }
 
 /// 注册界面操作按钮回调事件

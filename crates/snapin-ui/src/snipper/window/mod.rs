@@ -186,7 +186,7 @@ fn dispatch_window_event(
                 toolbar: Some(&state.toolbar),
                 annotations: Some(&state.annotations),
                 ui_scale: state.toolbar.ui_scale,
-                accent_color: parse_hex_color_rgb(&state.config.interface.accent_color),
+                accent_color: state.config.interface.accent_color.to_rgb(),
                 pending_stroke,
                 active_text_input: state.active_text_input.as_ref(),
             };
@@ -300,19 +300,4 @@ fn create_pixmaps_fast(img: &RgbaImage) -> Result<(Pixmap, Pixmap), SnapinError>
     }
 
     Ok((bg, dimmed))
-}
-
-/// 解析十六进制颜色字符串为 RGB 三元组
-fn parse_hex_color_rgb(hex: &str) -> (u8, u8, u8) {
-    let clean = hex.trim().trim_start_matches('#');
-    if clean.len() == 6 {
-        if let (Ok(r), Ok(g), Ok(b)) = (
-            u8::from_str_radix(&clean[0..2], 16),
-            u8::from_str_radix(&clean[2..4], 16),
-            u8::from_str_radix(&clean[4..6], 16),
-        ) {
-            return (r, g, b);
-        }
-    }
-    (0, 174, 255)
 }
