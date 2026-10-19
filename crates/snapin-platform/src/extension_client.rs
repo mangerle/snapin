@@ -94,3 +94,45 @@ pub async fn capture_fullscreen_extension(target_path: &str) -> Result<bool, Sna
 
     Ok(reply.0)
 }
+
+/// 请求配套 GNOME Shell 扩展从 Mutter ClutterStage 直接抓取原始物理像素（跳过 PNG 压缩）
+///
+/// 成功捕获后返回原始图像分辨率 `Some((width, height))`
+pub async fn capture_fullscreen_extension_raw(
+    target_path: &str,
+) -> Result<Option<(u32, u32)>, SnapinError> {
+    let connection = get_session_connection().await?;
+
+    tracing::debug!(
+        "正在向 GNOME 扩展请求零拷贝原始像素全屏截屏: {}",
+        target_path
+    );
+
+    let msg = connection
+        .call_method(
+            Some(EXT_BUS_NAME),
+            EXT_OBJECT_PATH,
+            Some(EXT_INTERFACE),
+            "CaptureFullscreenRaw",
+            &(target_path),
+        )
+        .await
+        .map_err(|e| SnapinError::DBusError {
+            service: EXT_BUS_NAME.to_string(),
+            message: e.to_string(),
+        })?;
+
+    let reply: (u32, u32, bool) = msg
+        .body()
+        .deserialize()
+        .map_err(|e| SnapinError::DBusError {
+            service: EXT_BUS_NAME.to_string(),
+            message: e.to_string(),
+        })?;
+
+    if reply.2 && reply.0 > 0 && reply.1 > 0 {
+        Ok(Some((reply.0, reply.1)))
+    } else {
+        Ok(None)
+    }
+}

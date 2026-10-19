@@ -13,7 +13,9 @@ pub use autostart::sync_autostart_desktop_file;
 pub use clipboard::{
     read_clipboard_image, read_clipboard_text, write_image_to_clipboard, write_text_to_clipboard,
 };
-pub use extension_client::{capture_fullscreen_extension, pin_window_above};
+pub use extension_client::{
+    capture_fullscreen_extension, capture_fullscreen_extension_raw, pin_window_above,
+};
 pub use hotkey_manager::{
     convert_to_gnome_accelerator, suspend_hotkeys_for_settings, sync_hotkeys_to_gnome,
 };

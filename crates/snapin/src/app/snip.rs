@@ -4,15 +4,35 @@ use anyhow::{Context, Result};
 use image::RgbaImage;
 use snapin_core::config::Config;
 use snapin_platform::{
-    capture_fullscreen_extension, capture_fullscreen_portal, generate_secure_temp_path,
-    send_desktop_notification,
+    capture_fullscreen_extension, capture_fullscreen_extension_raw, capture_fullscreen_portal,
+    generate_secure_temp_path, send_desktop_notification,
 };
 use snapin_ui::snipper::{run_snipper_session, SnipMode, SnipperOutcome};
 use std::time::Instant;
 
-/// 获取屏幕快照（优先扩展零白闪通道，自动优雅降级 Portal）
+/// 获取屏幕快照（优先扩展零白闪 Raw 物理像素通道，自动优雅降级 PNG 扩展与 Portal）
 pub async fn acquire_screen_snapshot() -> Result<RgbaImage> {
     let t_start = Instant::now();
+
+    // 1. 优先尝试 GNOME 扩展零延迟 Raw 原始物理像素截屏（跳过任何压缩编码与解码）
+    let raw_path = generate_secure_temp_path("screen", "raw");
+    let raw_str = raw_path.to_string_lossy().to_string();
+    if let Ok(Some((w, h))) = capture_fullscreen_extension_raw(&raw_str).await {
+        if let Ok(bytes) = std::fs::read(&raw_path) {
+            let _ = std::fs::remove_file(&raw_path);
+            if bytes.len() == (w as usize) * (h as usize) * 4 {
+                if let Some(rgba) = RgbaImage::from_raw(w, h, bytes) {
+                    tracing::info!(
+                        "命中 GNOME 扩展原生零延迟 Raw 像素通道，全屏截屏总耗时: {:.2}ms",
+                        t_start.elapsed().as_secs_f64() * 1000.0
+                    );
+                    return Ok(rgba);
+                }
+            }
+        }
+    }
+
+    // 2. 降级尝试 GNOME 扩展 PNG 截屏通道
     let target_path = generate_secure_temp_path("screen", "png");
     let target_str = target_path.to_string_lossy().to_string();
 

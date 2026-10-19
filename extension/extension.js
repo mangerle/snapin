@@ -130,9 +130,9 @@ export default class SnapinHelperExtension extends Extension {
         });
         pasteSubMenu.menu.addMenuItem(subItemToggle);
 
-        let subItemClose = new PopupMenu.PopupMenuItem('关闭所有贴图');
+        let subItemClose = new PopupMenu.PopupMenuItem('批量隐藏贴图');
         subItemClose.connect('activate', () => {
-            GLib.spawn_command_line_async('pkill -f "snapin pin-file" || true');
+            GLib.spawn_command_line_async('snapin toggle');
         });
         pasteSubMenu.menu.addMenuItem(subItemClose);
 
@@ -152,7 +152,7 @@ export default class SnapinHelperExtension extends Extension {
         // 10. 重新启动
         let restartItem = new PopupMenu.PopupMenuItem('重新启动');
         restartItem.connect('activate', () => {
-            GLib.spawn_command_line_async('bash -c "systemctl --user restart snapin 2>/dev/null || (killall -9 snapin 2>/dev/null; sleep 0.3; snapin daemon &)"');
+            GLib.spawn_command_line_async('bash -c "systemctl --user restart snapin 2>/dev/null || (snapin exit 2>/dev/null; sleep 0.5; snapin daemon &)"');
         });
         this._indicator.menu.addMenuItem(restartItem);
 
