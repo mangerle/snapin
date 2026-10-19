@@ -14,7 +14,7 @@ pub mod snipper;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use daemon::{send_command_to_daemon, DaemonCommand, IpcListener};
+use daemon::{send_command_to_daemon, DaemonCommand, DaemonResponse, IpcInvocation, IpcListener};
 use paster::{
     render_color_swatch_card, render_simple_text_card, spawn_paster_window, try_parse_hex_color,
     PasterItem,
@@ -362,7 +362,7 @@ async fn run_daemon_server(cfg: config::Config) -> Result<()> {
     let listener = IpcListener::bind(None)
         .await
         .context("绑定 IPC 监听套接字失败")?;
-    let (tx, mut rx) = mpsc::channel::<DaemonCommand>(32);
+    let (tx, mut rx) = mpsc::channel::<IpcInvocation>(32);
 
     tokio::spawn(async move {
         listener.run_loop(tx).await;
@@ -377,19 +377,25 @@ async fn run_daemon_server(cfg: config::Config) -> Result<()> {
         .await;
     }
 
-    while let Some(cmd) = rx.recv().await {
-        tracing::info!("守护进程接收到控制指令: {:?}", cmd);
-        match cmd {
+    while let Some(inv) = rx.recv().await {
+        tracing::info!("守护进程接收到控制指令: {:?}", inv.request);
+        let resp = match inv.request {
             DaemonCommand::Snip => {
                 let current_exe =
                     std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("snapin"));
                 if let Err(e) = std::process::Command::new(current_exe).arg("snip").spawn() {
                     tracing::error!("调起截图前台子进程失败: {e}");
+                    DaemonResponse::Error(format!("调起截图子进程失败: {e}"))
+                } else {
+                    DaemonResponse::Ok
                 }
             }
             DaemonCommand::Paste => {
                 if let Err(e) = run_oneshot_paste().await {
                     tracing::error!("执行贴图流程失败: {e}");
+                    DaemonResponse::Error(format!("执行贴图流程失败: {e}"))
+                } else {
+                    DaemonResponse::Ok
                 }
             }
             DaemonCommand::TogglePasters => {
@@ -397,16 +403,29 @@ async fn run_daemon_server(cfg: config::Config) -> Result<()> {
                 let _ = std::process::Command::new("pkill")
                     .args(["-USR1", "-f", "snapin pin-file"])
                     .output();
+                DaemonResponse::Ok
             }
             DaemonCommand::SwitchGroup(id) => {
                 tracing::info!("切换至贴图分组: {id}");
                 let msg = format!("已切换至贴图分组: {id}");
                 let _ = send_desktop_notification("Snapin 贴图组", &msg).await;
+                DaemonResponse::Ok
+            }
+            DaemonCommand::Shutdown => {
+                tracing::info!("接收到平滑停机指令，退出守护进程事件循环");
+                let _ = inv.responder.send(DaemonResponse::Ok);
+                break;
             }
             DaemonCommand::Ping => {
                 tracing::debug!("心跳响应正常");
+                DaemonResponse::Pong
             }
-        }
+            DaemonCommand::GetStatus => DaemonResponse::Status {
+                active_group: 1,
+                paster_count: 0,
+            },
+        };
+        let _ = inv.responder.send(resp);
     }
 
     Ok(())
