@@ -55,12 +55,20 @@ pub fn handle_key_input(
             true
         }
         Key::Character(c) if c.eq_ignore_ascii_case("o") && !state.modifiers.control_key() => {
-            super::actions::handle_action_ocr(state, original_rgba);
-            true
+            if matches!(state.selection, SelectionState::Locked { .. }) {
+                super::actions::handle_action_ocr(state, original_rgba);
+                true
+            } else {
+                false
+            }
         }
         Key::Character(c) if c.eq_ignore_ascii_case("t") && !state.modifiers.control_key() => {
-            super::actions::handle_action_translate(state, original_rgba);
-            true
+            if matches!(state.selection, SelectionState::Locked { .. }) {
+                super::actions::handle_action_translate(state, original_rgba);
+                true
+            } else {
+                false
+            }
         }
         Key::Character(c) if c == "," => handle_history_back(state, original_rgba),
         Key::Character(c) if c == "." => handle_history_forward(state, original_rgba),

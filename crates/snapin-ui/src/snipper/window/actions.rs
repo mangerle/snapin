@@ -372,6 +372,8 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
             .push(AnnotationShape::Translation(TranslationAction::new(
                 shape_items,
             )));
+        state.toolbar.active_tool = None;
+        state.toolbar.sub_rect = None;
         tracing::info!("原位翻译完成，已成功压入标注动作栈");
     }
 }
