@@ -1,0 +1,67 @@
+import { SettingCard } from "../common.slint";
+
+export component AboutTab inherits VerticalLayout {
+    in property <string> app_version: "0.1.0";
+    spacing: 16px;
+    padding-right: 8px;
+
+    SettingCard {
+        title: "Snapin 原生截图与贴图工具";
+        subtitle: "专为 Linux Wayland (Ubuntu 24.04 / 26 GNOME) 量身打造的高性能屏幕工具";
+
+        VerticalLayout {
+            spacing: 12px;
+
+            HorizontalLayout {
+                spacing: 12px;
+                Text { text: "当前版本:"; width: 90px; color: #64748b; }
+                Text { text: root.app_version; font-weight: 700; color: #1e293b; }
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+                Text { text: "渲染内核:"; width: 90px; color: #64748b; }
+                Text { text: "纯 CPU 软件光栅化 (tiny-skia + softbuffer)，定点整数零拷贝流水线"; color: #1e293b; }
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+                Text { text: "桌面支持:"; width: 90px; color: #64748b; }
+                Text { text: "Wayland 原生协议 + GNOME Shell 特权置顶扩展与 XDG Portal 自动降级"; color: #1e293b; }
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+                Text { text: "排版引擎:"; width: 90px; color: #64748b; }
+                Text { text: "cosmic-text 多语言矢量中文字体整形与平滑抗锯齿光栅化"; color: #1e293b; }
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+                Text { text: "设置界面:"; width: 90px; color: #64748b; }
+                Text { text: "Slint 响应式声明式桌面 GUI，物理进程隔离，用完即退"; color: #1e293b; }
+            }
+        }
+    }
+
+    SettingCard {
+        title: "自由开源许可";
+        subtitle: "坚持极简、高效、无冗余的工程哲学打造";
+
+        VerticalLayout {
+            spacing: 8px;
+
+            HorizontalLayout {
+                spacing: 12px;
+                Text { text: "开源协议:"; width: 90px; color: #64748b; }
+                Text { text: "MIT License / Apache 2.0 License 双重许可"; color: #1e293b; }
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+                Text { text: "代码仓库:"; width: 90px; color: #64748b; }
+                Text { text: "https://github.com/wangle/snapin"; color: #2563eb; }
+            }
+        }
+    }
+}

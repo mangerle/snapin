@@ -1,0 +1,316 @@
+import { ScrollView } from "std-widgets.slint";
+import { NavItem, PrimaryButton, SecondaryButton } from "common.slint";
+import { GeneralTab } from "tabs/general_tab.slint";
+import { InterfaceTab } from "tabs/interface_tab.slint";
+import { SnipTab } from "tabs/snip_tab.slint";
+import { PasterTab } from "tabs/paster_tab.slint";
+import { OutputTab } from "tabs/output_tab.slint";
+import { ShortcutsTab } from "tabs/shortcuts_tab.slint";
+import { AboutTab } from "tabs/about_tab.slint";
+
+export component SettingsWindow inherits Window {
+    title: "Snapin 设置中心";
+    icon: @image-url("../assets/icons/snapin.svg");
+    min-width: 860px;
+    min-height: 560px;
+    preferred-width: 900px;
+    preferred-height: 620px;
+    background: #f8fafc;
+
+    // 导航项索引 (0: 常规, 1: 界面外观, 2: 截图流程, 3: 贴图窗口, 4: 输出保存, 5: 快捷键, 6: 关于)
+    in-out property <int> active_tab: 0;
+
+    // 应用程序版本（由 Rust 在启动时通过 env!("CARGO_PKG_VERSION") 动态注入）
+    in-out property <string> app_version: "0.1.0";
+
+    // 底部状态提示信息
+    in-out property <string> status_message: "";
+
+    // 1. 常规设置
+    in-out property <bool> autostart: true;
+    in-out property <bool> notify_on_startup: false;
+    in-out property <int> log_level_index: 2;
+    in-out property <int> tray_theme_index: 0;
+    in-out property <string> extension_status_text: "GNOME Shell 原生零白闪扩展已就绪";
+
+    // 2. 界面外观
+    in-out property <int> theme_index: 0;
+    in-out property <int> accent_color_index: 0;
+    in-out property <bool> enable_magnifier: true;
+    in-out property <int> magnifier_scale_index: 1;
+    in-out property <int> color_format_index: 0;
+    in-out property <bool> show_grid_lines: true;
+    in-out property <float> toolbar_scale_percent: 100;
+
+    // 3. 截图流程
+    in-out property <bool> capture_cursor: false;
+    in-out property <bool> smart_window_snapping: true;
+    in-out property <bool> remember_last_selection: true;
+    in-out property <int> default_tool_index: 0;
+    in-out property <int> default_color_index: 0;
+    in-out property <float> default_stroke_width: 3;
+    in-out property <float> snip_font_size: 18;
+
+    // 4. 贴图窗口
+    in-out property <bool> enable_above_extension: true;
+    in-out property <float> initial_opacity_percent: 100;
+    in-out property <int> zoom_anchor_index: 0;
+    in-out property <int> double_click_action_index: 0;
+    in-out property <float> max_history_count: 20;
+
+    // 5. 输出保存
+    in-out property <string> quick_save_dir: "~/Pictures/Screenshots";
+    in-out property <string> file_name_template: "Snapin_{YYYY}{MM}{DD}_{HH}{mm}{ss}";
+    in-out property <int> format_index: 0;
+    in-out property <float> jpeg_quality: 90;
+    in-out property <bool> notify_on_copy: false;
+    in-out property <bool> notify_on_save: true;
+    in-out property <bool> auto_backup_raw: false;
+
+    // 6. 快捷键
+    in-out property <string> snip_hotkey: "F1";
+    in-out property <string> paste_hotkey: "F3";
+    in-out property <string> toggle_hotkey: "Ctrl+F3";
+
+    // 回调事件
+    callback save_and_apply();
+    callback restore_defaults();
+    callback open_config_folder();
+    callback sync_gnome_hotkeys();
+
+    HorizontalLayout {
+        // ---------------- 左侧导航栏 ----------------
+        VerticalLayout {
+            width: 220px;
+            padding: 16px;
+            spacing: 8px;
+
+            // 软件标识与标题
+            HorizontalLayout {
+                spacing: 10px;
+                padding_bottom: 8px;
+                alignment: start;
+
+                Image {
+                    source: @image-url("../assets/icons/snapin.svg");
+                    width: 34px;
+                    height: 34px;
+                    vertical-alignment: center;
+                }
+
+                VerticalLayout {
+                    spacing: 2px;
+                    alignment: center;
+                    Text {
+                        text: "Snapin";
+                        font-size: 16px;
+                        font-weight: 800;
+                        color: #0f172a;
+                    }
+                    Text {
+                        text: "截图与贴图设置中心";
+                        font-size: 11px;
+                        color: #64748b;
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 1px;
+                background: #e2e8f0;
+            }
+
+            // 侧边栏 7 项导航菜单
+            NavItem {
+                icon: @image-url("../assets/icons/nav_general.svg");
+                title: "常规设置";
+                active: root.active_tab == 0;
+                clicked => { root.active_tab = 0; }
+            }
+            NavItem {
+                icon: @image-url("../assets/icons/nav_theme.svg");
+                title: "界面外观";
+                active: root.active_tab == 1;
+                clicked => { root.active_tab = 1; }
+            }
+            NavItem {
+                icon: @image-url("../assets/icons/nav_snip.svg");
+                title: "截图流程";
+                active: root.active_tab == 2;
+                clicked => { root.active_tab = 2; }
+            }
+            NavItem {
+                icon: @image-url("../assets/icons/nav_paster.svg");
+                title: "贴图窗口";
+                active: root.active_tab == 3;
+                clicked => { root.active_tab = 3; }
+            }
+            NavItem {
+                icon: @image-url("../assets/icons/nav_output.svg");
+                title: "存储与输出";
+                active: root.active_tab == 4;
+                clicked => { root.active_tab = 4; }
+            }
+            NavItem {
+                icon: @image-url("../assets/icons/nav_shortcuts.svg");
+                title: "快捷键与操作";
+                active: root.active_tab == 5;
+                clicked => { root.active_tab = 5; }
+            }
+            NavItem {
+                icon: @image-url("../assets/icons/nav_about.svg");
+                title: "关于";
+                active: root.active_tab == 6;
+                clicked => { root.active_tab = 6; }
+            }
+
+            Rectangle { } // 弹性占位
+        }
+
+        // 分割线
+        Rectangle {
+            width: 1px;
+            background: #e2e8f0;
+        }
+
+        // ---------------- 右侧内容面板 ----------------
+        VerticalLayout {
+            horizontal-stretch: 1;
+            padding: 24px;
+            spacing: 16px;
+
+            // 页面标题与简介栏
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: root.active_tab == 0 ? "常规设置" :
+                          root.active_tab == 1 ? "界面与外观" :
+                          root.active_tab == 2 ? "截图流程" :
+                          root.active_tab == 3 ? "贴图窗口" :
+                          root.active_tab == 4 ? "存储与输出" :
+                          root.active_tab == 5 ? "全局快捷键与贴图操作" : "关于 Snapin";
+                    font-size: 20px;
+                    font-weight: 700;
+                    color: #0f172a;
+                }
+                Text {
+                    text: root.active_tab == 0 ? "配置开机自动启动、通知中心状态反馈、顶栏托盘样式与 GNOME 原生扩展通道状态" :
+                          root.active_tab == 1 ? "定制系统深浅色外观、高亮强调色、鼠标跟随像素放大镜与浮动工具条缩放比" :
+                          root.active_tab == 2 ? "配置全屏捕获是否包含鼠标、窗口边缘智能磁吸对齐以及默认激活的标注形状与字号" :
+                          root.active_tab == 3 ? "配置贴图绝对置顶特权、新贴图初始透明度、缩放锚点以及双击关闭响应行为" :
+                          root.active_tab == 4 ? "配置截图另存为落盘路径、自动时间戳命名规则、图片无损压缩格式与通知偏好" :
+                          root.active_tab == 5 ? "自定义全局截图与贴图唤起热键，查看贴图窗口单键旋转、翻转、缩放快捷操作指南" : "查看 Snapin 架构设计、纯 Rust 软件光栅化特性与自由开源许可声明";
+                    font-size: 12px;
+                    color: #64748b;
+                }
+            }
+
+            Rectangle {
+                height: 1px;
+                background: #e2e8f0;
+            }
+
+            // 右侧核心滚动内容区
+            ScrollView {
+                VerticalLayout {
+                    alignment: start;
+                    spacing: 0px;
+
+                    if root.active_tab == 0: GeneralTab {
+                        autostart <=> root.autostart;
+                        notify_on_startup <=> root.notify_on_startup;
+                        log_level_index <=> root.log_level_index;
+                        tray_theme_index <=> root.tray_theme_index;
+                        extension_status_text: root.extension_status_text;
+                        open_config_folder => { root.open_config_folder(); }
+                    }
+
+                    if root.active_tab == 1: InterfaceTab {
+                        theme_index <=> root.theme_index;
+                        accent_color_index <=> root.accent_color_index;
+                        enable_magnifier <=> root.enable_magnifier;
+                        magnifier_scale_index <=> root.magnifier_scale_index;
+                        color_format_index <=> root.color_format_index;
+                        show_grid_lines <=> root.show_grid_lines;
+                        toolbar_scale_percent <=> root.toolbar_scale_percent;
+                    }
+
+                    if root.active_tab == 2: SnipTab {
+                        capture_cursor <=> root.capture_cursor;
+                        smart_window_snapping <=> root.smart_window_snapping;
+                        remember_last_selection <=> root.remember_last_selection;
+                        default_tool_index <=> root.default_tool_index;
+                        default_color_index <=> root.default_color_index;
+                        default_stroke_width <=> root.default_stroke_width;
+                        snip_font_size <=> root.snip_font_size;
+                    }
+
+                    if root.active_tab == 3: PasterTab {
+                        enable_above_extension <=> root.enable_above_extension;
+                        initial_opacity_percent <=> root.initial_opacity_percent;
+                        zoom_anchor_index <=> root.zoom_anchor_index;
+                        double_click_action_index <=> root.double_click_action_index;
+                        max_history_count <=> root.max_history_count;
+                    }
+
+                    if root.active_tab == 4: OutputTab {
+                        quick_save_dir <=> root.quick_save_dir;
+                        file_name_template <=> root.file_name_template;
+                        format_index <=> root.format_index;
+                        jpeg_quality <=> root.jpeg_quality;
+                        notify_on_copy <=> root.notify_on_copy;
+                        notify_on_save <=> root.notify_on_save;
+                        auto_backup_raw <=> root.auto_backup_raw;
+                    }
+
+                    if root.active_tab == 5: ShortcutsTab {
+                        snip_hotkey <=> root.snip_hotkey;
+                        paste_hotkey <=> root.paste_hotkey;
+                        toggle_hotkey <=> root.toggle_hotkey;
+                        sync_gnome_hotkeys => { root.sync_gnome_hotkeys(); }
+                    }
+
+                    if root.active_tab == 6: AboutTab {
+                        app_version: root.app_version;
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 1px;
+                background: #e2e8f0;
+            }
+
+            // 底部操作栏
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: space-between;
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    SecondaryButton {
+                        text: "打开配置目录";
+                        clicked => { root.open_config_folder(); }
+                    }
+                    SecondaryButton {
+                        text: "恢复默认设置";
+                        clicked => { root.restore_defaults(); }
+                    }
+                    if root.status_message != "": Text {
+                        text: root.status_message;
+                        font-size: 12px;
+                        color: #10b981;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                }
+
+                PrimaryButton {
+                    text: "保存并应用";
+                    clicked => { root.save_and_apply(); }
+                }
+            }
+        }
+    }
+}

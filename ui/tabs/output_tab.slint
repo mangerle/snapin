@@ -1,0 +1,142 @@
+import { ComboBox } from "std-widgets.slint";
+import { SettingCard, AppSwitch, AppSlider } from "../common.slint";
+
+export component OutputTab inherits VerticalLayout {
+    spacing: 16px;
+    padding-right: 8px;
+
+    in-out property <string> quick_save_dir: "~/Pictures/Screenshots";
+    in-out property <string> file_name_template: "Snapin_{YYYY}{MM}{DD}_{HH}{mm}{ss}";
+    in-out property <int> format_index: 0;       // 0: PNG, 1: JPEG, 2: WebP
+    in-out property <float> jpeg_quality: 90;    // 10 ~ 100
+    in-out property <bool> notify_on_copy: false;
+    in-out property <bool> notify_on_save: true;
+    in-out property <bool> auto_backup_raw: false;
+
+    SettingCard {
+        title: "文件存储与自动命名";
+        subtitle: "配置截图另存为与快捷保存时的默认落盘路径与命名规范";
+
+        VerticalLayout {
+            spacing: 14px;
+
+            VerticalLayout {
+                spacing: 6px;
+                Text { text: "默认快捷保存文件夹路径:"; font-size: 13px; font-weight: 600; color: #334155; }
+                Rectangle {
+                    height: 34px;
+                    border-radius: 6px;
+                    border-width: 1px;
+                    border-color: #cbd5e1;
+                    background: #f8fafc;
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        alignment: start;
+                        Text {
+                            text: root.quick_save_dir;
+                            font-size: 13px;
+                            color: #0f172a;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            VerticalLayout {
+                spacing: 6px;
+                Text { text: "时间戳命名模板:"; font-size: 13px; font-weight: 600; color: #334155; }
+                Rectangle {
+                    height: 34px;
+                    border-radius: 6px;
+                    border-width: 1px;
+                    border-color: #cbd5e1;
+                    background: #ffffff;
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        alignment: start;
+                        Text {
+                            text: root.file_name_template;
+                            font-size: 13px;
+                            color: #0f172a;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                Text {
+                    text: "支持变量: {YYYY} 年, {MM} 月, {DD} 日, {HH} 时, {mm} 分, {ss} 秒。";
+                    font-size: 12px;
+                    color: #94a3b8;
+                }
+            }
+        }
+    }
+
+    SettingCard {
+        title: "图像编码格式与质量";
+        subtitle: "权衡保存选区图像时的画质保真度与磁盘文件大小";
+
+        VerticalLayout {
+            spacing: 16px;
+
+            HorizontalLayout {
+                spacing: 28px;
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "默认输出图片格式:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    ComboBox {
+                        model: ["PNG (无损压缩 - 推荐)", "JPEG (适合大图与照片)", "WebP (现代高压缩率)"];
+                        current-index <=> root.format_index;
+                        width: 220px;
+                    }
+                }
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    AppSlider {
+                        title: "有损编码质量 (JPEG / WebP)";
+                        unit: "%";
+                        minimum: 50;
+                        maximum: 100;
+                        value <=> root.jpeg_quality;
+                    }
+                }
+            }
+        }
+    }
+
+    SettingCard {
+        title: "操作通知与底图备份";
+        subtitle: "完成复制或落盘时发送系统通知与快照归档";
+
+        VerticalLayout {
+            spacing: 14px;
+
+            AppSwitch {
+                title: "保存图片到本地文件后发送桌面通知";
+                subtitle: "提示保存成功与目标文件路径，点击可直接调起文件夹";
+                checked <=> root.notify_on_save;
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            AppSwitch {
+                title: "复制图像到剪贴板后发送桌面通知";
+                subtitle: "在系统通知中心提示复制成功";
+                checked <=> root.notify_on_copy;
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            AppSwitch {
+                title: "自动静默备份全屏原始底图到本地缓存";
+                subtitle: "防止截图误操作丢失背景，可在需要时从缓存找回完整桌面";
+                checked <=> root.auto_backup_raw;
+            }
+        }
+    }
+}

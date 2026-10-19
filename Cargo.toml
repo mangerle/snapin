@@ -39,5 +39,12 @@ cosmic-text = "0.11"
 # 跨平台剪贴板操作 (支持 Wayland RGBA 图像与文本读写)
 arboard = { version = "3.4", default-features = false, features = ["wayland-data-control", "image-data"] }
 
+# 现代声明式设置中心图形界面
+slint = "1"
+
+[build-dependencies]
+slint-build = "1"
+
 [dev-dependencies]
 tempfile = "3"
+

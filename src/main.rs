@@ -8,6 +8,7 @@ pub mod daemon;
 pub mod error;
 pub mod paster;
 pub mod platform;
+pub mod settings;
 pub mod snipper;
 
 use anyhow::{Context, Result};
@@ -261,43 +262,10 @@ fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
     res.context("贴图窗口运行异常")
 }
 
-/// 打开 Snapin 图形化首选项与设置页面
+/// 打开 Snapin 现代化图形首选项与设置中心
 async fn open_preferences() -> Result<()> {
-    let cfg_path = config::get_default_config_path()?;
-    tracing::info!("正在打开首选项配置: {:?}", cfg_path);
-
-    let output = std::process::Command::new("zenity")
-        .args([
-            "--info",
-            "--title=Snapin 首选项与设置",
-            "--window-icon=snapin",
-            "--width=440",
-            "--ok-label=打开配置文件",
-            "--extra-button=同步系统快捷键",
-            "--text=<big><b>Snapin 原生截图与贴图设置</b></big>\n\n<b>全局热键:</b>\n  • 区域截图: <b>F1</b>\n  • 固定贴图: <b>F3</b>\n  • 批量显隐: <b>Ctrl + F3</b>\n\n<b>贴图窗口快捷操作:</b>\n  • 复制图像: <b>C</b>\n  • 另存文件: <b>S</b>\n  • 顺时针旋转 90°: <b>3</b>\n  • 水平翻转: <b>H</b>\n  • 垂直翻转: <b>V</b>\n  • 调节透明度: <b>1 / 2</b>\n  • 缩放贴图: <b>鼠标滚轮</b>\n  • 关闭贴图: <b>双击左键 / Esc</b>\n\n<b>配置文件路径:</b>\n<i>~/.config/snapin/config.toml</i>",
-        ])
-        .output();
-
-    if let Ok(out) = output {
-        let resp = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if resp == "同步系统快捷键" {
-            let cfg = config::load_or_create_config(None).unwrap_or_default();
-            let _ = sync_hotkeys_to_gnome(&cfg.hotkeys);
-            send_desktop_notification("Snapin 设置", "快捷键已成功重新同步至系统").await?;
-            return Ok(());
-        }
-    }
-
-    // 若用户点击打开配置文件或直接回车确认，拉起文本编辑器
-    let _ = std::process::Command::new("gnome-text-editor")
-        .arg(&cfg_path)
-        .spawn()
-        .or_else(|_| {
-            std::process::Command::new("xdg-open")
-                .arg(&cfg_path)
-                .spawn()
-        });
-
+    tracing::info!("正在启动 Snapin 现代化偏好设置中心...");
+    settings::run_settings_gui().context("启动设置中心图形界面失败")?;
     Ok(())
 }
 

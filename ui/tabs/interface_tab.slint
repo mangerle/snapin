@@ -1,0 +1,114 @@
+import { ComboBox } from "std-widgets.slint";
+import { SettingCard, AppSwitch, AppSlider } from "../common.slint";
+
+export component InterfaceTab inherits VerticalLayout {
+    spacing: 16px;
+    padding-right: 8px;
+
+    in-out property <int> theme_index: 0;           // 0: 跟随系统, 1: 深色模式, 2: 浅色模式
+    in-out property <int> accent_color_index: 0;    // 0: 经典天蓝, 1: 翡翠青绿, 2: 活力亮橙, 3: 雅致紫罗兰
+    in-out property <bool> enable_magnifier: true;
+    in-out property <int> magnifier_scale_index: 1; // 0: 4x, 1: 8x, 2: 16x
+    in-out property <int> color_format_index: 0;    // 0: HEX (#00AEFF), 1: RGB (0, 174, 255), 2: HSL (199, 100%, 50%)
+    in-out property <bool> show_grid_lines: true;
+    in-out property <float> toolbar_scale_percent: 100; // 80 ~ 150 %
+
+    SettingCard {
+        title: "主题与强调色彩";
+        subtitle: "定制 Snapin 选区边框高亮色与控制台视觉风格";
+
+        HorizontalLayout {
+            spacing: 28px;
+
+            VerticalLayout {
+                spacing: 6px;
+                Text { text: "界面外观主题:"; font-size: 13px; font-weight: 600; color: #334155; }
+                ComboBox {
+                    model: ["跟随系统外观", "强制深色模式 (Dark)", "强制浅色模式 (Light)"];
+                    current-index <=> root.theme_index;
+                    width: 200px;
+                }
+            }
+
+            VerticalLayout {
+                spacing: 6px;
+                Text { text: "选区与高亮强调色:"; font-size: 13px; font-weight: 600; color: #334155; }
+                ComboBox {
+                    model: ["天海晴蓝 (#00AEFF)", "翡翠青绿 (#10B981)", "日光亮橙 (#F59E0B)", "优雅紫罗兰 (#8B5CF6)"];
+                    current-index <=> root.accent_color_index;
+                    width: 220px;
+                }
+            }
+        }
+    }
+
+    SettingCard {
+        title: "取色器与像素放大镜";
+        subtitle: "光标悬停时提供像素级精密取色与参考网格辅助";
+
+        VerticalLayout {
+            spacing: 14px;
+
+            AppSwitch {
+                title: "启用鼠标跟随像素放大镜";
+                subtitle: "移动光标时实时显示局部放大像素与当前颜色代码";
+                checked <=> root.enable_magnifier;
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            HorizontalLayout {
+                spacing: 28px;
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "默认取色格式:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    ComboBox {
+                        model: ["HEX 格式 (如 #00AEFF)", "RGB 格式 (如 rgb(0,174,255))", "HSL 格式 (如 hsl(199,100%,50%))"];
+                        current-index <=> root.color_format_index;
+                        width: 240px;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "放大镜像素倍率:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    ComboBox {
+                        model: ["4x 适中放大", "8x 清晰微距 (推荐)", "16x 极致微距"];
+                        current-index <=> root.magnifier_scale_index;
+                        width: 180px;
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            AppSwitch {
+                title: "在放大镜内显示像素物理对齐网格线";
+                subtitle: "以细微虚线标出单个物理像素边界，便于精确定位目标像素";
+                checked <=> root.show_grid_lines;
+            }
+        }
+    }
+
+    SettingCard {
+        title: "浮动工具栏缩放";
+        subtitle: "调节截图完成时贴合在选区底部的标注工具条尺寸";
+
+        VerticalLayout {
+            spacing: 12px;
+            AppSlider {
+                title: "工具栏 UI 缩放比例";
+                unit: "%";
+                minimum: 80;
+                maximum: 150;
+                value <=> root.toolbar_scale_percent;
+            }
+            Text {
+                text: "在高分辨率屏（如 2K / 4K）下，Snapin 会自动侦测系统缩放比并适配最佳图标清晰度。";
+                font-size: 12px;
+                color: #94a3b8;
+            }
+        }
+    }
+}

@@ -1,0 +1,89 @@
+import { ComboBox } from "std-widgets.slint";
+import { SettingCard, AppSwitch, AppSlider } from "../common.slint";
+
+export component PasterTab inherits VerticalLayout {
+    spacing: 16px;
+    padding-right: 8px;
+
+    in-out property <bool> enable_above_extension: true;
+    in-out property <float> initial_opacity_percent: 100; // 10 ~ 100 %
+    in-out property <int> zoom_anchor_index: 0;           // 0: 鼠标光标处, 1: 贴图几何中心
+    in-out property <int> double_click_action_index: 0;   // 0: 关闭贴图, 1: 复制图像并关闭, 2: 仅复制图像
+    in-out property <float> max_history_count: 20;        // 5 ~ 50
+
+    SettingCard {
+        title: "贴图窗口层级与置顶特权";
+        subtitle: "确保贴图悬浮在全屏视频、IDE 与任何全屏应用的最顶层";
+
+        VerticalLayout {
+            spacing: 14px;
+
+            AppSwitch {
+                title: "通过 GNOME 原生扩展启用 Mutter 强制置顶 (Make Above)";
+                subtitle: "绕过 Wayland 安全限制，获得绝对顶层焦点与显示特权，不被任何应用遮挡";
+                checked <=> root.enable_above_extension;
+            }
+        }
+    }
+
+    SettingCard {
+        title: "交互手势与快捷响应";
+        subtitle: "配置滚轮连续缩放定位点与鼠标双击贴图时的默认行为";
+
+        VerticalLayout {
+            spacing: 16px;
+
+            HorizontalLayout {
+                spacing: 28px;
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "滚轮缩放几何锚点:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    ComboBox {
+                        model: ["跟随鼠标光标位置 (推荐)", "固定在贴图中心点"];
+                        current-index <=> root.zoom_anchor_index;
+                        width: 220px;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "双击贴图窗口响应行为:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    ComboBox {
+                        model: ["直接关闭贴图", "复制图像并关闭贴图", "仅复制图像到剪贴板"];
+                        current-index <=> root.double_click_action_index;
+                        width: 220px;
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            HorizontalLayout {
+                spacing: 28px;
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    AppSlider {
+                        title: "新贴图初始不透明度";
+                        unit: "%";
+                        minimum: 20;
+                        maximum: 100;
+                        value <=> root.initial_opacity_percent;
+                    }
+                }
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    AppSlider {
+                        title: "贴图回溯历史暂存上限";
+                        unit: " 张";
+                        minimum: 5;
+                        maximum: 50;
+                        value <=> root.max_history_count;
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,151 @@
+import { SettingCard, Keycap, SecondaryButton } from "../common.slint";
+
+export component ShortcutsTab inherits VerticalLayout {
+    spacing: 16px;
+    padding-right: 8px;
+
+    in-out property <string> snip_hotkey: "F1";
+    in-out property <string> paste_hotkey: "F3";
+    in-out property <string> toggle_hotkey: "Ctrl+F3";
+
+    callback sync_gnome_hotkeys();
+
+    SettingCard {
+        title: "系统全局全局热键";
+        subtitle: "在任何应用全屏或前台状态下随时唤起 Snapin 核心功能";
+
+        VerticalLayout {
+            spacing: 14px;
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                VerticalLayout {
+                    spacing: 2px;
+                    alignment: center;
+                    Text { text: "区域截图 (Snip)"; font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: "定格屏幕并进入交互式选区裁切与标注模式"; font-size: 12px; color: #64748b; }
+                }
+                Keycap { text: root.snip_hotkey; }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                VerticalLayout {
+                    spacing: 2px;
+                    alignment: center;
+                    Text { text: "快速贴图 (Paste)"; font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: "读取剪贴板图片或文字，瞬间将其转换为置顶独立窗口"; font-size: 12px; color: #64748b; }
+                }
+                Keycap { text: root.paste_hotkey; }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                VerticalLayout {
+                    spacing: 2px;
+                    alignment: center;
+                    Text { text: "批量显隐贴图 (Toggle)"; font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: "一键隐藏当前桌面所有贴图，再次按下恢复显示"; font-size: 12px; color: #64748b; }
+                }
+                Keycap { text: root.toggle_hotkey; }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            HorizontalLayout {
+                alignment: space-between;
+                Text {
+                    text: "热键修改后需重新写入系统 settings-daemon。";
+                    font-size: 12px;
+                    color: #94a3b8;
+                    vertical-alignment: center;
+                }
+                SecondaryButton {
+                    text: "同步至 GNOME 系统";
+                    clicked => { root.sync_gnome_hotkeys(); }
+                }
+            }
+        }
+    }
+
+    SettingCard {
+        title: "贴图窗口专属快捷操作速查";
+        subtitle: "光标移入置顶贴图窗口即可敲击以下单键极速操作";
+
+        VerticalLayout {
+            spacing: 12px;
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                Text { text: "复制当前图像到剪贴板"; font-size: 13px; color: #334155; vertical-alignment: center; }
+                Keycap { text: "C"; }
+            }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                Text { text: "保存贴图为磁盘文件"; font-size: 13px; color: #334155; vertical-alignment: center; }
+                Keycap { text: "S"; }
+            }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                Text { text: "顺时针旋转 90° / 逆时针旋转 90°"; font-size: 13px; color: #334155; vertical-alignment: center; }
+                HorizontalLayout {
+                    spacing: 6px;
+                    Keycap { text: "3"; }
+                    Keycap { text: "1"; }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                Text { text: "水平翻转 / 垂直翻转图像"; font-size: 13px; color: #334155; vertical-alignment: center; }
+                HorizontalLayout {
+                    spacing: 6px;
+                    Keycap { text: "H"; }
+                    Keycap { text: "V"; }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                Text { text: "以光标为锚点无级缩放贴图"; font-size: 13px; color: #334155; vertical-alignment: center; }
+                Keycap { text: "鼠标滚轮"; }
+            }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                Text { text: "调节不透明度 (微调减小 / 增大)"; font-size: 13px; color: #334155; vertical-alignment: center; }
+                HorizontalLayout {
+                    spacing: 6px;
+                    Keycap { text: "1"; }
+                    Keycap { text: "2"; }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                Text { text: "安全关闭并退出当前贴图"; font-size: 13px; color: #334155; vertical-alignment: center; }
+                HorizontalLayout {
+                    spacing: 6px;
+                    Keycap { text: "双击左键"; }
+                    Keycap { text: "Esc"; }
+                }
+            }
+        }
+    }
+}

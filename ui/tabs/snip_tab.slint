@@ -1,0 +1,108 @@
+import { ComboBox } from "std-widgets.slint";
+import { SettingCard, AppSwitch, AppSlider } from "../common.slint";
+
+export component SnipTab inherits VerticalLayout {
+    spacing: 16px;
+    padding-right: 8px;
+
+    in-out property <bool> capture_cursor: false;
+    in-out property <bool> smart_window_snapping: true;
+    in-out property <bool> remember_last_selection: true;
+
+    in-out property <int> default_tool_index: 0;   // 0: 无, 1: 矩形/椭圆, 2: 自由画笔, 3: 荧光笔, 4: 箭头, 5: 文字, 6: 序号
+    in-out property <int> default_color_index: 0;  // 0: 赤红, 1: 湛蓝, 2: 翠绿, 3: 明黄, 4: 纯白, 5: 墨黑
+    in-out property <float> default_stroke_width: 3; // 1 ~ 20 px
+    in-out property <float> snip_font_size: 18;    // 12 ~ 48 px
+
+    SettingCard {
+        title: "选区与屏幕捕获行为";
+        subtitle: "控制截图启动时的全屏抓取内容与选区边缘吸附逻辑";
+
+        VerticalLayout {
+            spacing: 14px;
+
+            AppSwitch {
+                title: "截图画面中捕获系统鼠标指针";
+                subtitle: "开启后截取的底图中将保留当前光标物理形态与绝对位置";
+                checked <=> root.capture_cursor;
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            AppSwitch {
+                title: "启用窗口与屏幕边缘智能磁吸";
+                subtitle: "拖拽选区接近屏幕边界或目标窗口边缘时自动精准对齐吸附";
+                checked <=> root.smart_window_snapping;
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            AppSwitch {
+                title: "记忆并恢复上次截图选区";
+                subtitle: "按下截图热键时自动高亮上一次的截取矩形范围，方便连续定格";
+                checked <=> root.remember_last_selection;
+            }
+        }
+    }
+
+    SettingCard {
+        title: "默认标注工具与样式";
+        subtitle: "配置选区确定后默认激活的标注形状与画笔基础属性";
+
+        VerticalLayout {
+            spacing: 16px;
+
+            HorizontalLayout {
+                spacing: 28px;
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "进入截图时默认激活工具:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    ComboBox {
+                        model: ["纯选区 (不激活工具)", "矩形 / 椭圆选框", "自由画笔", "荧光笔标记", "指示箭头", "文字输入", "递增序号徽标"];
+                        current-index <=> root.default_tool_index;
+                        width: 220px;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "默认标注笔触颜色:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    ComboBox {
+                        model: ["醒目赤红 (#EF4444)", "天海晴蓝 (#00AEFF)", "清新翠绿 (#10B981)", "明艳亮黄 (#F59E0B)", "纯洁雪白 (#FFFFFF)", "深邃墨黑 (#000000)"];
+                        current-index <=> root.default_color_index;
+                        width: 220px;
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            HorizontalLayout {
+                spacing: 28px;
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    AppSlider {
+                        title: "矢量笔触描边粗细";
+                        unit: " px";
+                        minimum: 1;
+                        maximum: 16;
+                        value <=> root.default_stroke_width;
+                    }
+                }
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    AppSlider {
+                        title: "文字标注默认字号";
+                        unit: " pt";
+                        minimum: 12;
+                        maximum: 36;
+                        value <=> root.snip_font_size;
+                    }
+                }
+            }
+        }
+    }
+}

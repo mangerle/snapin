@@ -47,6 +47,22 @@ Keywords=screenshot;snip;paste;pin;截图;贴图;
 StartupNotify=false
 EOF
 
+cat << 'EOF' > "${STAGE_DIR}/usr/share/applications/snapin-settings.desktop"
+[Desktop Entry]
+Name=Snapin Settings
+Name[zh_CN]=Snapin 设置
+Comment=Preferences for Snapin Screenshot and Pin Tool
+Comment[zh_CN]=Snapin 截图与贴图偏好设置中心
+Exec=snapin prefs
+Icon=snapin
+Terminal=false
+Type=Application
+Categories=Settings;DesktopSettings;Utility;Graphics;
+StartupNotify=false
+StartupWMClass=snapin
+Keywords=screenshot;snip;paste;pin;settings;截图;贴图;设置;
+EOF
+
 # 放入系统标准自启动目录，登录桌面时自动常驻后台
 mkdir -p "${STAGE_DIR}/etc/xdg/autostart"
 cp "${STAGE_DIR}/usr/share/applications/snapin.desktop" "${STAGE_DIR}/etc/xdg/autostart/snapin.desktop"

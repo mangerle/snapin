@@ -1,0 +1,112 @@
+import { ComboBox } from "std-widgets.slint";
+import { SettingCard, AppSwitch, SecondaryButton } from "../common.slint";
+
+export component GeneralTab inherits VerticalLayout {
+    spacing: 16px;
+    padding-right: 8px;
+
+    in-out property <bool> autostart: true;
+    in-out property <bool> notify_on_startup: false;
+    in-out property <int> log_level_index: 2;   // 0: Trace, 1: Debug, 2: Info, 3: Warn, 4: Error
+    in-out property <int> tray_theme_index: 0;  // 0: 自动跟随系统, 1: 深色模式, 2: 浅色模式
+
+    in property <string> extension_status_text: "GNOME Shell 原生零白闪扩展已部署就绪";
+    callback open_config_folder();
+
+    SettingCard {
+        title: "系统自启与通知";
+        subtitle: "配置 Snapin 随系统登录启动与后台服务状态反馈";
+
+        VerticalLayout {
+            spacing: 14px;
+
+            AppSwitch {
+                title: "登录系统时自动启动后台守护服务";
+                subtitle: "开机静默运行，无需手动打开终端，随时响应 F1 与 F3 全局热键";
+                checked <=> root.autostart;
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            AppSwitch {
+                title: "守护服务就绪时发送桌面通知";
+                subtitle: "后台服务启动成功后在系统通知中心提示热键绑定信息";
+                checked <=> root.notify_on_startup;
+            }
+        }
+    }
+
+    SettingCard {
+        title: "托盘图标与日志调试";
+        subtitle: "定制顶栏托盘呈现样式与底层诊断日志记录级别";
+
+        HorizontalLayout {
+            spacing: 28px;
+
+            VerticalLayout {
+                spacing: 6px;
+                Text {
+                    text: "顶栏托盘图标风格:";
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: #334155;
+                }
+                ComboBox {
+                    model: ["自动跟随系统外观", "深色图标 (Dark)", "浅色图标 (Light)"];
+                    current-index <=> root.tray_theme_index;
+                    width: 200px;
+                }
+            }
+
+            VerticalLayout {
+                spacing: 6px;
+                Text {
+                    text: "系统日志输出级别:";
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: #334155;
+                }
+                ComboBox {
+                    model: ["追踪 (Trace)", "调试 (Debug)", "标准 (Info - 推荐)", "告警 (Warn)", "错误 (Error)"];
+                    current-index <=> root.log_level_index;
+                    width: 200px;
+                }
+            }
+        }
+    }
+
+    SettingCard {
+        title: "GNOME 原生特权扩展通道";
+        subtitle: "实现 0 快门白闪与 200ms 原生合成器极速截屏";
+
+        VerticalLayout {
+            spacing: 10px;
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Rectangle {
+                    width: 8px;
+                    height: 8px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 4px;
+                    background: #10b981;
+                }
+                Text {
+                    text: root.extension_status_text;
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: #0f172a;
+                    vertical-alignment: center;
+                }
+            }
+
+            Text {
+                text: "注: GNOME Wayland 采用 ES 模块隔离架构，若新安装未生效，注销并重新登录桌面一次即可永久常驻加载。";
+                font-size: 12px;
+                color: #64748b;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

@@ -1,0 +1,344 @@
+//! Snapin 偏好设置中心通用基础组件库
+
+export component Keycap inherits Rectangle {
+    in property <string> text;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: #cbd5e1;
+    background: #f8fafc;
+    height: 24px;
+    min-width: 26px;
+
+    HorizontalLayout {
+        padding-left: 7px;
+        padding-right: 7px;
+        alignment: center;
+        Text {
+            text: root.text;
+            font-size: 12px;
+            font-weight: 600;
+            color: #334155;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+    }
+}
+
+export component PrimaryButton inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+
+    height: 32px;
+    min-width: 110px;
+    border-radius: 6px;
+    background: touch.pressed ? #1e40af : (touch.has-hover ? #1d4ed8 : #2563eb);
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        alignment: center;
+        Text {
+            text: root.text;
+            color: #ffffff;
+            font-size: 13px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component SecondaryButton inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+
+    height: 30px;
+    min-width: 96px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: touch.has-hover ? #94a3b8 : #cbd5e1;
+    background: touch.pressed ? #e2e8f0 : (touch.has-hover ? #f8fafc : #ffffff);
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        alignment: center;
+        Text {
+            text: root.text;
+            color: #334155;
+            font-size: 12px;
+            font-weight: 500;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component AppCheckBox inherits Rectangle {
+    in-out property <bool> checked: false;
+    in property <string> text;
+    in property <bool> enabled: true;
+
+    height: 24px;
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.checked = !root.checked; }
+    }
+
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+
+        Rectangle {
+            width: 18px;
+            height: 18px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 4px;
+            border-width: 1.5px;
+            border-color: root.checked ? #2563eb : (touch.has-hover && root.enabled ? #94a3b8 : #cbd5e1);
+            background: root.checked ? #2563eb : (root.enabled ? #ffffff : #f1f5f9);
+
+            if root.checked: Image {
+                source: @image-url("../assets/icons/check.svg");
+                width: 11px;
+                height: 11px;
+                colorize: #ffffff;
+            }
+        }
+
+        Text {
+            text: root.text;
+            font-size: 13px;
+            color: root.enabled ? (touch.has-hover ? #0f172a : #334155) : #94a3b8;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component AppSwitch inherits Rectangle {
+    in-out property <bool> checked: false;
+    in property <string> title: "";
+    in property <string> subtitle: "";
+
+    height: 38px;
+
+    touch := TouchArea {
+        clicked => { root.checked = !root.checked; }
+    }
+
+    HorizontalLayout {
+        spacing: 16px;
+        alignment: space-between;
+
+        VerticalLayout {
+            spacing: 2px;
+            alignment: center;
+            Text {
+                text: root.title;
+                font-size: 13px;
+                font-weight: 600;
+                color: touch.has-hover ? #0f172a : #334155;
+            }
+            if root.subtitle != "": Text {
+                text: root.subtitle;
+                font-size: 12px;
+                color: #64748b;
+            }
+        }
+
+        Rectangle {
+            width: 44px;
+            height: 24px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 12px;
+            background: root.checked ? #2563eb : #cbd5e1;
+
+            animate background { duration: 150ms; }
+
+            // 滑块圆球
+            Rectangle {
+                x: root.checked ? parent.width - self.width - 2px : 2px;
+                y: 2px;
+                width: 20px;
+                height: 20px;
+                border-radius: 10px;
+                background: #ffffff;
+                animate x { duration: 150ms; }
+            }
+        }
+    }
+}
+
+export component NavItem inherits Rectangle {
+    in property <image> icon;
+    in property <string> title;
+    in property <bool> active: false;
+    callback clicked();
+
+    height: 42px;
+    border-radius: 8px;
+    background: active ? #eff6ff : (touch.has-hover ? #f1f5f9 : transparent);
+
+    touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.clicked(); }
+    }
+
+    if root.active: Rectangle {
+        x: 0px;
+        y: 9px;
+        width: 3.5px;
+        height: 24px;
+        border-radius: 2px;
+        background: #2563eb;
+    }
+
+    HorizontalLayout {
+        width: 100%;
+        height: 100%;
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 10px;
+
+        VerticalLayout {
+            alignment: center;
+            width: 18px;
+            Image {
+                source: root.icon;
+                width: 18px;
+                height: 18px;
+                colorize: root.active ? #2563eb : (touch.has-hover ? #0f172a : #64748b);
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            Text {
+                text: root.title;
+                color: root.active ? #2563eb : (touch.has-hover ? #0f172a : #334155);
+                font-size: 14px;
+                font-weight: root.active ? 600 : 500;
+                vertical-alignment: center;
+            }
+        }
+
+        Rectangle { }
+    }
+}
+
+export component SettingCard inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle: "";
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: #e2e8f0;
+    background: #ffffff;
+
+    height: card-layout.preferred-height;
+
+    card-layout := VerticalLayout {
+        padding: 18px;
+        spacing: 14px;
+
+        if root.title != "": VerticalLayout {
+            spacing: 3px;
+            Text {
+                text: root.title;
+                font-size: 15px;
+                font-weight: 700;
+                color: #0f172a;
+            }
+            if root.subtitle != "": Text {
+                text: root.subtitle;
+                font-size: 12px;
+                color: #64748b;
+                wrap: word-wrap;
+            }
+        }
+
+        @children
+    }
+}
+
+export component AppSlider inherits Rectangle {
+    in property <float> minimum: 0;
+    in property <float> maximum: 100;
+    in-out property <float> value: 0;
+    in property <string> title: "";
+    in property <string> unit: "";
+
+    height: 48px;
+
+    property <float> progress: (root.maximum > root.minimum)
+        ? Math.max(0.0, Math.min(1.0, (root.value - root.minimum) / (root.maximum - root.minimum)))
+        : 0.0;
+
+    VerticalLayout {
+        spacing: 6px;
+
+        HorizontalLayout {
+            alignment: space-between;
+            Text {
+                text: root.title;
+                font-size: 13px;
+                font-weight: 600;
+                color: #334155;
+            }
+            Text {
+                text: Math.round(root.value) + root.unit;
+                font-size: 13px;
+                font-weight: 700;
+                color: #2563eb;
+            }
+        }
+
+        track := Rectangle {
+            height: 6px;
+            border-radius: 3px;
+            background: #e2e8f0;
+
+            Rectangle {
+                x: 0;
+                width: parent.width * root.progress;
+                height: 100%;
+                border-radius: 3px;
+                background: #2563eb;
+            }
+
+            Rectangle {
+                x: parent.width * root.progress - self.width / 2;
+                y: (parent.height - self.height) / 2;
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background: #ffffff;
+                border-width: 2px;
+                border-color: #2563eb;
+            }
+
+            TouchArea {
+                width: 100%;
+                height: 24px;
+                y: -9px;
+                moved => {
+                    if (self.pressed) {
+                        let p = Math.max(0.0, Math.min(1.0, self.mouse-x / self.width));
+                        root.value = root.minimum + p * (root.maximum - root.minimum);
+                    }
+                }
+                clicked => {
+                    let p = Math.max(0.0, Math.min(1.0, self.mouse-x / self.width));
+                    root.value = root.minimum + p * (root.maximum - root.minimum);
+                }
+            }
+        }
+    }
+}
