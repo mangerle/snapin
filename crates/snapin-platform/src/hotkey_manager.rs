@@ -4,7 +4,7 @@
 //! 将系统按键（如 F1/F3）直接路由至 `snapin snip` 与 `snapin paste` 命令行。
 
 use crate::error::PlatformError;
-use snapin_core::config::HotkeyConfig;
+use snapin_core::config::{Hotkey, HotkeyConfig};
 use std::process::Command;
 
 /// 自动在 GNOME 设置中注册或更新 Snapin 快捷键
@@ -24,23 +24,22 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError>
     let snip_schema =
         format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{snip_path}");
     let snip_cmd = format!("{current_exe} snip");
-    let snip_binding = convert_to_gnome_accelerator(&config.snip.to_gnome_accelerator());
+    let snip_binding = hotkey_to_gnome_accelerator(&config.snip);
 
     let paste_schema =
         format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{paste_path}");
     let paste_cmd = format!("{current_exe} paste");
-    let paste_binding = convert_to_gnome_accelerator(&config.paste.to_gnome_accelerator());
+    let paste_binding = hotkey_to_gnome_accelerator(&config.paste);
 
     let toggle_schema =
         format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{toggle_path}");
     let toggle_cmd = format!("{current_exe} toggle");
-    let toggle_binding =
-        convert_to_gnome_accelerator(&config.toggle_pasters.to_gnome_accelerator());
+    let toggle_binding = hotkey_to_gnome_accelerator(&config.toggle_pasters);
 
     let switch_schema =
         format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{switch_path}");
     let switch_cmd = format!("{current_exe} switch-group");
-    let switch_binding = convert_to_gnome_accelerator(&config.switch_group.to_gnome_accelerator());
+    let switch_binding = hotkey_to_gnome_accelerator(&config.switch_group);
 
     let batch_items = [
         (snip_schema.as_str(), "name", "Snapin 区域截图"),
@@ -200,6 +199,40 @@ fn run_gsettings_set(schema_with_path: &str, key: &str, value: &str) {
     }
 }
 
+/// 将强类型快捷键转换为 GNOME / GTK Accelerator 标准格式（如 "<Control><Alt>a"、"F1"）
+pub fn hotkey_to_gnome_accelerator(hk: &Hotkey) -> String {
+    if hk.key.is_empty() {
+        return String::new();
+    }
+
+    let mut res = String::new();
+    if hk.ctrl {
+        res.push_str("<Control>");
+    }
+    if hk.alt {
+        res.push_str("<Alt>");
+    }
+    if hk.shift {
+        res.push_str("<Shift>");
+    }
+    if hk.meta {
+        res.push_str("<Super>");
+    }
+
+    let formatted_key = match hk.key.as_str() {
+        k if k.len() == 1 && k.chars().next().unwrap_or(' ').is_ascii_alphabetic() => {
+            k.to_ascii_lowercase()
+        }
+        "Space" | "space" => "space".to_string(),
+        "PageUp" | "pageup" => "Page_Up".to_string(),
+        "PageDown" | "pagedown" => "Page_Down".to_string(),
+        other => other.to_string(),
+    };
+
+    res.push_str(&formatted_key);
+    res
+}
+
 /// 将人类可读的快捷键格式（如 "Ctrl+Alt+A"、"Ctrl+F3"、"F1"）转换为 GNOME / GTK Accelerator 标准格式
 /// （如 "<Control><Alt>a"、"<Control>F3"、"F1"）
 pub fn convert_to_gnome_accelerator(binding: &str) -> String {
@@ -210,7 +243,8 @@ pub fn convert_to_gnome_accelerator(binding: &str) -> String {
     if trimmed.starts_with('<') {
         return trimmed.to_string();
     }
-    snapin_core::config::Hotkey::parse_str(trimmed).to_gnome_accelerator()
+    let hk = Hotkey::parse_str(trimmed);
+    hotkey_to_gnome_accelerator(&hk)
 }
 
 #[cfg(test)]

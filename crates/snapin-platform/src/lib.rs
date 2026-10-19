@@ -27,7 +27,8 @@ pub use extension_client::{
     capture_fullscreen_extension, capture_fullscreen_extension_raw, pin_window_above,
 };
 pub use hotkey_manager::{
-    convert_to_gnome_accelerator, suspend_hotkeys_for_settings, sync_hotkeys_to_gnome,
+    convert_to_gnome_accelerator, hotkey_to_gnome_accelerator, suspend_hotkeys_for_settings,
+    sync_hotkeys_to_gnome,
 };
 pub use lifecycle::{
     disable_gnome_extension, enable_gnome_extension, open_path_in_file_manager,

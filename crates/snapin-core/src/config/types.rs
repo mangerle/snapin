@@ -178,40 +178,6 @@ impl Hotkey {
         parts.push(self.key.as_str());
         parts.join("+")
     }
-
-    /// 转换为 GNOME / GTK Accelerator 标准格式（如 "<Control><Alt>a"、"F1"）
-    pub fn to_gnome_accelerator(&self) -> String {
-        if self.key.is_empty() {
-            return String::new();
-        }
-
-        let mut res = String::new();
-        if self.ctrl {
-            res.push_str("<Control>");
-        }
-        if self.alt {
-            res.push_str("<Alt>");
-        }
-        if self.shift {
-            res.push_str("<Shift>");
-        }
-        if self.meta {
-            res.push_str("<Super>");
-        }
-
-        let formatted_key = match self.key.as_str() {
-            k if k.len() == 1 && k.chars().next().unwrap_or(' ').is_ascii_alphabetic() => {
-                k.to_ascii_lowercase()
-            }
-            "Space" | "space" => "space".to_string(),
-            "PageUp" | "pageup" => "Page_Up".to_string(),
-            "PageDown" | "pagedown" => "Page_Down".to_string(),
-            other => other.to_string(),
-        };
-
-        res.push_str(&formatted_key);
-        res
-    }
 }
 
 impl fmt::Display for Hotkey {
@@ -302,14 +268,14 @@ mod tests {
     }
 
     #[test]
-    fn test_hotkey_parsing_and_gnome_conversion() {
+    fn test_hotkey_parsing_and_serde() {
         let hk = Hotkey::parse_str("Ctrl+Alt+A");
         assert!(hk.ctrl && hk.alt && !hk.shift);
         assert_eq!(hk.key, "A");
-        assert_eq!(hk.to_gnome_accelerator(), "<Control><Alt>a");
+        assert_eq!(hk.to_display_string(), "Ctrl+Alt+A");
 
         let f1 = Hotkey::parse_str("F1");
-        assert_eq!(f1.to_gnome_accelerator(), "F1");
+        assert_eq!(f1.to_display_string(), "F1");
 
         let holder = HotkeyHolder { hotkey: hk };
         let toml_str = toml::to_string(&holder).unwrap();
