@@ -18,7 +18,7 @@ impl BaiduTranslator {
     /// 构造新的百度翻译服务适配器
     pub fn new(app_id: String, secret_key: String) -> Self {
         let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(5))
             .build()
             .unwrap_or_else(|_| Client::new());
         Self {

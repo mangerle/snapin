@@ -19,7 +19,7 @@ impl YoudaoTranslator {
     /// 构造新的网易有道翻译适配器
     pub fn new(app_key: String, app_secret: String) -> Self {
         let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(5))
             .build()
             .unwrap_or_else(|_| Client::new());
         Self {

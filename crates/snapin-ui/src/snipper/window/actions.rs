@@ -307,8 +307,8 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
     let translated_texts = match trans_result {
         Ok(texts) => texts,
         Err(e) => {
-            tracing::warn!("网络翻译服务调用失败: {e}");
-            return;
+            tracing::warn!("网络翻译服务调用失败: {e}，优雅降级为原位呈现识别文字");
+            texts.clone()
         }
     };
 

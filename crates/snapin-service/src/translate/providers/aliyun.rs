@@ -22,7 +22,7 @@ impl AliyunTranslator {
     /// 构造新的阿里云翻译适配器
     pub fn new(access_key_id: String, access_key_secret: String) -> Self {
         let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(5))
             .build()
             .unwrap_or_else(|_| Client::new());
         Self {

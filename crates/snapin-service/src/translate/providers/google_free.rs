@@ -21,7 +21,7 @@ impl GoogleFreeTranslator {
     /// 构造新的谷歌翻译客户端实例
     pub fn new() -> Self {
         let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(5))
             .build()
             .unwrap_or_else(|_| Client::new());
         Self { client }
