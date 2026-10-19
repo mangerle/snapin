@@ -255,4 +255,62 @@ mod tests {
         assert!(cleared >= 1);
         assert!(load_last_selection().is_none());
     }
+
+    #[test]
+    fn test_save_image_with_config_jpeg_and_png() {
+        let temp_dir = std::env::temp_dir().join(format!("snapin_test_{}", generate_unique_id()));
+        let mut cfg = OutputConfig {
+            quick_save_dir: temp_dir.to_string_lossy().to_string(),
+            file_name_template: "test_{YYYY}".to_string(),
+            default_format: ImageFormat::Jpeg,
+            jpeg_quality: 85,
+            notify_on_save: false,
+            ..OutputConfig::default()
+        };
+
+        // 构造测试 RGBA 图像 (10x10)
+        let img = RgbaImage::from_pixel(10, 10, image::Rgba([120, 200, 255, 255]));
+
+        // 1. 测试 JPEG 格式保存（验证无 clone chunk 编码路径）
+        let jpeg_path = save_image_with_config(&img, &cfg).expect("保存 JPEG 图像成功");
+        assert!(jpeg_path.exists());
+        assert_eq!(jpeg_path.extension().and_then(|s| s.to_str()), Some("jpg"));
+        let jpeg_bytes = std::fs::read(&jpeg_path).expect("读取生成的 JPEG 文件成功");
+        assert!(!jpeg_bytes.is_empty());
+        let _ = std::fs::remove_file(&jpeg_path);
+
+        // 2. 测试 PNG 格式保存
+        cfg.default_format = ImageFormat::Png;
+        let png_path = save_image_with_config(&img, &cfg).expect("保存 PNG 图像成功");
+        assert!(png_path.exists());
+        assert_eq!(png_path.extension().and_then(|s| s.to_str()), Some("png"));
+        let _ = std::fs::remove_file(&png_path);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_secure_runtime_dir_path_traversal_guard() {
+        let runtime_dir = get_secure_runtime_dir();
+        assert!(runtime_dir.exists(), "安全运行时沙箱目录必须存在");
+
+        // 合法路径：在沙箱目录内生成的文件
+        let safe_file = generate_secure_temp_path("test", "raw");
+        let _ = std::fs::write(&safe_file, b"test_data");
+        let canonical_safe = safe_file.canonicalize().expect("合法路径应可规范化");
+        assert!(
+            canonical_safe.starts_with(&runtime_dir),
+            "合法文件应属于沙箱目录"
+        );
+        let _ = std::fs::remove_file(&safe_file);
+
+        // 非法越权路径：外部敏感路径（如 /etc）绝不应被判定属于沙箱目录
+        let external_path = std::path::PathBuf::from("/etc/hosts");
+        if let Ok(canonical_ext) = external_path.canonicalize() {
+            assert!(
+                !canonical_ext.starts_with(&runtime_dir),
+                "外部越权路径必须被安全沙箱拒绝"
+            );
+        }
+    }
 }

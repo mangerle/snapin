@@ -36,8 +36,8 @@ mod tests {
     use super::exit_snapin_application;
 
     #[test]
-    fn test_lifecycle_function_pointer() {
-        let fn_ptr = exit_snapin_application;
-        assert!(!std::ptr::addr_of!(fn_ptr).is_null());
+    fn test_exit_snapin_application_graceful_when_daemon_absent() {
+        // 在守护服务未激活时调用退出函数应安全完成，不发生 panic
+        exit_snapin_application();
     }
 }

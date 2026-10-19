@@ -48,8 +48,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_lifecycle_function_pointer() {
-        let fn_ptr = stop_systemd_service;
-        assert!(!std::ptr::addr_of!(fn_ptr).is_null());
+    fn test_spawn_detached_system_command_executes_safely() {
+        // 测试拉起标准无害命令并验证其能在后台正常回收，不触发 panic
+        spawn_detached_system_command("true", &[""]);
+        // 短暂休眠确保后台收割线程完成 wait 调用
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }
