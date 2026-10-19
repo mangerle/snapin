@@ -9,7 +9,6 @@ use image::RgbaImage;
 use snapin_core::config::{Config, DoubleClickAction};
 use snapin_platform::{
     read_clipboard_image, read_clipboard_text, save_image_with_config, send_desktop_notification,
-    write_image_to_clipboard,
 };
 use std::path::PathBuf;
 use std::time::Instant;
@@ -348,13 +347,11 @@ fn apply_window_scale_resize(state: &PasterWindowState, window: &Window) {
     let _ = window.request_inner_size(PhysicalSize::new(new_w, new_h));
 }
 
-/// 复制贴图图像至剪贴板
+/// 复制贴图图像至剪贴板（基于零拷贝裸像素切片直接写入系统剪贴板）
 fn copy_paster_to_clipboard(item: &PasterItem) {
     let w = item.pixmap.width();
     let h = item.pixmap.height();
-    if let Some(rgba) = RgbaImage::from_raw(w, h, item.pixmap.data().to_vec()) {
-        let _ = write_image_to_clipboard(&rgba);
-    }
+    let _ = snapin_platform::write_raw_image_to_clipboard(w, h, item.pixmap.data());
 }
 
 /// 保存贴图图像并遵循全局输出配置（格式、质量与命名模板）

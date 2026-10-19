@@ -29,7 +29,16 @@ pub fn save_image_with_config(
 
     match cfg.default_format {
         ImageFormat::Jpeg => {
-            let rgb = image::DynamicImage::ImageRgba8(img.clone()).to_rgb8();
+            let (w, h) = (img.width(), img.height());
+            let mut rgb_bytes = Vec::with_capacity((w as usize) * (h as usize) * 3);
+            for chunk in img.as_raw().as_chunks::<4>().0 {
+                rgb_bytes.extend_from_slice(&chunk[0..3]);
+            }
+            let rgb =
+                image::RgbImage::from_raw(w, h, rgb_bytes).ok_or_else(|| PlatformError::Io {
+                    path: out_path.display().to_string(),
+                    source: std::io::Error::other("构建 RGB 图像缓冲区失败"),
+                })?;
             let mut file = std::fs::File::create(&out_path).map_err(|e| PlatformError::Io {
                 path: out_path.display().to_string(),
                 source: e,

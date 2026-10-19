@@ -16,7 +16,6 @@ pub type PendingStroke<'a> = (&'a ToolbarItem, &'a [(f32, f32)], u32);
 
 /// 全屏选区画布渲染上下文
 pub struct SnipperCanvas<'a> {
-    pub original_bg: &'a Pixmap,
     pub dimmed_bg: &'a Pixmap,
     pub original_rgba: &'a RgbaImage,
     pub selection: &'a SelectionState,
@@ -105,7 +104,7 @@ impl<'a> SnipperCanvas<'a> {
 
         let stride = (screen_w as usize) * 4;
         let row_bytes = (pw as usize) * 4;
-        let orig_data = self.original_bg.data();
+        let orig_data = self.original_rgba.as_raw();
         let dest_data = pixmap.data_mut();
 
         for row in 0..ph {

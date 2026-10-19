@@ -12,7 +12,8 @@ pub mod save_helper;
 
 pub use autostart::sync_autostart_desktop_file;
 pub use clipboard::{
-    read_clipboard_image, read_clipboard_text, write_image_to_clipboard, write_text_to_clipboard,
+    read_clipboard_image, read_clipboard_text, write_image_to_clipboard,
+    write_raw_image_to_clipboard, write_text_to_clipboard,
 };
 pub use error::PlatformError;
 pub use extension_client::{

@@ -53,19 +53,28 @@ fn with_clipboard<R, F: FnMut(&mut Clipboard) -> Result<R, arboard::Error>>(
 
 /// 将 RGBA 图像写入系统剪贴板
 pub fn write_image_to_clipboard(img: &RgbaImage) -> Result<(), PlatformError> {
+    write_raw_image_to_clipboard(img.width(), img.height(), img.as_raw())
+}
+
+/// 将 RGBA 裸像素切片零拷贝写入系统剪贴板（避免包装临时 RgbaImage 与多余堆拷贝）
+pub fn write_raw_image_to_clipboard(
+    width: u32,
+    height: u32,
+    raw_rgba: &[u8],
+) -> Result<(), PlatformError> {
     with_clipboard(|cb| {
         let image_data = ImageData {
-            width: img.width() as usize,
-            height: img.height() as usize,
-            bytes: Cow::Borrowed(img.as_raw()),
+            width: width as usize,
+            height: height as usize,
+            bytes: Cow::Borrowed(raw_rgba),
         };
         cb.set_image(image_data)
     })?;
 
     tracing::info!(
-        "已成功将裁剪图像写入系统剪贴板，尺寸: {}x{}",
-        img.width(),
-        img.height()
+        "已成功将像素数据零拷贝写入系统剪贴板，尺寸: {}x{}",
+        width,
+        height
     );
     Ok(())
 }

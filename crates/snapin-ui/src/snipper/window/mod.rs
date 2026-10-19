@@ -71,7 +71,7 @@ pub fn run_snipper_session(
         message: format!("初始化帧缓冲尺寸失败: {e}"),
     })?;
 
-    let (bg_pixmap, dimmed_bg) = create_pixmaps_fast(&bg_image)?;
+    let dimmed_bg = create_dimmed_pixmap_fast(&bg_image)?;
 
     // 在进入事件循环前，立即将暗化蒙层写入 softbuffer 共享表面，确保窗口映射瞬间即为暗色
     let _ = blit_pixmap_to_surface(&mut surface, &dimmed_bg);
@@ -114,7 +114,6 @@ pub fn run_snipper_session(
                     let mut ctx = WindowContext {
                         window: &window,
                         surface: &mut surface,
-                        bg_pixmap: &bg_pixmap,
                         dimmed_bg: &dimmed_bg,
                         bg_image: &bg_image,
                         render_pixmap: &mut render_pixmap,
@@ -143,7 +142,6 @@ pub fn run_snipper_session(
 struct WindowContext<'a> {
     window: &'a Arc<Window>,
     surface: &'a mut softbuffer::Surface<Arc<Window>, Arc<Window>>,
-    bg_pixmap: &'a Pixmap,
     dimmed_bg: &'a Pixmap,
     bg_image: &'a RgbaImage,
     render_pixmap: &'a mut Pixmap,
@@ -175,7 +173,6 @@ fn dispatch_window_event(
             });
 
             let canvas = SnipperCanvas {
-                original_bg: ctx.bg_pixmap,
                 dimmed_bg: ctx.dimmed_bg,
                 original_rgba: ctx.bg_image,
                 selection: &state.selection,
@@ -267,37 +264,30 @@ fn check_exit_outcome(
     }
 }
 
-/// 单遍高速生成原图底图与暗色蒙层底图 (单次内存遍历，CPU 缓存高度命中)
-fn create_pixmaps_fast(img: &RgbaImage) -> Result<(Pixmap, Pixmap), UiError> {
+/// 高速生成暗色蒙层底图 (定点整数暗化蒙层 ((val * 107) >> 8)，原图底图直接借用内存切片)
+fn create_dimmed_pixmap_fast(img: &RgbaImage) -> Result<Pixmap, UiError> {
     let w = img.width();
     let h = img.height();
-    let mut bg = Pixmap::new(w, h).ok_or_else(|| UiError::PixmapAlloc {
-        width: w,
-        height: h,
-    })?;
     let mut dimmed = Pixmap::new(w, h).ok_or_else(|| UiError::PixmapAlloc {
         width: w,
         height: h,
     })?;
 
     let src = img.as_raw();
-    let dst_bg = bg.data_mut();
     let dst_dim = dimmed.data_mut();
 
-    // 内存单遍流转：同时填充原图与定点整数暗化蒙层 ((val * 107) >> 8)
-    for ((d_bg, d_dim), s) in dst_bg
+    // 内存单遍流转：仅填充定点整数暗化蒙层
+    for (d_dim, s) in dst_dim
         .as_chunks_mut::<4>()
         .0
         .iter_mut()
-        .zip(dst_dim.as_chunks_mut::<4>().0.iter_mut())
         .zip(src.as_chunks::<4>().0)
     {
-        d_bg.copy_from_slice(s);
         d_dim[0] = ((s[0] as u16 * 107) >> 8) as u8;
         d_dim[1] = ((s[1] as u16 * 107) >> 8) as u8;
         d_dim[2] = ((s[2] as u16 * 107) >> 8) as u8;
         d_dim[3] = s[3];
     }
 
-    Ok((bg, dimmed))
+    Ok(dimmed)
 }
