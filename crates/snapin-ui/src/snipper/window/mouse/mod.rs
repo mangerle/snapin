@@ -105,6 +105,21 @@ fn handle_left_press(
 
         commit_active_text_input(state);
 
+        // 如果未激活特定标注工具，优先检测是否命中 8 个控制手柄中的任意一个进行选区微调缩放
+        if state.toolbar.active_tool.is_none() {
+            let handle_tolerance = 8.0 * state.toolbar.ui_scale;
+            if let Some(handle) = rect.hit_test_handle(cx, cy, handle_tolerance) {
+                if let SelectionState::Locked {
+                    ref mut active_drag,
+                    ..
+                } = state.selection
+                {
+                    *active_drag = Some(DragMode::Resize(handle));
+                }
+                return true;
+            }
+        }
+
         if rect.contains(cx, cy) {
             if state.toolbar.active_tool.is_some() {
                 state.pending_stroke_points.clear();

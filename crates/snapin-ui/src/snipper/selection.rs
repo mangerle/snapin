@@ -57,6 +57,42 @@ impl Rect {
         let ph = (self.height as u32).min(max_h.saturating_sub(py));
         (px, py, pw, ph)
     }
+
+    /// 检测坐标 (px, py) 是否命中 8 个控制手柄中的某一个
+    ///
+    /// `tolerance` 为考虑 HiDPI 缩放下的热区扩张容差半径
+    pub fn hit_test_handle(&self, px: f32, py: f32, tolerance: f32) -> Option<ResizeHandle> {
+        let r = tolerance.max(6.0);
+        let handles = [
+            (ResizeHandle::TopLeft, self.x, self.y),
+            (ResizeHandle::Top, self.x + self.width / 2.0, self.y),
+            (ResizeHandle::TopRight, self.x + self.width, self.y),
+            (
+                ResizeHandle::Right,
+                self.x + self.width,
+                self.y + self.height / 2.0,
+            ),
+            (
+                ResizeHandle::BottomRight,
+                self.x + self.width,
+                self.y + self.height,
+            ),
+            (
+                ResizeHandle::Bottom,
+                self.x + self.width / 2.0,
+                self.y + self.height,
+            ),
+            (ResizeHandle::BottomLeft, self.x, self.y + self.height),
+            (ResizeHandle::Left, self.x, self.y + self.height / 2.0),
+        ];
+
+        for (handle, hx, hy) in handles {
+            if (px - hx).abs() <= r && (py - hy).abs() <= r {
+                return Some(handle);
+            }
+        }
+        None
+    }
 }
 
 /// 拖拽微调模式
@@ -149,5 +185,33 @@ mod tests {
         assert_eq!(history.previous_history(), Some(r2));
         assert_eq!(history.previous_history(), Some(r1));
         assert_eq!(history.next_history(), Some(r2));
+    }
+
+    #[test]
+    fn test_hit_test_handle() {
+        let rect = Rect {
+            x: 100.0,
+            y: 100.0,
+            width: 200.0,
+            height: 150.0,
+        };
+
+        // 左上角
+        assert_eq!(
+            rect.hit_test_handle(102.0, 99.0, 6.0),
+            Some(ResizeHandle::TopLeft)
+        );
+        // 右下角
+        assert_eq!(
+            rect.hit_test_handle(300.0, 250.0, 6.0),
+            Some(ResizeHandle::BottomRight)
+        );
+        // 顶部中点
+        assert_eq!(
+            rect.hit_test_handle(200.0, 100.0, 6.0),
+            Some(ResizeHandle::Top)
+        );
+        // 未命中手柄（矩形正中心）
+        assert_eq!(rect.hit_test_handle(200.0, 175.0, 6.0), None);
     }
 }

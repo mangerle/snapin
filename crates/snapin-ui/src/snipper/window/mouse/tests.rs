@@ -87,3 +87,60 @@ fn test_toolbar_click_does_not_create_annotation() {
     );
     assert_eq!(state.next_badge_number, 1, "序号印章不应被误创建");
 }
+
+#[test]
+fn test_hit_test_resize_handle_starts_resizing() {
+    let mut state = SnipperState::new();
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 200.0,
+        height: 150.0,
+    };
+    state.selection = SelectionState::Locked {
+        rect: selection,
+        active_drag: None,
+    };
+    // 确保未激活特定标注工具
+    state.toolbar.active_tool = None;
+
+    let original = RgbaImage::new(1920, 1080);
+
+    // 1. 点击右下角手柄位置 (300.0, 250.0)
+    let pressed = handle_left_press(&mut state, 300.0, 250.0, &original);
+    assert!(pressed);
+
+    match &state.selection {
+        SelectionState::Locked { active_drag, .. } => {
+            assert_eq!(
+                *active_drag,
+                Some(DragMode::Resize(
+                    crate::snipper::selection::ResizeHandle::BottomRight
+                )),
+                "点击右下角控制手柄应激活 Resize(BottomRight) 拖拽模式"
+            );
+        }
+        _ => panic!("预期处于 Locked 状态"),
+    }
+
+    // 2. 移动鼠标拉大选区至 (350.0, 300.0)
+    // 构造一个虚拟 Window
+    // handle_cursor_move 会直接调用 calculate_drag
+    let (cx, cy) = (350.0f32, 300.0f32);
+    if let SelectionState::Locked { rect, active_drag } = &mut state.selection {
+        if let Some(drag) = active_drag {
+            let (r, d) =
+                crate::snipper::window::drag_calculator::calculate_drag(rect, drag, (cx, cy));
+            *rect = r;
+            *active_drag = Some(d);
+        }
+    }
+
+    match &state.selection {
+        SelectionState::Locked { rect, .. } => {
+            assert_eq!(rect.width, 250.0);
+            assert_eq!(rect.height, 200.0);
+        }
+        _ => panic!("预期处于 Locked 状态"),
+    }
+}
