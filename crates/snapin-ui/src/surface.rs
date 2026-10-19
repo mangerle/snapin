@@ -1,6 +1,6 @@
 //! softbuffer 共享内存帧缓冲呈现与格式转换基础设施。
 //!
-//! 提供将 tiny-skia 的 RGBA 像素高速 Blit 到操作系统原生 softbuffer 0RGB 表面呈现的通用接口。
+//! 提供将 tiny-skia 的预乘 RGBA 像素高速 Blit 到操作系统原生 softbuffer ARGB8888 表面呈现的通用接口。
 
 use crate::error::UiError;
 use std::sync::Arc;
@@ -18,7 +18,10 @@ pub fn blit_pixmap_to_surface(
 
     let src_bytes = pixmap.data();
     for (dest, src) in buffer.iter_mut().zip(src_bytes.as_chunks::<4>().0) {
-        *dest = ((src[0] as u32) << 16) | ((src[1] as u32) << 8) | (src[2] as u32);
+        *dest = ((src[3] as u32) << 24)
+            | ((src[0] as u32) << 16)
+            | ((src[1] as u32) << 8)
+            | (src[2] as u32);
     }
 
     buffer.present().map_err(|e| UiError::Softbuffer {
