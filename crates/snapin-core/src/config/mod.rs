@@ -17,15 +17,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 pub use types::{HexColor, Hotkey, SelectionRectRecord};
 
-/// 获取 Snapin 默认配置文件存储路径：`~/.config/snapin/config.toml`
+/// 获取 Snapin 默认配置文件存储路径：优先 `$XDG_CONFIG_HOME/snapin/config.toml`，兜底 `~/.config/snapin/config.toml`
 pub fn get_default_config_path() -> Result<PathBuf, CoreError> {
-    let home = std::env::var("HOME").map_err(|e| CoreError::IoError {
-        path: "$HOME".to_string(),
-        source: std::io::Error::new(std::io::ErrorKind::NotFound, e),
-    })?;
-
-    let config_dir = Path::new(&home).join(".config").join("snapin");
-    Ok(config_dir.join("config.toml"))
+    Ok(crate::paths::AppPaths::default_config_file())
 }
 
 /// 加载配置文件；若文件不存在，则自动初始化并保存一套默认配置到磁盘

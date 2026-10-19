@@ -156,52 +156,22 @@ pub fn clear_selection_cache() -> usize {
 
 /// 获取 Snapin 缓存目录
 fn get_cache_dir() -> Option<PathBuf> {
-    let dir = std::env::var("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".cache")))
-        .ok()?
-        .join("snapin");
-    let _ = std::fs::create_dir_all(&dir);
-    Some(dir)
+    Some(snapin_core::AppPaths::cache_dir())
 }
 
-static SEQUENCE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-
-/// 生成高并发安全的 64 位全局唯一序列 ID（结合纳秒时间戳与原子自增计数器）
+/// 生成高并发安全的 64 位全局唯一序列 ID
 pub fn generate_unique_id() -> u64 {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
-    let seq = SEQUENCE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    now.wrapping_add(seq)
+    snapin_core::AppPaths::generate_unique_id()
 }
 
 /// 获取当前用户专属的安全运行时临时目录（具备多用户权限隔离与 tmpfs 内存提速）
 pub fn get_secure_runtime_dir() -> PathBuf {
-    if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
-        let p = PathBuf::from(runtime_dir).join("snapin");
-        let _ = std::fs::create_dir_all(&p);
-        return p;
-    }
-
-    let uid = rustix::process::getuid().as_raw();
-    let shm_dir = std::path::Path::new("/dev/shm");
-    let base = if shm_dir.exists() {
-        shm_dir.join(format!("snapin-{uid}"))
-    } else {
-        std::env::temp_dir().join(format!("snapin-{uid}"))
-    };
-    let _ = std::fs::create_dir_all(&base);
-    base
+    snapin_core::AppPaths::runtime_dir()
 }
 
 /// 生成安全防碰撞的临时文件路径（包含 UID 隔离、进程 PID 与纳秒唯一序列）
 pub fn generate_secure_temp_path(prefix: &str, ext: &str) -> PathBuf {
-    let dir = get_secure_runtime_dir();
-    let id = generate_unique_id();
-    let pid = std::process::id();
-    dir.join(format!("{prefix}_{pid}_{id}.{ext}"))
+    snapin_core::AppPaths::generate_temp_path(prefix, ext)
 }
 
 #[cfg(test)]

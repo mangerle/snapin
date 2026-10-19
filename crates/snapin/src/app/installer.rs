@@ -4,7 +4,6 @@
 //! 支持在任意系统目录下安全部署与原地热重载。
 
 use anyhow::{Context, Result};
-use std::path::PathBuf;
 
 const EXT_METADATA: &str = include_str!("../../../../extension/metadata.json");
 const EXT_JAVASCRIPT: &str = include_str!("../../../../extension/extension.js");
@@ -12,11 +11,8 @@ const EXT_ICON_SVG: &[u8] = include_bytes!("../../../../extension/icons/snapin-t
 
 /// 安装配套 GNOME Shell 扩展并触发桌面热重载
 pub fn install_gnome_extension() -> Result<()> {
-    let home = std::env::var("HOME").context("未找到 HOME 环境变量")?;
     let uuid = "snapin@wangle.local";
-    let target_dir = PathBuf::from(home)
-        .join(".local/share/gnome-shell/extensions")
-        .join(uuid);
+    let target_dir = snapin_core::AppPaths::gnome_extension_dir(uuid);
 
     let icons_dir = target_dir.join("icons");
     std::fs::create_dir_all(&icons_dir).context("创建 GNOME 扩展目标目录失败")?;

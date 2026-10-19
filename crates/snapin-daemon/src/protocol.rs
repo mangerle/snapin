@@ -64,12 +64,7 @@ pub struct IpcInvocation {
     pub responder: oneshot::Sender<DaemonResponse>,
 }
 
-/// 获取本用户的默认 IPC Socket 路径：优先 `$XDG_RUNTIME_DIR/snapin.sock`，兜底 `/tmp/snapin-$UID.sock`
+/// 获取本用户的默认 IPC Socket 路径（由 AppPaths 统一纳管）
 pub fn get_socket_path() -> PathBuf {
-    if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
-        PathBuf::from(runtime_dir).join("snapin.sock")
-    } else {
-        let uid = rustix::process::getuid().as_raw();
-        PathBuf::from(format!("/tmp/snapin-{uid}.sock"))
-    }
+    snapin_core::AppPaths::default_socket_path()
 }
