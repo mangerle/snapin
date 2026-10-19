@@ -67,12 +67,12 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
                 }
             }
             DaemonCommand::Paste => {
-                if let Err(e) = run_oneshot_paste().await {
-                    tracing::error!("执行贴图流程失败: {e}");
-                    DaemonResponse::Error(format!("执行贴图流程失败: {e}"))
-                } else {
-                    DaemonResponse::Ok
-                }
+                tokio::spawn(async {
+                    if let Err(e) = run_oneshot_paste().await {
+                        tracing::error!("守护服务执行贴图失败: {e}");
+                    }
+                });
+                DaemonResponse::Ok
             }
             DaemonCommand::RegisterPaster { id, group_id } => {
                 paster_manager.register_instance(id, group_id);

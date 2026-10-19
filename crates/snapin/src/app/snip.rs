@@ -8,7 +8,6 @@ use snapin_platform::{
     send_desktop_notification,
 };
 use snapin_ui::snipper::{run_snipper_session, SnipMode, SnipperOutcome};
-use std::path::PathBuf;
 use std::time::Instant;
 
 /// 获取屏幕快照（优先扩展零白闪通道，自动优雅降级 Portal）
@@ -82,27 +81,14 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode) -> Result<()> {
                 }
             }
             SnipperOutcome::Pinned(item) => {
-                let pin_path = generate_secure_temp_path("pin", "raw");
-                let (px, py) = item.position;
-
-                // 采用零编码开销的原生像素格式存储，在 tmpfs 内存中实现极速中转
-                let mut data = Vec::with_capacity(8 + item.pixmap.data().len());
-                data.extend_from_slice(&item.pixmap.width().to_be_bytes());
-                data.extend_from_slice(&item.pixmap.height().to_be_bytes());
-                data.extend_from_slice(item.pixmap.data());
-
-                if std::fs::write(&pin_path, data).is_ok() {
-                    let current_exe =
-                        std::env::current_exe().unwrap_or_else(|_| PathBuf::from("snapin"));
-                    let _ = std::process::Command::new(current_exe)
-                        .args([
-                            "pin-file",
-                            &pin_path.to_string_lossy(),
-                            &px.to_string(),
-                            &py.to_string(),
-                        ])
-                        .spawn();
-                }
+                tracing::info!("正在原地挂载选区贴图置顶窗口...");
+                tokio::task::spawn_blocking(move || {
+                    if let Err(e) = snapin_ui::paster::spawn_paster_window(item) {
+                        tracing::error!("贴图窗口运行异常: {e}");
+                    }
+                })
+                .await
+                .context("贴图任务调度异常")?;
             }
             SnipperOutcome::Cancelled => {
                 tracing::info!("用户已取消本次截图");

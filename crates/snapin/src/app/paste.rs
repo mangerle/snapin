@@ -20,7 +20,10 @@ pub async fn run_oneshot_paste() -> Result<()> {
             pixmap.data_mut().copy_from_slice(img.as_raw());
             let uid = generate_unique_id();
             let item = PasterItem::new(uid, format!("clip_img_{uid}"), pixmap, (200, 200));
-            spawn_paster_window(item).context("贴图窗口运行异常")?;
+            tokio::task::spawn_blocking(move || spawn_paster_window(item))
+                .await
+                .context("贴图任务调度失败")?
+                .context("贴图窗口运行异常")?;
             return Ok(());
         }
     }
@@ -35,7 +38,10 @@ pub async fn run_oneshot_paste() -> Result<()> {
         };
 
         let item = PasterItem::new(uid, format!("clip_note_{uid}"), pixmap, (250, 250));
-        spawn_paster_window(item).context("贴图窗口运行异常")?;
+        tokio::task::spawn_blocking(move || spawn_paster_window(item))
+            .await
+            .context("贴图任务调度失败")?
+            .context("贴图窗口运行异常")?;
         return Ok(());
     }
 
