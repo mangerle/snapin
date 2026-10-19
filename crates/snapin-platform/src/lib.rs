@@ -10,6 +10,7 @@ pub mod lifecycle;
 pub mod notification;
 pub mod portal;
 pub mod save_helper;
+pub mod storage;
 
 pub(crate) mod dbus_session;
 

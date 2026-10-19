@@ -1,176 +1,15 @@
-//! 图像输出存储、文件名模板解析与历史选区持久化辅助模块。
+//! 图像输出存储、文件名模板解析与历史选区持久化辅助门面模块（向后兼容）。
+//!
+//! 核心功能已按关注点分离原则拆解至 `crate::storage` 子模块，
+//! 本文件作为门面统一对外重导出，避免破坏存量调用方代码。
 
-use crate::error::PlatformError;
-use chrono::Local;
-use image::RgbaImage;
-use snapin_core::config::{ImageFormat, OutputConfig};
-use std::path::PathBuf;
-
-/// 根据输出配置生成目标文件绝对路径（具备重名自增防覆盖安全保障）
-pub fn resolve_save_path(cfg: &OutputConfig) -> PathBuf {
-    let base_dir = expand_home_dir(&cfg.quick_save_dir);
-    if !base_dir.exists() {
-        let _ = std::fs::create_dir_all(&base_dir);
-    }
-
-    let now = Local::now();
-    let file_name = format_template(&cfg.file_name_template, &now);
-    let ext = cfg.default_format.extension();
-
-    let initial_path = base_dir.join(format!("{file_name}.{ext}"));
-    if !initial_path.exists() {
-        return initial_path;
-    }
-
-    // 防静默覆盖：若目标文件已存在，递增寻找未占用的序号文件名（如 _1, _2）
-    let mut counter = 1usize;
-    loop {
-        let candidate = base_dir.join(format!("{file_name}_{counter}.{ext}"));
-        if !candidate.exists() {
-            return candidate;
-        }
-        counter = counter.saturating_add(1);
-    }
-}
-
-/// 按照用户配置格式将图像编码并写入磁盘
-pub fn save_image_with_config(
-    img: &RgbaImage,
-    cfg: &OutputConfig,
-) -> Result<PathBuf, PlatformError> {
-    let out_path = resolve_save_path(cfg);
-
-    match cfg.default_format {
-        ImageFormat::Jpeg => {
-            let (w, h) = (img.width(), img.height());
-            let mut rgb_bytes = Vec::with_capacity((w as usize) * (h as usize) * 3);
-            for chunk in img.as_raw().as_chunks::<4>().0 {
-                rgb_bytes.extend_from_slice(&chunk[0..3]);
-            }
-            let rgb =
-                image::RgbImage::from_raw(w, h, rgb_bytes).ok_or_else(|| PlatformError::Io {
-                    path: out_path.display().to_string(),
-                    source: std::io::Error::other("构建 RGB 图像缓冲区失败"),
-                })?;
-            let mut file = std::fs::File::create(&out_path).map_err(|e| PlatformError::Io {
-                path: out_path.display().to_string(),
-                source: e,
-            })?;
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
-                &mut file,
-                cfg.jpeg_quality.clamp(1, 100),
-            );
-            encoder.encode_image(&rgb).map_err(|e| PlatformError::Io {
-                path: out_path.display().to_string(),
-                source: std::io::Error::other(e.to_string()),
-            })?;
-        }
-        ImageFormat::Png | ImageFormat::Webp => {
-            img.save(&out_path).map_err(|e| PlatformError::Io {
-                path: out_path.display().to_string(),
-                source: std::io::Error::other(e.to_string()),
-            })?;
-        }
-    }
-
-    Ok(out_path)
-}
-
-/// 将路径中的 ~ 符号展开为真实用户主目录
-fn expand_home_dir(path_str: &str) -> PathBuf {
-    if let Some(stripped) = path_str.strip_prefix("~/") {
-        if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home).join(stripped);
-        }
-    } else if path_str == "~" {
-        if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home);
-        }
-    }
-    PathBuf::from(path_str)
-}
-
-/// 格式化时间戳占位符模板
-fn format_template(template: &str, dt: &chrono::DateTime<Local>) -> String {
-    template
-        .replace("{YYYY}", &dt.format("%Y").to_string())
-        .replace("{MM}", &dt.format("%m").to_string())
-        .replace("{DD}", &dt.format("%d").to_string())
-        .replace("{HH}", &dt.format("%H").to_string())
-        .replace("{mm}", &dt.format("%M").to_string())
-        .replace("{ss}", &dt.format("%S").to_string())
-}
-
+pub use crate::storage::selection_cache::{
+    clear_selection_cache, load_last_selection, save_last_selection,
+};
+pub use crate::storage::template::{expand_home_dir, format_template};
+pub use crate::storage::writer::{resolve_save_path, save_image_with_config};
 pub use snapin_core::config::SelectionRectRecord;
-
-/// 保存上次选区坐标至运行时缓存文件
-pub fn save_last_selection(rect: (f32, f32, f32, f32)) {
-    let record = SelectionRectRecord::new(rect.0, rect.1, rect.2, rect.3);
-    if !record.is_valid() {
-        return;
-    }
-
-    if let Some(cache_dir) = get_cache_dir() {
-        let toml_path = cache_dir.join("last_selection.toml");
-        if let Ok(toml_content) = toml::to_string(&record) {
-            let _ = std::fs::write(toml_path, toml_content);
-        }
-    }
-}
-
-/// 读取上次保存的历史选区
-pub fn load_last_selection() -> Option<(f32, f32, f32, f32)> {
-    let cache_dir = get_cache_dir()?;
-    let toml_path = cache_dir.join("last_selection.toml");
-
-    // 优先读取强类型结构化的 TOML 缓存文件
-    if let Ok(content) = std::fs::read_to_string(&toml_path) {
-        if let Ok(record) = toml::from_str::<SelectionRectRecord>(&content) {
-            if record.is_valid() {
-                return Some((record.x, record.y, record.width, record.height));
-            }
-        }
-    }
-
-    // 兜底兼容旧版逗号拼接 txt 缓存文件
-    let legacy_path = cache_dir.join("last_selection.txt");
-    if let Ok(content) = std::fs::read_to_string(legacy_path) {
-        let parts: Vec<&str> = content.split(',').collect();
-        if parts.len() == 4 {
-            let x: f32 = parts[0].trim().parse().ok()?;
-            let y: f32 = parts[1].trim().parse().ok()?;
-            let w: f32 = parts[2].trim().parse().ok()?;
-            let h: f32 = parts[3].trim().parse().ok()?;
-            let record = SelectionRectRecord::new(x, y, w, h);
-            if record.is_valid() {
-                return Some((x, y, w, h));
-            }
-        }
-    }
-
-    None
-}
-
-/// 清理历史选区记忆缓存文件（包括 TOML 与旧版 txt 缓存）
-pub fn clear_selection_cache() -> usize {
-    let mut count = 0;
-    if let Some(cache_dir) = get_cache_dir() {
-        let toml_path = cache_dir.join("last_selection.toml");
-        if toml_path.exists() && std::fs::remove_file(&toml_path).is_ok() {
-            count += 1;
-        }
-        let legacy_path = cache_dir.join("last_selection.txt");
-        if legacy_path.exists() && std::fs::remove_file(&legacy_path).is_ok() {
-            count += 1;
-        }
-    }
-    count
-}
-
-/// 获取 Snapin 缓存目录
-fn get_cache_dir() -> Option<PathBuf> {
-    Some(snapin_core::AppPaths::cache_dir())
-}
+use std::path::PathBuf;
 
 /// 生成高并发安全的 64 位全局唯一序列 ID
 pub fn generate_unique_id() -> u64 {
@@ -192,33 +31,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_format_template() {
-        let dt = Local::now();
-        let res = format_template("Snapin_{YYYY}{MM}{DD}", &dt);
-        let y = dt.format("%Y").to_string();
-        assert!(res.starts_with(&format!("Snapin_{y}")));
-    }
-
-    #[test]
-    fn test_expand_home_dir() {
-        let res = expand_home_dir("~/Pictures");
-        assert!(!res.to_string_lossy().starts_with('~'));
-    }
-
-    #[test]
-    fn test_selection_record_serde_and_validation() {
-        let record = SelectionRectRecord::new(10.0, 20.0, 100.0, 80.0);
-        assert!(record.is_valid());
-
-        let toml_str = toml::to_string(&record).expect("序列化选区记录成功");
-        let decoded: SelectionRectRecord = toml::from_str(&toml_str).expect("反序列化选区记录成功");
-        assert_eq!(record, decoded);
-
-        let invalid = SelectionRectRecord::new(-1.0, 0.0, 5.0, 5.0);
-        assert!(!invalid.is_valid());
-    }
-
-    #[test]
     fn test_generate_unique_id_and_secure_temp_path() {
         let id1 = generate_unique_id();
         let id2 = generate_unique_id();
@@ -228,55 +40,6 @@ mod tests {
         let p2 = generate_secure_temp_path("snapin_test", "tmp");
         assert_ne!(p1, p2, "生成的安全临时路径不应相同");
         assert!(p1.to_string_lossy().contains("snapin_test"));
-    }
-
-    #[test]
-    fn test_clear_selection_cache() {
-        save_last_selection((50.0, 60.0, 200.0, 150.0));
-        assert!(load_last_selection().is_some());
-        let cleared = clear_selection_cache();
-        assert!(cleared >= 1);
-        assert!(load_last_selection().is_none());
-    }
-
-    #[test]
-    fn test_save_image_with_config_jpeg_and_png() {
-        let temp_dir = std::env::temp_dir().join(format!("snapin_test_{}", generate_unique_id()));
-        let mut cfg = OutputConfig {
-            quick_save_dir: temp_dir.to_string_lossy().to_string(),
-            file_name_template: "test_{YYYY}".to_string(),
-            default_format: ImageFormat::Jpeg,
-            jpeg_quality: 85,
-            notify_on_save: false,
-            ..OutputConfig::default()
-        };
-
-        // 构造测试 RGBA 图像 (10x10)
-        let img = RgbaImage::from_pixel(10, 10, image::Rgba([120, 200, 255, 255]));
-
-        // 1. 测试 JPEG 格式保存（验证无 clone chunk 编码路径）
-        let jpeg_path = save_image_with_config(&img, &cfg).expect("保存 JPEG 图像成功");
-        assert!(jpeg_path.exists());
-        assert_eq!(jpeg_path.extension().and_then(|s| s.to_str()), Some("jpg"));
-        let jpeg_bytes = std::fs::read(&jpeg_path).expect("读取生成的 JPEG 文件成功");
-        assert!(!jpeg_bytes.is_empty());
-        let _ = std::fs::remove_file(&jpeg_path);
-
-        // 2. 测试 PNG 格式保存
-        cfg.default_format = ImageFormat::Png;
-        let png_path = save_image_with_config(&img, &cfg).expect("保存 PNG 图像成功");
-        assert!(png_path.exists());
-        assert_eq!(png_path.extension().and_then(|s| s.to_str()), Some("png"));
-        let _ = std::fs::remove_file(&png_path);
-
-        // 3. 测试 WebP 格式保存
-        cfg.default_format = ImageFormat::Webp;
-        let webp_path = save_image_with_config(&img, &cfg).expect("保存 WebP 图像成功");
-        assert!(webp_path.exists());
-        assert_eq!(webp_path.extension().and_then(|s| s.to_str()), Some("webp"));
-        let _ = std::fs::remove_file(&webp_path);
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
@@ -302,32 +65,5 @@ mod tests {
                 "外部越权路径必须被安全沙箱拒绝"
             );
         }
-    }
-
-    #[test]
-    fn test_resolve_save_path_auto_increment_when_exists() {
-        let temp_dir = std::env::temp_dir().join(format!("snapin_inc_{}", generate_unique_id()));
-        let cfg = OutputConfig {
-            quick_save_dir: temp_dir.to_string_lossy().to_string(),
-            file_name_template: "snapin_fixed".to_string(),
-            default_format: ImageFormat::Png,
-            ..OutputConfig::default()
-        };
-
-        // 第一次生成：文件不存在，返回固定原名
-        let path1 = resolve_save_path(&cfg);
-        assert_eq!(path1, temp_dir.join("snapin_fixed.png"));
-        std::fs::write(&path1, b"first").expect("创建占位文件1成功");
-
-        // 第二次生成：原文件已存在，自增生成 _1 后缀
-        let path2 = resolve_save_path(&cfg);
-        assert_eq!(path2, temp_dir.join("snapin_fixed_1.png"));
-        std::fs::write(&path2, b"second").expect("创建占位文件2成功");
-
-        // 第三次生成：_1 也存在，自增生成 _2 后缀
-        let path3 = resolve_save_path(&cfg);
-        assert_eq!(path3, temp_dir.join("snapin_fixed_2.png"));
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
