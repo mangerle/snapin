@@ -3,13 +3,17 @@
 pub mod general;
 pub mod hotkeys;
 pub mod interface;
+pub mod ocr;
 pub mod output;
 pub mod paster;
 pub mod snip;
+pub mod translate;
 
 pub use general::GeneralConfig;
 pub use hotkeys::HotkeyConfig;
 pub use interface::InterfaceConfig;
+pub use ocr::OcrConfig;
 pub use output::OutputConfig;
 pub use paster::PasterConfig;
 pub use snip::SnipConfig;
+pub use translate::TranslateConfig;

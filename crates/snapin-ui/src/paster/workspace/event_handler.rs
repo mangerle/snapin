@@ -26,9 +26,9 @@ pub fn handle_workspace_user_event(
 ) {
     match event {
         PasterAppEvent::ReloadConfig(new_cfg) => {
-            *cfg = new_cfg.clone();
+            *cfg = (*new_cfg).clone();
             for inst in instances.values_mut() {
-                inst.state.config = new_cfg.clone();
+                inst.state.config = (*new_cfg).clone();
             }
             tracing::info!("集中贴图工作区已完成全局配置热更新");
         }

@@ -16,7 +16,7 @@ pub struct WorkspaceStatus {
 /// 集中贴图工作区支持的用户事件指令
 pub enum PasterAppEvent {
     /// 重新加载全局配置并同步给存量贴图
-    ReloadConfig(Config),
+    ReloadConfig(Box<Config>),
     /// 创建并弹出一个新的贴图窗口
     OpenPaster(PasterItem),
     /// 批量切换当前分组内所有贴图的显隐状态
@@ -48,7 +48,7 @@ impl PasterWorkspaceProxy {
     /// 请求工作区热重载最新配置
     pub fn reload_config(&self, cfg: Config) -> Result<(), UiError> {
         self.proxy
-            .send_event(PasterAppEvent::ReloadConfig(cfg))
+            .send_event(PasterAppEvent::ReloadConfig(Box::new(cfg)))
             .map_err(|e| UiError::Window {
                 message: format!("向贴图工作区投递配置热重载指令失败: {e}"),
             })

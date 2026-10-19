@@ -45,6 +45,15 @@ chmod 755 "${STAGE_DIR}/usr/bin/snapin"
 cp "${PROJECT_ROOT}/assets/icons/snapin.svg" "${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps/snapin.svg"
 cp "${PROJECT_ROOT}/assets/icons/snapin-tray.svg" "${STAGE_DIR}/usr/share/icons/hicolor/scalable/status/snapin-tray.svg"
 
+# 4.1 拷贝 PP-OCRv6 离线模型资产 (若 assets/models/ppocrv6 存在)
+MODEL_SRC_DIR="${PROJECT_ROOT}/assets/models/ppocrv6"
+MODEL_DST_DIR="${STAGE_DIR}/usr/share/snapin/models/ppocrv6"
+mkdir -p "${MODEL_DST_DIR}"
+if [ -d "${MODEL_SRC_DIR}" ]; then
+    echo "[信息] 打包 PP-OCRv6 离线模型资产至 ${MODEL_DST_DIR}..."
+    cp -r "${MODEL_SRC_DIR}/"* "${MODEL_DST_DIR}/" 2>/dev/null || true
+fi
+
 cat << 'EOF' > "${STAGE_DIR}/usr/share/applications/snapin.desktop"
 [Desktop Entry]
 Name=Snapin

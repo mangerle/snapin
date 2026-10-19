@@ -33,4 +33,12 @@ pub struct Config {
     /// 全局快捷键映射设置
     #[serde(default)]
     pub hotkeys: HotkeyConfig,
+
+    /// OCR 文字识别设置
+    #[serde(default)]
+    pub ocr: OcrConfig,
+
+    /// 机器翻译与原位覆盖设置
+    #[serde(default)]
+    pub translate: TranslateConfig,
 }

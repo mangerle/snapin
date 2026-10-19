@@ -4,6 +4,7 @@ members = [
     "crates/snapin-daemon",
     "crates/snapin-platform",
     "crates/snapin-ui",
+    "crates/snapin-service",
     "crates/snapin-settings",
     "crates/snapin",
 ]
@@ -22,6 +23,7 @@ snapin-core = { path = "crates/snapin-core", version = "0.3.0" }
 snapin-daemon = { path = "crates/snapin-daemon", version = "0.3.0" }
 snapin-platform = { path = "crates/snapin-platform", version = "0.3.0" }
 snapin-ui = { path = "crates/snapin-ui", version = "0.3.0" }
+snapin-service = { path = "crates/snapin-service", version = "0.3.0" }
 snapin-settings = { path = "crates/snapin-settings", version = "0.3.0" }
 
 # 窗口事件循环与原生 Wayland 支持
@@ -50,9 +52,19 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 toml = "0.8"
 bytemuck = "1.14"
 rustix = { version = "0.38", features = ["process"] }
+
+# HTTP 网络请求与异步服务抽象
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+async-trait = "0.1"
+
+# 密码学哈希与签名 (用于第三方翻译 API 鉴权)
+md-5 = "0.10"
+sha2 = "0.10"
+hmac = "0.12"
 
 # 纯 Rust 复杂多语言与中文字体排版引擎
 cosmic-text = "0.11"
