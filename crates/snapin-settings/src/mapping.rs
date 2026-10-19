@@ -67,148 +67,181 @@ pub fn index_to_magnifier_scale(index: i32) -> u32 {
     MAGNIFIER_SCALES[idx]
 }
 
-pub fn log_level_to_index(level: LogLevel) -> i32 {
-    match level {
-        LogLevel::Trace => 0,
-        LogLevel::Debug => 1,
-        LogLevel::Info => 2,
-        LogLevel::Warn => 3,
-        LogLevel::Error => 4,
+/// UI 设置项与领域枚举双向映射契约 Trait
+pub trait SettingEnum: Sized + Copy + PartialEq + Eq + 'static {
+    /// 该枚举所有合法变体按照 UI ComboBox 呈现顺序排列的静态切片
+    fn all_variants() -> &'static [Self];
+
+    /// 将枚举实例推导转换为对应的 0-indexed 下标
+    fn to_index(self) -> i32 {
+        Self::all_variants()
+            .iter()
+            .position(|&v| v == self)
+            .unwrap_or(0) as i32
     }
+
+    /// 从界面下标安全反向解析枚举实例，越界时自动优雅回退至首个默认变体
+    fn from_index(index: i32) -> Self {
+        let variants = Self::all_variants();
+        if index >= 0 && (index as usize) < variants.len() {
+            variants[index as usize]
+        } else {
+            variants[0]
+        }
+    }
+}
+
+impl SettingEnum for LogLevel {
+    fn all_variants() -> &'static [Self] {
+        &[
+            Self::Trace,
+            Self::Debug,
+            Self::Info,
+            Self::Warn,
+            Self::Error,
+        ]
+    }
+}
+
+impl SettingEnum for TrayTheme {
+    fn all_variants() -> &'static [Self] {
+        &[Self::Auto, Self::Dark, Self::Light]
+    }
+}
+
+impl SettingEnum for Theme {
+    fn all_variants() -> &'static [Self] {
+        &[Self::System, Self::Dark, Self::Light]
+    }
+}
+
+impl SettingEnum for ColorFormat {
+    fn all_variants() -> &'static [Self] {
+        &[Self::Hex, Self::Rgb, Self::Hsl]
+    }
+}
+
+impl SettingEnum for DefaultTool {
+    fn all_variants() -> &'static [Self] {
+        &[
+            Self::None,
+            Self::Rectangle,
+            Self::Pen,
+            Self::Marker,
+            Self::Arrow,
+            Self::Text,
+            Self::Badge,
+        ]
+    }
+}
+
+impl SettingEnum for ZoomAnchor {
+    fn all_variants() -> &'static [Self] {
+        &[Self::Cursor, Self::Center]
+    }
+}
+
+impl SettingEnum for DoubleClickAction {
+    fn all_variants() -> &'static [Self] {
+        &[Self::Close, Self::CopyAndClose, Self::Copy]
+    }
+}
+
+impl SettingEnum for ImageFormat {
+    fn all_variants() -> &'static [Self] {
+        &[Self::Png, Self::Jpeg, Self::Webp]
+    }
+}
+
+pub fn log_level_to_index(level: LogLevel) -> i32 {
+    level.to_index()
 }
 
 pub fn index_to_log_level(idx: i32) -> LogLevel {
-    match idx {
-        0 => LogLevel::Trace,
-        1 => LogLevel::Debug,
-        3 => LogLevel::Warn,
-        4 => LogLevel::Error,
-        _ => LogLevel::Info,
-    }
+    SettingEnum::from_index(idx)
 }
 
 pub fn tray_theme_to_index(theme: TrayTheme) -> i32 {
-    match theme {
-        TrayTheme::Auto => 0,
-        TrayTheme::Dark => 1,
-        TrayTheme::Light => 2,
-    }
+    theme.to_index()
 }
 
 pub fn index_to_tray_theme(idx: i32) -> TrayTheme {
-    match idx {
-        1 => TrayTheme::Dark,
-        2 => TrayTheme::Light,
-        _ => TrayTheme::Auto,
-    }
+    SettingEnum::from_index(idx)
 }
 
 pub fn theme_to_index(theme: Theme) -> i32 {
-    match theme {
-        Theme::System => 0,
-        Theme::Dark => 1,
-        Theme::Light => 2,
-    }
+    theme.to_index()
 }
 
 pub fn index_to_theme(idx: i32) -> Theme {
-    match idx {
-        1 => Theme::Dark,
-        2 => Theme::Light,
-        _ => Theme::System,
-    }
+    SettingEnum::from_index(idx)
 }
 
 pub fn color_format_to_index(format: ColorFormat) -> i32 {
-    match format {
-        ColorFormat::Hex => 0,
-        ColorFormat::Rgb => 1,
-        ColorFormat::Hsl => 2,
-    }
+    format.to_index()
 }
 
 pub fn index_to_color_format(idx: i32) -> ColorFormat {
-    match idx {
-        1 => ColorFormat::Rgb,
-        2 => ColorFormat::Hsl,
-        _ => ColorFormat::Hex,
-    }
+    SettingEnum::from_index(idx)
 }
 
 pub fn default_tool_to_index(tool: DefaultTool) -> i32 {
-    match tool {
-        DefaultTool::None => 0,
-        DefaultTool::Rectangle => 1,
-        DefaultTool::Pen => 2,
-        DefaultTool::Marker => 3,
-        DefaultTool::Arrow => 4,
-        DefaultTool::Text => 5,
-        DefaultTool::Badge => 6,
-    }
+    tool.to_index()
 }
 
 pub fn index_to_default_tool(idx: i32) -> DefaultTool {
-    match idx {
-        1 => DefaultTool::Rectangle,
-        2 => DefaultTool::Pen,
-        3 => DefaultTool::Marker,
-        4 => DefaultTool::Arrow,
-        5 => DefaultTool::Text,
-        6 => DefaultTool::Badge,
-        _ => DefaultTool::None,
-    }
+    SettingEnum::from_index(idx)
 }
 
 pub fn zoom_anchor_to_index(anchor: ZoomAnchor) -> i32 {
-    match anchor {
-        ZoomAnchor::Cursor => 0,
-        ZoomAnchor::Center => 1,
-    }
+    anchor.to_index()
 }
 
 pub fn index_to_zoom_anchor(idx: i32) -> ZoomAnchor {
-    if idx == 1 {
-        ZoomAnchor::Center
-    } else {
-        ZoomAnchor::Cursor
-    }
+    SettingEnum::from_index(idx)
 }
 
 pub fn double_click_action_to_index(action: DoubleClickAction) -> i32 {
-    match action {
-        DoubleClickAction::Close => 0,
-        DoubleClickAction::CopyAndClose => 1,
-        DoubleClickAction::Copy => 2,
-    }
+    action.to_index()
 }
 
 pub fn index_to_double_click_action(idx: i32) -> DoubleClickAction {
-    match idx {
-        1 => DoubleClickAction::CopyAndClose,
-        2 => DoubleClickAction::Copy,
-        _ => DoubleClickAction::Close,
-    }
+    SettingEnum::from_index(idx)
 }
 
 pub fn image_format_to_index(format: ImageFormat) -> i32 {
-    match format {
-        ImageFormat::Png => 0,
-        ImageFormat::Jpeg => 1,
-        ImageFormat::Webp => 2,
-    }
+    format.to_index()
 }
 
 pub fn index_to_image_format(idx: i32) -> ImageFormat {
-    match idx {
-        1 => ImageFormat::Jpeg,
-        2 => ImageFormat::Webp,
-        _ => ImageFormat::Png,
-    }
+    SettingEnum::from_index(idx)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_all_setting_enums_roundtrip() {
+        fn check_roundtrip<T: SettingEnum + std::fmt::Debug>() {
+            for (expected_idx, &variant) in T::all_variants().iter().enumerate() {
+                assert_eq!(variant.to_index(), expected_idx as i32);
+                assert_eq!(T::from_index(expected_idx as i32), variant);
+            }
+            // 越界与负数安全断言（回退到首个默认变体）
+            assert_eq!(T::from_index(-1), T::all_variants()[0]);
+            assert_eq!(T::from_index(999), T::all_variants()[0]);
+        }
+
+        check_roundtrip::<LogLevel>();
+        check_roundtrip::<TrayTheme>();
+        check_roundtrip::<Theme>();
+        check_roundtrip::<ColorFormat>();
+        check_roundtrip::<DefaultTool>();
+        check_roundtrip::<ZoomAnchor>();
+        check_roundtrip::<DoubleClickAction>();
+        check_roundtrip::<ImageFormat>();
+    }
 
     #[test]
     fn test_log_level_roundtrip() {
