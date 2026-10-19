@@ -26,3 +26,5 @@ chrono = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+tiny-skia = { workspace = true }
+

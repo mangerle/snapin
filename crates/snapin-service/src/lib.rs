@@ -106,4 +106,45 @@ mod tests {
             matches!(res, Err(ServiceError::MissingCredentials { provider, .. }) if provider == "aliyun")
         );
     }
+
+    #[tokio::test]
+    async fn test_real_model_loading_and_pipeline() {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
+        let model_dir = workspace_root.join("assets").join("models").join("ppocrv6");
+
+        if !model_dir.exists() || !model_dir.join("rec").join("inference.onnx").exists() {
+            // 模型文件尚在下载或不存在时安全返回
+            return;
+        }
+
+        // 1. 验证路径自动探测
+        let paths = LocalOcrPaths::discover_in_root(&model_dir).expect("应成功探测到模型结构");
+        assert!(paths.rec_model.exists());
+        assert!(paths.det_model.exists());
+        assert!(paths.rec_config.exists());
+
+        // 2. 验证字符字典加载（PP-OCRv6 字典规模超过 18,000 字符）
+        let dict = load_character_dict(&paths.rec_config).expect("应成功解析实际模型字典");
+        assert!(
+            dict.len() > 18000,
+            "字典规模应大于 18000，实际: {}",
+            dict.len()
+        );
+
+        // 3. 验证本地引擎初始化
+        let engine = LocalPpOcrEngine::new(Some(&model_dir)).expect("应成功基于真实模型实例化引擎");
+        assert_eq!(engine.dict_len(), dict.len());
+
+        // 4. 执行图像识别端到端管线验证
+        let mut sample_img = image::RgbaImage::new(320, 48);
+        for pixel in sample_img.pixels_mut() {
+            *pixel = image::Rgba([245, 245, 245, 255]);
+        }
+        let res = engine
+            .recognize(&sample_img)
+            .await
+            .expect("识别管线执行应成功");
+        assert!(!res.blocks.is_empty(), "应返回识别文本块");
+    }
 }

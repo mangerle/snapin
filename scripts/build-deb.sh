@@ -104,6 +104,13 @@ cp "${PROJECT_ROOT}/extension/extension.js" "${STAGE_DIR}/usr/share/gnome-shell/
 mkdir -p "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin@wangle.local/icons"
 cp "${PROJECT_ROOT}/extension/icons/snapin-tray.svg" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin@wangle.local/icons/snapin-tray.svg"
 
+# 7.1 如果存在 PP-OCRv6 模型资产，则打包进 /usr/share/snapin/models/ppocrv6
+if [ -d "${PROJECT_ROOT}/assets/models/ppocrv6" ]; then
+    echo "[信息] 正在打包 PP-OCRv6 离线识别与检测模型资产..."
+    mkdir -p "${STAGE_DIR}/usr/share/snapin/models"
+    cp -r "${PROJECT_ROOT}/assets/models/ppocrv6" "${STAGE_DIR}/usr/share/snapin/models/"
+fi
+
 # 8. 生成 DEBIAN/control 控制文件
 cat << EOF > "${STAGE_DIR}/DEBIAN/control"
 Package: ${PACKAGE_NAME}
