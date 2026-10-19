@@ -8,6 +8,7 @@ pub mod daemon;
 pub mod error;
 pub mod paster;
 pub mod platform;
+pub mod render;
 pub mod settings;
 pub mod snipper;
 

@@ -11,6 +11,7 @@ pub use events::SnipperState;
 pub use types::SnipperOutcome;
 
 use crate::error::SnapinError;
+use crate::render::blit_pixmap_to_surface;
 use crate::snipper::canvas::SnipperCanvas;
 use events::handle_key_input;
 use image::RgbaImage;
@@ -71,7 +72,7 @@ pub fn run_snipper_session(
     let (bg_pixmap, dimmed_bg) = create_pixmaps_fast(&bg_image)?;
 
     // 在进入事件循环前，立即将暗化蒙层写入 softbuffer 共享表面，确保窗口映射瞬间即为暗色
-    let _ = blit_to_surface(&mut surface, &dimmed_bg);
+    let _ = blit_pixmap_to_surface(&mut surface, &dimmed_bg);
 
     let mut render_pixmap =
         Pixmap::new(screen_w, screen_h).ok_or_else(|| SnapinError::SoftbufferError {
@@ -184,7 +185,7 @@ fn dispatch_window_event(
             let mut pixmap_mut = ctx.render_pixmap.as_mut();
             canvas.render(&mut pixmap_mut);
 
-            if let Err(e) = blit_to_surface(ctx.surface, ctx.render_pixmap) {
+            if let Err(e) = blit_pixmap_to_surface(ctx.surface, ctx.render_pixmap) {
                 tracing::error!("向屏幕刷新帧缓冲失败: {e}");
             }
         }
@@ -290,29 +291,6 @@ fn create_pixmaps_fast(img: &RgbaImage) -> Result<(Pixmap, Pixmap), SnapinError>
     }
 
     Ok((bg, dimmed))
-}
-
-/// 将 tiny-skia 像素高速复制到 softbuffer 共享内存缓冲区并呈现
-fn blit_to_surface(
-    surface: &mut softbuffer::Surface<Arc<Window>, Arc<Window>>,
-    pixmap: &Pixmap,
-) -> Result<(), SnapinError> {
-    let mut buffer = surface
-        .buffer_mut()
-        .map_err(|e| SnapinError::SoftbufferError {
-            message: format!("获取绘图表面缓冲区失败: {e}"),
-        })?;
-
-    let src_bytes = pixmap.data();
-    for (dest, src) in buffer.iter_mut().zip(src_bytes.as_chunks::<4>().0) {
-        *dest = ((src[0] as u32) << 16) | ((src[1] as u32) << 8) | (src[2] as u32);
-    }
-
-    buffer.present().map_err(|e| SnapinError::SoftbufferError {
-        message: format!("帧缓冲提交显示失败: {e}"),
-    })?;
-
-    Ok(())
 }
 
 /// 解析十六进制颜色字符串为 RGB 三元组

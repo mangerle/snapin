@@ -3,6 +3,7 @@
 //! 当系统未处于截图状态而用户直接按下贴图键时，检查剪贴板内容：
 //! 若包含纯文本或颜色值，自动排版并烘焙为带圆角与投影的精致便签图片。
 
+use crate::render::TextRenderer;
 use tiny_skia::{Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 
 /// 判断字符串是否为标准 HEX 颜色格式 (如 `#FF5500` 或 `#F50`)
@@ -60,8 +61,6 @@ pub fn render_color_swatch_card(r: u8, g: u8, b: u8) -> Option<Pixmap> {
 
     Some(pixmap)
 }
-
-use crate::paster::context_menu::render::TextRenderer;
 
 /// 将纯文本行转换为带卡片背景的便签 Pixmap
 pub fn render_simple_text_card(lines: &[&str]) -> Option<Pixmap> {

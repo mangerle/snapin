@@ -1,7 +1,6 @@
 //! 贴图右键上下文菜单的现代化毛玻璃视觉光栅化渲染。
 
 use super::{ContextMenuState, MenuItem};
-use cosmic_text::{Attrs, Buffer, Color as CosmicColor, FontSystem, Metrics, Shaping, SwashCache};
 use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 创建开启抗锯齿的基础画笔
@@ -14,82 +13,7 @@ fn make_paint(color: Color) -> Paint<'static> {
     paint
 }
 
-/// 纯 Rust 高精度文本渲染上下文
-pub struct TextRenderer {
-    font_system: FontSystem,
-    swash_cache: SwashCache,
-}
-
-impl Default for TextRenderer {
-    fn default() -> Self {
-        Self {
-            font_system: FontSystem::new(),
-            swash_cache: SwashCache::new(),
-        }
-    }
-}
-
-impl TextRenderer {
-    /// 在指定坐标绘制中文或英文排版文字
-    pub fn draw_text(
-        &mut self,
-        pixmap: &mut PixmapMut,
-        text: &str,
-        x: f32,
-        y: f32,
-        font_size: f32,
-        color: Color,
-    ) {
-        let metrics = Metrics::new(font_size, font_size * 1.25);
-        let mut buffer = Buffer::new(&mut self.font_system, metrics);
-        buffer.set_size(
-            &mut self.font_system,
-            pixmap.width() as f32,
-            pixmap.height() as f32,
-        );
-        buffer.set_text(&mut self.font_system, text, Attrs::new(), Shaping::Advanced);
-        buffer.shape_until_scroll(&mut self.font_system, false);
-
-        let c_color = CosmicColor::rgba(
-            (color.red() * 255.0) as u8,
-            (color.green() * 255.0) as u8,
-            (color.blue() * 255.0) as u8,
-            (color.alpha() * 255.0) as u8,
-        );
-
-        let width = pixmap.width() as i32;
-        let height = pixmap.height() as i32;
-
-        buffer.draw(
-            &mut self.font_system,
-            &mut self.swash_cache,
-            c_color,
-            |gx, gy, _w, _h, c| {
-                let px = x as i32 + gx;
-                let py = y as i32 + gy;
-                if px >= 0 && px < width && py >= 0 && py < height {
-                    let idx = ((py as usize) * (width as usize) + (px as usize)) * 4;
-                    let data = pixmap.data_mut();
-                    let src_a = c.a() as f32 / 255.0;
-                    let dst_a = data[idx + 3] as f32 / 255.0;
-                    let out_a = src_a + dst_a * (1.0 - src_a);
-                    if out_a > 0.0 {
-                        let src_r = c.r() as f32 * src_a;
-                        let src_g = c.g() as f32 * src_a;
-                        let src_b = c.b() as f32 * src_a;
-                        let dst_r = data[idx] as f32 * dst_a;
-                        let dst_g = data[idx + 1] as f32 * dst_a;
-                        let dst_b = data[idx + 2] as f32 * dst_a;
-                        data[idx] = ((src_r + dst_r * (1.0 - src_a)) / out_a) as u8;
-                        data[idx + 1] = ((src_g + dst_g * (1.0 - src_a)) / out_a) as u8;
-                        data[idx + 2] = ((src_b + dst_b * (1.0 - src_a)) / out_a) as u8;
-                        data[idx + 3] = (out_a * 255.0) as u8;
-                    }
-                }
-            },
-        );
-    }
-}
+pub use crate::render::TextRenderer;
 
 /// 绘制圆角矩形路径辅助方法
 fn add_round_rect(pb: &mut PathBuilder, x: f32, y: f32, w: f32, h: f32, r: f32) {

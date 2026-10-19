@@ -2,16 +2,8 @@
 
 use crate::annotation::action::AnnotationAction;
 use crate::annotation::shapes::TextAction;
-use cosmic_text::{Attrs, Buffer, Color as CosmicColor, FontSystem, Metrics, Shaping, SwashCache};
-use std::cell::RefCell;
+use crate::render::with_thread_local_text_renderer;
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
-
-thread_local! {
-    static FONT_SYSTEM: RefCell<(FontSystem, SwashCache)> = RefCell::new((
-        FontSystem::new(),
-        SwashCache::new(),
-    ));
-}
 
 /// 正在进行的文本标注交互输入会话
 #[derive(Debug, Clone)]
@@ -98,24 +90,14 @@ impl TextInputSession {
         font_size: f32,
         line_height: f32,
     ) -> f32 {
-        let mut cursor_x = x;
-
-        FONT_SYSTEM.with(|cell| {
-            let mut borrowed = cell.borrow_mut();
-            let (font_system, swash_cache) = &mut *borrowed;
-
-            let metrics = Metrics::new(font_size, line_height);
-            let mut buffer = Buffer::new(font_system, metrics);
-            buffer.set_size(font_system, pixmap.width() as f32, pixmap.height() as f32);
-            buffer.set_text(font_system, &self.text, Attrs::new(), Shaping::Advanced);
-            buffer.shape_until_scroll(font_system, false);
-
-            let mut line_w: f32 = 0.0;
-            for run in buffer.layout_runs() {
-                if run.line_w > line_w {
-                    line_w = run.line_w;
-                }
-            }
+        with_thread_local_text_renderer(|renderer| {
+            let (line_w, cursor_offset) = renderer.measure_text_input(
+                &self.text,
+                font_size,
+                line_height,
+                pixmap.width() as f32,
+                pixmap.height() as f32,
+            );
 
             // 1. 优先绘制黑色外框与底衬
             let min_w = (font_size * 3.0).max(64.0);
@@ -124,42 +106,10 @@ impl TextInputSession {
             render_input_box(pixmap, x - 6.0, y - 4.0, box_w, box_h);
 
             // 2. 绘制文字像素
-            let c_color = CosmicColor::rgba(self.color.0, self.color.1, self.color.2, self.color.3);
-            let width = pixmap.width() as i32;
-            let height = pixmap.height() as i32;
-            let mut max_gx: f32 = x;
+            renderer.draw_text_rgba(pixmap, &self.text, x, y, font_size, self.color);
 
-            buffer.draw(font_system, swash_cache, c_color, |gx, gy, w, _h, c| {
-                let px = x as i32 + gx;
-                let py = y as i32 + gy;
-                if (gx + w as i32) as f32 + x > max_gx {
-                    max_gx = (gx + w as i32) as f32 + x;
-                }
-                if px >= 0 && px < width && py >= 0 && py < height {
-                    let idx = ((py as usize) * (width as usize) + (px as usize)) * 4;
-                    let data = pixmap.data_mut();
-                    let src_a = c.a() as f32 / 255.0;
-                    let dst_a = data[idx + 3] as f32 / 255.0;
-                    let out_a = src_a + dst_a * (1.0 - src_a);
-                    if out_a > 0.0 {
-                        let src_r = c.r() as f32 * src_a;
-                        let src_g = c.g() as f32 * src_a;
-                        let src_b = c.b() as f32 * src_a;
-                        let dst_r = data[idx] as f32 * dst_a;
-                        let dst_g = data[idx + 1] as f32 * dst_a;
-                        let dst_b = data[idx + 2] as f32 * dst_a;
-                        data[idx] = ((src_r + dst_r * (1.0 - src_a)) / out_a) as u8;
-                        data[idx + 1] = ((src_g + dst_g * (1.0 - src_a)) / out_a) as u8;
-                        data[idx + 2] = ((src_b + dst_b * (1.0 - src_a)) / out_a) as u8;
-                        data[idx + 3] = (out_a * 255.0) as u8;
-                    }
-                }
-            });
-
-            cursor_x = max_gx + 2.0;
-        });
-
-        cursor_x
+            x + cursor_offset
+        })
     }
 }
 

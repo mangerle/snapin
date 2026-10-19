@@ -3,6 +3,7 @@
 use super::events::PasterWindowState;
 use crate::error::SnapinError;
 use crate::paster::context_menu::render::render_context_menu;
+use crate::render::blit_pixmap_to_surface;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use tiny_skia::{Color, FilterQuality, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform};
@@ -93,28 +94,8 @@ pub fn render_paster_to_surface(
         );
     }
 
-    // 5. 提交渲染至 softbuffer 显存
-    let mut buffer = surface
-        .buffer_mut()
-        .map_err(|e| SnapinError::SoftbufferError {
-            message: format!("获取绘图表面缓冲区失败: {e}"),
-        })?;
-
-    for (dest, chunk) in buffer
-        .iter_mut()
-        .zip(target_pixmap.data().as_chunks::<4>().0)
-    {
-        let r = chunk[0] as u32;
-        let g = chunk[1] as u32;
-        let b = chunk[2] as u32;
-        *dest = (r << 16) | (g << 8) | b;
-    }
-
-    buffer.present().map_err(|e| SnapinError::SoftbufferError {
-        message: format!("贴图帧缓冲呈现失败: {e}"),
-    })?;
-
-    Ok(())
+    // 5. 提交渲染至 softbuffer 显存呈现
+    blit_pixmap_to_surface(surface, &target_pixmap)
 }
 
 /// 绘制贴图边缘微反光边框与立体阴影
