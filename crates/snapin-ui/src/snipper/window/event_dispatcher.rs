@@ -7,7 +7,7 @@ use super::presenter::SnipperPresenter;
 use super::types::SnipperOutcome;
 use image::RgbaImage;
 use std::sync::{Arc, Mutex};
-use winit::event::WindowEvent;
+use winit::event::{Ime, WindowEvent};
 use winit::event_loop::EventLoopWindowTarget;
 use winit::window::Window;
 
@@ -77,6 +77,39 @@ impl SnipperEventDispatcher {
                     window.request_redraw();
                 }
                 Self::check_exit_outcome(state, outcome_slot, elwt);
+            }
+            WindowEvent::Ime(ime_event) => {
+                let need_redraw = match ime_event {
+                    Ime::Commit(text) => {
+                        if let Some(session) = &mut state.active_text_input {
+                            session.push_commit(&text);
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    Ime::Preedit(text, _cursor) => {
+                        if let Some(session) = &mut state.active_text_input {
+                            session.set_preedit(&text);
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    _ => false,
+                };
+                if need_redraw {
+                    if let Some(session) = &state.active_text_input {
+                        window.set_ime_cursor_area(
+                            winit::dpi::PhysicalPosition::new(
+                                session.pos.0 as i32,
+                                session.pos.1 as i32,
+                            ),
+                            winit::dpi::PhysicalSize::new(24, session.font_size as u32),
+                        );
+                    }
+                    window.request_redraw();
+                }
             }
             WindowEvent::ModifiersChanged(mods) => {
                 state.modifiers = mods.state();

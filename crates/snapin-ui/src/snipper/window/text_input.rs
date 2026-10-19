@@ -10,8 +10,10 @@ use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
 pub struct TextInputSession {
     /// 文本起始左上角坐标 (x, y)
     pub pos: (f32, f32),
-    /// 已输入的文本字符内容
+    /// 已提交确认的文本字符内容
     pub text: String,
+    /// 候选输入法预编辑拼音内容 (IME Preedit)
+    pub preedit: String,
     /// 文字颜色 (r, g, b, a)
     pub color: (u8, u8, u8, u8),
     /// 字体字号大小 (受鼠标滚轮连续动态微调，范围 12.0 ~ 72.0)
@@ -24,6 +26,7 @@ impl TextInputSession {
         Self {
             pos,
             text: String::with_capacity(64),
+            preedit: String::new(),
             color,
             font_size: font_size.clamp(12.0, 72.0),
         }
@@ -39,9 +42,24 @@ impl TextInputSession {
         self.text.push_str(s);
     }
 
+    /// 接收输入法确认提交的中文/外文文本
+    pub fn push_commit(&mut self, s: &str) {
+        self.preedit.clear();
+        self.text.push_str(s);
+    }
+
+    /// 接收输入法候选状态变动
+    pub fn set_preedit(&mut self, s: &str) {
+        self.preedit = s.to_string();
+    }
+
     /// 删除末尾字符
     pub fn pop_char(&mut self) {
-        self.text.pop();
+        if !self.preedit.is_empty() {
+            self.preedit.pop();
+        } else {
+            self.text.pop();
+        }
     }
 
     /// 动态调节字号
@@ -50,7 +68,11 @@ impl TextInputSession {
     }
 
     /// 将当前会话转换为持久化标注动作
-    pub fn commit(self) -> Option<AnnotationShape> {
+    pub fn commit(mut self) -> Option<AnnotationShape> {
+        if !self.preedit.is_empty() {
+            self.text.push_str(&self.preedit);
+            self.preedit.clear();
+        }
         let trimmed = self.text.trim();
         if trimmed.is_empty() {
             None
@@ -70,12 +92,18 @@ impl TextInputSession {
         let font_size = self.font_size.max(8.0);
         let line_height = font_size * 1.25;
 
-        let cursor_x = if self.text.is_empty() {
+        let display_text = if self.preedit.is_empty() {
+            std::borrow::Cow::Borrowed(&self.text)
+        } else {
+            std::borrow::Cow::Owned(format!("{}{}", self.text, self.preedit))
+        };
+
+        let cursor_x = if display_text.is_empty() {
             let min_w = (font_size * 3.0).max(64.0);
             render_input_box(pixmap, x - 6.0, y - 4.0, min_w, line_height + 8.0);
             x
         } else {
-            self.draw_box_and_text(pixmap, x, y, font_size, line_height)
+            self.draw_box_and_text(pixmap, x, y, font_size, line_height, &display_text)
         };
 
         render_input_cursor(pixmap, cursor_x, y, font_size, self.color);
@@ -89,10 +117,11 @@ impl TextInputSession {
         y: f32,
         font_size: f32,
         line_height: f32,
+        text: &str,
     ) -> f32 {
         with_thread_local_text_renderer(|renderer| {
             let (line_w, cursor_offset) = renderer.measure_text_input(
-                &self.text,
+                text,
                 font_size,
                 line_height,
                 pixmap.width() as f32,
@@ -106,7 +135,7 @@ impl TextInputSession {
             render_input_box(pixmap, x - 6.0, y - 4.0, box_w, box_h);
 
             // 2. 绘制文字像素
-            renderer.draw_text_rgba(pixmap, &self.text, x, y, font_size, self.color);
+            renderer.draw_text_rgba(pixmap, text, x, y, font_size, self.color);
 
             x + cursor_offset
         })
@@ -203,6 +232,13 @@ mod tests {
 
         session.pop_char();
         assert_eq!(session.text, "Hello 世");
+
+        // 验证 IME 预编辑与提交
+        session.set_preedit("jie");
+        assert_eq!(session.preedit, "jie");
+        session.push_commit("界！");
+        assert_eq!(session.text, "Hello 世界！");
+        assert_eq!(session.preedit, "");
 
         session.adjust_font_size(4.0);
         assert_eq!(session.font_size, 22.0);

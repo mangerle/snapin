@@ -53,6 +53,7 @@ impl SnipperSession {
                     message: format!("创建全屏截图窗口失败: {e}"),
                 })?,
         );
+        window.set_ime_allowed(true);
 
         let mut presenter =
             SnipperPresenter::try_new(window.clone(), screen_w, screen_h, &self.bg_image)?;
