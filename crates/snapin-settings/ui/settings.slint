@@ -73,6 +73,7 @@ export component SettingsWindow inherits Window {
     in-out property <string> snip_hotkey: "Ctrl+Alt+A";
     in-out property <string> paste_hotkey: "F1";
     in-out property <string> toggle_hotkey: "Ctrl+F3";
+    in-out property <string> switch_group_hotkey: "Shift+F3";
 
     // 回调事件
     callback save_and_apply();
@@ -268,6 +269,7 @@ export component SettingsWindow inherits Window {
                         snip_hotkey <=> root.snip_hotkey;
                         paste_hotkey <=> root.paste_hotkey;
                         toggle_hotkey <=> root.toggle_hotkey;
+                        switch_group_hotkey <=> root.switch_group_hotkey;
                     }
 
                     if root.active_tab == 6: AboutTab {

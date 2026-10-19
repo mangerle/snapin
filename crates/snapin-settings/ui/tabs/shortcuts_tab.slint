@@ -7,6 +7,7 @@ export component ShortcutsTab inherits VerticalLayout {
     in-out property <string> snip_hotkey: "Ctrl+Alt+A";
     in-out property <string> paste_hotkey: "F1";
     in-out property <string> toggle_hotkey: "Ctrl+F3";
+    in-out property <string> switch_group_hotkey: "Shift+F3";
 
     SettingCard {
         title: "系统全局快捷键";
@@ -58,6 +59,22 @@ export component ShortcutsTab inherits VerticalLayout {
                 }
                 ShortcutRecorder {
                     shortcut <=> root.toggle_hotkey;
+                }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                VerticalLayout {
+                    spacing: 2px;
+                    alignment: center;
+                    Text { text: "切换贴图分组 (Switch Group)"; font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: "在多个独立贴图工作区分组之间循环快速切换"; font-size: 12px; color: #64748b; }
+                }
+                ShortcutRecorder {
+                    shortcut <=> root.switch_group_hotkey;
                 }
             }
 

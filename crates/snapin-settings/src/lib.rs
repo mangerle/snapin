@@ -160,6 +160,7 @@ fn sync_hotkeys_to_window(win: &SettingsWindow, h: &config::model::HotkeyConfig)
     win.set_snip_hotkey(SharedString::from(h.snip.to_display_string()));
     win.set_paste_hotkey(SharedString::from(h.paste.to_display_string()));
     win.set_toggle_hotkey(SharedString::from(h.toggle_pasters.to_display_string()));
+    win.set_switch_group_hotkey(SharedString::from(h.switch_group.to_display_string()));
 }
 
 /// 从界面提取最新值更新到内存 Config 结构体
@@ -227,6 +228,7 @@ fn extract_hotkeys_from_window(win: &SettingsWindow, h: &mut config::model::Hotk
     h.snip = Hotkey::parse_str(win.get_snip_hotkey().as_str());
     h.paste = Hotkey::parse_str(win.get_paste_hotkey().as_str());
     h.toggle_pasters = Hotkey::parse_str(win.get_toggle_hotkey().as_str());
+    h.switch_group = Hotkey::parse_str(win.get_switch_group_hotkey().as_str());
 }
 
 /// 注册界面操作按钮回调事件
