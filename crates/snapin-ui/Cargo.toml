@@ -18,6 +18,7 @@ tokio.workspace = true
 tracing.workspace = true
 arboard.workspace = true
 rustix.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -7,7 +7,7 @@ pub mod model;
 pub mod sections;
 pub mod types;
 
-use crate::error::SnapinError;
+use crate::error::CoreError;
 pub use model::{
     ColorFormat, Config, DefaultTool, DoubleClickAction, GeneralConfig, HotkeyConfig, ImageFormat,
     InterfaceConfig, LogLevel, OutputConfig, PasterConfig, SnipConfig, Theme, TrayTheme,
@@ -18,8 +18,8 @@ use std::path::{Path, PathBuf};
 pub use types::{HexColor, Hotkey};
 
 /// 获取 Snapin 默认配置文件存储路径：`~/.config/snapin/config.toml`
-pub fn get_default_config_path() -> Result<PathBuf, SnapinError> {
-    let home = std::env::var("HOME").map_err(|e| SnapinError::IoError {
+pub fn get_default_config_path() -> Result<PathBuf, CoreError> {
+    let home = std::env::var("HOME").map_err(|e| CoreError::IoError {
         path: "$HOME".to_string(),
         source: std::io::Error::new(std::io::ErrorKind::NotFound, e),
     })?;
@@ -29,7 +29,7 @@ pub fn get_default_config_path() -> Result<PathBuf, SnapinError> {
 }
 
 /// 加载配置文件；若文件不存在，则自动初始化并保存一套默认配置到磁盘
-pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, SnapinError> {
+pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreError> {
     let target_path = match custom_path {
         Some(p) => p.to_path_buf(),
         None => get_default_config_path()?,
@@ -37,7 +37,7 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, Snapi
 
     if !target_path.exists() {
         if let Some(parent) = target_path.parent() {
-            fs::create_dir_all(parent).map_err(|e| SnapinError::IoError {
+            fs::create_dir_all(parent).map_err(|e| CoreError::IoError {
                 path: parent.to_string_lossy().to_string(),
                 source: e,
             })?;
@@ -49,12 +49,12 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, Snapi
         return Ok(default_config);
     }
 
-    let content = fs::read_to_string(&target_path).map_err(|e| SnapinError::IoError {
+    let content = fs::read_to_string(&target_path).map_err(|e| CoreError::IoError {
         path: target_path.to_string_lossy().to_string(),
         source: e,
     })?;
 
-    let config: Config = toml::from_str(&content).map_err(|e| SnapinError::ConfigParseError {
+    let config: Config = toml::from_str(&content).map_err(|e| CoreError::ConfigParseError {
         path: target_path.to_string_lossy().to_string(),
         source: e,
     })?;
@@ -64,19 +64,19 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, Snapi
 }
 
 /// 将内存配置结构体持久化写入指定的 TOML 文件
-pub fn save_config(config: &Config, target_path: &Path) -> Result<(), SnapinError> {
+pub fn save_config(config: &Config, target_path: &Path) -> Result<(), CoreError> {
     let toml_string = toml::to_string_pretty(config)?;
 
     if let Some(parent) = target_path.parent() {
         if !parent.exists() {
-            fs::create_dir_all(parent).map_err(|e| SnapinError::IoError {
+            fs::create_dir_all(parent).map_err(|e| CoreError::IoError {
                 path: parent.to_string_lossy().to_string(),
                 source: e,
             })?;
         }
     }
 
-    fs::write(target_path, toml_string).map_err(|e| SnapinError::IoError {
+    fs::write(target_path, toml_string).map_err(|e| CoreError::IoError {
         path: target_path.to_string_lossy().to_string(),
         source: e,
     })?;

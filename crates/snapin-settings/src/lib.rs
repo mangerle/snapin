@@ -9,11 +9,32 @@ pub mod shortcut;
 
 use slint::{ComponentHandle, SharedString};
 use snapin_core::config::{self, Config, HexColor, Hotkey};
-use snapin_core::error::SnapinError;
+use snapin_core::error::CoreError;
 use snapin_platform::{
-    suspend_hotkeys_for_settings, sync_autostart_desktop_file, sync_hotkeys_to_gnome,
+    suspend_hotkeys_for_settings, sync_autostart_desktop_file, sync_hotkeys_to_gnome, PlatformError,
 };
 use std::sync::{Arc, Mutex};
+use thiserror::Error;
+
+/// 偏好设置模块领域错误
+#[derive(Error, Debug)]
+pub enum SettingsError {
+    /// 设置窗口初始化失败
+    #[error("初始化设置中心图形窗口失败: {0}")]
+    InitFailed(String),
+
+    /// 设置中心事件循环运行异常
+    #[error("设置中心事件循环运行异常: {0}")]
+    RuntimeFailed(String),
+
+    /// 核心基础库配置异常
+    #[error(transparent)]
+    Core(#[from] CoreError),
+
+    /// 平台服务交互异常
+    #[error(transparent)]
+    Platform(#[from] PlatformError),
+}
 
 /// 预设强调色表（顺序与 Slint interface_tab 中的 ComboBox 严格一一对应）
 const ACCENT_COLORS: &[&str] = &[
@@ -75,10 +96,8 @@ fn index_to_magnifier_scale(index: i32) -> u32 {
 }
 
 /// 运行 Slint 偏好设置中心图形界面
-pub fn run_settings_gui() -> Result<(), SnapinError> {
-    let window = SettingsWindow::new().map_err(|e| SnapinError::SoftbufferError {
-        message: format!("初始化设置中心图形窗口失败: {e}"),
-    })?;
+pub fn run_settings_gui() -> Result<(), SettingsError> {
+    let window = SettingsWindow::new().map_err(|e| SettingsError::InitFailed(e.to_string()))?;
 
     // 设置 Wayland XDG 应用标识，使 Dock 栏与 Alt-Tab 匹配矢量图标
     let _ = slint::set_xdg_app_id("snapin");
@@ -112,9 +131,9 @@ pub fn run_settings_gui() -> Result<(), SnapinError> {
     // 3. 临时挂起 Snapin 系统全局快捷键，确保录制时按键不被系统拦截触发
     let _ = suspend_hotkeys_for_settings();
 
-    let run_res = window.run().map_err(|e| SnapinError::SoftbufferError {
-        message: format!("设置中心事件循环运行异常: {e}"),
-    });
+    let run_res = window
+        .run()
+        .map_err(|e| SettingsError::RuntimeFailed(e.to_string()));
 
     // 4. 设置窗口退出后，从磁盘恢复最新的有效全局快捷键
     if let Ok(latest_cfg) = config::load_or_create_config(None) {

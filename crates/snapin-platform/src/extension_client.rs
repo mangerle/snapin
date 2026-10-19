@@ -3,7 +3,7 @@
 //! 通过向 Mutter 内部暴露的 D-Bus 接口发送指定贴图窗口的唯一标题，
 //! 请求合成器调用 `meta_window.make_above()` 赋予其最高层级置顶特权。
 
-use snapin_core::error::SnapinError;
+use crate::error::PlatformError;
 use tokio::sync::OnceCell;
 use zbus::Connection;
 
@@ -14,12 +14,12 @@ const EXT_INTERFACE: &str = "org.gnome.Shell.Extensions.Snapin";
 static SESSION_CONNECTION: OnceCell<Connection> = OnceCell::const_new();
 
 /// 获取或初始化全局复用的 D-Bus Session 会话总线单例连接
-async fn get_session_connection() -> Result<&'static Connection, SnapinError> {
+async fn get_session_connection() -> Result<&'static Connection, PlatformError> {
     SESSION_CONNECTION
         .get_or_try_init(|| async {
             Connection::session()
                 .await
-                .map_err(|e| SnapinError::DBusError {
+                .map_err(|e| PlatformError::DBus {
                     service: "D-Bus Session Bus".to_string(),
                     message: e.to_string(),
                 })
@@ -28,7 +28,7 @@ async fn get_session_connection() -> Result<&'static Connection, SnapinError> {
 }
 
 /// 请求配套 GNOME Shell 扩展将指定标题的贴图窗口置顶
-pub async fn pin_window_above(window_title: &str) -> Result<bool, SnapinError> {
+pub async fn pin_window_above(window_title: &str) -> Result<bool, PlatformError> {
     let connection = get_session_connection().await?;
 
     tracing::debug!("正在请求 GNOME 扩展置顶窗口，标题: {}", window_title);
@@ -42,18 +42,15 @@ pub async fn pin_window_above(window_title: &str) -> Result<bool, SnapinError> {
             &(window_title),
         )
         .await
-        .map_err(|e| SnapinError::DBusError {
+        .map_err(|e| PlatformError::DBus {
             service: EXT_BUS_NAME.to_string(),
             message: e.to_string(),
         })?;
 
-    let reply: (bool,) = msg
-        .body()
-        .deserialize()
-        .map_err(|e| SnapinError::DBusError {
-            service: EXT_BUS_NAME.to_string(),
-            message: e.to_string(),
-        })?;
+    let reply: (bool,) = msg.body().deserialize().map_err(|e| PlatformError::DBus {
+        service: EXT_BUS_NAME.to_string(),
+        message: e.to_string(),
+    })?;
 
     let success = reply.0;
     if success {
@@ -65,7 +62,7 @@ pub async fn pin_window_above(window_title: &str) -> Result<bool, SnapinError> {
 }
 
 /// 请求配套 GNOME Shell 扩展执行毫秒级原生无白闪全屏截屏
-pub async fn capture_fullscreen_extension(target_path: &str) -> Result<bool, SnapinError> {
+pub async fn capture_fullscreen_extension(target_path: &str) -> Result<bool, PlatformError> {
     let connection = get_session_connection().await?;
 
     tracing::debug!("正在向 GNOME 扩展请求原生极速全屏截屏: {}", target_path);
@@ -79,18 +76,15 @@ pub async fn capture_fullscreen_extension(target_path: &str) -> Result<bool, Sna
             &(target_path),
         )
         .await
-        .map_err(|e| SnapinError::DBusError {
+        .map_err(|e| PlatformError::DBus {
             service: EXT_BUS_NAME.to_string(),
             message: e.to_string(),
         })?;
 
-    let reply: (bool,) = msg
-        .body()
-        .deserialize()
-        .map_err(|e| SnapinError::DBusError {
-            service: EXT_BUS_NAME.to_string(),
-            message: e.to_string(),
-        })?;
+    let reply: (bool,) = msg.body().deserialize().map_err(|e| PlatformError::DBus {
+        service: EXT_BUS_NAME.to_string(),
+        message: e.to_string(),
+    })?;
 
     Ok(reply.0)
 }
@@ -100,7 +94,7 @@ pub async fn capture_fullscreen_extension(target_path: &str) -> Result<bool, Sna
 /// 成功捕获后返回原始图像分辨率 `Some((width, height))`
 pub async fn capture_fullscreen_extension_raw(
     target_path: &str,
-) -> Result<Option<(u32, u32)>, SnapinError> {
+) -> Result<Option<(u32, u32)>, PlatformError> {
     let connection = get_session_connection().await?;
 
     tracing::debug!(
@@ -117,18 +111,15 @@ pub async fn capture_fullscreen_extension_raw(
             &(target_path),
         )
         .await
-        .map_err(|e| SnapinError::DBusError {
+        .map_err(|e| PlatformError::DBus {
             service: EXT_BUS_NAME.to_string(),
             message: e.to_string(),
         })?;
 
-    let reply: (u32, u32, bool) = msg
-        .body()
-        .deserialize()
-        .map_err(|e| SnapinError::DBusError {
-            service: EXT_BUS_NAME.to_string(),
-            message: e.to_string(),
-        })?;
+    let reply: (u32, u32, bool) = msg.body().deserialize().map_err(|e| PlatformError::DBus {
+        service: EXT_BUS_NAME.to_string(),
+        message: e.to_string(),
+    })?;
 
     if reply.2 && reply.0 > 0 && reply.1 > 0 {
         Ok(Some((reply.0, reply.1)))

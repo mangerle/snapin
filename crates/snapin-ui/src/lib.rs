@@ -2,8 +2,10 @@
 //!
 //! 提供基于纯 CPU 软件光栅化的全屏置顶截图交互（snipper）与常驻桌面贴图窗口（paster）。
 
+pub mod error;
 pub mod paster;
 pub mod snipper;
 pub mod surface;
 
+pub use error::UiError;
 pub use surface::blit_pixmap_to_surface;

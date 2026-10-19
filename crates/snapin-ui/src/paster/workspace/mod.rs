@@ -12,8 +12,8 @@ pub use proxy::{PasterAppEvent, PasterWorkspaceProxy, WorkspaceStatus};
 pub use window_builder::PasterInstance;
 
 use super::manager::PasterManager;
+use crate::error::UiError;
 use event_handler::{handle_workspace_user_event, handle_workspace_window_event};
-use snapin_core::error::SnapinError;
 use std::collections::HashMap;
 use winit::event::Event;
 use winit::event_loop::{ControlFlow, EventLoop, EventLoopBuilder};
@@ -22,10 +22,10 @@ use winit::window::WindowId;
 
 /// 创建集中多窗口贴图工作区事件循环与配套代理
 pub fn create_paster_workspace(
-) -> Result<(EventLoop<PasterAppEvent>, PasterWorkspaceProxy), SnapinError> {
+) -> Result<(EventLoop<PasterAppEvent>, PasterWorkspaceProxy), UiError> {
     let mut builder = EventLoopBuilder::<PasterAppEvent>::with_user_event();
     builder.with_any_thread(true);
-    let event_loop = builder.build().map_err(|e| SnapinError::WindowError {
+    let event_loop = builder.build().map_err(|e| UiError::Window {
         message: format!("创建集中多窗口贴图工作区事件循环失败: {e}"),
     })?;
     let proxy = PasterWorkspaceProxy::new(event_loop.create_proxy());
@@ -35,7 +35,7 @@ pub fn create_paster_workspace(
 /// 在专用 GUI 独立线程中拉起集中贴图工作区，并在事件循环就绪后返回全局线程安全代理
 pub fn spawn_paster_workspace_thread(
     exit_on_all_closed: bool,
-) -> Result<PasterWorkspaceProxy, SnapinError> {
+) -> Result<PasterWorkspaceProxy, UiError> {
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     std::thread::Builder::new()
         .name("snapin-paster-gui".to_string())
@@ -52,11 +52,11 @@ pub fn spawn_paster_workspace_thread(
                 tracing::error!("集中贴图工作区主循环异常退出: {e}");
             }
         })
-        .map_err(|e| SnapinError::WindowError {
+        .map_err(|e| UiError::Window {
             message: format!("派生贴图工作区 GUI 线程失败: {e}"),
         })?;
 
-    rx.recv().map_err(|_| SnapinError::WindowError {
+    rx.recv().map_err(|_| UiError::Window {
         message: "等待集中贴图工作区事件循环就绪失败".to_string(),
     })
 }
@@ -68,7 +68,7 @@ pub fn spawn_paster_workspace_thread(
 pub fn run_paster_workspace_loop(
     event_loop: EventLoop<PasterAppEvent>,
     exit_on_all_closed: bool,
-) -> Result<(), SnapinError> {
+) -> Result<(), UiError> {
     let mut instances: HashMap<WindowId, PasterInstance> = HashMap::new();
     let mut manager = PasterManager::default();
     let cfg = snapin_core::config::load_or_create_config(None).unwrap_or_default();
@@ -103,7 +103,7 @@ pub fn run_paster_workspace_loop(
                 _ => {}
             }
         })
-        .map_err(|e| SnapinError::WindowError {
+        .map_err(|e| UiError::Window {
             message: format!("运行集中贴图工作区事件主循环失败: {e}"),
         })
 }

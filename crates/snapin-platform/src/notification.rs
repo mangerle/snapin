@@ -1,6 +1,6 @@
 //! 基于 Freedesktop 标准的桌面通知发送实现。
 
-use snapin_core::error::SnapinError;
+use crate::error::PlatformError;
 use std::collections::HashMap;
 use zbus::zvariant::Value;
 use zbus::Connection;
@@ -10,10 +10,10 @@ const NOTIFICATION_PATH: &str = "/org/freedesktop/Notifications";
 const NOTIFICATION_INTERFACE: &str = "org.freedesktop.Notifications";
 
 /// 向系统通知中心发送一条自消除的气泡通知
-pub async fn send_desktop_notification(summary: &str, body: &str) -> Result<u32, SnapinError> {
+pub async fn send_desktop_notification(summary: &str, body: &str) -> Result<u32, PlatformError> {
     let connection = Connection::session()
         .await
-        .map_err(|e| SnapinError::DBusError {
+        .map_err(|e| PlatformError::DBus {
             service: NOTIFICATION_BUS_NAME.to_string(),
             message: e.to_string(),
         })?;
@@ -43,18 +43,15 @@ pub async fn send_desktop_notification(summary: &str, body: &str) -> Result<u32,
             ),
         )
         .await
-        .map_err(|e| SnapinError::DBusError {
+        .map_err(|e| PlatformError::DBus {
             service: NOTIFICATION_BUS_NAME.to_string(),
             message: e.to_string(),
         })?;
 
-    let reply: (u32,) = msg
-        .body()
-        .deserialize()
-        .map_err(|e| SnapinError::DBusError {
-            service: NOTIFICATION_BUS_NAME.to_string(),
-            message: e.to_string(),
-        })?;
+    let reply: (u32,) = msg.body().deserialize().map_err(|e| PlatformError::DBus {
+        service: NOTIFICATION_BUS_NAME.to_string(),
+        message: e.to_string(),
+    })?;
 
     Ok(reply.0)
 }

@@ -11,6 +11,7 @@ snapin-core.workspace = true
 snapin-platform.workspace = true
 slint.workspace = true
 tracing.workspace = true
+thiserror.workspace = true
 
 [build-dependencies]
 slint-build.workspace = true

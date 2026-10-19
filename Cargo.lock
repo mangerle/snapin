@@ -4763,6 +4763,7 @@ dependencies = [
  "serde_json",
  "snapin-core",
  "tempfile",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
 ]
@@ -4778,6 +4779,7 @@ dependencies = [
  "rustix 0.38.44",
  "serde",
  "snapin-core",
+ "thiserror 1.0.69",
  "tokio",
  "toml 0.8.23",
  "tracing",
@@ -4792,6 +4794,7 @@ dependencies = [
  "slint-build",
  "snapin-core",
  "snapin-platform",
+ "thiserror 1.0.69",
  "tracing",
 ]
 
@@ -4807,6 +4810,7 @@ dependencies = [
  "snapin-platform",
  "softbuffer",
  "tempfile",
+ "thiserror 1.0.69",
  "tiny-skia 0.11.4",
  "tokio",
  "tracing",

@@ -3,7 +3,7 @@
 use super::client::send_request_to_path;
 use super::codec::{read_framed_message, write_framed_message};
 use super::protocol::{get_socket_path, DaemonRequest, DaemonResponse, IpcInvocation, IPC_TIMEOUT};
-use snapin_core::error::SnapinError;
+use crate::error::DaemonError;
 use std::path::PathBuf;
 use tokio::net::UnixListener;
 use tokio::sync::mpsc::Sender;
@@ -18,7 +18,7 @@ pub struct IpcListener {
 
 impl IpcListener {
     /// 绑定套接字并初始化监听器，若检测到已有存活实例则拒绝重复启动，若为残留文件则自动清理
-    pub async fn bind(custom_path: Option<PathBuf>) -> Result<Self, SnapinError> {
+    pub async fn bind(custom_path: Option<PathBuf>) -> Result<Self, DaemonError> {
         let socket_path = custom_path.unwrap_or_else(get_socket_path);
 
         if socket_path.exists() {
@@ -26,7 +26,7 @@ impl IpcListener {
             if let Ok(Some(DaemonResponse::Pong)) =
                 send_request_to_path(&socket_path, &DaemonRequest::Ping).await
             {
-                return Err(SnapinError::IpcError {
+                return Err(DaemonError::Socket {
                     socket_path: socket_path.to_string_lossy().to_string(),
                     message: "已有另一个 Snapin 守护进程在运行中".to_string(),
                 });
@@ -34,7 +34,7 @@ impl IpcListener {
             let _ = std::fs::remove_file(&socket_path);
         }
 
-        let listener = UnixListener::bind(&socket_path).map_err(|e| SnapinError::IpcError {
+        let listener = UnixListener::bind(&socket_path).map_err(|e| DaemonError::Socket {
             socket_path: socket_path.to_string_lossy().to_string(),
             message: format!("绑定 IPC 套接字失败: {e}"),
         })?;

@@ -2,11 +2,13 @@
 
 pub mod client;
 pub mod codec;
+pub mod error;
 pub mod protocol;
 pub mod server;
 
 pub use client::{send_command_to_daemon, send_request_to_daemon, send_request_to_path};
 pub use codec::{read_framed_message, write_framed_message};
+pub use error::DaemonError;
 pub use protocol::{
     get_socket_path, DaemonCommand, DaemonRequest, DaemonResponse, IpcInvocation,
     MAX_IPC_FRAME_SIZE,

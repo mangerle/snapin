@@ -3,8 +3,8 @@
 use super::super::manager::{PasterItem, PasterManager};
 use super::super::window::events::PasterWindowState;
 use super::proxy::PasterAppEvent;
+use crate::error::UiError;
 use snapin_core::config::Config;
-use snapin_core::error::SnapinError;
 use snapin_platform::pin_window_above;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -31,7 +31,7 @@ pub fn create_new_paster_window(
     manager: &mut PasterManager,
     cfg: &Config,
     elwt: &EventLoopWindowTarget<PasterAppEvent>,
-) -> Result<(), SnapinError> {
+) -> Result<(), UiError> {
     let title = item.title.clone();
     let initial_w = item.pixmap.width();
     let initial_h = item.pixmap.height();
@@ -46,21 +46,19 @@ pub fn create_new_paster_window(
             .with_inner_size(PhysicalSize::new(initial_w, initial_h))
             .with_position(PhysicalPosition::new(init_x, init_y))
             .build(elwt)
-            .map_err(|e| SnapinError::WindowError {
+            .map_err(|e| UiError::Window {
                 message: format!("创建集中工作区贴图窗口失败: {e}"),
             })?,
     );
 
-    let context =
-        softbuffer::Context::new(window.clone()).map_err(|e| SnapinError::SoftbufferError {
-            message: format!("初始化贴图软渲染上下文失败: {e}"),
-        })?;
-
-    let surface = softbuffer::Surface::new(&context, window.clone()).map_err(|e| {
-        SnapinError::SoftbufferError {
-            message: format!("创建贴图软渲染帧缓冲表面失败: {e}"),
-        }
+    let context = softbuffer::Context::new(window.clone()).map_err(|e| UiError::Softbuffer {
+        message: format!("初始化贴图软渲染上下文失败: {e}"),
     })?;
+
+    let surface =
+        softbuffer::Surface::new(&context, window.clone()).map_err(|e| UiError::Softbuffer {
+            message: format!("创建贴图软渲染帧缓冲表面失败: {e}"),
+        })?;
 
     // 自动置顶与 GNOME 扩展协调
     if cfg.paster.enable_above_extension {

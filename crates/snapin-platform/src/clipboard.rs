@@ -3,9 +3,9 @@
 //! 支持在 Wayland 会话下读取和写入 RGBA 图像与 UTF-8 纯文本，
 //! 供截图复制、放大镜拾色复制以及贴图按键读取复用。
 
+use crate::error::PlatformError;
 use arboard::{Clipboard, ImageData};
 use image::RgbaImage;
-use snapin_core::error::SnapinError;
 use std::borrow::Cow;
 use std::sync::Mutex;
 
@@ -14,10 +14,10 @@ static CLIPBOARD_INSTANCE: Mutex<Option<Clipboard>> = Mutex::new(None);
 /// 在全局复用的剪贴板实例上执行操作闭包，具备断开连接时的单次自动重建自愈能力
 fn with_clipboard<R, F: FnMut(&mut Clipboard) -> Result<R, arboard::Error>>(
     mut f: F,
-) -> Result<R, SnapinError> {
+) -> Result<R, PlatformError> {
     let mut guard = CLIPBOARD_INSTANCE
         .lock()
-        .map_err(|e| SnapinError::ClipboardError {
+        .map_err(|e| PlatformError::Clipboard {
             message: format!("剪贴板互斥锁中毒: {e}"),
         })?;
 
@@ -34,25 +34,25 @@ fn with_clipboard<R, F: FnMut(&mut Clipboard) -> Result<R, arboard::Error>>(
                 if let Ok(mut new_cb) = Clipboard::new() {
                     let res = f(&mut new_cb);
                     *guard = Some(new_cb);
-                    res.map_err(|retry_err| SnapinError::ClipboardError {
+                    res.map_err(|retry_err| PlatformError::Clipboard {
                         message: format!("剪贴板重试操作失败: {retry_err}"),
                     })
                 } else {
-                    Err(SnapinError::ClipboardError {
+                    Err(PlatformError::Clipboard {
                         message: format!("剪贴板操作失败: {e}"),
                     })
                 }
             }
         }
     } else {
-        Err(SnapinError::ClipboardError {
+        Err(PlatformError::Clipboard {
             message: "无法初始化系统剪贴板".to_string(),
         })
     }
 }
 
 /// 将 RGBA 图像写入系统剪贴板
-pub fn write_image_to_clipboard(img: &RgbaImage) -> Result<(), SnapinError> {
+pub fn write_image_to_clipboard(img: &RgbaImage) -> Result<(), PlatformError> {
     with_clipboard(|cb| {
         let image_data = ImageData {
             width: img.width() as usize,
@@ -71,7 +71,7 @@ pub fn write_image_to_clipboard(img: &RgbaImage) -> Result<(), SnapinError> {
 }
 
 /// 将纯文本字符串写入系统剪贴板
-pub fn write_text_to_clipboard(text: &str) -> Result<(), SnapinError> {
+pub fn write_text_to_clipboard(text: &str) -> Result<(), PlatformError> {
     with_clipboard(|cb| cb.set_text(text))?;
 
     tracing::info!("已将文本写入系统剪贴板: {text}");
@@ -79,7 +79,7 @@ pub fn write_text_to_clipboard(text: &str) -> Result<(), SnapinError> {
 }
 
 /// 从系统剪贴板读取纯文本内容 (若不存在则返回 None)
-pub fn read_clipboard_text() -> Result<Option<String>, SnapinError> {
+pub fn read_clipboard_text() -> Result<Option<String>, PlatformError> {
     let res = with_clipboard(|cb| match cb.get_text() {
         Ok(text) => {
             let trimmed = text.trim();
@@ -95,13 +95,13 @@ pub fn read_clipboard_text() -> Result<Option<String>, SnapinError> {
 
     match res {
         Ok(opt) => Ok(opt),
-        Err(SnapinError::ClipboardError { .. }) => Ok(None),
+        Err(PlatformError::Clipboard { .. }) => Ok(None),
         Err(e) => Err(e),
     }
 }
 
 /// 从系统剪贴板读取 RGBA 图像 (若不存在则返回 None)
-pub fn read_clipboard_image() -> Result<Option<RgbaImage>, SnapinError> {
+pub fn read_clipboard_image() -> Result<Option<RgbaImage>, PlatformError> {
     let res = with_clipboard(|cb| match cb.get_image() {
         Ok(img_data) => {
             let width = img_data.width as u32;
@@ -118,7 +118,7 @@ pub fn read_clipboard_image() -> Result<Option<RgbaImage>, SnapinError> {
 
     match res {
         Ok(opt) => Ok(opt),
-        Err(SnapinError::ClipboardError { .. }) => Ok(None),
+        Err(PlatformError::Clipboard { .. }) => Ok(None),
         Err(e) => Err(e),
     }
 }

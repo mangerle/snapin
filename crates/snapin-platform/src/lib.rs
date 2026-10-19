@@ -2,6 +2,7 @@
 
 pub mod autostart;
 pub mod clipboard;
+pub mod error;
 pub mod extension_client;
 pub mod hotkey_manager;
 pub mod lifecycle;
@@ -13,6 +14,7 @@ pub use autostart::sync_autostart_desktop_file;
 pub use clipboard::{
     read_clipboard_image, read_clipboard_text, write_image_to_clipboard, write_text_to_clipboard,
 };
+pub use error::PlatformError;
 pub use extension_client::{
     capture_fullscreen_extension, capture_fullscreen_extension_raw, pin_window_above,
 };

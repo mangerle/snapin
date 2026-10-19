@@ -3,12 +3,12 @@
 //! 在 Ubuntu 26 GNOME 环境下，通过 gsettings 安全配置系统自定义快捷键列表，
 //! 将系统按键（如 F1/F3）直接路由至 `snapin snip` 与 `snapin paste` 命令行。
 
+use crate::error::PlatformError;
 use snapin_core::config::HotkeyConfig;
-use snapin_core::error::SnapinError;
 use std::process::Command;
 
 /// 自动在 GNOME 设置中注册或更新 Snapin 快捷键
-pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), SnapinError> {
+pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError> {
     tracing::info!("正在向 GNOME 系统注册/同步自定义快捷键...");
 
     let base_path = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
@@ -51,7 +51,7 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), SnapinError> {
 }
 
 /// 临时清空 Snapin 在 GNOME 中的快捷键绑定，避免在设置中心录制按键时被系统全局拦截
-pub fn suspend_hotkeys_for_settings() -> Result<(), SnapinError> {
+pub fn suspend_hotkeys_for_settings() -> Result<(), PlatformError> {
     let base_path = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
     let snip_path = format!("{base_path}/snapin-snip/");
     let paste_path = format!("{base_path}/snapin-paste/");
@@ -68,7 +68,7 @@ pub fn suspend_hotkeys_for_settings() -> Result<(), SnapinError> {
 }
 
 /// 确保指定的自定义按键路径已写入 GNOME custom-keybindings 列表
-fn ensure_custom_keybindings_registered(paths: &[&str]) -> Result<(), SnapinError> {
+fn ensure_custom_keybindings_registered(paths: &[&str]) -> Result<(), PlatformError> {
     let output = Command::new("gsettings")
         .args([
             "get",
@@ -76,7 +76,7 @@ fn ensure_custom_keybindings_registered(paths: &[&str]) -> Result<(), SnapinErro
             "custom-keybindings",
         ])
         .output()
-        .map_err(|e| SnapinError::IoError {
+        .map_err(|e| PlatformError::Io {
             path: "gsettings".to_string(),
             source: e,
         })?;

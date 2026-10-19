@@ -1,10 +1,10 @@
 //! 图像输出存储、文件名模板解析与历史选区持久化辅助模块。
 
+use crate::error::PlatformError;
 use chrono::Local;
 use image::RgbaImage;
 use serde::{Deserialize, Serialize};
 use snapin_core::config::{ImageFormat, OutputConfig};
-use snapin_core::error::SnapinError;
 use std::path::PathBuf;
 
 /// 根据输出配置生成目标文件绝对路径
@@ -22,13 +22,16 @@ pub fn resolve_save_path(cfg: &OutputConfig) -> PathBuf {
 }
 
 /// 按照用户配置格式将图像编码并写入磁盘
-pub fn save_image_with_config(img: &RgbaImage, cfg: &OutputConfig) -> Result<PathBuf, SnapinError> {
+pub fn save_image_with_config(
+    img: &RgbaImage,
+    cfg: &OutputConfig,
+) -> Result<PathBuf, PlatformError> {
     let out_path = resolve_save_path(cfg);
 
     match cfg.default_format {
         ImageFormat::Jpeg => {
             let rgb = image::DynamicImage::ImageRgba8(img.clone()).to_rgb8();
-            let mut file = std::fs::File::create(&out_path).map_err(|e| SnapinError::IoError {
+            let mut file = std::fs::File::create(&out_path).map_err(|e| PlatformError::Io {
                 path: out_path.display().to_string(),
                 source: e,
             })?;
@@ -36,15 +39,13 @@ pub fn save_image_with_config(img: &RgbaImage, cfg: &OutputConfig) -> Result<Pat
                 &mut file,
                 cfg.jpeg_quality.clamp(1, 100),
             );
-            encoder
-                .encode_image(&rgb)
-                .map_err(|e| SnapinError::IoError {
-                    path: out_path.display().to_string(),
-                    source: std::io::Error::other(e.to_string()),
-                })?;
+            encoder.encode_image(&rgb).map_err(|e| PlatformError::Io {
+                path: out_path.display().to_string(),
+                source: std::io::Error::other(e.to_string()),
+            })?;
         }
         ImageFormat::Png | ImageFormat::Webp => {
-            img.save(&out_path).map_err(|e| SnapinError::IoError {
+            img.save(&out_path).map_err(|e| PlatformError::Io {
                 path: out_path.display().to_string(),
                 source: std::io::Error::other(e.to_string()),
             })?;

@@ -1,9 +1,9 @@
 //! 贴图变换光栅化合成、精致边框与右键上下文菜单渲染。
 
 use super::events::PasterWindowState;
+use crate::error::UiError;
 use crate::paster::context_menu::render::render_context_menu;
 use crate::surface::blit_pixmap_to_surface;
-use snapin_core::error::SnapinError;
 use snapin_core::render::{with_thread_local_text_renderer, TextRenderer};
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -26,24 +26,20 @@ pub fn render_paster_to_surface(
     surface: &mut softbuffer::Surface<Arc<Window>, Arc<Window>>,
     width: u32,
     height: u32,
-) -> Result<(), SnapinError> {
-    let w = NonZeroU32::new(width.max(1)).ok_or_else(|| SnapinError::SoftbufferError {
+) -> Result<(), UiError> {
+    let w = NonZeroU32::new(width.max(1)).ok_or_else(|| UiError::Softbuffer {
         message: "无效的贴图表面宽度".to_string(),
     })?;
-    let h = NonZeroU32::new(height.max(1)).ok_or_else(|| SnapinError::SoftbufferError {
+    let h = NonZeroU32::new(height.max(1)).ok_or_else(|| UiError::Softbuffer {
         message: "无效的贴图表面高度".to_string(),
     })?;
 
-    surface
-        .resize(w, h)
-        .map_err(|e| SnapinError::SoftbufferError {
-            message: format!("调整贴图帧缓冲尺寸失败: {e}"),
-        })?;
+    surface.resize(w, h).map_err(|e| UiError::Softbuffer {
+        message: format!("调整贴图帧缓冲尺寸失败: {e}"),
+    })?;
 
     let mut target_pixmap =
-        Pixmap::new(width, height).ok_or_else(|| SnapinError::SoftbufferError {
-            message: "分配贴图渲染双缓冲区失败".to_string(),
-        })?;
+        Pixmap::new(width, height).ok_or_else(|| UiError::PixmapAlloc { width, height })?;
 
     // 1. 构建几何变换矩阵 (缩放)
     let scale = state.item.transform.scale;

@@ -9,5 +9,5 @@ pub mod render;
 
 pub use annotation::{AnnotationAction, AnnotationHistory, AnnotationShape};
 pub use config::{Config, HotkeyConfig, OutputConfig, PasterConfig, SnipConfig};
-pub use error::SnapinError;
+pub use error::{CoreError, SnapinError};
 pub use render::{with_thread_local_text_renderer, TextRenderer};

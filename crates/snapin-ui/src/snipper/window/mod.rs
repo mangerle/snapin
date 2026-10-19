@@ -11,12 +11,12 @@ pub mod types;
 pub use events::SnipperState;
 pub use types::SnipperOutcome;
 
+use crate::error::UiError;
 use crate::snipper::canvas::SnipperCanvas;
 use crate::surface::blit_pixmap_to_surface;
 use events::handle_key_input;
 use image::RgbaImage;
 use mouse::{handle_cursor_move, handle_mouse_button, handle_mouse_wheel};
-use snapin_core::error::SnapinError;
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use tiny_skia::Pixmap;
@@ -32,10 +32,10 @@ pub fn run_snipper_session(
     bg_image: RgbaImage,
     cfg: snapin_core::config::Config,
     mode: SnipMode,
-) -> Result<Option<SnipperOutcome>, SnapinError> {
+) -> Result<Option<SnipperOutcome>, UiError> {
     let mut builder = EventLoopBuilder::new();
     builder.with_any_thread(true);
-    let event_loop = builder.build().map_err(|e| SnapinError::WindowError {
+    let event_loop = builder.build().map_err(|e| UiError::Window {
         message: format!("构建截图事件循环失败: {e}"),
     })?;
     let screen_w = bg_image.width();
@@ -48,32 +48,28 @@ pub fn run_snipper_session(
             .with_fullscreen(Some(Fullscreen::Borderless(None)))
             .with_inner_size(PhysicalSize::new(screen_w, screen_h))
             .build(&event_loop)
-            .map_err(|e| SnapinError::WindowError {
+            .map_err(|e| UiError::Window {
                 message: format!("创建全屏截图窗口失败: {e}"),
             })?,
     );
 
-    let context =
-        softbuffer::Context::new(window.clone()).map_err(|e| SnapinError::SoftbufferError {
+    let context = softbuffer::Context::new(window.clone()).map_err(|e| UiError::Softbuffer {
+        message: e.to_string(),
+    })?;
+    let mut surface =
+        softbuffer::Surface::new(&context, window.clone()).map_err(|e| UiError::Softbuffer {
             message: e.to_string(),
         })?;
-    let mut surface = softbuffer::Surface::new(&context, window.clone()).map_err(|e| {
-        SnapinError::SoftbufferError {
-            message: e.to_string(),
-        }
-    })?;
 
-    let w = NonZeroU32::new(screen_w).ok_or_else(|| SnapinError::SoftbufferError {
+    let w = NonZeroU32::new(screen_w).ok_or_else(|| UiError::Softbuffer {
         message: "无效的屏幕宽度".to_string(),
     })?;
-    let h = NonZeroU32::new(screen_h).ok_or_else(|| SnapinError::SoftbufferError {
+    let h = NonZeroU32::new(screen_h).ok_or_else(|| UiError::Softbuffer {
         message: "无效的屏幕高度".to_string(),
     })?;
-    surface
-        .resize(w, h)
-        .map_err(|e| SnapinError::SoftbufferError {
-            message: format!("初始化帧缓冲尺寸失败: {e}"),
-        })?;
+    surface.resize(w, h).map_err(|e| UiError::Softbuffer {
+        message: format!("初始化帧缓冲尺寸失败: {e}"),
+    })?;
 
     let (bg_pixmap, dimmed_bg) = create_pixmaps_fast(&bg_image)?;
 
@@ -81,8 +77,9 @@ pub fn run_snipper_session(
     let _ = blit_pixmap_to_surface(&mut surface, &dimmed_bg);
 
     let mut render_pixmap =
-        Pixmap::new(screen_w, screen_h).ok_or_else(|| SnapinError::SoftbufferError {
-            message: "分配渲染双缓冲区失败".to_string(),
+        Pixmap::new(screen_w, screen_h).ok_or_else(|| UiError::PixmapAlloc {
+            width: screen_w,
+            height: screen_h,
         })?;
 
     let mut state = SnipperState::from_config(cfg, mode);
@@ -131,7 +128,7 @@ pub fn run_snipper_session(
                 _ => {}
             }
         })
-        .map_err(|e| SnapinError::WindowError {
+        .map_err(|e| UiError::Window {
             message: format!("运行截图事件循环失败: {e}"),
         })?;
 
@@ -271,14 +268,16 @@ fn check_exit_outcome(
 }
 
 /// 单遍高速生成原图底图与暗色蒙层底图 (单次内存遍历，CPU 缓存高度命中)
-fn create_pixmaps_fast(img: &RgbaImage) -> Result<(Pixmap, Pixmap), SnapinError> {
+fn create_pixmaps_fast(img: &RgbaImage) -> Result<(Pixmap, Pixmap), UiError> {
     let w = img.width();
     let h = img.height();
-    let mut bg = Pixmap::new(w, h).ok_or_else(|| SnapinError::SoftbufferError {
-        message: "分配背景底图 Pixmap 失败".to_string(),
+    let mut bg = Pixmap::new(w, h).ok_or_else(|| UiError::PixmapAlloc {
+        width: w,
+        height: h,
     })?;
-    let mut dimmed = Pixmap::new(w, h).ok_or_else(|| SnapinError::SoftbufferError {
-        message: "分配暗色蒙层 Pixmap 失败".to_string(),
+    let mut dimmed = Pixmap::new(w, h).ok_or_else(|| UiError::PixmapAlloc {
+        width: w,
+        height: h,
     })?;
 
     let src = img.as_raw();
