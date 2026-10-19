@@ -23,22 +23,31 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 1. 初始化结构化日志
+    // 1. 预读应用配置文件（以便依据用户偏好设置日志分级）
+    let cfg_result = config::load_or_create_config(None);
+    let default_level = cfg_result
+        .as_ref()
+        .map(|c| c.general.log_level.as_str())
+        .unwrap_or("info");
+
+    // 2. 初始化结构化日志（优先支持 RUST_LOG 环境变量覆盖，其次尊重用户配置文件的 log_level）
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_level));
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new("info"))
+        .with(env_filter)
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // 2. 初始化底层平台能力探测（探测 Wayland、GNOME Mutter 扩展等环境并全局缓存）
+    // 3. 初始化底层平台能力探测（探测 Wayland、GNOME Mutter 扩展等环境并全局缓存）
     init_platform_capabilities().await;
 
-    // 3. 注册贴图窗口平台特权观察者（解耦 UI 层直接调用 GNOME 扩展）
+    // 4. 注册贴图窗口平台特权观察者（解耦 UI 层直接调用 GNOME 扩展）
     app::setup_paster_platform_observer();
 
     let cli = Cli::parse();
 
-    // 2. 加载或初始化配置
-    let cfg = config::load_or_create_config(None).context("加载或初始化 Snapin 配置文件失败")?;
+    // 5. 校验配置加载结果，若配置文件损坏则附带上下文优雅报错
+    let cfg = cfg_result.context("加载或初始化 Snapin 配置文件失败")?;
 
     match cli.command {
         Some(Commands::Snip { auto_copy, custom }) => {
