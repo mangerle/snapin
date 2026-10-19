@@ -5,10 +5,20 @@
 
 slint::include_modules!();
 
+pub mod mapping;
 pub mod shortcut;
 
+use mapping::{
+    accent_color_to_index, color_format_to_index, default_tool_to_index,
+    double_click_action_to_index, image_format_to_index, index_to_accent_color,
+    index_to_color_format, index_to_default_tool, index_to_double_click_action,
+    index_to_image_format, index_to_log_level, index_to_magnifier_scale, index_to_snip_color,
+    index_to_theme, index_to_tray_theme, index_to_zoom_anchor, log_level_to_index,
+    magnifier_scale_to_index, snip_color_to_index, theme_to_index, tray_theme_to_index,
+    zoom_anchor_to_index,
+};
 use slint::{ComponentHandle, SharedString};
-use snapin_core::config::{self, Config, HexColor, Hotkey};
+use snapin_core::config::{self, Config, Hotkey};
 use snapin_core::error::CoreError;
 use snapin_platform::{
     suspend_hotkeys_for_settings, sync_autostart_desktop_file, sync_hotkeys_to_gnome, PlatformError,
@@ -34,65 +44,6 @@ pub enum SettingsError {
     /// 平台服务交互异常
     #[error(transparent)]
     Platform(#[from] PlatformError),
-}
-
-/// 预设强调色表（顺序与 Slint interface_tab 中的 ComboBox 严格一一对应）
-const ACCENT_COLORS: &[&str] = &[
-    "#00AEFF", // 0: 天海晴蓝
-    "#10B981", // 1: 翡翠青绿
-    "#F59E0B", // 2: 日光亮橙
-    "#8B5CF6", // 3: 优雅紫罗兰
-];
-
-/// 预设标注颜色表（顺序与 Slint snip_tab 中的 ComboBox 严格一一对应）
-const DEFAULT_SNIP_COLORS: &[&str] = &[
-    "#EF4444", // 0: 醒目赤红
-    "#00AEFF", // 1: 天海晴蓝
-    "#10B981", // 2: 清新翠绿
-    "#F59E0B", // 3: 明艳亮黄
-    "#FFFFFF", // 4: 纯洁雪白
-    "#000000", // 5: 深邃墨黑
-];
-
-/// 预设放大镜倍率表（顺序与 Slint interface_tab 中的 ComboBox 严格一一对应）
-const MAGNIFIER_SCALES: &[u32] = &[4, 8, 16];
-
-fn accent_color_to_index(color: &HexColor) -> i32 {
-    let hex = color.to_hex_string();
-    ACCENT_COLORS
-        .iter()
-        .position(|&c| c.eq_ignore_ascii_case(&hex))
-        .unwrap_or(0) as i32
-}
-
-fn index_to_accent_color(index: i32) -> HexColor {
-    let idx = index.clamp(0, (ACCENT_COLORS.len() - 1) as i32) as usize;
-    HexColor::from_hex(ACCENT_COLORS[idx]).unwrap_or_else(|| HexColor::new(0, 174, 255, 255))
-}
-
-fn snip_color_to_index(color: &HexColor) -> i32 {
-    let hex = color.to_hex_string();
-    DEFAULT_SNIP_COLORS
-        .iter()
-        .position(|&c| c.eq_ignore_ascii_case(&hex))
-        .unwrap_or(0) as i32
-}
-
-fn index_to_snip_color(index: i32) -> HexColor {
-    let idx = index.clamp(0, (DEFAULT_SNIP_COLORS.len() - 1) as i32) as usize;
-    HexColor::from_hex(DEFAULT_SNIP_COLORS[idx]).unwrap_or_else(|| HexColor::new(239, 68, 68, 255))
-}
-
-fn magnifier_scale_to_index(scale: u32) -> i32 {
-    MAGNIFIER_SCALES
-        .iter()
-        .position(|&s| s == scale)
-        .unwrap_or(1) as i32
-}
-
-fn index_to_magnifier_scale(index: i32) -> u32 {
-    let idx = index.clamp(0, (MAGNIFIER_SCALES.len() - 1) as i32) as usize;
-    MAGNIFIER_SCALES[idx]
 }
 
 /// 运行 Slint 偏好设置中心图形界面
@@ -158,17 +109,17 @@ fn sync_config_to_window(win: &SettingsWindow, cfg: &Config) {
 fn sync_general_to_window(win: &SettingsWindow, g: &config::model::GeneralConfig) {
     win.set_autostart(g.autostart);
     win.set_notify_on_startup(g.notify_on_startup);
-    win.set_log_level_index(g.log_level.to_index());
-    win.set_tray_theme_index(g.tray_theme.to_index());
+    win.set_log_level_index(log_level_to_index(g.log_level));
+    win.set_tray_theme_index(tray_theme_to_index(g.tray_theme));
 }
 
 /// 同步界面外观板块设置
 fn sync_interface_to_window(win: &SettingsWindow, i: &config::model::InterfaceConfig) {
-    win.set_theme_index(i.theme.to_index());
+    win.set_theme_index(theme_to_index(i.theme));
     win.set_accent_color_index(accent_color_to_index(&i.accent_color));
     win.set_enable_magnifier(i.enable_magnifier);
     win.set_magnifier_scale_index(magnifier_scale_to_index(i.magnifier_scale));
-    win.set_color_format_index(i.color_format.to_index());
+    win.set_color_format_index(color_format_to_index(i.color_format));
     win.set_show_grid_lines(i.show_grid_lines);
     win.set_toolbar_scale_percent(i.toolbar_scale * 100.0);
 }
@@ -178,7 +129,7 @@ fn sync_snip_to_window(win: &SettingsWindow, s: &config::model::SnipConfig) {
     win.set_capture_cursor(s.capture_cursor);
     win.set_smart_window_snapping(s.smart_window_snapping);
     win.set_remember_last_selection(s.remember_last_selection);
-    win.set_default_tool_index(s.default_tool.to_index());
+    win.set_default_tool_index(default_tool_to_index(s.default_tool));
     win.set_default_color_index(snip_color_to_index(&s.default_color));
     win.set_default_stroke_width(s.default_stroke_width);
     win.set_snip_font_size(s.default_font_size);
@@ -188,8 +139,8 @@ fn sync_snip_to_window(win: &SettingsWindow, s: &config::model::SnipConfig) {
 fn sync_paster_to_window(win: &SettingsWindow, p: &config::model::PasterConfig) {
     win.set_enable_above_extension(p.enable_above_extension);
     win.set_initial_opacity_percent(p.initial_opacity * 100.0);
-    win.set_zoom_anchor_index(p.zoom_anchor.to_index());
-    win.set_double_click_action_index(p.double_click_action.to_index());
+    win.set_zoom_anchor_index(zoom_anchor_to_index(p.zoom_anchor));
+    win.set_double_click_action_index(double_click_action_to_index(p.double_click_action));
     win.set_max_history_count(p.max_history_count as f32);
 }
 
@@ -197,7 +148,7 @@ fn sync_paster_to_window(win: &SettingsWindow, p: &config::model::PasterConfig) 
 fn sync_output_to_window(win: &SettingsWindow, o: &config::model::OutputConfig) {
     win.set_quick_save_dir(SharedString::from(&o.quick_save_dir));
     win.set_file_name_template(SharedString::from(&o.file_name_template));
-    win.set_format_index(o.default_format.to_index());
+    win.set_format_index(image_format_to_index(o.default_format));
     win.set_jpeg_quality(o.jpeg_quality as f32);
     win.set_notify_on_copy(o.notify_on_copy);
     win.set_notify_on_save(o.notify_on_save);
@@ -225,17 +176,17 @@ fn extract_config_from_window(win: &SettingsWindow, cfg: &mut Config) {
 fn extract_general_from_window(win: &SettingsWindow, g: &mut config::model::GeneralConfig) {
     g.autostart = win.get_autostart();
     g.notify_on_startup = win.get_notify_on_startup();
-    g.log_level = config::model::LogLevel::from_index(win.get_log_level_index());
-    g.tray_theme = config::model::TrayTheme::from_index(win.get_tray_theme_index());
+    g.log_level = index_to_log_level(win.get_log_level_index());
+    g.tray_theme = index_to_tray_theme(win.get_tray_theme_index());
 }
 
 /// 提取界面外观设置
 fn extract_interface_from_window(win: &SettingsWindow, i: &mut config::model::InterfaceConfig) {
-    i.theme = config::model::Theme::from_index(win.get_theme_index());
+    i.theme = index_to_theme(win.get_theme_index());
     i.accent_color = index_to_accent_color(win.get_accent_color_index());
     i.enable_magnifier = win.get_enable_magnifier();
     i.magnifier_scale = index_to_magnifier_scale(win.get_magnifier_scale_index());
-    i.color_format = config::model::ColorFormat::from_index(win.get_color_format_index());
+    i.color_format = index_to_color_format(win.get_color_format_index());
     i.show_grid_lines = win.get_show_grid_lines();
     i.toolbar_scale = win.get_toolbar_scale_percent() / 100.0;
 }
@@ -245,7 +196,7 @@ fn extract_snip_from_window(win: &SettingsWindow, s: &mut config::model::SnipCon
     s.capture_cursor = win.get_capture_cursor();
     s.smart_window_snapping = win.get_smart_window_snapping();
     s.remember_last_selection = win.get_remember_last_selection();
-    s.default_tool = config::model::DefaultTool::from_index(win.get_default_tool_index());
+    s.default_tool = index_to_default_tool(win.get_default_tool_index());
     s.default_color = index_to_snip_color(win.get_default_color_index());
     s.default_stroke_width = win.get_default_stroke_width();
     s.default_font_size = win.get_snip_font_size();
@@ -255,9 +206,8 @@ fn extract_snip_from_window(win: &SettingsWindow, s: &mut config::model::SnipCon
 fn extract_paster_from_window(win: &SettingsWindow, p: &mut config::model::PasterConfig) {
     p.enable_above_extension = win.get_enable_above_extension();
     p.initial_opacity = win.get_initial_opacity_percent() / 100.0;
-    p.zoom_anchor = config::model::ZoomAnchor::from_index(win.get_zoom_anchor_index());
-    p.double_click_action =
-        config::model::DoubleClickAction::from_index(win.get_double_click_action_index());
+    p.zoom_anchor = index_to_zoom_anchor(win.get_zoom_anchor_index());
+    p.double_click_action = index_to_double_click_action(win.get_double_click_action_index());
     p.max_history_count = win.get_max_history_count() as usize;
 }
 
@@ -265,7 +215,7 @@ fn extract_paster_from_window(win: &SettingsWindow, p: &mut config::model::Paste
 fn extract_output_from_window(win: &SettingsWindow, o: &mut config::model::OutputConfig) {
     o.quick_save_dir = win.get_quick_save_dir().to_string();
     o.file_name_template = win.get_file_name_template().to_string();
-    o.default_format = config::model::ImageFormat::from_index(win.get_format_index());
+    o.default_format = index_to_image_format(win.get_format_index());
     o.jpeg_quality = win.get_jpeg_quality() as u8;
     o.notify_on_copy = win.get_notify_on_copy();
     o.notify_on_save = win.get_notify_on_save();
@@ -316,41 +266,4 @@ fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
             }
         }
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_accent_color_mapping() {
-        let green = HexColor::from_hex("#10B981").unwrap();
-        assert_eq!(accent_color_to_index(&green), 1);
-        assert_eq!(index_to_accent_color(1), green);
-
-        // 未知颜色兜底为默认天蓝 (索引 0)
-        let unknown = HexColor::from_hex("#123456").unwrap();
-        assert_eq!(accent_color_to_index(&unknown), 0);
-    }
-
-    #[test]
-    fn test_snip_color_mapping() {
-        let white = HexColor::from_hex("#FFFFFF").unwrap();
-        assert_eq!(snip_color_to_index(&white), 4);
-        assert_eq!(index_to_snip_color(4), white);
-
-        let red = HexColor::from_hex("#EF4444").unwrap();
-        assert_eq!(snip_color_to_index(&red), 0);
-        assert_eq!(index_to_snip_color(0), red);
-    }
-
-    #[test]
-    fn test_magnifier_scale_mapping() {
-        assert_eq!(magnifier_scale_to_index(4), 0);
-        assert_eq!(magnifier_scale_to_index(8), 1);
-        assert_eq!(magnifier_scale_to_index(16), 2);
-        assert_eq!(index_to_magnifier_scale(0), 4);
-        assert_eq!(index_to_magnifier_scale(1), 8);
-        assert_eq!(index_to_magnifier_scale(2), 16);
-    }
 }

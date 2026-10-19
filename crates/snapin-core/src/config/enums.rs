@@ -1,6 +1,7 @@
 //! Snapin 强类型枚举与值转换定义。
 //!
 //! 包含系统日志级别、主题风格、取色格式、默认工具、缩放锚点、贴图交互与输出格式等代数数据类型定义。
+//! 遵循关注点分离原则，核心领域枚举不耦合任何特定 UI 框架的控件下标索引。
 
 use serde::{Deserialize, Serialize};
 
@@ -17,28 +18,6 @@ pub enum LogLevel {
 }
 
 impl LogLevel {
-    /// 与界面下拉框索引双向映射
-    pub fn from_index(idx: i32) -> Self {
-        match idx {
-            0 => Self::Trace,
-            1 => Self::Debug,
-            3 => Self::Warn,
-            4 => Self::Error,
-            _ => Self::Info,
-        }
-    }
-
-    /// 转换为界面下拉框索引
-    pub fn to_index(self) -> i32 {
-        match self {
-            Self::Trace => 0,
-            Self::Debug => 1,
-            Self::Info => 2,
-            Self::Warn => 3,
-            Self::Error => 4,
-        }
-    }
-
     /// 转换为标准日志级别文本
     pub fn as_str(self) -> &'static str {
         match self {
@@ -62,22 +41,6 @@ pub enum TrayTheme {
 }
 
 impl TrayTheme {
-    pub fn from_index(idx: i32) -> Self {
-        match idx {
-            1 => Self::Dark,
-            2 => Self::Light,
-            _ => Self::Auto,
-        }
-    }
-
-    pub fn to_index(self) -> i32 {
-        match self {
-            Self::Auto => 0,
-            Self::Dark => 1,
-            Self::Light => 2,
-        }
-    }
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Auto => "auto",
@@ -98,22 +61,6 @@ pub enum Theme {
 }
 
 impl Theme {
-    pub fn from_index(idx: i32) -> Self {
-        match idx {
-            1 => Self::Dark,
-            2 => Self::Light,
-            _ => Self::System,
-        }
-    }
-
-    pub fn to_index(self) -> i32 {
-        match self {
-            Self::System => 0,
-            Self::Dark => 1,
-            Self::Light => 2,
-        }
-    }
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::System => "system",
@@ -134,22 +81,6 @@ pub enum ColorFormat {
 }
 
 impl ColorFormat {
-    pub fn from_index(idx: i32) -> Self {
-        match idx {
-            1 => Self::Rgb,
-            2 => Self::Hsl,
-            _ => Self::Hex,
-        }
-    }
-
-    pub fn to_index(self) -> i32 {
-        match self {
-            Self::Hex => 0,
-            Self::Rgb => 1,
-            Self::Hsl => 2,
-        }
-    }
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Hex => "hex",
@@ -233,30 +164,6 @@ pub enum DefaultTool {
 }
 
 impl DefaultTool {
-    pub fn from_index(idx: i32) -> Self {
-        match idx {
-            1 => Self::Rectangle,
-            2 => Self::Pen,
-            3 => Self::Marker,
-            4 => Self::Arrow,
-            5 => Self::Text,
-            6 => Self::Badge,
-            _ => Self::None,
-        }
-    }
-
-    pub fn to_index(self) -> i32 {
-        match self {
-            Self::None => 0,
-            Self::Rectangle => 1,
-            Self::Pen => 2,
-            Self::Marker => 3,
-            Self::Arrow => 4,
-            Self::Text => 5,
-            Self::Badge => 6,
-        }
-    }
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::None => "none",
@@ -280,21 +187,6 @@ pub enum ZoomAnchor {
 }
 
 impl ZoomAnchor {
-    pub fn from_index(idx: i32) -> Self {
-        if idx == 1 {
-            Self::Center
-        } else {
-            Self::Cursor
-        }
-    }
-
-    pub fn to_index(self) -> i32 {
-        match self {
-            Self::Cursor => 0,
-            Self::Center => 1,
-        }
-    }
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Cursor => "cursor",
@@ -314,22 +206,6 @@ pub enum DoubleClickAction {
 }
 
 impl DoubleClickAction {
-    pub fn from_index(idx: i32) -> Self {
-        match idx {
-            1 => Self::CopyAndClose,
-            2 => Self::Copy,
-            _ => Self::Close,
-        }
-    }
-
-    pub fn to_index(self) -> i32 {
-        match self {
-            Self::Close => 0,
-            Self::CopyAndClose => 1,
-            Self::Copy => 2,
-        }
-    }
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Close => "close",
@@ -350,22 +226,6 @@ pub enum ImageFormat {
 }
 
 impl ImageFormat {
-    pub fn from_index(idx: i32) -> Self {
-        match idx {
-            1 => Self::Jpeg,
-            2 => Self::Webp,
-            _ => Self::Png,
-        }
-    }
-
-    pub fn to_index(self) -> i32 {
-        match self {
-            Self::Png => 0,
-            Self::Jpeg => 1,
-            Self::Webp => 2,
-        }
-    }
-
     pub fn extension(self) -> &'static str {
         match self {
             Self::Png => "png",
