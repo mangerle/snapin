@@ -521,4 +521,25 @@ mod tests {
         // 无可用本地模型时安全返回，不崩溃
         handle_action_translate(&mut state, &original);
     }
+
+    #[test]
+    fn test_handle_action_translate_zero_or_idle_selection() {
+        let mut state = SnipperState::new();
+        let original = RgbaImage::from_pixel(100, 100, Rgba([255, 255, 255, 255]));
+        // Idle 状态安全返回
+        handle_action_translate(&mut state, &original);
+
+        // 零尺寸锁定状态安全返回
+        state.selection = SelectionState::Locked {
+            rect: Rect {
+                x: 10.0,
+                y: 10.0,
+                width: 0.0,
+                height: 0.0,
+            },
+            active_drag: None,
+        };
+        handle_action_translate(&mut state, &original);
+        assert!(!state.annotations.can_undo());
+    }
 }

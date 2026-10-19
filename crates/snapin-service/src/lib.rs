@@ -48,4 +48,62 @@ mod tests {
         let dict = load_character_dict(&yml_path).unwrap();
         assert_eq!(dict, vec!["0", "A", "中"]);
     }
+
+    #[test]
+    fn test_load_character_dict_not_found() {
+        let not_exist = std::path::Path::new("/path/to/nonexistent/dict.txt");
+        let res = load_character_dict(not_exist);
+        assert!(matches!(res, Err(ServiceError::ModelNotFound { .. })));
+    }
+
+    #[test]
+    fn test_load_character_dict_invalid_format() {
+        let dir = tempdir().unwrap();
+        let invalid_yml = dir.path().join("inference.yml");
+        std::fs::write(&invalid_yml, "Invalid: [Yaml Content").unwrap();
+        let res = load_character_dict(&invalid_yml);
+        assert!(matches!(res, Err(ServiceError::ConfigParseError { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_translators_empty_batch() {
+        let bing = translate::providers::BingFreeTranslator::new();
+        assert_eq!(
+            bing.translate_batch(&[], "auto", "zh").await.unwrap(),
+            Vec::<String>::new()
+        );
+
+        let google = translate::providers::GoogleFreeTranslator::new();
+        assert_eq!(
+            google.translate_batch(&[], "auto", "zh").await.unwrap(),
+            Vec::<String>::new()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_translators_missing_credentials() {
+        let baidu = translate::providers::BaiduTranslator::new(String::new(), String::new());
+        let res = baidu
+            .translate_batch(&["hello".to_string()], "en", "zh")
+            .await;
+        assert!(
+            matches!(res, Err(ServiceError::MissingCredentials { provider, .. }) if provider == "baidu")
+        );
+
+        let youdao = translate::providers::YoudaoTranslator::new(String::new(), String::new());
+        let res = youdao
+            .translate_batch(&["hello".to_string()], "en", "zh")
+            .await;
+        assert!(
+            matches!(res, Err(ServiceError::MissingCredentials { provider, .. }) if provider == "youdao")
+        );
+
+        let aliyun = translate::providers::AliyunTranslator::new(String::new(), String::new());
+        let res = aliyun
+            .translate_batch(&["hello".to_string()], "en", "zh")
+            .await;
+        assert!(
+            matches!(res, Err(ServiceError::MissingCredentials { provider, .. }) if provider == "aliyun")
+        );
+    }
 }
