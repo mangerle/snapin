@@ -2,6 +2,7 @@
 
 pub mod actions;
 pub mod annotation_builder;
+pub mod drag_calculator;
 pub mod events;
 pub mod mouse;
 pub mod text_input;

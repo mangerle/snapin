@@ -1,89 +1,9 @@
-//! 贴图右键上下文菜单数据模型与命中调度。
+//! 贴图右键上下文菜单状态机与鼠标交互调度。
 
+pub mod items;
 pub mod render;
 
-/// 菜单项动作标识
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum MenuItemId {
-    CopyImage,
-    SaveImageAs,
-    ToggleToolbar,
-    ToggleShadow,
-    Scale(f32),
-    ToggleSmoothScaling,
-    RotateLeft,
-    RotateRight,
-    FlipHorizontal,
-    FlipVertical,
-    PasteFromClipboard,
-    OpenInFolder,
-    Close,
-    Destroy,
-}
-
-/// 二级子菜单类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SubMenuType {
-    Scale,
-    ImageProcessing,
-}
-
-/// 单个菜单行数据描述
-#[derive(Debug, Clone)]
-pub struct MenuItem {
-    pub id: Option<MenuItemId>,
-    pub label: &'static str,
-    pub is_separator: bool,
-    pub is_checkbox: bool,
-    pub is_checked: bool,
-    pub submenu: Option<SubMenuType>,
-}
-
-impl MenuItem {
-    pub fn separator() -> Self {
-        Self {
-            id: None,
-            label: "",
-            is_separator: true,
-            is_checkbox: false,
-            is_checked: false,
-            submenu: None,
-        }
-    }
-
-    pub fn action(id: MenuItemId, label: &'static str) -> Self {
-        Self {
-            id: Some(id),
-            label,
-            is_separator: false,
-            is_checkbox: false,
-            is_checked: false,
-            submenu: None,
-        }
-    }
-
-    pub fn checkbox(id: MenuItemId, label: &'static str, checked: bool) -> Self {
-        Self {
-            id: Some(id),
-            label,
-            is_separator: false,
-            is_checkbox: true,
-            is_checked: checked,
-            submenu: None,
-        }
-    }
-
-    pub fn parent(label: &'static str, submenu: SubMenuType) -> Self {
-        Self {
-            id: None,
-            label,
-            is_separator: false,
-            is_checkbox: false,
-            is_checked: false,
-            submenu: Some(submenu),
-        }
-    }
-}
+pub use items::*;
 
 /// 右键上下文菜单运行时状态
 pub struct ContextMenuState {
@@ -183,46 +103,14 @@ impl ContextMenuState {
         self.hovered_sub_idx = None;
     }
 
-    /// 构建当前的主菜单项列表
+    /// 构建当前的主菜单项列表（委托至 MenuItem）
     pub fn build_main_items(show_toolbar: bool, has_shadow: bool) -> Vec<MenuItem> {
-        vec![
-            MenuItem::action(MenuItemId::CopyImage, "复制图像"),
-            MenuItem::action(MenuItemId::SaveImageAs, "图像另存为..."),
-            MenuItem::checkbox(MenuItemId::ToggleToolbar, "显示工具条", show_toolbar),
-            MenuItem::checkbox(MenuItemId::ToggleShadow, "窗口阴影", has_shadow),
-            MenuItem::separator(),
-            MenuItem::parent("缩放", SubMenuType::Scale),
-            MenuItem::parent("图像处理", SubMenuType::ImageProcessing),
-            MenuItem::action(MenuItemId::PasteFromClipboard, "粘贴"),
-            MenuItem::action(MenuItemId::OpenInFolder, "在文件夹中查看"),
-            MenuItem::separator(),
-            MenuItem::action(MenuItemId::Close, "关闭"),
-            MenuItem::action(MenuItemId::Destroy, "销毁"),
-        ]
+        MenuItem::build_main_items(show_toolbar, has_shadow)
     }
 
-    /// 构建指定的二级子菜单项列表
+    /// 构建指定的二级子菜单项列表（委托至 MenuItem）
     pub fn build_sub_items(sub_type: SubMenuType, smooth_scaling: bool) -> Vec<MenuItem> {
-        match sub_type {
-            SubMenuType::Scale => vec![
-                MenuItem::action(MenuItemId::Scale(0.3), "30%"),
-                MenuItem::action(MenuItemId::Scale(0.5), "50%"),
-                MenuItem::action(MenuItemId::Scale(1.0), "100%"),
-                MenuItem::action(MenuItemId::Scale(2.0), "200%"),
-                MenuItem::separator(),
-                MenuItem::checkbox(
-                    MenuItemId::ToggleSmoothScaling,
-                    "是否平滑处理？",
-                    smooth_scaling,
-                ),
-            ],
-            SubMenuType::ImageProcessing => vec![
-                MenuItem::action(MenuItemId::RotateLeft, "向左旋转 (90°)"),
-                MenuItem::action(MenuItemId::RotateRight, "向右旋转 (90°)"),
-                MenuItem::action(MenuItemId::FlipHorizontal, "水平翻转"),
-                MenuItem::action(MenuItemId::FlipVertical, "垂直翻转"),
-            ],
-        }
+        MenuItem::build_sub_items(sub_type, smooth_scaling)
     }
 
     /// 鼠标移动检测悬停与二级菜单触发
