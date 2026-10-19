@@ -39,6 +39,7 @@ impl ColorFormat {
 
 /// 放大镜控制器
 pub struct Magnifier {
+    pub enabled: bool,
     pub scale: u32,
     pub format: ColorFormat,
     pub show_grid: bool,
@@ -48,6 +49,7 @@ pub struct Magnifier {
 impl Default for Magnifier {
     fn default() -> Self {
         Self {
+            enabled: true,
             scale: 8,
             format: ColorFormat::Hex,
             show_grid: true,
@@ -69,12 +71,16 @@ impl Magnifier {
 
     /// 在给定的目标 pixmap 上绘制跟随光标的放大镜卡片 (自适应 HiDPI 缩放)
     pub fn render(&self, pixmap: &mut PixmapMut, img: &RgbaImage, cursor_x: i32, cursor_y: i32) {
+        if !self.enabled {
+            return;
+        }
+
         let (_cur_r, _cur_g, _cur_b, _) = self.get_pixel_color(img, cursor_x, cursor_y);
 
         let s = self.ui_scale;
-        // 放大镜尺寸与采样网格 (采样 15x15 像素，按缩放放大)
+        // 放大镜尺寸与采样网格 (采样 15x15 像素，按设置放大倍率呈现)
         let sample_radius = 7i32;
-        let cell_size = (10.0 * s).round().max(4.0);
+        let cell_size = (self.scale as f32 * s).round().max(4.0);
         let box_w = (sample_radius * 2 + 1) as f32 * cell_size;
         let box_h = box_w;
 
@@ -103,6 +109,26 @@ impl Magnifier {
                     let mut paint = Paint::default();
                     paint.set_color_rgba8(r, g, b, 255);
                     pixmap.fill_rect(rect, &paint, Transform::identity(), None);
+
+                    if self.show_grid {
+                        let mut grid_paint = Paint::default();
+                        grid_paint.set_color_rgba8(0, 0, 0, 35);
+                        let stroke = Stroke {
+                            width: 0.5,
+                            ..Default::default()
+                        };
+                        let mut pb = PathBuilder::new();
+                        pb.push_rect(rect);
+                        if let Some(path) = pb.finish() {
+                            pixmap.stroke_path(
+                                &path,
+                                &grid_paint,
+                                &stroke,
+                                Transform::identity(),
+                                None,
+                            );
+                        }
+                    }
                 }
             }
         }

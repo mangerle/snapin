@@ -5,7 +5,9 @@
 pub mod model;
 
 use crate::error::SnapinError;
-pub use model::{Config, HotkeyConfig, PasterConfig, SnipConfig};
+pub use model::{
+    Config, GeneralConfig, HotkeyConfig, InterfaceConfig, OutputConfig, PasterConfig, SnipConfig,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 

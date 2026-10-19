@@ -9,7 +9,7 @@ pub mod shortcut;
 
 use crate::config::{self, Config};
 use crate::error::SnapinError;
-use crate::platform::hotkey_manager::sync_hotkeys_to_gnome;
+use crate::platform::{sync_autostart_desktop_file, sync_hotkeys_to_gnome};
 use slint::{ComponentHandle, SharedString};
 use std::sync::{Arc, Mutex};
 
@@ -324,6 +324,7 @@ fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
                     let _ = config::save_config(&cfg_guard, &path);
                 }
                 let _ = sync_hotkeys_to_gnome(&cfg_guard.hotkeys);
+                sync_autostart_desktop_file(cfg_guard.general.autostart);
                 w.set_status_message(SharedString::from("设置已成功保存并同步应用！"));
             }
         }

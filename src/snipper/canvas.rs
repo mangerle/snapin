@@ -28,6 +28,7 @@ pub struct SnipperCanvas<'a> {
     pub toolbar: Option<&'a Toolbar>,
     pub annotations: Option<&'a AnnotationHistory>,
     pub ui_scale: f32,
+    pub accent_color: (u8, u8, u8),
     pub pending_stroke: Option<PendingStroke<'a>>,
     pub active_text_input: Option<&'a TextInputSession>,
 }
@@ -123,8 +124,9 @@ impl<'a> SnipperCanvas<'a> {
     fn render_selection_borders_and_handles(&self, pixmap: &mut PixmapMut, rect: &Rect) {
         let s = self.ui_scale;
         if let Some(skia_r) = SkiaRect::from_xywh(rect.x, rect.y, rect.width, rect.height) {
+            let (ar, ag, ab) = self.accent_color;
             let mut stroke_paint = Paint::default();
-            stroke_paint.set_color_rgba8(0, 174, 255, 255);
+            stroke_paint.set_color_rgba8(ar, ag, ab, 255);
             let stroke = Stroke {
                 width: 2.0 * s,
                 ..Default::default()
@@ -136,7 +138,7 @@ impl<'a> SnipperCanvas<'a> {
                 pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
             }
 
-            // 绘制 8 个控制手柄 (4个角点 + 4条边中点，白色方块带青色描边)
+            // 绘制 8 个控制手柄 (4个角点 + 4条边中点，白色方块带主题描边)
             let handle_size = (6.0 * s).round().max(4.0);
             let handles = [
                 (rect.x, rect.y),
@@ -152,7 +154,7 @@ impl<'a> SnipperCanvas<'a> {
             let mut handle_paint = Paint::default();
             handle_paint.set_color_rgba8(255, 255, 255, 255);
             let mut handle_border_paint = Paint::default();
-            handle_border_paint.set_color_rgba8(0, 174, 255, 255);
+            handle_border_paint.set_color_rgba8(ar, ag, ab, 255);
             let handle_stroke = Stroke {
                 width: 1.0 * s,
                 ..Default::default()

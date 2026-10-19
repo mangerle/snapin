@@ -75,14 +75,14 @@ export default class SnapinHelperExtension extends Extension {
         // 2. 截屏并自动复制
         let snipCopyItem = new PopupMenu.PopupMenuItem('截屏并自动复制');
         snipCopyItem.connect('activate', () => {
-            GLib.spawn_command_line_async('snapin snip');
+            GLib.spawn_command_line_async('snapin snip --auto-copy');
         });
         this._indicator.menu.addMenuItem(snipCopyItem);
 
         // 3. 自定义截屏
         let customSnipItem = new PopupMenu.PopupMenuItem('自定义截屏');
         customSnipItem.connect('activate', () => {
-            GLib.spawn_command_line_async('snapin snip');
+            GLib.spawn_command_line_async('snapin snip --custom');
         });
         this._indicator.menu.addMenuItem(customSnipItem);
 
@@ -103,14 +103,14 @@ export default class SnapinHelperExtension extends Extension {
         // 6. 切换到另一贴图组
         let switchGroupItem = new PopupMenu.PopupMenuItem('切换到另一贴图组');
         switchGroupItem.connect('activate', () => {
-            GLib.spawn_command_line_async('snapin switch-group 0');
+            GLib.spawn_command_line_async('snapin switch-group 1');
         });
         this._indicator.menu.addMenuItem(switchGroupItem);
 
         // 7. 清空截屏历史
         let clearHistoryItem = new PopupMenu.PopupMenuItem('清空截屏历史');
         clearHistoryItem.connect('activate', () => {
-            GLib.spawn_command_line_async('bash -c "rm -f /dev/shm/snapin_screen_*.png /tmp/snapin_screen_*.png ~/.cache/snapin/* 2>/dev/null || true"');
+            GLib.spawn_command_line_async('snapin clear-history');
         });
         this._indicator.menu.addMenuItem(clearHistoryItem);
 

@@ -25,6 +25,8 @@ pub struct SnipperState {
     pub next_badge_number: u32,
     pub active_text_input: Option<TextInputSession>,
     pub outcome: Option<SnipperOutcome>,
+    pub config: crate::config::Config,
+    pub mode: super::types::SnipMode,
 }
 
 impl SnipperState {
@@ -41,7 +43,82 @@ impl SnipperState {
             next_badge_number: 1,
             active_text_input: None,
             outcome: None,
+            config: crate::config::Config::default(),
+            mode: super::types::SnipMode::default(),
         }
+    }
+
+    /// 根据用户配置文件与触发模式构建初始状态
+    pub fn from_config(cfg: crate::config::Config, mode: super::types::SnipMode) -> Self {
+        let mut state = Self::new();
+        apply_interface_config(&mut state, &cfg.interface);
+        apply_snip_config(&mut state, &cfg.snip, mode);
+        state.config = cfg;
+        state.mode = mode;
+        state
+    }
+}
+
+/// 注入界面视觉与放大镜设置
+fn apply_interface_config(state: &mut SnipperState, iface: &crate::config::InterfaceConfig) {
+    state.magnifier.enabled = iface.enable_magnifier;
+    state.magnifier.scale = iface.magnifier_scale;
+    state.magnifier.show_grid = iface.show_grid_lines;
+    state.magnifier.format = match iface.color_format.to_lowercase().as_str() {
+        "rgb" => crate::snipper::magnifier::ColorFormat::Rgb,
+        "hsl" => crate::snipper::magnifier::ColorFormat::Hsl,
+        _ => crate::snipper::magnifier::ColorFormat::Hex,
+    };
+    state.toolbar.ui_scale = iface.toolbar_scale;
+}
+
+/// 注入截图流程、默认标注工具与选区记忆设置
+fn apply_snip_config(
+    state: &mut SnipperState,
+    snip: &crate::config::SnipConfig,
+    mode: super::types::SnipMode,
+) {
+    state.toolbar.sub_options.custom_stroke_width = snip.default_stroke_width;
+    state.toolbar.sub_options.font_size = snip.default_font_size;
+    if let Some(col) = parse_hex_color(&snip.default_color) {
+        state.toolbar.sub_options.color = col;
+    }
+    state.toolbar.active_tool = match snip.default_tool.as_str() {
+        "rectangle" => Some(crate::snipper::toolbar::ToolbarItem::ToolRect),
+        "pen" => Some(crate::snipper::toolbar::ToolbarItem::ToolPen),
+        "marker" => Some(crate::snipper::toolbar::ToolbarItem::ToolMarker),
+        "arrow" => Some(crate::snipper::toolbar::ToolbarItem::ToolArrow),
+        "text" => Some(crate::snipper::toolbar::ToolbarItem::ToolText),
+        "badge" => Some(crate::snipper::toolbar::ToolbarItem::ToolBadge),
+        _ => None,
+    };
+
+    if mode == super::types::SnipMode::Custom || snip.remember_last_selection {
+        if let Some((lx, ly, lw, lh)) = crate::platform::load_last_selection() {
+            let rect = crate::snipper::selection::Rect {
+                x: lx,
+                y: ly,
+                width: lw,
+                height: lh,
+            };
+            state.selection = SelectionState::Locked {
+                rect,
+                active_drag: None,
+            };
+        }
+    }
+}
+
+/// 解析 HEX 格式颜色为 tiny_skia Color
+fn parse_hex_color(hex: &str) -> Option<tiny_skia::Color> {
+    let s = hex.trim().strip_prefix('#').unwrap_or(hex.trim());
+    if s.len() == 6 {
+        let r = u8::from_str_radix(&s[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&s[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&s[4..6], 16).ok()?;
+        Some(tiny_skia::Color::from_rgba8(r, g, b, 255))
+    } else {
+        None
     }
 }
 

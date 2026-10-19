@@ -22,7 +22,7 @@ use platform::{
     capture_fullscreen_extension, capture_fullscreen_portal, read_clipboard_image,
     read_clipboard_text, send_desktop_notification, sync_hotkeys_to_gnome,
 };
-use snipper::{run_snipper_session, SnipperOutcome};
+use snipper::{run_snipper_session, SnipMode, SnipperOutcome};
 use std::path::PathBuf;
 use tiny_skia::Pixmap;
 use tokio::sync::mpsc;
@@ -45,7 +45,14 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// 触发区域截图流水线 (默认绑定 F1)
-    Snip,
+    Snip {
+        /// 截图并自动复制到剪贴板
+        #[arg(long)]
+        auto_copy: bool,
+        /// 自定义截图（加载历史选区）
+        #[arg(long)]
+        custom: bool,
+    },
     /// 触发贴图（由剪贴板或选区生成，默认绑定 F3）
     Paste,
     /// 批量显示/隐藏当前活动组所有贴图 (默认绑定 Ctrl+F3)
@@ -53,8 +60,11 @@ pub enum Commands {
     /// 切换贴图活动分组
     SwitchGroup {
         /// 目标分组 ID
+        #[arg(default_value_t = 0)]
         id: usize,
     },
+    /// 清空截屏与临时缓存历史
+    ClearHistory,
     /// 在前台启动常驻守护进程
     Daemon,
     /// 独立启动一个置顶贴图窗口展示指定图像文件
@@ -90,9 +100,16 @@ async fn main() -> Result<()> {
     let cfg = config::load_or_create_config(None).context("加载或初始化 Snapin 配置文件失败")?;
 
     match cli.command {
-        Some(Commands::Snip) => {
+        Some(Commands::Snip { auto_copy, custom }) => {
             tracing::info!("正在启动区域截图流程...");
-            run_oneshot_snip().await?;
+            let mode = if auto_copy {
+                SnipMode::AutoCopy
+            } else if custom {
+                SnipMode::Custom
+            } else {
+                SnipMode::Normal
+            };
+            run_oneshot_snip(cfg, mode).await?;
         }
         Some(Commands::Paste) => {
             tracing::info!("正在检查剪贴板生成贴图...");
@@ -106,9 +123,17 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Toggle) => {
             let _ = send_command_to_daemon(&DaemonCommand::TogglePasters).await;
+            let _ = std::process::Command::new("pkill")
+                .args(["-USR1", "-f", "snapin pin-file"])
+                .output();
         }
         Some(Commands::SwitchGroup { id }) => {
             let _ = send_command_to_daemon(&DaemonCommand::SwitchGroup(id)).await;
+            let msg = format!("已切换至贴图分组: {id}");
+            let _ = send_desktop_notification("Snapin 贴图组", &msg).await;
+        }
+        Some(Commands::ClearHistory) => {
+            clear_snip_history().await?;
         }
         Some(Commands::InstallExtension) => {
             install_gnome_extension()?;
@@ -172,7 +197,7 @@ async fn acquire_screen_snapshot() -> Result<image::RgbaImage> {
 }
 
 /// 执行单次截图流程
-async fn run_oneshot_snip() -> Result<()> {
+async fn run_oneshot_snip(cfg: config::Config, mode: SnipMode) -> Result<()> {
     let t0 = std::time::Instant::now();
     let img = acquire_screen_snapshot().await?;
     let t1 = std::time::Instant::now();
@@ -183,13 +208,13 @@ async fn run_oneshot_snip() -> Result<()> {
         (t1 - t0).as_secs_f64() * 1000.0
     );
 
-    let outcome = tokio::task::spawn_blocking(move || run_snipper_session(img))
+    let cfg_clone = cfg.clone();
+    let outcome = tokio::task::spawn_blocking(move || run_snipper_session(img, cfg_clone, mode))
         .await
         .context("截图任务调度异常")?
         .context("截图交互会话运行失败")?;
 
     if let Some(outcome) = outcome {
-        let cfg = config::load_or_create_config(None).unwrap_or_default();
         match outcome {
             SnipperOutcome::Copied(_) => {
                 if cfg.output.notify_on_copy {
@@ -354,9 +379,14 @@ async fn run_daemon_server(cfg: config::Config) -> Result<()> {
             }
             DaemonCommand::TogglePasters => {
                 tracing::info!("批量切换贴图显示状态");
+                let _ = std::process::Command::new("pkill")
+                    .args(["-USR1", "-f", "snapin pin-file"])
+                    .output();
             }
             DaemonCommand::SwitchGroup(id) => {
                 tracing::info!("切换至贴图分组: {id}");
+                let msg = format!("已切换至贴图分组: {id}");
+                let _ = send_desktop_notification("Snapin 贴图组", &msg).await;
             }
             DaemonCommand::Ping => {
                 tracing::debug!("心跳响应正常");
@@ -364,6 +394,43 @@ async fn run_daemon_server(cfg: config::Config) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// 清理所有截屏共享内存与历史选区缓存
+async fn clear_snip_history() -> Result<()> {
+    let mut count = 0;
+    if let Ok(entries) = std::fs::read_dir("/dev/shm") {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with("snapin_screen_") {
+                let _ = std::fs::remove_file(entry.path());
+                count += 1;
+            }
+        }
+    }
+    let tmp_dir = std::env::temp_dir();
+    if let Ok(entries) = std::fs::read_dir(&tmp_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with("snapin_") {
+                let _ = std::fs::remove_file(entry.path());
+                count += 1;
+            }
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let cache_file = PathBuf::from(home).join(".cache/snapin/last_selection.txt");
+        if cache_file.exists() {
+            let _ = std::fs::remove_file(cache_file);
+            count += 1;
+        }
+    }
+    send_desktop_notification(
+        "Snapin 截屏历史已清空",
+        &format!("已成功清理 {count} 项临时快照与选区缓存"),
+    )
+    .await?;
     Ok(())
 }
 

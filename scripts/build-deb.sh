@@ -23,7 +23,7 @@ mkdir -p "${STAGE_DIR}/usr/bin"
 mkdir -p "${STAGE_DIR}/usr/share/applications"
 mkdir -p "${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps"
 mkdir -p "${STAGE_DIR}/usr/share/icons/hicolor/scalable/status"
-mkdir -p "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin-helper@wangle.local"
+mkdir -p "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin@wangle.local"
 
 # 3. 拷贝二进制可执行文件
 cp "${PROJECT_ROOT}/target/release/snapin" "${STAGE_DIR}/usr/bin/snapin"
@@ -88,10 +88,10 @@ WantedBy=graphical-session.target
 EOF
 
 # 7. 拷贝配套 GNOME Shell 扩展及其图标
-cp "${PROJECT_ROOT}/extension/metadata.json" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin-helper@wangle.local/metadata.json"
-cp "${PROJECT_ROOT}/extension/extension.js" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin-helper@wangle.local/extension.js"
-mkdir -p "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin-helper@wangle.local/icons"
-cp "${PROJECT_ROOT}/extension/icons/snapin-tray.svg" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin-helper@wangle.local/icons/snapin-tray.svg"
+cp "${PROJECT_ROOT}/extension/metadata.json" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin@wangle.local/metadata.json"
+cp "${PROJECT_ROOT}/extension/extension.js" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin@wangle.local/extension.js"
+mkdir -p "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin@wangle.local/icons"
+cp "${PROJECT_ROOT}/extension/icons/snapin-tray.svg" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin@wangle.local/icons/snapin-tray.svg"
 
 # 8. 生成 DEBIAN/control 控制文件
 cat << EOF > "${STAGE_DIR}/DEBIAN/control"
@@ -153,18 +153,19 @@ if which loginctl > /dev/null 2>&1; then
         user_home=$(eval echo "~$user_name")
         runtime_dir="/run/user/$user_id"
 
-        # 1. 若用户目录残留旧版扩展，自动同步更新，防止用户级目录遮蔽系统级扩展
-        user_ext_dir="$user_home/.local/share/gnome-shell/extensions/snapin-helper@wangle.local"
-        if [ -d "$user_ext_dir" ]; then
-            cp /usr/share/gnome-shell/extensions/snapin-helper@wangle.local/* "$user_ext_dir/" 2>/dev/null || true
-            chown -R "$user_name:$user_name" "$user_ext_dir" 2>/dev/null || true
-        fi
+        # 1. 清理旧版扩展目录，同步最新扩展至用户目录
+        old_user_ext_dir="$user_home/.local/share/gnome-shell/extensions/snapin-helper@wangle.local"
+        rm -rf "$old_user_ext_dir" 2>/dev/null || true
 
-        # 2. 如果用户当前处于图形会话中，立即热重载 GNOME 扩展并启动常驻后台服务
+        user_ext_dir="$user_home/.local/share/gnome-shell/extensions/snapin@wangle.local"
+        mkdir -p "$user_ext_dir"
+        cp -r /usr/share/gnome-shell/extensions/snapin@wangle.local/* "$user_ext_dir/" 2>/dev/null || true
+        chown -R "$user_name:$user_name" "$user_ext_dir" 2>/dev/null || true
+
+        # 2. 如果用户当前处于图形会话中，立即禁用旧版并热加载全新扩展
         if [ -d "$runtime_dir" ]; then
-            # 原地热重载 GNOME 扩展 (销毁旧菜单并按最新代码原地重建，免注销)
             runuser -u "$user_name" -- env XDG_RUNTIME_DIR="$runtime_dir" DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" gnome-extensions disable snapin-helper@wangle.local 2>/dev/null || true
-            runuser -u "$user_name" -- env XDG_RUNTIME_DIR="$runtime_dir" DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" gnome-extensions enable snapin-helper@wangle.local 2>/dev/null || true
+            runuser -u "$user_name" -- env XDG_RUNTIME_DIR="$runtime_dir" DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" gnome-extensions enable snapin@wangle.local 2>/dev/null || true
 
             # 清理旧进程残留，并通过 systemd user 服务拉起最新守护进程
             pkill -u "$user_name" -x snapin 2>/dev/null || true

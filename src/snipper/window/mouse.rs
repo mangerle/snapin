@@ -179,12 +179,16 @@ fn handle_left_release(
         SelectionState::Creating { start, current } => {
             let rect = Rect::from_points(*start, *current);
             if rect.width > 4.0 && rect.height > 4.0 {
+                crate::platform::save_last_selection((rect.x, rect.y, rect.width, rect.height));
                 state.history.push(rect);
                 state.toolbar.update_layout(&rect, screen_w, screen_h);
                 state.selection = SelectionState::Locked {
                     rect,
                     active_drag: None,
                 };
+                if state.mode == super::types::SnipMode::AutoCopy {
+                    super::actions::handle_action_copy(state, original_rgba);
+                }
             } else {
                 state.selection = SelectionState::Idle;
             }
@@ -193,6 +197,7 @@ fn handle_left_release(
         SelectionState::Locked { rect, active_drag } => {
             if active_drag.is_some() {
                 *active_drag = None;
+                crate::platform::save_last_selection((rect.x, rect.y, rect.width, rect.height));
                 state.history.push(*rect);
                 state.toolbar.update_layout(rect, screen_w, screen_h);
                 true

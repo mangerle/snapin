@@ -18,6 +18,7 @@ use mouse::{handle_cursor_move, handle_mouse_button, handle_mouse_wheel};
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use tiny_skia::Pixmap;
+pub use types::SnipMode;
 use winit::dpi::PhysicalSize;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
@@ -25,7 +26,11 @@ use winit::platform::wayland::EventLoopBuilderExtWayland;
 use winit::window::{Fullscreen, Window, WindowBuilder};
 
 /// 启动全屏截图交互会话，进入事件循环直至用户确认或取消
-pub fn run_snipper_session(bg_image: RgbaImage) -> Result<Option<SnipperOutcome>, SnapinError> {
+pub fn run_snipper_session(
+    bg_image: RgbaImage,
+    cfg: crate::config::Config,
+    mode: SnipMode,
+) -> Result<Option<SnipperOutcome>, SnapinError> {
     let mut builder = EventLoopBuilder::new();
     builder.with_any_thread(true);
     let event_loop = builder.build()?;
@@ -73,7 +78,7 @@ pub fn run_snipper_session(bg_image: RgbaImage) -> Result<Option<SnipperOutcome>
             message: "分配渲染双缓冲区失败".to_string(),
         })?;
 
-    let mut state = SnipperState::new();
+    let mut state = SnipperState::from_config(cfg, mode);
     let raw_scale = window.scale_factor() as f32;
     let auto_scale = if raw_scale > 1.05 {
         raw_scale
@@ -81,9 +86,15 @@ pub fn run_snipper_session(bg_image: RgbaImage) -> Result<Option<SnipperOutcome>
         2.0
     } else {
         1.0
-    };
+    } * state.config.interface.toolbar_scale;
     state.toolbar.ui_scale = auto_scale;
     state.magnifier.ui_scale = auto_scale;
+
+    if let crate::snipper::selection::SelectionState::Locked { rect, .. } = &state.selection {
+        state
+            .toolbar
+            .update_layout(rect, screen_w as f32, screen_h as f32);
+    }
 
     let final_outcome = Arc::new(Mutex::new(None));
     let outcome_slot = final_outcome.clone();
@@ -165,6 +176,7 @@ fn dispatch_window_event(
                 toolbar: Some(&state.toolbar),
                 annotations: Some(&state.annotations),
                 ui_scale: state.toolbar.ui_scale,
+                accent_color: parse_hex_color_rgb(&state.config.interface.accent_color),
                 pending_stroke,
                 active_text_input: state.active_text_input.as_ref(),
             };
@@ -301,4 +313,19 @@ fn blit_to_surface(
     })?;
 
     Ok(())
+}
+
+/// 解析十六进制颜色字符串为 RGB 三元组
+fn parse_hex_color_rgb(hex: &str) -> (u8, u8, u8) {
+    let clean = hex.trim().trim_start_matches('#');
+    if clean.len() == 6 {
+        if let (Ok(r), Ok(g), Ok(b)) = (
+            u8::from_str_radix(&clean[0..2], 16),
+            u8::from_str_radix(&clean[2..4], 16),
+            u8::from_str_radix(&clean[4..6], 16),
+        ) {
+            return (r, g, b);
+        }
+    }
+    (0, 174, 255)
 }

@@ -31,6 +31,7 @@ pub struct PasterWindowState {
     pub text_renderer: TextRenderer,
     pub cursor_pos: (f32, f32),
     pub ui_scale: f32,
+    pub config: crate::config::Config,
     last_click_time: Option<Instant>,
 }
 
@@ -48,8 +49,17 @@ impl PasterWindowState {
             text_renderer: TextRenderer::default(),
             cursor_pos: (0.0, 0.0),
             ui_scale: 1.0,
+            config: crate::config::Config::default(),
             last_click_time: None,
         }
+    }
+
+    /// 根据用户配置初始化贴图状态（注入初始不透明度）
+    pub fn from_config(mut item: PasterItem, cfg: crate::config::Config) -> Self {
+        item.transform.opacity = cfg.paster.initial_opacity.clamp(0.1, 1.0);
+        let mut state = Self::new(item);
+        state.config = cfg;
+        state
     }
 }
 
@@ -205,7 +215,19 @@ pub fn handle_paster_mouse_button(
         let now = Instant::now();
         if let Some(prev) = state.last_click_time {
             if now.duration_since(prev).as_millis() < 300 {
-                state.should_close = true;
+                state.last_click_time = None;
+                match state.config.paster.double_click_action.as_str() {
+                    "copy_and_close" => {
+                        copy_paster_to_clipboard(&state.item);
+                        state.should_close = true;
+                    }
+                    "copy" => {
+                        copy_paster_to_clipboard(&state.item);
+                    }
+                    _ => {
+                        state.should_close = true;
+                    }
+                }
                 return true;
             }
         }

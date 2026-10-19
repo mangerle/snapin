@@ -23,6 +23,9 @@ pub fn crop_selection_image(state: &SnipperState, original_rgba: &RgbaImage) -> 
 /// 复制选区图像到剪贴板并准备退出
 pub fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
+        if let SelectionState::Locked { rect, .. } = &state.selection {
+            crate::platform::save_last_selection((rect.x, rect.y, rect.width, rect.height));
+        }
         let _ = write_image_to_clipboard(&cropped);
         state.outcome = Some(SnipperOutcome::Copied(cropped));
     }
@@ -31,12 +34,23 @@ pub fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
 /// 保存选区图像至文件
 pub fn handle_action_save(state: &mut SnipperState, original_rgba: &RgbaImage) {
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
-        let pictures_dir = std::env::var("HOME")
-            .map(|h| PathBuf::from(h).join("Pictures"))
-            .unwrap_or_else(|_| PathBuf::from("."));
-        let filename = format!("snapin_{}.png", chrono_stamp());
-        let out_path = pictures_dir.join(filename);
-        let _ = cropped.save(&out_path);
+        if let SelectionState::Locked { rect, .. } = &state.selection {
+            crate::platform::save_last_selection((rect.x, rect.y, rect.width, rect.height));
+        }
+
+        let out_path = match crate::platform::save_image_with_config(&cropped, &state.config.output)
+        {
+            Ok(p) => p,
+            Err(_) => {
+                let pictures_dir = std::env::var("HOME")
+                    .map(|h| PathBuf::from(h).join("Pictures"))
+                    .unwrap_or_else(|_| PathBuf::from("."));
+                let p = pictures_dir.join(format!("snapin_{}.png", chrono_stamp()));
+                let _ = cropped.save(&p);
+                p
+            }
+        };
+
         let _ = write_image_to_clipboard(&cropped);
         state.outcome = Some(SnipperOutcome::Saved(out_path));
     }

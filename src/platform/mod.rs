@@ -1,11 +1,14 @@
 //! 平台特定系统集成层（Ubuntu 26 GNOME / Wayland）。
 
+pub mod autostart;
 pub mod clipboard;
 pub mod extension_client;
 pub mod hotkey_manager;
 pub mod notification;
 pub mod portal;
+pub mod save_helper;
 
+pub use autostart::sync_autostart_desktop_file;
 pub use clipboard::{
     read_clipboard_image, read_clipboard_text, write_image_to_clipboard, write_text_to_clipboard,
 };
@@ -13,3 +16,6 @@ pub use extension_client::{capture_fullscreen_extension, pin_window_above};
 pub use hotkey_manager::sync_hotkeys_to_gnome;
 pub use notification::send_desktop_notification;
 pub use portal::capture_fullscreen_portal;
+pub use save_helper::{
+    load_last_selection, resolve_save_path, save_image_with_config, save_last_selection,
+};

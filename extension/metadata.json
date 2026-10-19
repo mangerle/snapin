@@ -1,7 +1,7 @@
 {
-  "name": "Snapin Helper",
-  "description": "为纯 Rust Snapin 截图与贴图工具提供 Mutter 窗口置顶特权",
-  "uuid": "snapin-helper@wangle.local",
+  "name": "Snapin",
+  "description": "为纯 Rust Snapin 截图与贴图工具提供 Mutter 窗口置顶特权与原生托盘",
+  "uuid": "snapin@wangle.local",
   "shell-version": ["45", "46", "47", "48", "49", "50", "50.1", "51"],
-  "version": 1
+  "version": 2
 }

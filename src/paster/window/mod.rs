@@ -19,11 +19,18 @@ use winit::event_loop::{ControlFlow, EventLoopBuilder};
 use winit::platform::wayland::{EventLoopBuilderExtWayland, WindowBuilderExtWayland};
 use winit::window::{Window, WindowBuilder};
 
+/// 贴图窗口自定义用户事件
+#[derive(Debug, Clone, Copy)]
+pub enum PasterUserEvent {
+    ToggleVisibility,
+}
+
 /// 启动独立贴图浮动置顶窗口
 pub fn spawn_paster_window(item: PasterItem) -> Result<(), SnapinError> {
-    let mut builder = EventLoopBuilder::new();
+    let mut builder = EventLoopBuilder::<PasterUserEvent>::with_user_event();
     builder.with_any_thread(true);
     let event_loop = builder.build()?;
+    let event_proxy = event_loop.create_proxy();
     let title = item.title.clone();
     let initial_w = item.pixmap.width();
     let initial_h = item.pixmap.height();
@@ -50,33 +57,60 @@ pub fn spawn_paster_window(item: PasterItem) -> Result<(), SnapinError> {
         }
     })?;
 
-    // 触发配套 GNOME 扩展将本窗口强制置顶
-    let title_clone = title.clone();
+    let cfg = crate::config::load_or_create_config(None).unwrap_or_default();
+    let enable_above = cfg.paster.enable_above_extension;
+
+    // 触发配套 GNOME 扩展将本窗口强制置顶 (受配置开关控制)
+    if enable_above {
+        let title_clone = title.clone();
+        std::thread::spawn(move || {
+            // 短暂延迟 80ms 等待 Mutter 建立窗口映射
+            std::thread::sleep(std::time::Duration::from_millis(80));
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build();
+            if let Ok(rt) = rt {
+                rt.block_on(async {
+                    if let Err(e) = pin_window_above(&title_clone).await {
+                        tracing::warn!("调用 GNOME 扩展置顶窗口失败: {e}");
+                    }
+                });
+            }
+        });
+    }
+
+    let raw_scale = window.scale_factor() as f32;
+    let auto_scale = if raw_scale > 1.05 { raw_scale } else { 1.0 };
+    let mut state = PasterWindowState::from_config(item, cfg);
+    state.ui_scale = auto_scale;
+    state.context_menu.set_ui_scale(auto_scale);
+
+    // 监听 SIGUSR1 信号，收到信号后批量切换窗口显示/隐藏状态
     std::thread::spawn(move || {
-        // 短暂延迟 80ms 等待 Mutter 建立窗口映射
-        std::thread::sleep(std::time::Duration::from_millis(80));
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build();
         if let Ok(rt) = rt {
-            rt.block_on(async {
-                if let Err(e) = pin_window_above(&title_clone).await {
-                    tracing::warn!("调用 GNOME 扩展置顶窗口失败: {e}");
+            rt.block_on(async move {
+                if let Ok(mut sig) =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::user_defined1())
+                {
+                    while sig.recv().await.is_some() {
+                        let _ = event_proxy.send_event(PasterUserEvent::ToggleVisibility);
+                    }
                 }
             });
         }
     });
 
-    let raw_scale = window.scale_factor() as f32;
-    let auto_scale = if raw_scale > 1.05 { raw_scale } else { 1.0 };
-    let mut state = PasterWindowState::new(item);
-    state.ui_scale = auto_scale;
-    state.context_menu.set_ui_scale(auto_scale);
-
     event_loop.run(move |event, elwt| {
         elwt.set_control_flow(ControlFlow::Wait);
 
         match event {
+            Event::UserEvent(PasterUserEvent::ToggleVisibility) => {
+                state.item.is_visible = !state.item.is_visible;
+                window.set_visible(state.item.is_visible);
+            }
             Event::WindowEvent { event, .. } => {
                 let mut ctx = PasterWindowContext {
                     window: &window,
@@ -105,7 +139,7 @@ fn dispatch_paster_event(
     event: WindowEvent,
     ctx: &mut PasterWindowContext<'_>,
     state: &mut PasterWindowState,
-    elwt: &winit::event_loop::EventLoopWindowTarget<()>,
+    elwt: &winit::event_loop::EventLoopWindowTarget<PasterUserEvent>,
 ) {
     match event {
         WindowEvent::RedrawRequested => {

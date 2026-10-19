@@ -16,3 +16,15 @@ pub enum SnipperOutcome {
     /// 用户主动取消并退出
     Cancelled,
 }
+
+/// 截图触发模式枚举
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SnipMode {
+    /// 常规交互截图
+    #[default]
+    Normal,
+    /// 截屏并自动复制（选定区域后立即自动复制并退出，无需点击确认）
+    AutoCopy,
+    /// 自定义截屏（优先复用上次历史选区）
+    Custom,
+}
