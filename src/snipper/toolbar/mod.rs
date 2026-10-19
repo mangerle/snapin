@@ -180,6 +180,19 @@ impl Toolbar {
         None
     }
 
+    /// 检查指定坐标是否落在主工具栏或二级属性栏范围内 (防止事件穿透到画布)
+    pub fn contains_point(&self, px: f32, py: f32) -> bool {
+        if self.main_rect.contains(px, py) {
+            return true;
+        }
+        if let Some(sub) = self.sub_rect {
+            if sub.contains(px, py) {
+                return true;
+            }
+        }
+        false
+    }
+
     /// 点击项目切换工具或触发动作
     pub fn handle_click(&mut self, px: f32, py: f32) -> Option<ToolbarItem> {
         if let Some(item) = self.hit_test_main(px, py) {

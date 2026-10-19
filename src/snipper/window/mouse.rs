@@ -106,9 +106,13 @@ fn handle_left_press(
     original_rgba: &RgbaImage,
 ) -> bool {
     if let SelectionState::Locked { rect, .. } = state.selection {
-        if let Some(item) = state.toolbar.handle_click(cx, cy) {
+        // 优先检测是否点击在工具栏（主工具栏或二级属性栏）范围内，坚决拦截阻止事件穿透到画布
+        if state.toolbar.contains_point(cx, cy) {
             commit_active_text_input(state);
-            return dispatch_toolbar_action(state, item, original_rgba);
+            if let Some(item) = state.toolbar.handle_click(cx, cy) {
+                dispatch_toolbar_action(state, item, original_rgba);
+            }
+            return true;
         }
 
         if state.toolbar.active_tool == Some(ToolbarItem::ToolText) {
@@ -209,6 +213,12 @@ fn handle_left_release(
             true
         }
         SelectionState::Locked { rect, active_drag } => {
+            // 若释放位置在工具栏区域内，清理暂存点并直接拦截，避免误提交标注
+            if state.toolbar.contains_point(cx, cy) {
+                state.pending_stroke_points.clear();
+                return true;
+            }
+
             if active_drag.is_some() {
                 *active_drag = None;
                 crate::platform::save_last_selection((rect.x, rect.y, rect.width, rect.height));
@@ -353,5 +363,46 @@ mod tests {
         let changed = handle_mouse_wheel(&mut state, delta);
         assert!(changed);
         assert_eq!(state.toolbar.sub_options.font_size, initial_sz + 2.0);
+    }
+
+    #[test]
+    fn test_toolbar_click_does_not_create_annotation() {
+        let mut state = SnipperState::new();
+        let selection = Rect {
+            x: 100.0,
+            y: 100.0,
+            width: 800.0,
+            height: 600.0,
+        };
+        state.selection = SelectionState::Locked {
+            rect: selection,
+            active_drag: None,
+        };
+        // 激活序号印章工具
+        state.toolbar.active_tool = Some(ToolbarItem::ToolBadge);
+        state.toolbar.update_layout(&selection, 1920.0, 1080.0);
+
+        let original = RgbaImage::new(1920, 1080);
+
+        // 模拟点击二级属性栏中的颜色位置（位于 sub_rect 内）
+        let sub_rect = state.toolbar.sub_rect.expect("序号印章应具备二级属性栏");
+        let click_x = sub_rect.x + 10.0;
+        let click_y = sub_rect.y + 10.0;
+
+        assert!(state.toolbar.contains_point(click_x, click_y));
+
+        let pressed = handle_left_press(&mut state, click_x, click_y, &original);
+        assert!(pressed, "工具栏点击应被有效拦截消费");
+        assert!(state.pending_stroke_points.is_empty(), "不应产生待定笔触点");
+
+        let released = handle_left_release(&mut state, click_x, click_y, &original);
+        assert!(released, "释放事件应被安全消费");
+
+        // 核心断言：绝不应该生成任何标注，序号数字也不应该自增
+        assert!(
+            !state.annotations.can_undo(),
+            "工具栏点击绝不应生成画布标注"
+        );
+        assert_eq!(state.next_badge_number, 1, "序号印章不应被误创建");
     }
 }
