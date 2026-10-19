@@ -6,7 +6,7 @@ use image::RgbaImage;
 use snapin_core::config::{ImageFormat, OutputConfig};
 use std::path::PathBuf;
 
-/// 根据输出配置生成目标文件绝对路径
+/// 根据输出配置生成目标文件绝对路径（具备重名自增防覆盖安全保障）
 pub fn resolve_save_path(cfg: &OutputConfig) -> PathBuf {
     let base_dir = expand_home_dir(&cfg.quick_save_dir);
     if !base_dir.exists() {
@@ -17,7 +17,20 @@ pub fn resolve_save_path(cfg: &OutputConfig) -> PathBuf {
     let file_name = format_template(&cfg.file_name_template, &now);
     let ext = cfg.default_format.extension();
 
-    base_dir.join(format!("{file_name}.{ext}"))
+    let initial_path = base_dir.join(format!("{file_name}.{ext}"));
+    if !initial_path.exists() {
+        return initial_path;
+    }
+
+    // 防静默覆盖：若目标文件已存在，递增寻找未占用的序号文件名（如 _1, _2）
+    let mut counter = 1usize;
+    loop {
+        let candidate = base_dir.join(format!("{file_name}_{counter}.{ext}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+        counter = counter.saturating_add(1);
+    }
 }
 
 /// 按照用户配置格式将图像编码并写入磁盘
@@ -289,5 +302,32 @@ mod tests {
                 "外部越权路径必须被安全沙箱拒绝"
             );
         }
+    }
+
+    #[test]
+    fn test_resolve_save_path_auto_increment_when_exists() {
+        let temp_dir = std::env::temp_dir().join(format!("snapin_inc_{}", generate_unique_id()));
+        let cfg = OutputConfig {
+            quick_save_dir: temp_dir.to_string_lossy().to_string(),
+            file_name_template: "snapin_fixed".to_string(),
+            default_format: ImageFormat::Png,
+            ..OutputConfig::default()
+        };
+
+        // 第一次生成：文件不存在，返回固定原名
+        let path1 = resolve_save_path(&cfg);
+        assert_eq!(path1, temp_dir.join("snapin_fixed.png"));
+        std::fs::write(&path1, b"first").expect("创建占位文件1成功");
+
+        // 第二次生成：原文件已存在，自增生成 _1 后缀
+        let path2 = resolve_save_path(&cfg);
+        assert_eq!(path2, temp_dir.join("snapin_fixed_1.png"));
+        std::fs::write(&path2, b"second").expect("创建占位文件2成功");
+
+        // 第三次生成：_1 也存在，自增生成 _2 后缀
+        let path3 = resolve_save_path(&cfg);
+        assert_eq!(path3, temp_dir.join("snapin_fixed_2.png"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
