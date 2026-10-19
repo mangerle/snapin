@@ -81,14 +81,27 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode) -> Result<()> {
                 }
             }
             SnipperOutcome::Pinned(item) => {
-                tracing::info!("正在原地挂载选区贴图置顶窗口...");
-                tokio::task::spawn_blocking(move || {
-                    if let Err(e) = snapin_ui::paster::spawn_paster_window(item) {
-                        tracing::error!("贴图窗口运行异常: {e}");
-                    }
-                })
-                .await
-                .context("贴图任务调度异常")?;
+                tracing::info!("正在向常驻集中贴图工作区投递选区窗口...");
+                let req = snapin_daemon::DaemonCommand::CreatePaster {
+                    width: item.pixmap.width(),
+                    height: item.pixmap.height(),
+                    x: item.position.0,
+                    y: item.position.1,
+                    title: item.title.clone(),
+                    rgba: item.pixmap.data().to_vec(),
+                };
+                if let Ok(true) = snapin_daemon::send_command_to_daemon(&req).await {
+                    tracing::info!("已成功通过 IPC 移交常驻集中贴图工作区展示");
+                } else {
+                    tracing::info!("未检测到常驻守护服务，就地启动集中贴图工作区");
+                    tokio::task::spawn_blocking(move || {
+                        if let Err(e) = snapin_ui::paster::spawn_paster_window(item) {
+                            tracing::error!("贴图工作区运行异常: {e}");
+                        }
+                    })
+                    .await
+                    .context("调度本地贴图工作区失败")?;
+                }
             }
             SnipperOutcome::Cancelled => {
                 tracing::info!("用户已取消本次截图");

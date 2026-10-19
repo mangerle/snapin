@@ -11,20 +11,16 @@ use snapin_ui::paster::{
 use std::path::PathBuf;
 use tiny_skia::Pixmap;
 
-/// 检查系统剪贴板并就地生成贴图
-pub async fn run_oneshot_paste() -> Result<()> {
-    tracing::info!("正在检查剪贴板内容以生成贴图...");
+use snapin_ui::paster::PasterWorkspaceProxy;
 
+/// 从剪贴板提取图像或文本生成 PasterItem 数据项
+pub fn create_paster_item_from_clipboard() -> Result<Option<PasterItem>> {
     if let Ok(Some(img)) = read_clipboard_image() {
         if let Some(mut pixmap) = Pixmap::new(img.width(), img.height()) {
             pixmap.data_mut().copy_from_slice(img.as_raw());
             let uid = generate_unique_id();
             let item = PasterItem::new(uid, format!("clip_img_{uid}"), pixmap, (200, 200));
-            tokio::task::spawn_blocking(move || spawn_paster_window(item))
-                .await
-                .context("贴图任务调度失败")?
-                .context("贴图窗口运行异常")?;
-            return Ok(());
+            return Ok(Some(item));
         }
     }
 
@@ -38,14 +34,36 @@ pub async fn run_oneshot_paste() -> Result<()> {
         };
 
         let item = PasterItem::new(uid, format!("clip_note_{uid}"), pixmap, (250, 250));
+        return Ok(Some(item));
+    }
+
+    Ok(None)
+}
+
+/// 检查系统剪贴板并将新贴图直接挂载至集中工作区
+pub async fn paste_clipboard_to_workspace(proxy: &PasterWorkspaceProxy) -> Result<()> {
+    tracing::info!("正在检查剪贴板内容以生成贴图...");
+    if let Some(item) = create_paster_item_from_clipboard()? {
+        proxy
+            .open_paster(item)
+            .context("向集中工作区投递贴图失败")?;
+    } else {
+        send_desktop_notification("Snapin 贴图提示", "当前剪贴板为空，无法生成贴图").await?;
+    }
+    Ok(())
+}
+
+/// 检查系统剪贴板并就地生成独立贴图（单次会话降级模式）
+pub async fn run_oneshot_paste() -> Result<()> {
+    tracing::info!("正在检查剪贴板内容以生成独立贴图...");
+    if let Some(item) = create_paster_item_from_clipboard()? {
         tokio::task::spawn_blocking(move || spawn_paster_window(item))
             .await
             .context("贴图任务调度失败")?
             .context("贴图窗口运行异常")?;
-        return Ok(());
+    } else {
+        send_desktop_notification("Snapin 贴图提示", "当前剪贴板为空，无法生成贴图").await?;
     }
-
-    send_desktop_notification("Snapin 贴图提示", "当前剪贴板为空，无法生成贴图").await?;
     Ok(())
 }
 
@@ -82,12 +100,35 @@ pub fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
     };
 
     let uid = generate_unique_id();
-    let item = PasterItem::new(uid, format!("pin_{uid}"), pixmap, (x, y));
+    let title = format!("pin_{uid}");
+    let width = pixmap.width();
+    let height = pixmap.height();
+    let rgba = pixmap.data().to_vec();
 
-    // 运行贴图窗口直至用户关闭
+    // 优先尝试通过 IPC 将外部图片委托给常驻守护服务的集中工作区展示
+    let req = snapin_daemon::DaemonCommand::CreatePaster {
+        width,
+        height,
+        x,
+        y,
+        title: title.clone(),
+        rgba,
+    };
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    if let Ok(true) = rt.block_on(snapin_daemon::send_command_to_daemon(&req)) {
+        tracing::info!("外部图片已通过 IPC 委托常驻集中工作区展示");
+        if path.extension().and_then(|e| e.to_str()) == Some("raw") {
+            let _ = std::fs::remove_file(&path);
+        }
+        return Ok(());
+    }
+
+    let item = PasterItem::new(uid, title, pixmap, (x, y));
     let res = spawn_paster_window(item);
 
-    // 窗口退出后自动清理临时文件（如果是 .raw 运行时文件）
     if path.extension().and_then(|e| e.to_str()) == Some("raw") {
         let _ = std::fs::remove_file(&path);
     }

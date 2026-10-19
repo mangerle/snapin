@@ -1,15 +1,16 @@
 //! Snapin 常驻后台守护进程主服务循环模块。
 
-use super::paste::run_oneshot_paste;
+use super::paste::paste_clipboard_to_workspace;
 use anyhow::{Context, Result};
 use snapin_core::config::Config;
 use snapin_daemon::{
     send_command_to_daemon, DaemonCommand, DaemonResponse, IpcInvocation, IpcListener,
     PasterControlEvent,
 };
-use snapin_platform::{send_desktop_notification, sync_hotkeys_to_gnome};
-use snapin_ui::paster::PasterManager;
+use snapin_platform::{generate_unique_id, send_desktop_notification, sync_hotkeys_to_gnome};
+use snapin_ui::paster::{spawn_paster_workspace_thread, PasterItem};
 use std::path::PathBuf;
+use tiny_skia::Pixmap;
 use tokio::sync::{broadcast, mpsc};
 
 /// 运行后台守护服务
@@ -31,18 +32,21 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
         .args(["enable", "snapin@wangle.local"])
         .spawn();
 
+    // 2. 启动贴图集中工作区（常驻单一 GUI 事件循环独立线程）
+    let workspace_proxy =
+        spawn_paster_workspace_thread(false).context("初始化并启动集中贴图工作区失败")?;
+
+    // 3. 初始化并启动 IPC 监听服务
     let listener = IpcListener::bind(None)
         .await
         .context("绑定 IPC 监听套接字失败")?;
     let (tx, mut rx) = mpsc::channel::<IpcInvocation>(32);
-    let (paster_broadcast_tx, _) = broadcast::channel::<PasterControlEvent>(32);
+    let (dummy_b_tx, _) = broadcast::channel::<PasterControlEvent>(16);
 
-    let listener_broadcast_tx = paster_broadcast_tx.clone();
+    let dummy_b_clone = dummy_b_tx.clone();
     tokio::spawn(async move {
-        listener.run_loop(tx, listener_broadcast_tx).await;
+        listener.run_loop(tx, dummy_b_clone).await;
     });
-
-    let mut paster_manager = PasterManager::default();
 
     tracing::info!("Snapin 守护服务已就绪，等待热键指令...");
     if cfg.general.notify_on_startup {
@@ -53,6 +57,7 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
         .await;
     }
 
+    // 4. IPC 指令调度主循环：将贴图与分组操作直接在单一工作区内微秒级分发
     while let Some(inv) = rx.recv().await {
         tracing::info!("守护进程接收到控制指令: {:?}", inv.request);
         let resp = match inv.request {
@@ -67,58 +72,62 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
                 }
             }
             DaemonCommand::Paste => {
-                tokio::spawn(async {
-                    if let Err(e) = run_oneshot_paste().await {
-                        tracing::error!("守护服务执行贴图失败: {e}");
+                let proxy = workspace_proxy.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = paste_clipboard_to_workspace(&proxy).await {
+                        tracing::error!("守护服务执行剪贴板贴图失败: {e}");
                     }
                 });
                 DaemonResponse::Ok
             }
-            DaemonCommand::RegisterPaster { id, group_id } => {
-                paster_manager.register_instance(id, group_id);
-                tracing::info!(
-                    "已注册贴图实例: {id}，所属组: {group_id}，当前组贴图总数: {}",
-                    paster_manager.count_in_active_group()
-                );
-                DaemonResponse::PasterRegistered
-            }
-            DaemonCommand::UnregisterPaster(id) => {
-                paster_manager.unregister_instance(id);
-                tracing::info!(
-                    "已注销贴图实例: {id}，当前组贴图总数: {}",
-                    paster_manager.count_in_active_group()
-                );
-                DaemonResponse::Ok
+            DaemonCommand::CreatePaster {
+                width,
+                height,
+                x,
+                y,
+                title,
+                rgba,
+            } => {
+                if let Some(mut pixmap) = Pixmap::new(width, height) {
+                    if rgba.len() == (width as usize) * (height as usize) * 4 {
+                        pixmap.data_mut().copy_from_slice(&rgba);
+                        let uid = generate_unique_id();
+                        let item = PasterItem::new(uid, title, pixmap, (x, y));
+                        if let Err(e) = workspace_proxy.open_paster(item) {
+                            tracing::error!("在集中工作区中打开贴图失败: {e}");
+                            DaemonResponse::Error(format!("打开贴图失败: {e}"))
+                        } else {
+                            DaemonResponse::Ok
+                        }
+                    } else {
+                        DaemonResponse::Error("像素数据长度与图像分辨率不匹配".to_string())
+                    }
+                } else {
+                    DaemonResponse::Error("分配像素缓冲区失败".to_string())
+                }
             }
             DaemonCommand::TogglePasters => {
-                let new_state = paster_manager.toggle_current_group_visibility();
-                let _ = paster_broadcast_tx.send(PasterControlEvent::ToggleVisibility);
-                tracing::info!(
-                    "已通过 IPC 广播批量切换贴图显隐状态，新状态: {}，活动贴图数: {}",
-                    if new_state {
-                        "全部显示"
-                    } else {
-                        "全部隐藏"
-                    },
-                    paster_manager.count_in_active_group()
-                );
-                DaemonResponse::Ok
+                if let Err(e) = workspace_proxy.toggle_visibility() {
+                    DaemonResponse::Error(format!("切换贴图显隐失败: {e}"))
+                } else {
+                    DaemonResponse::Ok
+                }
             }
             DaemonCommand::SwitchGroup(target_id) => {
-                let next_group = match target_id {
-                    Some(id) => id,
-                    None => (paster_manager.active_group() + 1) % 4,
-                };
-                paster_manager.switch_group(next_group);
-                let _ = paster_broadcast_tx.send(PasterControlEvent::SetVisibility(true));
-                let count = paster_manager.count_in_active_group();
-                tracing::info!("已切换至贴图分组: {next_group}，活动贴图数: {count}");
-                let msg = format!("已切换至贴图分组: {next_group}（活动贴图: {count}）");
-                let _ = send_desktop_notification("Snapin 贴图组", &msg).await;
-                DaemonResponse::Ok
+                if let Err(e) = workspace_proxy.switch_group(target_id) {
+                    DaemonResponse::Error(format!("切换贴图分组失败: {e}"))
+                } else {
+                    let _ = send_desktop_notification("Snapin 贴图组", "已切换贴图活动分组").await;
+                    DaemonResponse::Ok
+                }
+            }
+            DaemonCommand::RegisterPaster { .. } | DaemonCommand::UnregisterPaster(_) => {
+                // 兼容外部独立进程注册，在集中工作区模式下由工作区自动纳管
+                DaemonResponse::PasterRegistered
             }
             DaemonCommand::Shutdown => {
                 tracing::info!("接收到平滑停机指令，退出守护进程事件循环");
+                let _ = workspace_proxy.shutdown();
                 let _ = inv.responder.send(DaemonResponse::Ok);
                 break;
             }
@@ -126,10 +135,19 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
                 tracing::debug!("心跳响应正常");
                 DaemonResponse::Pong
             }
-            DaemonCommand::GetStatus => DaemonResponse::Status {
-                active_group: paster_manager.active_group(),
-                paster_count: paster_manager.count_in_active_group(),
-            },
+            DaemonCommand::GetStatus => {
+                if let Ok(status) = workspace_proxy.get_status().await {
+                    DaemonResponse::Status {
+                        active_group: status.active_group,
+                        paster_count: status.paster_count,
+                    }
+                } else {
+                    DaemonResponse::Status {
+                        active_group: 0,
+                        paster_count: 0,
+                    }
+                }
+            }
         };
         let _ = inv.responder.send(resp);
     }

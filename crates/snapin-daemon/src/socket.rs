@@ -14,8 +14,8 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
 
-/// 最大允许的 IPC 数据包尺寸（64KB，彻底杜绝恶意超长数据导致的内存溢出）
-const MAX_IPC_FRAME_SIZE: usize = 64 * 1024;
+/// 最大允许的 IPC 数据包尺寸（64MB，满足全屏高分图像在 Unix Socket 极速内存流式传输）
+const MAX_IPC_FRAME_SIZE: usize = 64 * 1024 * 1024;
 /// IPC 通信读写超时阈值（2 秒，避免套接字挂起导致的协程泄漏）
 const IPC_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -24,8 +24,17 @@ const IPC_TIMEOUT: Duration = Duration::from_secs(2);
 pub enum DaemonRequest {
     /// 触发区域截图流水线
     Snip,
-    /// 触发贴图（选区或剪贴板）
+    /// 触发贴图（由剪贴板生成）
     Paste,
+    /// 客户端直接向常驻守护进程投递像素数据创建贴图窗口
+    CreatePaster {
+        width: u32,
+        height: u32,
+        x: i32,
+        y: i32,
+        title: String,
+        rgba: Vec<u8>,
+    },
     /// 批量隐藏或显示当前所有贴图
     TogglePasters,
     /// 切换活动贴图分组（若为 None 则循环切换至下一个分组）
