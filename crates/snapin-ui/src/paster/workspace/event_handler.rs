@@ -21,10 +21,17 @@ pub fn handle_workspace_user_event(
     event: PasterAppEvent,
     instances: &mut HashMap<WindowId, PasterInstance>,
     manager: &mut PasterManager,
-    cfg: &Config,
+    cfg: &mut Config,
     elwt: &EventLoopWindowTarget<PasterAppEvent>,
 ) {
     match event {
+        PasterAppEvent::ReloadConfig(new_cfg) => {
+            *cfg = new_cfg.clone();
+            for inst in instances.values_mut() {
+                inst.state.config = new_cfg.clone();
+            }
+            tracing::info!("集中贴图工作区已完成全局配置热更新");
+        }
         PasterAppEvent::OpenPaster(item) => {
             if let Err(e) = create_new_paster_window(item, instances, manager, cfg, elwt) {
                 tracing::error!("在当前事件循环中创建新贴图窗口失败: {e}");

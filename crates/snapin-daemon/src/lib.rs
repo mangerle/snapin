@@ -6,7 +6,10 @@ pub mod error;
 pub mod protocol;
 pub mod server;
 
-pub use client::{send_command_to_daemon, send_request_to_daemon, send_request_to_path};
+pub use client::{
+    notify_daemon_reload_config, send_command_to_daemon, send_request_to_daemon,
+    send_request_to_path,
+};
 pub use codec::{read_framed_message, write_framed_message};
 pub use error::DaemonError;
 pub use protocol::{
@@ -94,6 +97,12 @@ mod tests {
                 paster_count: 5
             })
         );
+
+        // 客户端发起 ReloadConfig
+        let res_reload = send_request_to_path(&sock_path, &DaemonRequest::ReloadConfig)
+            .await
+            .expect("ReloadConfig 通信成功");
+        assert_eq!(res_reload, Some(DaemonResponse::Ok));
 
         // 验证错误响应正确转换为 Business 错误
         let res_err = send_request_to_path(

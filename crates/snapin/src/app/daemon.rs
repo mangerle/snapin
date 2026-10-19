@@ -62,6 +62,25 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
     while let Some(inv) = rx.recv().await {
         tracing::info!("守护进程接收到控制指令: {:?}", inv.request);
         let resp = match inv.request {
+            DaemonCommand::ReloadConfig => {
+                tracing::info!("守护进程接收到配置热重载指令，正在重新加载配置...");
+                match snapin_core::config::load_or_create_config(None) {
+                    Ok(new_cfg) => {
+                        if let Err(e) = sync_hotkeys_to_gnome(&new_cfg.hotkeys) {
+                            tracing::warn!("热重载配置时同步系统快捷键失败: {e}");
+                        }
+                        if let Err(e) = workspace_proxy.reload_config(new_cfg.clone()) {
+                            tracing::warn!("热重载配置时同步贴图工作区失败: {e}");
+                        }
+                        tracing::info!("守护进程已成功热重载配置并同步至贴图工作区与系统快捷键");
+                        DaemonResponse::Ok
+                    }
+                    Err(e) => {
+                        tracing::error!("重新加载配置文件失败: {e}");
+                        DaemonResponse::Error(format!("重新加载配置文件失败: {e}"))
+                    }
+                }
+            }
             DaemonCommand::Snip => {
                 let current_exe =
                     std::env::current_exe().unwrap_or_else(|_| PathBuf::from("snapin"));

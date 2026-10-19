@@ -94,7 +94,7 @@ pub fn run_paster_workspace_loop(
 ) -> Result<(), UiError> {
     let mut instances: HashMap<WindowId, PasterInstance> = HashMap::new();
     let mut manager = PasterManager::default();
-    let cfg = snapin_core::config::load_or_create_config(None).unwrap_or_default();
+    let mut cfg = snapin_core::config::load_or_create_config(None).unwrap_or_default();
 
     event_loop
         .run(move |event, elwt| {
@@ -106,7 +106,7 @@ pub fn run_paster_workspace_loop(
                         app_event,
                         &mut instances,
                         &mut manager,
-                        &cfg,
+                        &mut cfg,
                         elwt,
                     );
                 }

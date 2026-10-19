@@ -20,6 +20,7 @@ use mapping::{
 use slint::{ComponentHandle, SharedString};
 use snapin_core::config::{self, Config, Hotkey};
 use snapin_core::error::CoreError;
+use snapin_daemon::notify_daemon_reload_config;
 use snapin_platform::{
     get_platform_capabilities, open_path_in_file_manager, suspend_hotkeys_for_settings,
     sync_autostart_desktop_file, sync_hotkeys_to_gnome, PlatformError,
@@ -257,6 +258,7 @@ fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
                 }
                 let _ = sync_hotkeys_to_gnome(&cfg_guard.hotkeys);
                 sync_autostart_desktop_file(cfg_guard.general.autostart);
+                notify_daemon_reload_config();
                 w.set_status_message(SharedString::from("设置已成功保存并同步应用！"));
             }
         }

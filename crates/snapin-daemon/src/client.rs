@@ -79,3 +79,23 @@ pub async fn send_command_to_daemon(command: &DaemonRequest) -> Result<bool, Dae
         None => Ok(false),
     }
 }
+
+/// 尝试向常驻守护进程发送热重载配置指令（安全适配不同线程上下文，非阻塞投递）
+pub fn notify_daemon_reload_config() {
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(async {
+            let _ = send_command_to_daemon(&DaemonRequest::ReloadConfig).await;
+        });
+    } else {
+        std::thread::spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build();
+            if let Ok(rt) = rt {
+                rt.block_on(async {
+                    let _ = send_command_to_daemon(&DaemonRequest::ReloadConfig).await;
+                });
+            }
+        });
+    }
+}

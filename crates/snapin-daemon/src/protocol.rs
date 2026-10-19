@@ -14,6 +14,8 @@ pub const IPC_TIMEOUT: Duration = Duration::from_secs(2);
 /// IPC 支持的守护进程请求协议
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DaemonRequest {
+    /// 重新加载配置文件并热更新快捷键与运行时参数
+    ReloadConfig,
     /// 触发区域截图流水线
     Snip,
     /// 触发贴图（由剪贴板生成）

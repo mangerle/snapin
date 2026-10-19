@@ -2,6 +2,7 @@
 
 use super::super::manager::PasterItem;
 use crate::error::UiError;
+use snapin_core::config::Config;
 use tokio::sync::oneshot;
 use winit::event_loop::EventLoopProxy;
 
@@ -14,6 +15,8 @@ pub struct WorkspaceStatus {
 
 /// 集中贴图工作区支持的用户事件指令
 pub enum PasterAppEvent {
+    /// 重新加载全局配置并同步给存量贴图
+    ReloadConfig(Config),
     /// 创建并弹出一个新的贴图窗口
     OpenPaster(PasterItem),
     /// 批量切换当前分组内所有贴图的显隐状态
@@ -40,6 +43,15 @@ impl PasterWorkspaceProxy {
     /// 封装 winit 事件循环代理
     pub fn new(proxy: EventLoopProxy<PasterAppEvent>) -> Self {
         Self { proxy }
+    }
+
+    /// 请求工作区热重载最新配置
+    pub fn reload_config(&self, cfg: Config) -> Result<(), UiError> {
+        self.proxy
+            .send_event(PasterAppEvent::ReloadConfig(cfg))
+            .map_err(|e| UiError::Window {
+                message: format!("向贴图工作区投递配置热重载指令失败: {e}"),
+            })
     }
 
     /// 请求工作区打开新贴图窗口

@@ -8,6 +8,7 @@ description = "Snapin 基于 Slint 的现代化偏好设置中心图形界面与
 
 [dependencies]
 snapin-core.workspace = true
+snapin-daemon.workspace = true
 snapin-platform.workspace = true
 slint.workspace = true
 tracing.workspace = true
