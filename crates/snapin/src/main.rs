@@ -86,7 +86,7 @@ async fn main() -> Result<()> {
             clear_snip_history().await?;
         }
         Some(Commands::Exit) => {
-            exit_snapin_application();
+            exit_snapin_application().await?;
         }
         Some(Commands::InstallExtension) => {
             install_gnome_extension()?;
