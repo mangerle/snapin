@@ -7,7 +7,12 @@ use std::sync::Arc;
 use tiny_skia::Pixmap;
 use winit::window::Window;
 
-/// 将 tiny-skia 像素高速复制到 softbuffer 共享内存缓冲区并提交显示
+/// 将 tiny-skia 像素高速复制到 softbuffer 共享内存缓冲区并提交显示。
+///
+/// # Errors
+///
+/// 缓冲区获取或提交失败返回 [`UiError::Softbuffer`]；绘图表面尺寸与像素源不一致时
+/// 返回 [`UiError::Render`]，避免缩放/重绘竞态下静默残留上一帧像素。
 pub fn blit_pixmap_to_surface(
     surface: &mut softbuffer::Surface<Arc<Window>, Arc<Window>>,
     pixmap: &Pixmap,
@@ -16,8 +21,18 @@ pub fn blit_pixmap_to_surface(
         message: format!("获取绘图表面缓冲区失败: {e}"),
     })?;
 
-    let src_bytes = pixmap.data();
-    for (dest, src) in buffer.iter_mut().zip(src_bytes.as_chunks::<4>().0) {
+    let src_chunks = pixmap.data().as_chunks::<4>().0;
+    if src_chunks.len() != buffer.len() {
+        return Err(UiError::Render {
+            message: format!(
+                "绘图表面像素容量与源位图不匹配，缓冲区: {}，源位图: {}",
+                buffer.len(),
+                src_chunks.len()
+            ),
+        });
+    }
+
+    for (dest, src) in buffer.iter_mut().zip(src_chunks) {
         *dest = ((src[3] as u32) << 24)
             | ((src[0] as u32) << 16)
             | ((src[1] as u32) << 8)

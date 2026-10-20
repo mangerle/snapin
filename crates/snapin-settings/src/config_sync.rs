@@ -152,12 +152,33 @@ fn extract_output_from_window(win: &SettingsWindow, o: &mut config::model::Outpu
     o.notify_on_save = win.get_notify_on_save();
 }
 
-/// 提取快捷键设置
+/// 提取快捷键设置。
+///
+/// 录入值非法时保留原有绑定并告警，避免一次误录（或界面拼接出的畸形字符串）把用户既有快捷键清空。
 fn extract_hotkeys_from_window(win: &SettingsWindow, h: &mut config::model::HotkeyConfig) {
-    h.snip = Hotkey::parse_str(win.get_snip_hotkey().as_str());
-    h.paste = Hotkey::parse_str(win.get_paste_hotkey().as_str());
-    h.toggle_pasters = Hotkey::parse_str(win.get_toggle_hotkey().as_str());
-    h.switch_group = Hotkey::parse_str(win.get_switch_group_hotkey().as_str());
+    h.snip = parse_hotkey_or_keep("区域截图", win.get_snip_hotkey().as_str(), &h.snip);
+    h.paste = parse_hotkey_or_keep("贴图", win.get_paste_hotkey().as_str(), &h.paste);
+    h.toggle_pasters = parse_hotkey_or_keep(
+        "贴图显隐",
+        win.get_toggle_hotkey().as_str(),
+        &h.toggle_pasters,
+    );
+    h.switch_group = parse_hotkey_or_keep(
+        "贴图分组",
+        win.get_switch_group_hotkey().as_str(),
+        &h.switch_group,
+    );
+}
+
+/// 解析界面上的快捷键文本，失败时回退为当前值
+fn parse_hotkey_or_keep(field: &str, raw: &str, current: &Hotkey) -> Hotkey {
+    match Hotkey::parse_str(raw) {
+        Ok(hotkey) => hotkey,
+        Err(error) => {
+            tracing::warn!("设置中心 [{field}] 快捷键录入值非法，已保留原绑定，原因: {error}");
+            current.clone()
+        }
+    }
 }
 
 /// 提取文字识别设置

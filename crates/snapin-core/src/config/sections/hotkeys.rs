@@ -34,18 +34,26 @@ impl Default for HotkeyConfig {
     }
 }
 
+/// 从受控常量文本构造内置默认快捷键。
+///
+/// 默认值全部来自本模块不可变字面量，且均落在 [`Hotkey::parse_str`] 已覆盖测试的合法词表内，
+/// 解析失败只可能是代码自身的笔误，故以 expect 在开发期立即暴露，而不是静默退化成禁用状态。
+fn default_hotkey(binding: &str) -> Hotkey {
+    Hotkey::parse_str(binding).expect("内置默认快捷键必须为合法组合")
+}
+
 fn default_snip_hotkey() -> Hotkey {
-    Hotkey::parse_str("Ctrl+Alt+A")
+    default_hotkey("Ctrl+Alt+A")
 }
 
 fn default_paste_hotkey() -> Hotkey {
-    Hotkey::parse_str("F1")
+    default_hotkey("F1")
 }
 
 fn default_toggle_hotkey() -> Hotkey {
-    Hotkey::parse_str("Ctrl+F3")
+    default_hotkey("Ctrl+F3")
 }
 
 fn default_switch_group_hotkey() -> Hotkey {
-    Hotkey::parse_str("Shift+F3")
+    default_hotkey("Shift+F3")
 }

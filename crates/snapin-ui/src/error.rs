@@ -21,6 +21,10 @@ pub enum UiError {
     #[error("分配像素内存缓冲失败，宽度: {width}，高度: {height}")]
     PixmapAlloc { width: u32, height: u32 },
 
+    /// 目标帧缓冲像素容量与源位图不一致，通常源于窗口尺寸变更与重绘之间的竞态
+    #[error("渲染呈现失败，描述: {message}")]
+    Render { message: String },
+
     /// 核心领域错误透明转换
     #[error(transparent)]
     Core(#[from] CoreError),

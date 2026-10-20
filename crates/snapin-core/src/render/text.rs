@@ -13,6 +13,15 @@ thread_local! {
     static THREAD_LOCAL_TEXT_RENDERER: RefCell<TextRenderer> = RefCell::new(TextRenderer::new());
 }
 
+/// 包围盒自适应排版的字号下限（低于该值中英文笔画开始糊连，不再继续压缩）
+const MIN_BOX_FONT_SIZE: f32 = 9.0;
+/// 包围盒自适应排版的字号上限
+const MAX_BOX_FONT_SIZE: f32 = 48.0;
+/// 溢出时单次字号收缩比例
+const FONT_SHRINK_STEP: f32 = 0.85;
+/// 字号收缩尝试次数上限，避免长文本触发无界排版循环
+const FONT_SHRINK_ATTEMPTS: usize = 3;
+
 /// 纯 Rust 高精度文本渲染上下文
 pub struct TextRenderer {
     font_system: FontSystem,
@@ -108,19 +117,78 @@ impl TextRenderer {
     }
 
     /// 在指定矩形包围盒内自适应换行排版并绘制文字（支持自动折行与字号动态调整）
+    ///
+    /// 文本高度溢出包围盒时按 [`FONT_SHRINK_STEP`] 逐次压缩字号，最多尝试
+    /// [`FONT_SHRINK_ATTEMPTS`] 次；无论最终是否收敛，落笔一律裁剪在盒形区域内。
     pub fn draw_text_box_rgba(
         &mut self,
         pixmap: &mut PixmapMut,
         text: &str,
         options: TextBoxOptions,
     ) {
-        let (x, y, box_w, box_h) = options.rect;
+        let (_x, _y, box_w, box_h) = options.rect;
         if text.trim().is_empty() || box_w <= 1.0 || box_h <= 1.0 {
             return;
         }
 
-        let mut font_size = options.font_size.clamp(9.0, 48.0);
-        let c_color = CosmicColor::rgba(
+        let mut font_size = options
+            .font_size
+            .clamp(MIN_BOX_FONT_SIZE, MAX_BOX_FONT_SIZE);
+
+        for attempt in 0..FONT_SHRINK_ATTEMPTS {
+            let line_height = font_size * 1.25;
+            let mut buffer = self.shape_box_text(text, font_size, line_height, box_w, box_h);
+            let total_text_h = (buffer.layout_runs().count() as f32) * line_height;
+
+            // 收手条件：高度已落入包围盒、字号触底、或收缩次数耗尽。
+            // 末次即使文本仍然溢出也直接落笔，由盒形裁剪兜住越界字形，
+            // 杜绝旧实现回退到整幅画布排版导致文字扩散覆盖到周边标注与原图的问题。
+            let is_last_attempt = attempt + 1 == FONT_SHRINK_ATTEMPTS;
+            if total_text_h <= box_h || font_size <= MIN_BOX_FONT_SIZE || is_last_attempt {
+                let vertical_offset = ((box_h - total_text_h) / 2.0).max(0.0);
+                self.paint_buffer_in_box(pixmap, &mut buffer, &options, vertical_offset);
+                return;
+            }
+
+            font_size = (font_size * FONT_SHRINK_STEP).max(MIN_BOX_FONT_SIZE);
+        }
+    }
+
+    /// 按包围盒宽度完成折行排版，返回可供测量的就绪缓冲区。
+    ///
+    /// 排版视口高度取 `box_h` 与单行行高的较大值：cosmic-text 只会排布视口内可见的行，
+    /// 若直接用 `box_h` 作为视口高度，当盒高不足一行时会排布出零行文本并绘制成空白，
+    /// 表现为"翻译/标注文字莫名消失"。保底一行既保证始终有可见字形，
+    /// 又让溢出判断自然收敛（total_text_h 至少为一个行高，必然高于不足的盒高）。
+    fn shape_box_text(
+        &mut self,
+        text: &str,
+        font_size: f32,
+        line_height: f32,
+        box_w: f32,
+        box_h: f32,
+    ) -> Buffer {
+        let metrics = Metrics::new(font_size, line_height);
+        let mut buffer = Buffer::new(&mut self.font_system, metrics);
+        buffer.set_size(&mut self.font_system, box_w, box_h.max(line_height));
+        buffer.set_text(&mut self.font_system, text, Attrs::new(), Shaping::Advanced);
+        buffer.shape_until_scroll(&mut self.font_system, false);
+        buffer
+    }
+
+    /// 将排版完成的缓冲区落笔到包围盒内，并把字形像素严格裁剪在盒形区域。
+    ///
+    /// 裁剪同时受盒形范围与画布物理边界约束：前者保证溢出文本不外溢，
+    /// 后者保证索引换算不会越出像素缓冲区。
+    fn paint_buffer_in_box(
+        &mut self,
+        pixmap: &mut PixmapMut,
+        buffer: &mut Buffer,
+        options: &TextBoxOptions,
+        vertical_offset: f32,
+    ) {
+        let (x, y, box_w, box_h) = options.rect;
+        let color = CosmicColor::rgba(
             options.rgba.0,
             options.rgba.1,
             options.rgba.2,
@@ -128,41 +196,26 @@ impl TextRenderer {
         );
         let width = pixmap.width() as i32;
         let height = pixmap.height() as i32;
+        let origin_x = x as i32;
+        let origin_y = (y + vertical_offset) as i32;
+        let max_x = (x + box_w).floor() as i32;
+        let max_y = (y + box_h).floor() as i32;
 
-        // 如果文本过长可能超出包围盒，自适应微调缩小字号
-        for _ in 0..3 {
-            let line_height = font_size * 1.25;
-            let metrics = Metrics::new(font_size, line_height);
-            let mut buffer = Buffer::new(&mut self.font_system, metrics);
-            buffer.set_size(&mut self.font_system, box_w, box_h);
-            buffer.set_text(&mut self.font_system, text, Attrs::new(), Shaping::Advanced);
-            buffer.shape_until_scroll(&mut self.font_system, false);
-
-            let total_lines = buffer.layout_runs().count();
-            let total_text_h = (total_lines as f32) * line_height;
-
-            if total_text_h <= box_h || font_size <= 9.0 {
-                let vertical_offset = ((box_h - total_text_h) / 2.0).max(0.0);
-                buffer.draw(
-                    &mut self.font_system,
-                    &mut self.swash_cache,
-                    c_color,
-                    |gx, gy, _w, _h, c| {
-                        let px = x as i32 + gx;
-                        let py = (y + vertical_offset) as i32 + gy;
-                        if px >= 0 && px < width && py >= 0 && py < height {
-                            let idx = ((py as usize) * (width as usize) + (px as usize)) * 4;
-                            blend_glyph_rgba(pixmap.data_mut(), idx, c.r(), c.g(), c.b(), c.a());
-                        }
-                    },
-                );
-                return;
-            }
-
-            font_size = (font_size * 0.85).max(9.0);
-        }
-
-        self.draw_text_rgba(pixmap, text, x, y, font_size, options.rgba);
+        buffer.draw(
+            &mut self.font_system,
+            &mut self.swash_cache,
+            color,
+            |gx, gy, _w, _h, c| {
+                let px = origin_x + gx;
+                let py = origin_y + gy;
+                let inside_box = px >= origin_x && px < max_x && py >= origin_y && py < max_y;
+                let inside_canvas = px >= 0 && px < width && py >= 0 && py < height;
+                if inside_box && inside_canvas {
+                    let idx = ((py as usize) * (width as usize) + (px as usize)) * 4;
+                    blend_glyph_rgba(pixmap.data_mut(), idx, c.r(), c.g(), c.b(), c.a());
+                }
+            },
+        );
     }
 
     /// 在气泡中心高精排版绘制加粗现代无衬线数字并实现光学绝对居中
@@ -359,5 +412,42 @@ mod tests {
         );
         let has_pixel = pixmap.data().iter().any(|&b| b > 0);
         assert!(has_pixel, "换行排版绘制应写入非零像素");
+    }
+
+    /// 断言字号收缩耗尽后的超长文本仍被严格裁剪在包围盒内，不外溢污染周边画布
+    #[test]
+    fn test_draw_text_box_rgba_clips_overflow_into_box() {
+        let rect = (40.0f32, 30.0f32, 60.0f32, 24.0f32);
+        let mut pixmap = Pixmap::new(200, 120).unwrap();
+        let mut renderer = TextRenderer::new();
+        renderer.draw_text_box_rgba(
+            &mut pixmap.as_mut(),
+            &"overflow translation text".repeat(12),
+            TextBoxOptions {
+                rect,
+                font_size: 48.0,
+                rgba: (255, 255, 255, 255),
+            },
+        );
+
+        let (bx, by, bw, bh) = rect;
+        let (min_x, min_y) = (bx as usize, by as usize);
+        let (max_x, max_y) = ((bx + bw).floor() as usize, (by + bh).floor() as usize);
+        let stride = pixmap.width() as usize;
+
+        let mut painted = 0usize;
+        for (idx, pixel) in pixmap.data().as_chunks::<4>().0.iter().enumerate() {
+            if pixel.iter().all(|&byte| byte == 0) {
+                continue;
+            }
+            painted += 1;
+            let px = idx % stride;
+            let py = idx / stride;
+            assert!(
+                px >= min_x && px < max_x && py >= min_y && py < max_y,
+                "溢出文字越出包围盒，坐标: ({px}, {py})"
+            );
+        }
+        assert!(painted > 0, "裁剪后仍应写入可见字形像素");
     }
 }

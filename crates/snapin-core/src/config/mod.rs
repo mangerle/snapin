@@ -15,7 +15,7 @@ pub use model::{
 };
 use std::fs;
 use std::path::{Path, PathBuf};
-pub use types::{HexColor, Hotkey, SelectionRectRecord};
+pub use types::{HexColor, Hotkey, HotkeyParseError, SelectionRectRecord};
 
 /// 获取 Snapin 默认配置文件存储路径：优先 `$XDG_CONFIG_HOME/snapin/config.toml`，兜底 `~/.config/snapin/config.toml`
 pub fn get_default_config_path() -> Result<PathBuf, CoreError> {

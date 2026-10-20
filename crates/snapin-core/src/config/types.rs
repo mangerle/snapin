@@ -129,6 +129,26 @@ impl<'de> Deserialize<'de> for HexColor {
     }
 }
 
+/// 快捷键文本解析失败原因
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum HotkeyParseError {
+    /// 修饰键位置出现无法识别的令牌
+    #[error(
+        "快捷键 \"{binding}\" 中的 \"{token}\" 不是可识别的修饰键，仅支持 Ctrl/Alt/Shift/Super"
+    )]
+    UnknownModifier { binding: String, token: String },
+
+    /// 只有修饰键或分隔符，缺少实际主键
+    #[error("快捷键 \"{binding}\" 缺少主键，全局热键必须落在具体功能键或字符键上")]
+    MissingMainKey { binding: String },
+
+    /// 主键不在 GNOME 全局快捷键支持的按键集合内
+    #[error(
+        "快捷键 \"{binding}\" 的主键 \"{key}\" 不受支持，可用 F1-F24、字母、数字、空格及常用功能键"
+    )]
+    UnsupportedMainKey { binding: String, key: String },
+}
+
 /// 强类型键盘快捷键组合结构体
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hotkey {
@@ -151,31 +171,59 @@ impl Hotkey {
         }
     }
 
-    /// 解析可读文本为强类型结构（如 "Ctrl+Alt+A"、"F1"、"Ctrl+F3"）
-    pub fn parse_str(s: &str) -> Self {
+    /// 解析人类可读文本为强类型结构（如 "Ctrl+Alt+A"、"F1"、"Ctrl+F3"）。
+    ///
+    /// 设计原理：旧实现静默丢弃无法识别的修饰键并接纳任意主键字符串，用户在设置中心录错键
+    /// 或手工写坏 config.toml 时，系统会注册一个 GNOME 永远不会触发的空绑定，表现为
+    /// "热键按了没反应"的静默失败。改为在配置边界一次性完成词法与合法性校验并显式报错，
+    /// 让调用方能够保留旧值并给出中文提示（Parse, Don't Validate）。
+    pub fn parse_str(s: &str) -> Result<Self, HotkeyParseError> {
         let trimmed = s.trim();
-        if trimmed.is_empty() || trimmed == "已禁用" || trimmed == "none" {
-            return Self::new(false, false, false, false, "");
+        if trimmed.is_empty() || trimmed == "已禁用" || trimmed.eq_ignore_ascii_case("none") {
+            return Ok(Self::new(false, false, false, false, ""));
         }
 
-        let parts: Vec<&str> = trimmed.split('+').map(|p| p.trim()).collect();
+        let parts: Vec<&str> = trimmed.split('+').map(str::trim).collect();
+        let raw_key = parts.last().copied().unwrap_or("");
+        if raw_key.is_empty() {
+            return Err(HotkeyParseError::MissingMainKey {
+                binding: trimmed.to_string(),
+            });
+        }
+
         let mut ctrl = false;
         let mut alt = false;
         let mut shift = false;
         let mut meta = false;
-
-        let main_key = parts.last().copied().unwrap_or("");
-        for &m in &parts[..parts.len().saturating_sub(1)] {
-            match m.to_lowercase().as_str() {
+        for &token in &parts[..parts.len().saturating_sub(1)] {
+            let lowered = token.to_lowercase();
+            match lowered.as_str() {
                 "ctrl" | "control" => ctrl = true,
                 "alt" => alt = true,
                 "shift" => shift = true,
                 "super" | "win" | "meta" => meta = true,
-                _ => {}
+                _ => {
+                    return Err(HotkeyParseError::UnknownModifier {
+                        binding: trimmed.to_string(),
+                        token: token.to_string(),
+                    })
+                }
             }
         }
 
-        Self::new(ctrl, alt, shift, meta, main_key)
+        let key =
+            normalize_main_key(raw_key).ok_or_else(|| HotkeyParseError::UnsupportedMainKey {
+                binding: trimmed.to_string(),
+                key: raw_key.to_string(),
+            })?;
+
+        Ok(Self {
+            ctrl,
+            alt,
+            shift,
+            meta,
+            key,
+        })
     }
 
     /// 转换为人类可读的标准展示文本（如 "Ctrl+Alt+A"）
@@ -201,6 +249,58 @@ impl Hotkey {
     }
 }
 
+/// 将原始主键文本归一化为标准展示名，不受支持的按键返回 `None`。
+///
+/// 接受集合与设置中心按键录制器输出的词表保持一致，并额外兼容 GNOME 侧常见别名，
+/// 使用户手工编辑的配置文件同样能通过校验。
+fn normalize_main_key(raw: &str) -> Option<String> {
+    let token = raw.trim();
+    if token.is_empty() {
+        return None;
+    }
+
+    // 功能键 F1~F24（GNOME 自定义快捷键上限）
+    if let Some(digits) = token.strip_prefix(['F', 'f']) {
+        if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) {
+            let index = digits.parse::<u32>().ok()?;
+            return (1..=24).contains(&index).then(|| format!("F{index}"));
+        }
+    }
+
+    // 单字符键：字母统一大写展示，数字与可打印 ASCII 符号原样保留
+    let mut chars = token.chars();
+    if let (Some(c), None) = (chars.next(), chars.next()) {
+        if c.is_ascii_alphabetic() {
+            return Some(c.to_ascii_uppercase().to_string());
+        }
+        if c.is_ascii_graphic() || c == ' ' {
+            return Some(c.to_string());
+        }
+    }
+
+    let label = match token.to_lowercase().as_str() {
+        "space" => "Space",
+        "enter" | "return" => "Enter",
+        "tab" => "Tab",
+        "escape" | "esc" => "Escape",
+        "print" | "printscreen" | "sysrq" => "Print",
+        "pause" | "break" => "Pause",
+        "insert" => "Insert",
+        "delete" | "del" => "Delete",
+        "home" => "Home",
+        "end" => "End",
+        "pageup" | "page_up" => "PageUp",
+        "pagedown" | "page_down" => "PageDown",
+        "up" | "uparrow" => "Up",
+        "down" | "downarrow" => "Down",
+        "left" | "leftarrow" => "Left",
+        "right" | "rightarrow" => "Right",
+        "menu" => "Menu",
+        _ => return None,
+    };
+    Some(label.to_string())
+}
+
 impl fmt::Display for Hotkey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_display_string())
@@ -208,10 +308,10 @@ impl fmt::Display for Hotkey {
 }
 
 impl FromStr for Hotkey {
-    type Err = std::convert::Infallible;
+    type Err = HotkeyParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self::parse_str(s))
+        Self::parse_str(s)
     }
 }
 
@@ -230,7 +330,7 @@ impl<'de> Deserialize<'de> for Hotkey {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Ok(Self::parse_str(&s))
+        Self::parse_str(&s).map_err(de::Error::custom)
     }
 }
 
@@ -304,17 +404,117 @@ mod tests {
 
     #[test]
     fn test_hotkey_parsing_and_serde() {
-        let hk = Hotkey::parse_str("Ctrl+Alt+A");
+        let hk = Hotkey::parse_str("Ctrl+Alt+A").expect("合法组合键应解析成功");
         assert!(hk.ctrl && hk.alt && !hk.shift);
         assert_eq!(hk.key, "A");
         assert_eq!(hk.to_display_string(), "Ctrl+Alt+A");
 
-        let f1 = Hotkey::parse_str("F1");
+        let f1 = Hotkey::parse_str("F1").expect("单功能键应解析成功");
         assert_eq!(f1.to_display_string(), "F1");
 
         let holder = HotkeyHolder { hotkey: hk };
         let toml_str = toml::to_string(&holder).unwrap();
         let decoded: HotkeyHolder = toml::from_str(&toml_str).unwrap();
         assert_eq!(decoded, holder);
+    }
+
+    /// 录制器输出的全部合法词表必须通过校验，且展示名可稳定往返
+    #[test]
+    fn test_hotkey_accepts_recorder_vocabulary() {
+        let accepted = [
+            "F1",
+            "f12",
+            "F24",
+            "A",
+            "7",
+            "Space",
+            "space",
+            "Enter",
+            "Tab",
+            "Print",
+            "Pause",
+            "Insert",
+            "Delete",
+            "Home",
+            "End",
+            "PageUp",
+            "PageDown",
+            "Up",
+            "Down",
+            "Left",
+            "Right",
+            ",",
+            ".",
+            ";",
+            "Ctrl+F3",
+            "Shift+F3",
+            "Ctrl+Shift+S",
+            "Super+A",
+            "Win+D",
+            "Meta+F10",
+            "Alt+Space",
+            "已禁用",
+            "none",
+            "",
+        ];
+        for binding in accepted {
+            let hotkey = Hotkey::parse_str(binding)
+                .unwrap_or_else(|e| panic!("快捷键 {binding} 应通过校验，实际失败: {e}"));
+            let display = hotkey.to_display_string();
+            let round_trip = Hotkey::parse_str(&display)
+                .unwrap_or_else(|e| panic!("快捷键展示名 {display} 应可往返解析，实际失败: {e}"));
+            assert_eq!(round_trip, hotkey, "快捷键 {binding} 往返不一致");
+        }
+    }
+
+    /// 拼错的修饰键、缺失主键与超范围功能键必须显式报错，杜绝静默注册无效热键
+    #[test]
+    fn test_hotkey_rejects_invalid_bindings() {
+        assert_eq!(
+            Hotkey::parse_str("Crtl+A"),
+            Err(HotkeyParseError::UnknownModifier {
+                binding: "Crtl+A".to_string(),
+                token: "Crtl".to_string(),
+            })
+        );
+        assert_eq!(
+            Hotkey::parse_str("Ctrl+"),
+            Err(HotkeyParseError::MissingMainKey {
+                binding: "Ctrl+".to_string(),
+            })
+        );
+        assert_eq!(
+            Hotkey::parse_str("Ctrl+F25"),
+            Err(HotkeyParseError::UnsupportedMainKey {
+                binding: "Ctrl+F25".to_string(),
+                key: "F25".to_string(),
+            })
+        );
+        assert_eq!(
+            Hotkey::parse_str("F0"),
+            Err(HotkeyParseError::UnsupportedMainKey {
+                binding: "F0".to_string(),
+                key: "F0".to_string(),
+            })
+        );
+        assert_eq!(
+            Hotkey::parse_str("Ctrl+日本語"),
+            Err(HotkeyParseError::UnsupportedMainKey {
+                binding: "Ctrl+日本語".to_string(),
+                key: "日本語".to_string(),
+            })
+        );
+        assert!(matches!(
+            Hotkey::parse_str("<Control>F3"),
+            Err(HotkeyParseError::UnsupportedMainKey { .. })
+        ));
+    }
+
+    /// 配置反序列化必须把非法快捷键转成带中文原因的 serde 错误，而不是静默接受无效键
+    #[test]
+    fn test_hotkey_deserialize_rejects_invalid_binding() {
+        let error = toml::from_str::<HotkeyHolder>("hotkey = \"Hyper+B\"")
+            .expect_err("非法修饰键应导致配置解析失败");
+        assert!(error.message().contains("Hyper"));
     }
 }

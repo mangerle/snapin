@@ -73,8 +73,11 @@ impl SnipperPresenter {
         })?;
 
         let dimmed_bg = create_dimmed_pixmap_fast(bg_image)?;
-        // 映射窗口前先预刷暗化蒙层，避免出现瞬间白屏或未初始化内容
-        let _ = blit_pixmap_to_surface(&mut surface, &dimmed_bg);
+        // 映射窗口前先预刷暗化蒙层，避免出现瞬间白屏或未初始化内容；
+        // 预刷只是过渡画面，失败时由随后的首次正式渲染兜底，故仅记录调试日志
+        if let Err(error) = blit_pixmap_to_surface(&mut surface, &dimmed_bg) {
+            tracing::debug!("预刷暗化蒙层失败，等待首次正式渲染覆盖: {error}");
+        }
 
         let render_pixmap =
             Pixmap::new(width, height).ok_or_else(|| UiError::PixmapAlloc { width, height })?;

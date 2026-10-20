@@ -131,11 +131,11 @@ fn ensure_custom_keybindings_registered(paths: &[&str]) -> Result<(), PlatformEr
                 .join(", ")
         );
 
-        run_gsettings_set(
+        execute_gsettings_batch(&[(
             "org.gnome.settings-daemon.plugins.media-keys",
             "custom-keybindings",
             &formatted_list,
-        );
+        )]);
     }
 
     Ok(())
@@ -155,47 +155,26 @@ fn get_snapin_executable_path() -> String {
     }
 }
 
-/// 批量执行 gsettings set 命令，通过单一子进程批处理减少频繁创建进程的开销
+/// 批量执行 gsettings set，逐项直接以参数数组调用可执行文件。
+///
+/// 旧实现把若干条命令拼接成脚本交给 `sh -c` 执行，虽然对单引号做了转义，但仍让
+/// 用户可编辑的快捷键文本与可执行路径进入 shell 解析上下文，属于无必要的命令注入面。
+/// gsettings 单次调用本身仅毫秒级，改为直接传参既消除注入面又保持行为一致。
 fn execute_gsettings_batch(items: &[(&str, &str, &str)]) {
-    if items.is_empty() {
-        return;
-    }
-
-    let mut script = String::with_capacity(items.len() * 128);
-    for (schema, key, val) in items {
-        let escaped_schema = schema.replace('\'', "'\\''");
-        let escaped_key = key.replace('\'', "'\\''");
-        let escaped_val = val.replace('\'', "'\\''");
-        script.push_str(&format!(
-            "gsettings set '{escaped_schema}' '{escaped_key}' '{escaped_val}'\n"
-        ));
-    }
-
-    match Command::new("sh").arg("-c").arg(&script).output() {
-        Ok(out) if !out.status.success() => {
-            let err = String::from_utf8_lossy(&out.stderr);
-            tracing::warn!("批量更新 GNOME 快捷键配置出现警告: {err}");
+    for (schema, key, value) in items {
+        match Command::new("gsettings")
+            .args(["set", schema, key, value])
+            .output()
+        {
+            Ok(out) if !out.status.success() => {
+                let err = String::from_utf8_lossy(&out.stderr);
+                tracing::warn!("调用 gsettings set 失败 [{schema} {key}={value}]: {err}");
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!("无法执行 gsettings 命令，原因: {error}");
+            }
         }
-        Err(e) => {
-            tracing::warn!("执行 GNOME 快捷键配置批处理命令失败: {e}");
-        }
-        _ => {}
-    }
-}
-
-fn run_gsettings_set(schema_with_path: &str, key: &str, value: &str) {
-    match Command::new("gsettings")
-        .args(["set", schema_with_path, key, value])
-        .output()
-    {
-        Ok(out) if !out.status.success() => {
-            let err = String::from_utf8_lossy(&out.stderr);
-            tracing::warn!("调用 gsettings set 失败 [{key}={value}]: {err}");
-        }
-        Err(e) => {
-            tracing::warn!("无法执行 gsettings 命令: {e}");
-        }
-        _ => {}
     }
 }
 
@@ -219,32 +198,46 @@ pub fn hotkey_to_gnome_accelerator(hk: &Hotkey) -> String {
         res.push_str("<Super>");
     }
 
-    let formatted_key = match hk.key.as_str() {
-        k if k.len() == 1 && k.chars().next().unwrap_or(' ').is_ascii_alphabetic() => {
-            k.to_ascii_lowercase()
-        }
-        "Space" | "space" => "space".to_string(),
-        "PageUp" | "pageup" => "Page_Up".to_string(),
-        "PageDown" | "pagedown" => "Page_Down".to_string(),
-        other => other.to_string(),
-    };
-
-    res.push_str(&formatted_key);
+    res.push_str(&gnome_key_name(&hk.key));
     res
 }
 
-/// 将人类可读的快捷键格式（如 "Ctrl+Alt+A"、"Ctrl+F3"、"F1"）转换为 GNOME / GTK Accelerator 标准格式
-/// （如 "<Control><Alt>a"、"<Control>F3"、"F1"）
-pub fn convert_to_gnome_accelerator(binding: &str) -> String {
-    let trimmed = binding.trim();
-    if trimmed.is_empty() || trimmed == "已禁用" || trimmed == "none" {
-        return String::new();
+/// 将面向用户直觉的主键展示名换算为 GTK accelerator 键名。
+///
+/// 展示层使用"Enter / PageUp / Space"这类直观命名，而 GTK 沿用历史键名
+/// "Return / Page_Up / space"；两者不一致时 GNOME 会静默忽略整条自定义绑定，
+/// 表现为热键录制成功却毫无响应，因此必须在此显式换算。
+fn gnome_key_name(key: &str) -> String {
+    let named: Option<&'static str> = match key.to_lowercase().as_str() {
+        "space" => Some("space"),
+        "enter" | "return" => Some("Return"),
+        "tab" => Some("Tab"),
+        "escape" | "esc" => Some("Escape"),
+        "print" | "printscreen" | "sysrq" => Some("Print"),
+        "pause" | "break" => Some("Pause"),
+        "insert" => Some("Insert"),
+        "delete" | "del" => Some("Delete"),
+        "home" => Some("Home"),
+        "end" => Some("End"),
+        "pageup" | "page_up" => Some("Page_Up"),
+        "pagedown" | "page_down" => Some("Page_Down"),
+        "up" => Some("Up"),
+        "down" => Some("Down"),
+        "left" => Some("Left"),
+        "right" => Some("Right"),
+        "menu" => Some("Menu"),
+        _ => None,
+    };
+    if let Some(name) = named {
+        return name.to_string();
     }
-    if trimmed.starts_with('<') {
-        return trimmed.to_string();
+
+    // 单字母键按 GTK 约定使用小写形式，其余（数字与符号）原样透传
+    let mut chars = key.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) if c.is_ascii_alphabetic() => c.to_ascii_lowercase().to_string(),
+        _ => key.to_string(),
     }
-    let hk = Hotkey::parse_str(trimmed);
-    hotkey_to_gnome_accelerator(&hk)
 }
 
 #[cfg(test)]
@@ -252,20 +245,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_convert_to_gnome_accelerator() {
-        assert_eq!(convert_to_gnome_accelerator("F1"), "F1");
-        assert_eq!(
-            convert_to_gnome_accelerator("Ctrl+Alt+A"),
-            "<Control><Alt>a"
-        );
-        assert_eq!(convert_to_gnome_accelerator("Ctrl+F3"), "<Control>F3");
-        assert_eq!(convert_to_gnome_accelerator("Shift+F3"), "<Shift>F3");
-        assert_eq!(
-            convert_to_gnome_accelerator("Ctrl+Shift+S"),
-            "<Control><Shift>s"
-        );
-        assert_eq!(convert_to_gnome_accelerator("Super+A"), "<Super>a");
-        assert_eq!(convert_to_gnome_accelerator("已禁用"), "");
-        assert_eq!(convert_to_gnome_accelerator(""), "");
+    fn test_hotkey_to_gnome_accelerator() {
+        let cases = [
+            ("F1", "F1"),
+            ("Ctrl+Alt+A", "<Control><Alt>a"),
+            ("Ctrl+F3", "<Control>F3"),
+            ("Shift+F3", "<Shift>F3"),
+            ("Ctrl+Shift+S", "<Control><Shift>s"),
+            ("Super+A", "<Super>a"),
+            ("Ctrl+Space", "<Control>space"),
+            ("Ctrl+Enter", "<Control>Return"),
+            ("Alt+PageUp", "<Alt>Page_Up"),
+            ("Ctrl+PageDown", "<Control>Page_Down"),
+            ("Print", "Print"),
+            ("已禁用", ""),
+            ("", ""),
+        ];
+        for (binding, expected) in cases {
+            let hotkey =
+                Hotkey::parse_str(binding).unwrap_or_else(|e| panic!("{binding} 解析失败: {e}"));
+            assert_eq!(
+                hotkey_to_gnome_accelerator(&hotkey),
+                expected,
+                "快捷键 {binding} 的 GNOME accelerator 换算不符"
+            );
+        }
     }
 }

@@ -60,13 +60,13 @@ impl AppPaths {
         base
     }
 
-    /// 获取 IPC 通信套接字文件路径：优先 `$XDG_RUNTIME_DIR/snapin.sock`，兜底 `runtime_dir/snapin.sock`
+    /// 获取 IPC 通信套接字文件路径：始终位于 `runtime_dir()` 私有目录内。
+    ///
+    /// 设计原理：套接字与截屏原始像素临时文件同属运行时私有数据，必须共享同一 0700 目录，
+    /// 否则既会把可被同用户其他进程抢占的句柄暴露在共享 `$XDG_RUNTIME_DIR` 下，
+    /// 又会让"清空临时缓存"逻辑因路径不在同一目录而无法识别并保护在线套接字。
     pub fn default_socket_path() -> PathBuf {
-        if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
-            PathBuf::from(runtime_dir).join("snapin.sock")
-        } else {
-            Self::runtime_dir().join("snapin.sock")
-        }
+        Self::runtime_dir().join("snapin.sock")
     }
 
     /// 获取用户图片默认保存目录：优先 `~/Pictures`，兜底当前目录
@@ -154,8 +154,10 @@ mod tests {
         let cfg_path = AppPaths::default_config_file();
         assert!(cfg_path.ends_with("config.toml"));
 
+        // 套接字必须落在 0700 私有运行时目录内，保证清理临时缓存时可识别并保护在服套接字
         let sock_path = AppPaths::default_socket_path();
         assert!(sock_path.ends_with("snapin.sock"));
+        assert_eq!(sock_path.parent(), Some(AppPaths::runtime_dir().as_path()));
 
         let temp_path = AppPaths::generate_temp_path("test", "raw");
         assert!(temp_path.to_string_lossy().contains("test_"));
