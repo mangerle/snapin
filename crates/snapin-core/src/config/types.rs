@@ -24,26 +24,32 @@ impl HexColor {
     }
 
     /// 从十六进制字符串（如 "#00AEFF"、"#FFF"、"00AEFF"、"#00AEFFAA"）安全解析
+    ///
+    /// 解析完全基于 ASCII 字节进行，任何非 ASCII 字符都会直接返回 `None`，
+    /// 避免按字节索引 UTF-8 字符串时落入字符中间导致 panic。
     pub fn from_hex(s: &str) -> Option<Self> {
-        let trimmed = s.trim().trim_start_matches('#');
-        match trimmed.len() {
+        let trimmed = s.trim();
+        let hex = trimmed.strip_prefix('#').unwrap_or(trimmed);
+        let bytes = hex.as_bytes();
+
+        match bytes.len() {
             3 => {
-                let r = u8::from_str_radix(&trimmed[0..1], 16).ok()? * 17;
-                let g = u8::from_str_radix(&trimmed[1..2], 16).ok()? * 17;
-                let b = u8::from_str_radix(&trimmed[2..3], 16).ok()? * 17;
+                let r = parse_hex_nibble(bytes[0])? * 17;
+                let g = parse_hex_nibble(bytes[1])? * 17;
+                let b = parse_hex_nibble(bytes[2])? * 17;
                 Some(Self::new(r, g, b, 255))
             }
             6 => {
-                let r = u8::from_str_radix(&trimmed[0..2], 16).ok()?;
-                let g = u8::from_str_radix(&trimmed[2..4], 16).ok()?;
-                let b = u8::from_str_radix(&trimmed[4..6], 16).ok()?;
+                let r = parse_hex_pair(bytes[0], bytes[1])?;
+                let g = parse_hex_pair(bytes[2], bytes[3])?;
+                let b = parse_hex_pair(bytes[4], bytes[5])?;
                 Some(Self::new(r, g, b, 255))
             }
             8 => {
-                let r = u8::from_str_radix(&trimmed[0..2], 16).ok()?;
-                let g = u8::from_str_radix(&trimmed[2..4], 16).ok()?;
-                let b = u8::from_str_radix(&trimmed[4..6], 16).ok()?;
-                let a = u8::from_str_radix(&trimmed[6..8], 16).ok()?;
+                let r = parse_hex_pair(bytes[0], bytes[1])?;
+                let g = parse_hex_pair(bytes[2], bytes[3])?;
+                let b = parse_hex_pair(bytes[4], bytes[5])?;
+                let a = parse_hex_pair(bytes[6], bytes[7])?;
                 Some(Self::new(r, g, b, a))
             }
             _ => None,
@@ -73,6 +79,21 @@ impl HexColor {
     pub fn to_tiny_skia_color(self) -> Color {
         Color::from_rgba8(self.r, self.g, self.b, self.a)
     }
+}
+
+/// 解析单个 ASCII 十六进制半字节，非 ASCII 或非法字符返回 `None`
+fn parse_hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// 解析两个 ASCII 十六进制半字节组合为一个字节
+fn parse_hex_pair(high: u8, low: u8) -> Option<u8> {
+    Some(parse_hex_nibble(high)? * 16 + parse_hex_nibble(low)?)
 }
 
 impl fmt::Display for HexColor {
@@ -265,6 +286,20 @@ mod tests {
         assert!(toml_str.contains("\"#00AEFF\""));
         let decoded: ColorHolder = toml::from_str(&toml_str).unwrap();
         assert_eq!(decoded, holder);
+    }
+
+    #[test]
+    fn test_hex_color_non_ascii_is_rejected_without_panic() {
+        for input in ["#红色", "#测试", "#ééé", "#💥💥", "红色", "💥"] {
+            assert_eq!(
+                HexColor::from_hex(input),
+                None,
+                "非 ASCII 输入必须安全返回 None: {input}"
+            );
+        }
+
+        let rgba = HexColor::from_hex("#00AEFF80").expect("8 位颜色应解析成功");
+        assert_eq!(rgba.to_rgba(), (0, 174, 255, 128));
     }
 
     #[test]

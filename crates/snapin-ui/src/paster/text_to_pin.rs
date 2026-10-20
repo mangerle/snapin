@@ -3,29 +3,19 @@
 //! 当系统未处于截图状态而用户直接按下贴图键时，检查剪贴板内容：
 //! 若包含纯文本或颜色值，自动排版并烘焙为带圆角与投影的精致便签图片。
 
+use snapin_core::config::HexColor;
 use snapin_core::render::with_thread_local_text_renderer;
 use tiny_skia::{Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 
 /// 判断字符串是否为标准 HEX 颜色格式 (如 `#FF5500` 或 `#F50`)
+///
+/// 统一复用核心库的 ASCII 安全解析器，避免 UI 层自行切片导致非 ASCII 输入崩溃。
 pub fn try_parse_hex_color(text: &str) -> Option<(u8, u8, u8)> {
-    let t = text.trim();
-    if !t.starts_with('#') {
+    let trimmed = text.trim();
+    if !trimmed.starts_with('#') {
         return None;
     }
-    let hex = &t[1..];
-    if hex.len() == 6 {
-        let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-        let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-        let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-        Some((r, g, b))
-    } else if hex.len() == 3 {
-        let r = u8::from_str_radix(&hex[0..1].repeat(2), 16).ok()?;
-        let g = u8::from_str_radix(&hex[1..2].repeat(2), 16).ok()?;
-        let b = u8::from_str_radix(&hex[2..3].repeat(2), 16).ok()?;
-        Some((r, g, b))
-    } else {
-        None
-    }
+    HexColor::from_hex(trimmed).map(HexColor::to_rgb)
 }
 
 /// 将 HEX 颜色值渲染为一个精致的取色预览卡片贴图
@@ -144,7 +134,11 @@ mod tests {
         assert_eq!(try_parse_hex_color("#FF5500"), Some((255, 85, 0)));
         assert_eq!(try_parse_hex_color("#000"), Some((0, 0, 0)));
         assert_eq!(try_parse_hex_color("#FFF"), Some((255, 255, 255)));
+        assert_eq!(try_parse_hex_color("#FF550080"), Some((255, 85, 0)));
         assert_eq!(try_parse_hex_color("not_color"), None);
+        // 非 ASCII 输入必须安全返回 None，不能触发字符串切片 panic
+        assert_eq!(try_parse_hex_color("#红色"), None);
+        assert_eq!(try_parse_hex_color("#💥💥"), None);
     }
 
     #[test]
