@@ -55,9 +55,10 @@ mod tests {
             .await
             .expect("绑定测试套接字成功");
         let (tx, mut rx) = tokio::sync::mpsc::channel::<IpcInvocation>(4);
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-        tokio::spawn(async move {
-            listener.run_loop(tx).await;
+        let listener_handle = tokio::spawn(async move {
+            listener.run_loop(tx, shutdown_rx).await;
         });
 
         // 模拟守护进程主循环响应逻辑
@@ -119,5 +120,8 @@ mod tests {
         .await
         .expect("通信链路成功");
         assert_eq!(res_err, Some(DaemonResponse::Ok));
+
+        let _ = shutdown_tx.send(true);
+        let _ = listener_handle.await;
     }
 }

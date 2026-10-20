@@ -93,8 +93,11 @@ pub fn handle_workspace_user_event(
             };
             let _ = responder.send(status);
         }
-        PasterAppEvent::Shutdown => {
+        PasterAppEvent::Shutdown(responder) => {
             instances.clear();
+            if let Some(responder) = responder {
+                let _ = responder.send(());
+            }
             elwt.exit();
         }
     }

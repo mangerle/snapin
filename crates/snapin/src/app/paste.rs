@@ -42,7 +42,11 @@ pub fn create_paster_item_from_clipboard() -> Result<Option<PasterItem>> {
 /// 检查系统剪贴板并将新贴图直接挂载至集中工作区
 pub async fn paste_clipboard_to_workspace(proxy: &PasterWorkspaceProxy) -> Result<()> {
     tracing::info!("正在检查剪贴板内容以生成贴图...");
-    if let Some(item) = create_paster_item_from_clipboard()? {
+    let item = tokio::task::spawn_blocking(create_paster_item_from_clipboard)
+        .await
+        .context("剪贴板解析任务调度失败")??;
+
+    if let Some(item) = item {
         proxy
             .open_paster(item)
             .context("向集中工作区投递贴图失败")?;
@@ -55,7 +59,11 @@ pub async fn paste_clipboard_to_workspace(proxy: &PasterWorkspaceProxy) -> Resul
 /// 检查系统剪贴板并就地生成独立贴图（单次会话降级模式）
 pub async fn run_oneshot_paste() -> Result<()> {
     tracing::info!("正在检查剪贴板内容以生成独立贴图...");
-    if let Some(item) = create_paster_item_from_clipboard()? {
+    let item = tokio::task::spawn_blocking(create_paster_item_from_clipboard)
+        .await
+        .context("剪贴板解析任务调度失败")??;
+
+    if let Some(item) = item {
         tokio::task::spawn_blocking(move || spawn_paster_window(item))
             .await
             .context("贴图任务调度失败")?

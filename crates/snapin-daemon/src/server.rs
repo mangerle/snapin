@@ -7,8 +7,12 @@ use crate::error::DaemonError;
 use std::path::PathBuf;
 use tokio::net::UnixListener;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
+use tokio::task::JoinSet;
 use tokio::time::timeout;
+
+/// 同时处理的 IPC 连接上限，防止异常客户端耗尽任务与内存
+const MAX_CONCURRENT_CONNECTIONS: usize = 32;
 
 /// 服务端角色：绑定并监听 Unix Domain Socket，将收到的命令分发给事件主循环
 pub struct IpcListener {
@@ -59,63 +63,84 @@ impl IpcListener {
         })
     }
 
-    /// 启动常驻异步监听循环，将解码出的请求与响应回执派发给有界通道
-    pub async fn run_loop(self, cmd_sender: Sender<IpcInvocation>) {
-        loop {
-            match self.listener.accept().await {
-                Ok((mut stream, _addr)) => {
-                    let sender = cmd_sender.clone();
-                    tokio::spawn(async move {
-                        let read_res = timeout(
-                            IPC_TIMEOUT,
-                            read_framed_message::<_, DaemonRequest>(&mut stream),
-                        )
-                        .await;
+    /// 启动常驻异步监听循环，将解码出的请求与响应回执派发给有界通道。
+    ///
+    /// 通过 `shutdown` 监听停机信号，并以 `JoinSet` 纳管所有连接任务，
+    /// 退出时统一取消在途连接，避免任务泄漏。
+    pub async fn run_loop(
+        self,
+        cmd_sender: Sender<IpcInvocation>,
+        mut shutdown: watch::Receiver<bool>,
+    ) {
+        let mut connections = JoinSet::new();
 
-                        match read_res {
-                            Ok(Ok(request)) => {
-                                let (resp_tx, resp_rx) = oneshot::channel();
-                                let invocation = IpcInvocation {
-                                    request,
-                                    responder: resp_tx,
-                                };
-                                if sender.send(invocation).await.is_ok() {
-                                    let response = match timeout(IPC_TIMEOUT, resp_rx).await {
-                                        Ok(Ok(resp)) => resp,
-                                        _ => DaemonResponse::Error("业务处理超时".to_string()),
-                                    };
-                                    let _ = timeout(
-                                        IPC_TIMEOUT,
-                                        write_framed_message(&mut stream, &response),
-                                    )
-                                    .await;
-                                } else {
-                                    let _ = timeout(
-                                        IPC_TIMEOUT,
-                                        write_framed_message(
-                                            &mut stream,
-                                            &DaemonResponse::Error(
-                                                "守护进程主循环已关闭".to_string(),
-                                            ),
-                                        ),
-                                    )
-                                    .await;
+        loop {
+            tokio::select! {
+                _ = shutdown.changed() => break,
+                Some(_) = connections.join_next(), if !connections.is_empty() => {}
+                accepted = self.listener.accept() => {
+                    match accepted {
+                        Ok((mut stream, _addr)) => {
+                            if connections.len() >= MAX_CONCURRENT_CONNECTIONS {
+                                let _ = connections.join_next().await;
+                            }
+                            let sender = cmd_sender.clone();
+                            connections.spawn(async move {
+                                let read_res = timeout(
+                                    IPC_TIMEOUT,
+                                    read_framed_message::<_, DaemonRequest>(&mut stream),
+                                )
+                                .await;
+
+                                match read_res {
+                                    Ok(Ok(request)) => {
+                                        let (resp_tx, resp_rx) = oneshot::channel();
+                                        let invocation = IpcInvocation {
+                                            request,
+                                            responder: resp_tx,
+                                        };
+                                        if sender.send(invocation).await.is_ok() {
+                                            let response = match timeout(IPC_TIMEOUT, resp_rx).await {
+                                                Ok(Ok(resp)) => resp,
+                                                _ => DaemonResponse::Error("业务处理超时".to_string()),
+                                            };
+                                            let _ = timeout(
+                                                IPC_TIMEOUT,
+                                                write_framed_message(&mut stream, &response),
+                                            )
+                                            .await;
+                                        } else {
+                                            let _ = timeout(
+                                                IPC_TIMEOUT,
+                                                write_framed_message(
+                                                    &mut stream,
+                                                    &DaemonResponse::Error(
+                                                        "守护进程主循环已关闭".to_string(),
+                                                    ),
+                                                ),
+                                            )
+                                            .await;
+                                        }
+                                    }
+                                    Ok(Err(e)) => {
+                                        tracing::warn!("接收客户端 IPC 请求异常: {e}");
+                                    }
+                                    Err(_) => {
+                                        tracing::warn!("接收客户端 IPC 请求超时，主动断开连接");
+                                    }
                                 }
-                            }
-                            Ok(Err(e)) => {
-                                tracing::warn!("接收客户端 IPC 请求异常: {e}");
-                            }
-                            Err(_) => {
-                                tracing::warn!("接收客户端 IPC 请求超时，主动断开连接");
-                            }
+                            });
                         }
-                    });
-                }
-                Err(e) => {
-                    tracing::warn!("IPC 连接接入异常: {e}");
+                        Err(e) => {
+                            tracing::warn!("IPC 连接接入异常: {e}");
+                        }
+                    }
                 }
             }
         }
+
+        connections.shutdown().await;
+        tracing::info!("IPC 监听循环已退出");
     }
 }
 

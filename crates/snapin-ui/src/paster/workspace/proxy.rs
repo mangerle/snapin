@@ -29,8 +29,8 @@ pub enum PasterAppEvent {
     ClosePaster(u64),
     /// 查询当前工作区运行状态
     GetStatus(oneshot::Sender<WorkspaceStatus>),
-    /// 请求工作区平滑停机
-    Shutdown,
+    /// 请求工作区平滑停机，并在事件循环即将退出时回传确认
+    Shutdown(Option<oneshot::Sender<()>>),
 }
 
 /// 贴图工作区线程安全代理句柄，支持跨线程、跨任务异步发送控制事件
@@ -94,12 +94,22 @@ impl PasterWorkspaceProxy {
         })
     }
 
-    /// 请求工作区平滑退出
-    pub fn shutdown(&self) -> Result<(), UiError> {
+    /// 请求工作区平滑退出，并等待事件循环确认（最多 2 秒）
+    pub async fn shutdown_and_wait(&self) -> Result<(), UiError> {
+        let (sender, receiver) = oneshot::channel();
         self.proxy
-            .send_event(PasterAppEvent::Shutdown)
+            .send_event(PasterAppEvent::Shutdown(Some(sender)))
             .map_err(|e| UiError::Window {
                 message: format!("向贴图工作区投递停机指令失败: {e}"),
+            })?;
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), receiver)
+            .await
+            .map_err(|_| UiError::Window {
+                message: "等待贴图工作区停机确认超时".to_string(),
+            })?
+            .map_err(|_| UiError::Window {
+                message: "贴图工作区在停机前已退出".to_string(),
             })
     }
 }
