@@ -1,10 +1,8 @@
 //! 贴图生成与窗口展示模块。
 
 use anyhow::{Context, Result};
-use snapin_platform::{
-    generate_secure_temp_path, generate_unique_id, read_clipboard_image, read_clipboard_text,
-    send_desktop_notification,
-};
+use snapin_core::AppPaths;
+use snapin_platform::{read_clipboard_image, read_clipboard_text, send_desktop_notification};
 use snapin_ui::paster::{
     render_color_swatch_card, render_simple_text_card, spawn_paster_window, try_parse_hex_color,
     PasterItem,
@@ -19,14 +17,14 @@ pub fn create_paster_item_from_clipboard() -> Result<Option<PasterItem>> {
     if let Ok(Some(img)) = read_clipboard_image() {
         if let Some(mut pixmap) = Pixmap::new(img.width(), img.height()) {
             pixmap.data_mut().copy_from_slice(img.as_raw());
-            let uid = generate_unique_id();
+            let uid = AppPaths::generate_unique_id();
             let item = PasterItem::new(uid, format!("clip_img_{uid}"), pixmap, (200, 200));
             return Ok(Some(item));
         }
     }
 
     if let Ok(Some(text)) = read_clipboard_text() {
-        let uid = generate_unique_id();
+        let uid = AppPaths::generate_unique_id();
         let pixmap = if let Some((r, g, b)) = try_parse_hex_color(&text) {
             render_color_swatch_card(r, g, b).context("生成色彩卡片失败")?
         } else {
@@ -111,11 +109,11 @@ pub async fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
         p
     };
 
-    let uid = generate_unique_id();
+    let uid = AppPaths::generate_unique_id();
     let title = format!("pin_{uid}");
     let width = pixmap.width();
     let height = pixmap.height();
-    let raw_temp = generate_secure_temp_path("paster_pin", "raw");
+    let raw_temp = AppPaths::generate_temp_path("paster_pin", "raw");
     if snapin_core::AppPaths::write_secure_file(&raw_temp, pixmap.data()).is_ok() {
         let req = snapin_daemon::DaemonCommand::CreatePaster {
             width,

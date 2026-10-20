@@ -6,7 +6,7 @@ use super::types::SnipperOutcome;
 use crate::paster::PasterItem;
 use crate::snipper::selection::SelectionState;
 use image::{GenericImageView, RgbaImage};
-use snapin_platform::{generate_unique_id, save_last_selection, write_image_to_clipboard};
+use snapin_platform::{save_last_selection, write_image_to_clipboard};
 
 /// 裁剪当前选区图像并合成已绘制的矢量标注
 pub fn crop_selection_image(
@@ -106,7 +106,7 @@ pub fn handle_action_pin(state: &mut SnipperState, original_rgba: &RgbaImage) {
         match tiny_skia::Pixmap::new(cropped.width(), cropped.height()) {
             Some(mut pixmap) => {
                 pixmap.data_mut().copy_from_slice(cropped.as_raw());
-                let id = generate_unique_id();
+                let id = snapin_core::AppPaths::generate_unique_id();
                 let item = PasterItem::new(id, format!("pin_{id}"), pixmap, pin_pos);
                 state.outcome = Some(SnipperOutcome::Pinned(item));
             }

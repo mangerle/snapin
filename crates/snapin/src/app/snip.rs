@@ -3,9 +3,10 @@
 use anyhow::{Context, Result};
 use image::RgbaImage;
 use snapin_core::config::Config;
+use snapin_core::AppPaths;
 use snapin_platform::{
     capture_fullscreen_extension, capture_fullscreen_extension_raw, capture_fullscreen_portal,
-    generate_secure_temp_path, get_platform_capabilities, send_desktop_notification,
+    get_platform_capabilities, send_desktop_notification,
 };
 use snapin_ui::snipper::{run_snipper_session, SnipMode, SnipperOutcome};
 use std::time::Instant;
@@ -18,7 +19,7 @@ pub async fn acquire_screen_snapshot() -> Result<RgbaImage> {
     // 1. 若全局能力缓存确认 GNOME 扩展在线，优先尝试扩展极速通道
     if caps.gnome_extension_active {
         // 1.1 尝试零延迟 Raw 原始物理像素截屏（跳过压缩与解码）
-        let raw_path = generate_secure_temp_path("screen", "raw");
+        let raw_path = AppPaths::generate_temp_path("screen", "raw");
         let raw_str = raw_path.to_string_lossy().to_string();
         if let Ok(Some((w, h))) = capture_fullscreen_extension_raw(&raw_str).await {
             if let Ok(bytes) = std::fs::read(&raw_path) {
@@ -36,7 +37,7 @@ pub async fn acquire_screen_snapshot() -> Result<RgbaImage> {
         }
 
         // 1.2 降级尝试 GNOME 扩展 PNG 截屏通道
-        let target_path = generate_secure_temp_path("screen", "png");
+        let target_path = AppPaths::generate_temp_path("screen", "png");
         let target_str = target_path.to_string_lossy().to_string();
 
         let t_dbus_start = Instant::now();
@@ -120,7 +121,7 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode) -> Result<()> {
             }
             SnipperOutcome::Pinned(item) => {
                 tracing::info!("正在向常驻集中贴图工作区投递选区窗口...");
-                let raw_path = generate_secure_temp_path("paster_ipc", "raw");
+                let raw_path = AppPaths::generate_temp_path("paster_ipc", "raw");
                 let mut delivered = false;
                 if snapin_core::AppPaths::write_secure_file(&raw_path, item.pixmap.data()).is_ok() {
                     let req = snapin_daemon::DaemonCommand::CreatePaster {

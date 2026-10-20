@@ -9,7 +9,6 @@ pub mod hotkey_manager;
 pub mod lifecycle;
 pub mod notification;
 pub mod portal;
-pub mod save_helper;
 pub mod storage;
 
 pub(crate) mod dbus_session;
@@ -37,8 +36,7 @@ pub use lifecycle::{
 };
 pub use notification::send_desktop_notification;
 pub use portal::capture_fullscreen_portal;
-pub use save_helper::{
-    clear_selection_cache, generate_secure_temp_path, generate_unique_id, get_secure_runtime_dir,
-    load_last_selection, resolve_save_path, save_image_with_config, save_last_selection,
+pub use storage::{
+    checked_rgba_byte_len, clear_selection_cache, load_last_selection, resolve_save_path,
+    save_image_with_config, save_last_selection, MAX_RAW_PIXELS,
 };
-pub use storage::{checked_rgba_byte_len, MAX_RAW_PIXELS};

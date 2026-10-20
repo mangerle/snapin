@@ -50,19 +50,7 @@ impl ContextMenuState {
     /// 计算完全展开上下文菜单（含可能的二级子菜单）所需的最小安全包围尺寸
     pub fn required_menu_extent(&self, x: f32, y: f32, main_items: &[MenuItem]) -> (f32, f32) {
         let s = self.ui_scale;
-        let sep_h = 8.0 * s;
-        let extra_h = 10.0 * s;
-        let total_h = main_items
-            .iter()
-            .map(|it| {
-                if it.is_separator {
-                    sep_h
-                } else {
-                    self.item_height
-                }
-            })
-            .sum::<f32>()
-            + extra_h;
+        let total_h = Self::items_total_height(main_items, self.item_height, s);
 
         // 包含主菜单与二级子菜单宽度的总预估（主菜单 170*s + 二级菜单 160*s）
         let max_w = (170.0 + 160.0) * s;
@@ -81,19 +69,7 @@ impl ContextMenuState {
         self.hovered_sub_idx = None;
 
         let s = self.ui_scale;
-        let sep_h = 8.0 * s;
-        let extra_h = 10.0 * s;
-        let total_h = main_items
-            .iter()
-            .map(|it| {
-                if it.is_separator {
-                    sep_h
-                } else {
-                    self.item_height
-                }
-            })
-            .sum::<f32>()
-            + extra_h;
+        let total_h = Self::items_total_height(main_items, self.item_height, s);
 
         let target_y = if y + total_h > win_h {
             if y >= total_h {
@@ -137,6 +113,22 @@ impl ContextMenuState {
         MenuItem::build_sub_items(sub_type, smooth_scaling)
     }
 
+    /// 计算菜单项列表的总高度（含上下内边距）
+    pub(crate) fn items_total_height(items: &[MenuItem], item_height: f32, scale: f32) -> f32 {
+        let separator_height = 8.0 * scale;
+        items
+            .iter()
+            .map(|item| {
+                if item.is_separator {
+                    separator_height
+                } else {
+                    item_height
+                }
+            })
+            .sum::<f32>()
+            + 10.0 * scale
+    }
+
     /// 鼠标移动检测悬停与二级菜单触发
     pub fn handle_mouse_move(
         &mut self,
@@ -153,23 +145,12 @@ impl ContextMenuState {
         let s = self.ui_scale;
         let sep_h = 8.0 * s;
         let pad_v = 5.0 * s;
-        let extra_h = 10.0 * s;
         let sub_w = 160.0 * s;
         let overlap = 4.0 * s;
 
         if let Some((sub_type, sx, sy)) = self.active_submenu {
             let sub_items = Self::build_sub_items(sub_type, smooth_scaling);
-            let sub_h = sub_items
-                .iter()
-                .map(|it| {
-                    if it.is_separator {
-                        sep_h
-                    } else {
-                        self.item_height
-                    }
-                })
-                .sum::<f32>()
-                + extra_h;
+            let sub_h = Self::items_total_height(&sub_items, self.item_height, s);
             if cx >= sx && cx <= sx + sub_w && cy >= sy && cy <= sy + sub_h {
                 let mut cur_y = sy + pad_v;
                 let mut found_sub = None;
@@ -194,17 +175,7 @@ impl ContextMenuState {
         }
 
         // 2. 检查主菜单区域
-        let main_h = items
-            .iter()
-            .map(|it| {
-                if it.is_separator {
-                    sep_h
-                } else {
-                    self.item_height
-                }
-            })
-            .sum::<f32>()
-            + extra_h;
+        let main_h = Self::items_total_height(items, self.item_height, s);
         if cx >= self.x && cx <= self.x + self.width && cy >= self.y && cy <= self.y + main_h {
             let mut cur_y = self.y + pad_v;
             let mut found_main = None;
@@ -229,17 +200,7 @@ impl ContextMenuState {
                 }
                 if let Some(sub_type) = sub {
                     let sub_items = Self::build_sub_items(sub_type, smooth_scaling);
-                    let sub_h = sub_items
-                        .iter()
-                        .map(|it| {
-                            if it.is_separator {
-                                sep_h
-                            } else {
-                                self.item_height
-                            }
-                        })
-                        .sum::<f32>()
-                        + extra_h;
+                    let sub_h = Self::items_total_height(&sub_items, self.item_height, s);
 
                     let sub_x = if self.x + self.width + sub_w - overlap > self.win_w
                         && self.x >= sub_w - overlap
@@ -288,23 +249,12 @@ impl ContextMenuState {
         let s = self.ui_scale;
         let sep_h = 8.0 * s;
         let pad_v = 5.0 * s;
-        let extra_h = 10.0 * s;
         let sub_w = 160.0 * s;
 
         // 1. 检测二级子菜单点击
         if let Some((sub_type, sx, sy)) = self.active_submenu {
             let sub_items = Self::build_sub_items(sub_type, smooth_scaling);
-            let sub_h = sub_items
-                .iter()
-                .map(|it| {
-                    if it.is_separator {
-                        sep_h
-                    } else {
-                        self.item_height
-                    }
-                })
-                .sum::<f32>()
-                + extra_h;
+            let sub_h = Self::items_total_height(&sub_items, self.item_height, s);
             if cx >= sx && cx <= sx + sub_w && cy >= sy && cy <= sy + sub_h {
                 let mut cur_y = sy + pad_v;
                 for it in sub_items.iter() {
@@ -323,17 +273,7 @@ impl ContextMenuState {
         }
 
         // 2. 检测主菜单点击
-        let main_h = main_items
-            .iter()
-            .map(|it| {
-                if it.is_separator {
-                    sep_h
-                } else {
-                    self.item_height
-                }
-            })
-            .sum::<f32>()
-            + extra_h;
+        let main_h = Self::items_total_height(main_items, self.item_height, s);
         if cx >= self.x && cx <= self.x + self.width && cy >= self.y && cy <= self.y + main_h {
             let mut cur_y = self.y + pad_v;
             for it in main_items.iter() {

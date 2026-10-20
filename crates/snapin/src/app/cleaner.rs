@@ -1,14 +1,15 @@
 //! 截屏共享内存与历史临时缓存清理模块。
 
 use anyhow::Result;
-use snapin_platform::{clear_selection_cache, get_secure_runtime_dir, send_desktop_notification};
+use snapin_core::AppPaths;
+use snapin_platform::{clear_selection_cache, send_desktop_notification};
 
 /// 清理本用户所有截屏共享内存与历史选区缓存
 pub async fn clear_snip_history() -> Result<()> {
     let mut count = 0;
 
     // 1. 清理当前用户安全运行时目录（严禁误删正在运行的 IPC 通信套接字）
-    let runtime_dir = get_secure_runtime_dir();
+    let runtime_dir = AppPaths::runtime_dir();
     let socket_path = snapin_core::AppPaths::default_socket_path();
     if let Ok(entries) = std::fs::read_dir(&runtime_dir) {
         for entry in entries.flatten() {

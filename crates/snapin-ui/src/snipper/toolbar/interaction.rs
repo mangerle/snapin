@@ -7,6 +7,9 @@ use crate::snipper::selection::Rect;
 use crate::snipper::toolbar::items::{
     preset_colors, StrokeWidthLevel, SubToolOptions, ToolbarItem,
 };
+use crate::snipper::toolbar::metrics::{
+    button_size, divider_width, has_separator_before, padding, spacing,
+};
 
 /// 主工具栏按钮命中测试 (计算每个按钮的热区并进行点碰撞检测)
 pub(crate) fn hit_test_main_items(
@@ -21,14 +24,14 @@ pub(crate) fn hit_test_main_items(
     }
 
     let s = ui_scale;
-    let btn_size = 32.0 * s;
-    let padding = 6.0 * s;
-    let spacing = 4.0 * s;
+    let btn_size = button_size(s);
+    let padding = padding(s);
+    let spacing = spacing(s);
     let mut cur_x = main_rect.x + padding;
 
     for (idx, &item) in items.iter().enumerate() {
-        if idx == 7 || idx == 11 {
-            cur_x += 8.0 * s;
+        if has_separator_before(idx) {
+            cur_x += divider_width(s);
         }
 
         let btn_rect = Rect {

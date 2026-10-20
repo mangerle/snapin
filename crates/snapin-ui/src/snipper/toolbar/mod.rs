@@ -8,6 +8,7 @@ pub mod icons;
 mod interaction;
 pub mod items;
 mod layout;
+mod metrics;
 pub mod render;
 
 #[cfg(test)]

@@ -2,6 +2,7 @@
 
 use super::icons::{add_round_rect, make_paint, render_item_icon};
 use super::items::{preset_colors, StrokeWidthLevel, ToolbarItem};
+use super::metrics::{button_size, divider_width, has_separator_before, padding, spacing};
 use super::Toolbar;
 use crate::snipper::selection::Rect;
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
@@ -74,15 +75,15 @@ fn render_panel_background(pixmap: &mut PixmapMut, rect: &Rect, s: f32) {
 /// 绘制主工具栏的各个按钮项
 fn render_main_buttons(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
     let s = toolbar.ui_scale;
-    let btn_size = 32.0 * s;
-    let padding = 6.0 * s;
-    let spacing = 4.0 * s;
+    let btn_size = button_size(s);
+    let padding = padding(s);
+    let spacing = spacing(s);
     let mut cur_x = toolbar.main_rect.x + padding;
 
     for (idx, &item) in Toolbar::MAIN_ITEMS.iter().enumerate() {
-        if idx == 7 || idx == 11 {
+        if has_separator_before(idx) {
             render_divider(pixmap, cur_x + 3.0 * s, toolbar.main_rect.y + padding, s);
-            cur_x += 8.0 * s;
+            cur_x += divider_width(s);
         }
 
         let btn_rect = Rect {

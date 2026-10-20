@@ -5,6 +5,7 @@
 
 use crate::snipper::selection::Rect;
 use crate::snipper::toolbar::items::ToolbarItem;
+use crate::snipper::toolbar::metrics::{button_size, main_toolbar_width, padding};
 
 /// 根据选区与屏幕宽高重新计算主工具栏在屏幕上的自适应摆放位置
 pub(crate) fn calculate_main_layout(
@@ -15,17 +16,8 @@ pub(crate) fn calculate_main_layout(
     total_items: usize,
 ) -> Rect {
     let s = ui_scale;
-    let btn_size = 32.0 * s;
-    let padding = 6.0 * s;
-    let spacing = 4.0 * s;
-    let divider_width = 8.0 * s;
-
-    let items_count = total_items as f32;
-    let width = padding * 2.0
-        + items_count * btn_size
-        + (items_count - 1.0) * spacing
-        + divider_width * 2.0;
-    let height = padding * 2.0 + btn_size;
+    let width = main_toolbar_width(total_items, s);
+    let height = padding(s) * 2.0 + button_size(s);
 
     let mut x = (selection.x + selection.width) - width;
     let mut y = selection.y + selection.height + 8.0 * s;

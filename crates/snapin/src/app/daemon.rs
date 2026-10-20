@@ -3,12 +3,13 @@
 use super::paste::paste_clipboard_to_workspace;
 use anyhow::{Context, Result};
 use snapin_core::config::Config;
+use snapin_core::AppPaths;
 use snapin_daemon::{
     send_command_to_daemon, DaemonCommand, DaemonResponse, IpcInvocation, IpcListener,
 };
 use snapin_platform::{
-    enable_gnome_extension, generate_unique_id, send_desktop_notification,
-    spawn_detached_system_command, sync_hotkeys_to_gnome,
+    enable_gnome_extension, send_desktop_notification, spawn_detached_system_command,
+    sync_hotkeys_to_gnome,
 };
 use snapin_ui::paster::{spawn_paster_workspace_thread, PasterItem};
 use std::path::PathBuf;
@@ -105,7 +106,7 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
                 raw_path,
             } => {
                 let file_path = PathBuf::from(&raw_path);
-                let runtime_dir = snapin_platform::get_secure_runtime_dir();
+                let runtime_dir = AppPaths::runtime_dir();
                 // 路径防穿越安全校验：运行时目录与目标文件都先规范化，避免符号链接绕过
                 let runtime_dir = runtime_dir
                     .canonicalize()
@@ -135,7 +136,7 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
                         if bytes.len() == expected_len {
                             if let Some(mut pixmap) = Pixmap::new(width, height) {
                                 pixmap.data_mut().copy_from_slice(&bytes);
-                                let uid = generate_unique_id();
+                                let uid = AppPaths::generate_unique_id();
                                 let item = PasterItem::new(uid, title, pixmap, (x, y));
                                 if let Err(e) = workspace_proxy.open_paster(item) {
                                     tracing::error!("在集中工作区中打开贴图失败: {e}");

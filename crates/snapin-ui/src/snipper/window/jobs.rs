@@ -8,9 +8,7 @@ use super::types::SnipperOutcome;
 use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::{TranslationAction, TranslationShapeItem};
 use snapin_core::config::{Config, CoverMode};
-use snapin_platform::{
-    generate_unique_id, save_image_with_config, write_image_to_clipboard, write_text_to_clipboard,
-};
+use snapin_platform::{save_image_with_config, write_image_to_clipboard, write_text_to_clipboard};
 use snapin_service::ocr::{
     estimate_dominant_background_color, get_contrasting_text_color, LocalPpOcrEngine, OcrEngine,
     OcrResult, OcrTextBlock,
@@ -290,7 +288,10 @@ fn save_with_fallback(
     let pictures_dir = snapin_core::AppPaths::pictures_dir();
     std::fs::create_dir_all(&pictures_dir)
         .map_err(|error| format!("创建 Pictures 目录失败: {error}"))?;
-    let fallback_path = pictures_dir.join(format!("snapin_{}.png", generate_unique_id()));
+    let fallback_path = pictures_dir.join(format!(
+        "snapin_{}.png",
+        snapin_core::AppPaths::generate_unique_id()
+    ));
     image
         .save(&fallback_path)
         .map_err(|error| format!("降级保存截图失败: {error}"))?;

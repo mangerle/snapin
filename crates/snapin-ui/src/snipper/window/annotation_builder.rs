@@ -3,7 +3,7 @@
 use super::events::SnipperState;
 use crate::snipper::selection::Rect;
 use crate::snipper::toolbar::{Toolbar, ToolbarItem};
-use snapin_core::annotation::action::{AnnotationAction, AnnotationShape};
+use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::{
     ArrowAction, BadgeAction, EllipseAction, MarkerAction, MosaicAction, PenAction, RectAction,
 };
@@ -92,35 +92,7 @@ impl<'a> AnnotationDraftParams<'a> {
 pub fn render_draft_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
     let pts = params.points;
     match params.tool {
-        ToolbarItem::ToolRect => {
-            let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
-            RectAction {
-                rect: (rect.x, rect.y, rect.width, rect.height),
-                color: params.color_rgba,
-                stroke_width: params.stroke_width,
-                is_filled: false,
-            }
-            .draw(pixmap);
-        }
-        ToolbarItem::ToolEllipse => {
-            let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
-            EllipseAction {
-                rect: (rect.x, rect.y, rect.width, rect.height),
-                color: params.color_rgba,
-                stroke_width: params.stroke_width,
-                is_filled: false,
-            }
-            .draw(pixmap);
-        }
-        ToolbarItem::ToolArrow => {
-            ArrowAction {
-                start: pts[0],
-                end: pts[pts.len() - 1],
-                color: params.color_rgba,
-                stroke_width: params.stroke_width,
-            }
-            .draw(pixmap);
-        }
+        // Pen/Marker 直接借用点集绘制，避免高频鼠标移动事件中的临时 Vec 分配。
         ToolbarItem::ToolPen => {
             PenAction::draw_points_offset(
                 pts,
@@ -145,26 +117,12 @@ pub fn render_draft_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapM
                 0.0,
             );
         }
-        ToolbarItem::ToolMosaic => {
-            let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
-            MosaicAction {
-                rect: (rect.x, rect.y, rect.width, rect.height),
-                cell_size: 10,
+        _ => {
+            // 其余图元复用同一构建工厂，保证预览与最终提交的几何和样式完全一致。
+            if let Some(shape) = build_shape(params) {
+                shape.draw(pixmap);
             }
-            .draw(pixmap);
         }
-        ToolbarItem::ToolBadge => {
-            let center = pts[pts.len() - 1];
-            let radius = (params.stroke_width * 3.0).clamp(10.0, 48.0) * params.ui_scale;
-            BadgeAction {
-                center,
-                radius,
-                number: params.badge_number as usize,
-                color: params.color_rgba,
-            }
-            .draw(pixmap);
-        }
-        _ => {}
     }
 }
 

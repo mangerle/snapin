@@ -101,9 +101,12 @@ pub fn paste_from_clipboard_to_paster(state: &mut PasterWindowState, window: &Wi
     }
 
     if let Ok(Some(text)) = read_clipboard_text() {
-        if let Some(pixmap) =
+        let pixmap = if let Some((r, g, b)) = crate::paster::try_parse_hex_color(&text) {
+            crate::paster::render_color_swatch_card(r, g, b)
+        } else {
             crate::paster::render_simple_text_card(&text.lines().collect::<Vec<_>>())
-        {
+        };
+        if let Some(pixmap) = pixmap {
             state.replace_pixmap(pixmap, window);
         }
     }

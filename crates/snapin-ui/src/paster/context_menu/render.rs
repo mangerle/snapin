@@ -104,13 +104,7 @@ fn render_menu_panel(
     let (x, y, width, item_height) = (layout.x, layout.y, layout.width, layout.item_height);
     let sep_h = 8.0 * s;
     let pad_v = 5.0 * s;
-    let extra_h = 10.0 * s;
-
-    let total_h = items
-        .iter()
-        .map(|it| if it.is_separator { sep_h } else { item_height })
-        .sum::<f32>()
-        + extra_h;
+    let total_h = super::ContextMenuState::items_total_height(items, item_height, s);
 
     // 1. 绘制现代浅色卡片柔和投影与纯白微圆角背景
     let mut pb_shadow = PathBuilder::new();
