@@ -16,6 +16,30 @@ use tokio::time::timeout;
 
 const STATUS_QUERY_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// 向扩展登记贴图放置请求的超时上限。扩展缺席时 D-Bus 会立即报错，
+/// 该超时仅用于兜底会话总线偶发挂起，避免拖慢 IPC 响应。
+const PLACEMENT_TIMEOUT: Duration = Duration::from_millis(400);
+
+/// 向配套 GNOME 扩展登记贴图窗口的精确放置坐标。
+///
+/// 设计原理：Wayland 的 xdg-shell 协议禁止客户端自行决定窗口位置，`WindowBuilder::with_position`
+/// 在原生会话下被合成器直接忽略，绝对定位只能交由持有 Mutter 特权的扩展执行。
+/// 这里采用「先登记坐标、再创建窗口」的次序，扩展会把尚未映射的请求挂起，
+/// 待 `window-created` 触发时立即生效，从而彻底消除窗口映射与放置调用之间的竞态。
+/// 放置失败只影响窗口落点、不影响贴图内容本身，属可降级路径，故仅记录日志而不改写响应结果。
+async fn register_paster_placement(title: &str, x: i32, y: i32) {
+    match timeout(
+        PLACEMENT_TIMEOUT,
+        snapin_platform::place_paster_window(title, x, y),
+    )
+    .await
+    {
+        Ok(Ok(_)) => tracing::debug!("已向扩展登记贴图放置请求: {title}，坐标: ({x}, {y})"),
+        Ok(Err(error)) => tracing::warn!("请求 GNOME 扩展登记贴图放置失败: {error}"),
+        Err(_) => tracing::warn!("请求 GNOME 扩展登记贴图放置超时，窗口将由扩展回退定位"),
+    }
+}
+
 /// 处理单条守护进程指令
 pub async fn handle_command(
     command: DaemonRequest,
@@ -166,6 +190,7 @@ async fn create_paster(
     pixmap.data_mut().copy_from_slice(&bytes);
 
     let uid = AppPaths::generate_unique_id();
+    register_paster_placement(&title, x, y).await;
     let item = PasterItem::new(uid, title, pixmap, (x, y));
     match workspace.open_paster(item) {
         Ok(()) => DaemonResponse::Ok,

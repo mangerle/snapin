@@ -8,13 +8,16 @@ import Shell from 'gi://Shell';
 import Meta from 'gi://Meta';
 import GLib from 'gi://GLib';
 
-// 定义 D-Bus 接口：接收贴图窗口标题，并在 Mutter 合成器内部将其置顶；提供原生零闪烁极速截屏服务
+// 定义 D-Bus 接口：Wayland 协议禁止客户端自行摆放或提级窗口，因此贴图窗口的绝对定位与
+// 置顶必须由拥有特权的 Mutter 扩展代为执行；同时提供原生零闪烁极速截屏服务。
 const IFACE_XML = `
 <node>
   <interface name="org.gnome.Shell.Extensions.Snapin">
-    <method name="PinWindowByTitle">
+    <method name="PlaceWindowByTitle">
       <arg type="s" direction="in" name="windowTitle"/>
-      <arg type="b" direction="out" name="success"/>
+      <arg type="i" direction="in" name="x"/>
+      <arg type="i" direction="in" name="y"/>
+      <arg type="b" direction="out" name="placed"/>
     </method>
     <method name="CaptureFullscreen">
       <arg type="s" direction="in" name="targetPath"/>
@@ -29,16 +32,43 @@ const IFACE_XML = `
   </interface>
 </node>`;
 
+// 托盘菜单条目：以数据表驱动构建，避免重复的 connect 样板并防止同一命令被多处重复注册
+const TRAY_MENU = [
+    { label: '截屏', command: 'snapin snip' },
+    { label: '截屏并自动复制', command: 'snapin snip --auto-copy' },
+    { label: '自定义截屏', command: 'snapin snip --custom' },
+    { label: '贴图', command: 'snapin paste' },
+    { label: '隐藏/显示所有贴图', command: 'snapin toggle' },
+    // 不带分组参数时由守护进程轮转至下一个分组，硬编码分组会使其永远停在同一组
+    { label: '切换到另一贴图组', command: 'snapin switch-group' },
+    { label: '清空截屏历史', command: 'snapin clear-history' },
+    { separator: true },
+    { label: '首选项...', command: 'snapin prefs' },
+    {
+        label: '重新启动',
+        command: 'bash -c "systemctl --user restart snapin 2>/dev/null || (snapin exit 2>/dev/null; sleep 0.5; snapin daemon &)"',
+    },
+    { label: '退出', command: 'snapin exit' },
+];
+
+// 延迟放置请求的最长有效期：贴图标题含唯一 ID 不会复用，超时仅用于兜底回收异常未映射的请求
+const PLACEMENT_TTL_US = 5 * 1000 * 1000;
+
 export default class SnapinHelperExtension extends Extension {
     enable() {
-        // 1. 导出 Mutter 特权置顶 D-Bus 服务
+        // 1. 导出 Mutter 特权窗口操作与原生截屏 D-Bus 服务
         this._dbusImpl = Gio.DBusExportedObject.wrapJSObject(IFACE_XML, this);
         this._dbusImpl.export(
             Gio.DBus.session,
             '/org/gnome/Shell/Extensions/Snapin'
         );
 
-        // 2. 创建 GNOME 顶栏原生托盘指示器与菜单（设置 0.5 居中对齐，使菜单在托盘正下方居中弹出）
+        // 尚未映射窗口的放置请求登记表，键为窗口标题
+        this._pendingPlacements = new Map();
+        // 已连接的窗口标题监听器，disable 时统一断开，防止扩展重载后闭包泄漏
+        this._titleWatchers = new Set();
+
+        // 2. 创建 GNOME 顶栏原生托盘指示器与菜单（0.5 对齐使菜单在托盘正下方居中弹出）
         this._indicator = new PanelMenu.Button(0.5, 'Snapin Indicator', false);
         this._indicator.menu.setSourceAlignment(0.5);
         this._indicator.set_style('-natural-hpadding: 6px; -minimum-hpadding: 4px; margin: 0; padding: 0;');
@@ -64,142 +94,34 @@ export default class SnapinHelperExtension extends Extension {
         box.add_child(icon);
         this._indicator.add_child(box);
 
-        // 添加托盘菜单项（严格匹配设计红框）
-        // 1. 截屏
-        let snipItem = new PopupMenu.PopupMenuItem('截屏');
-        snipItem.connect('activate', () => {
-            GLib.spawn_command_line_async('snapin snip');
-        });
-        this._indicator.menu.addMenuItem(snipItem);
-
-        // 2. 截屏并自动复制
-        let snipCopyItem = new PopupMenu.PopupMenuItem('截屏并自动复制');
-        snipCopyItem.connect('activate', () => {
-            GLib.spawn_command_line_async('snapin snip --auto-copy');
-        });
-        this._indicator.menu.addMenuItem(snipCopyItem);
-
-        // 3. 自定义截屏
-        let customSnipItem = new PopupMenu.PopupMenuItem('自定义截屏');
-        customSnipItem.connect('activate', () => {
-            GLib.spawn_command_line_async('snapin snip --custom');
-        });
-        this._indicator.menu.addMenuItem(customSnipItem);
-
-        // 4. 贴图
-        let pasteItem = new PopupMenu.PopupMenuItem('贴图');
-        pasteItem.connect('activate', () => {
-            GLib.spawn_command_line_async('snapin paste');
-        });
-        this._indicator.menu.addMenuItem(pasteItem);
-
-        // 5. 隐藏/显示所有贴图
-        let toggleItem = new PopupMenu.PopupMenuItem('隐藏/显示所有贴图');
-        toggleItem.connect('activate', () => {
-            GLib.spawn_command_line_async('snapin toggle');
-        });
-        this._indicator.menu.addMenuItem(toggleItem);
-
-        // 6. 切换到另一贴图组
-        let switchGroupItem = new PopupMenu.PopupMenuItem('切换到另一贴图组');
-        switchGroupItem.connect('activate', () => {
-            GLib.spawn_command_line_async('snapin switch-group 1');
-        });
-        this._indicator.menu.addMenuItem(switchGroupItem);
-
-        // 7. 清空截屏历史
-        let clearHistoryItem = new PopupMenu.PopupMenuItem('清空截屏历史');
-        clearHistoryItem.connect('activate', () => {
-            GLib.spawn_command_line_async('snapin clear-history');
-        });
-        this._indicator.menu.addMenuItem(clearHistoryItem);
-
-        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        // 8. 贴图 (二级子菜单)
-        let pasteSubMenu = new PopupMenu.PopupSubMenuMenuItem('贴图');
-        let subItemNew = new PopupMenu.PopupMenuItem('新建贴图');
-        subItemNew.connect('activate', () => {
-            GLib.spawn_command_line_async('snapin paste');
-        });
-        pasteSubMenu.menu.addMenuItem(subItemNew);
-
-        let subItemToggle = new PopupMenu.PopupMenuItem('隐藏/显示所有贴图');
-        subItemToggle.connect('activate', () => {
-            GLib.spawn_command_line_async('snapin toggle');
-        });
-        pasteSubMenu.menu.addMenuItem(subItemToggle);
-
-        let subItemClose = new PopupMenu.PopupMenuItem('批量隐藏贴图');
-        subItemClose.connect('activate', () => {
-            GLib.spawn_command_line_async('snapin toggle');
-        });
-        pasteSubMenu.menu.addMenuItem(subItemClose);
-
-        this._indicator.menu.addMenuItem(pasteSubMenu);
-
-        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        // 9. 首选项...
-        let prefsItem = new PopupMenu.PopupMenuItem('首选项...');
-        prefsItem.connect('activate', () => {
-            GLib.spawn_command_line_async('snapin prefs');
-        });
-        this._indicator.menu.addMenuItem(prefsItem);
-
-        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        // 10. 重新启动
-        let restartItem = new PopupMenu.PopupMenuItem('重新启动');
-        restartItem.connect('activate', () => {
-            GLib.spawn_command_line_async('bash -c "systemctl --user restart snapin 2>/dev/null || (snapin exit 2>/dev/null; sleep 0.5; snapin daemon &)"');
-        });
-        this._indicator.menu.addMenuItem(restartItem);
-
-        // 11. 退出
-        let exitItem = new PopupMenu.PopupMenuItem('退出');
-        exitItem.connect('activate', () => {
-            GLib.spawn_command_line_async('snapin exit');
-        });
-        this._indicator.menu.addMenuItem(exitItem);
+        for (let entry of TRAY_MENU) {
+            let item;
+            if (entry.separator) {
+                item = new PopupMenu.PopupSeparatorMenuItem();
+            } else {
+                item = new PopupMenu.PopupMenuItem(entry.label);
+                item.connect('activate', () => {
+                    GLib.spawn_command_line_async(entry.command);
+                });
+            }
+            this._indicator.menu.addMenuItem(item);
+        }
 
         // 将托盘添加到顶栏右侧状态栏区域
         Main.panel.addToStatusArea('snapin-indicator', this._indicator, 1, 'right');
 
-        // 3. 监听全局窗口创建事件：贴图窗口一诞生立即强制置顶并设为 UTILITY 类型从 Dock / 任务栏中隐藏
-        const applyPinAttributes = (metaWin) => {
-            if (!metaWin) return;
-            let title = metaWin.get_title();
-            let wmClass = metaWin.get_wm_class ? metaWin.get_wm_class() : '';
-            let isPin = (title && (title.startsWith('pin_') || title.startsWith('clip_'))) || wmClass === 'snapin-pin';
-            if (!isPin) return;
-
-            metaWin.make_above();
-            if (Meta.WindowType && typeof metaWin.set_type === 'function') {
-                metaWin.set_type(Meta.WindowType.UTILITY);
-            }
-
-            // 窗口初次创建时就近对齐到当前鼠标光标所在屏幕区域，避免被 Mutter 丢到屏幕右上角
-            if (!metaWin._snapin_positioned) {
-                metaWin._snapin_positioned = true;
-                let [mouseX, mouseY] = global.get_pointer();
-                let rect = metaWin.get_frame_rect();
-                let targetX = Math.max(10, mouseX - Math.floor(rect.width / 2));
-                let targetY = Math.max(30, mouseY - Math.floor(rect.height / 2));
-                if (typeof metaWin.move_frame === 'function') {
-                    metaWin.move_frame(true, targetX, targetY);
-                }
-            }
-        };
-
+        // 3. 监听全局窗口创建事件：贴图窗口一诞生立即强制置顶，并设为 UTILITY 类型从 Dock 隐藏
         this._windowCreatedId = global.display.connect('window-created', (_display, metaWin) => {
-            applyPinAttributes(metaWin);
-            if (metaWin) {
-                let notifyId = metaWin.connect('notify::title', () => {
-                    applyPinAttributes(metaWin);
-                    metaWin.disconnect(notifyId);
-                });
-            }
+            this._applyPinAttributes(metaWin);
+            if (!metaWin) return;
+            // 部分窗口在 map 之后才写入标题，补挂一次性监听确保属性最终生效
+            const watcher = { window: metaWin, id: 0 };
+            watcher.id = metaWin.connect('notify::title', () => {
+                this._applyPinAttributes(metaWin);
+                metaWin.disconnect(watcher.id);
+                this._titleWatchers.delete(watcher);
+            });
+            this._titleWatchers.add(watcher);
         });
     }
 
@@ -208,6 +130,13 @@ export default class SnapinHelperExtension extends Extension {
             global.display.disconnect(this._windowCreatedId);
             this._windowCreatedId = null;
         }
+
+        for (let watcher of this._titleWatchers) {
+            watcher.window.disconnect(watcher.id);
+        }
+        this._titleWatchers.clear();
+
+        this._pendingPlacements = new Map();
 
         if (this._indicator) {
             this._indicator.destroy();
@@ -221,25 +150,130 @@ export default class SnapinHelperExtension extends Extension {
     }
 
     /**
-     * 在 Mutter 窗口树中查找指定标题的贴图窗口并调用 make_above 置顶及设为 UTILITY 隐藏 Dock 图标。
-     * @param {string} windowTitle 贴图窗口标题
-     * @returns {boolean} 是否成功置顶
+     * 判断窗口是否为 Snapin 贴图窗口。
+     * @param {Meta.Window} metaWin 目标窗口
+     * @returns {boolean} 是否为受管贴图窗口
      */
-    PinWindowByTitle(windowTitle) {
+    _isPasterWindow(metaWin) {
+        let title = metaWin.get_title();
+        let wmClass = metaWin.get_wm_class ? metaWin.get_wm_class() : '';
+        if (wmClass === 'snapin-pin') return true;
+        return !!title && (title.startsWith('pin_') || title.startsWith('clip_'));
+    }
+
+    /**
+     * 按物理像素坐标移动窗口。Mutter 的 move_frame 接受逻辑坐标，故需按窗口缩放比换算。
+     * @param {Meta.Window} metaWin 目标窗口
+     * @param {number} x 物理像素 X 坐标
+     * @param {number} y 物理像素 Y 坐标
+     */
+    _moveWindowByPhysical(metaWin, x, y) {
+        if (typeof metaWin.move_frame !== 'function') return;
+        let scale = 1;
+        if (typeof metaWin.get_scale_factor === 'function') {
+            scale = metaWin.get_scale_factor() || 1;
+        }
+        metaWin.move_frame(true, Math.round(x / scale), Math.round(y / scale));
+    }
+
+    /**
+     * 为贴图窗口应用置顶、Dock 隐藏与最终定位。
+     *
+     * 定位策略：优先消费客户端经 D-Bus 提交的精确坐标请求（截图选区原地贴图、命令行指定位置）；
+     * 无请求时才回退为就近对齐鼠标光标，避免 Mutter 把窗口丢到屏幕角落。
+     * @param {Meta.Window} metaWin 目标窗口
+     */
+    _applyPinAttributes(metaWin) {
+        if (!metaWin || !this._isPasterWindow(metaWin)) return;
+
+        metaWin.make_above();
+        if (Meta.WindowType && typeof metaWin.set_type === 'function') {
+            metaWin.set_type(Meta.WindowType.UTILITY);
+        }
+
+        if (metaWin._snapinPlaced) return;
+        metaWin._snapinPlaced = true;
+
+        let title = metaWin.get_title();
+        let pending = title && this._pendingPlacements.has(title)
+            ? this._pendingPlacements.get(title)
+            : null;
+        if (pending) {
+            this._pendingPlacements.delete(title);
+            this._moveWindowByPhysical(metaWin, pending.x, pending.y);
+            return;
+        }
+
+        let [mouseX, mouseY] = global.get_pointer();
+        let rect = metaWin.get_frame_rect();
+        let scale = 1;
+        if (typeof metaWin.get_scale_factor === 'function') {
+            scale = metaWin.get_scale_factor() || 1;
+        }
+        let targetX = Math.max(10, mouseX - Math.floor(rect.width / scale / 2));
+        let targetY = Math.max(30, mouseY - Math.floor(rect.height / scale / 2));
+        if (typeof metaWin.move_frame === 'function') {
+            metaWin.move_frame(true, targetX, targetY);
+        }
+    }
+
+    /**
+     * 在 Mutter 窗口树中按标题查找贴图窗口。
+     * @param {string} windowTitle 贴图窗口标题
+     * @returns {Meta.Window|null} 命中的窗口
+     */
+    _findPasterWindow(windowTitle) {
+        for (let actor of global.get_window_actors()) {
+            let metaWin = actor.get_meta_window();
+            if (metaWin && metaWin.get_title() === windowTitle) {
+                return metaWin;
+            }
+        }
+        return null;
+    }
+
+    /** 回收超过有效期的延迟放置请求，防止异常未映射的标题无限堆积 */
+    _prunePlacements() {
+        let now = GLib.get_monotonic_time();
+        for (let [title, placement] of this._pendingPlacements) {
+            if (now - placement.at > PLACEMENT_TTL_US) {
+                this._pendingPlacements.delete(title);
+            }
+        }
+    }
+
+    /**
+     * 请求扩展将指定贴图窗口置顶并精确放置到给定物理像素坐标。
+     *
+     * 窗口可能尚未完成映射（事件循环与 D-Bus 调用存在竞态），此时登记为延迟请求，
+     * 待 window-created 触发时立即生效，从而保证坐标语义不因时序而丢失。
+     * @param {string} windowTitle 贴图窗口标题
+     * @param {number} x 物理像素 X 坐标
+     * @param {number} y 物理像素 Y 坐标
+     * @returns {boolean} 是否已立即命中并完成放置
+     */
+    PlaceWindowByTitle(windowTitle, x, y) {
         if (!windowTitle) {
             return false;
         }
-        let actors = global.get_window_actors();
-        for (let actor of actors) {
-            let metaWin = actor.get_meta_window();
-            if (metaWin && metaWin.get_title() === windowTitle) {
-                metaWin.make_above();
-                if (Meta.WindowType && typeof metaWin.set_type === 'function') {
-                    metaWin.set_type(Meta.WindowType.UTILITY);
-                }
-                return true;
+
+        let metaWin = this._findPasterWindow(windowTitle);
+        if (metaWin) {
+            metaWin.make_above();
+            if (Meta.WindowType && typeof metaWin.set_type === 'function') {
+                metaWin.set_type(Meta.WindowType.UTILITY);
             }
+            metaWin._snapinPlaced = true;
+            this._moveWindowByPhysical(metaWin, x, y);
+            return true;
         }
+
+        this._prunePlacements();
+        this._pendingPlacements.set(windowTitle, {
+            x,
+            y,
+            at: GLib.get_monotonic_time(),
+        });
         return false;
     }
 
