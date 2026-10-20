@@ -1,5 +1,6 @@
 //! 截图交互会话状态机模型与配置初始化。
 
+use super::jobs::{SnipperJobDispatcher, SnipperJobKind};
 use super::text_input::TextInputSession;
 use super::types::{SnipMode, SnipperOutcome};
 use crate::snipper::magnifier::Magnifier;
@@ -7,6 +8,7 @@ use crate::snipper::selection::{SelectionHistory, SelectionState};
 use crate::snipper::toolbar::{Toolbar, ToolbarItem};
 use snapin_core::annotation::AnnotationHistory;
 use snapin_core::config::{Config, DefaultTool, InterfaceConfig, SnipConfig};
+use std::sync::Arc;
 use winit::keyboard::ModifiersState;
 
 /// 截图会话可变运行状态封装
@@ -23,6 +25,12 @@ pub struct SnipperState {
     pub outcome: Option<SnipperOutcome>,
     /// 操作失败或空结果提示（显示在画布顶部，下一次操作时清除）
     pub status_message: Option<String>,
+    /// 后台任务调度器（测试或非异步环境下为空）
+    pub job_dispatcher: Option<Arc<SnipperJobDispatcher>>,
+    /// 当前正在执行的 OCR/翻译任务类型
+    pub pending_job: Option<SnipperJobKind>,
+    /// 当前后台任务的取消句柄
+    pub pending_job_abort: Option<tokio::task::AbortHandle>,
     pub config: Config,
     pub mode: SnipMode,
 }
@@ -41,9 +49,20 @@ impl SnipperState {
             active_text_input: None,
             outcome: None,
             status_message: None,
+            job_dispatcher: None,
+            pending_job: None,
+            pending_job_abort: None,
             config: Config::default(),
             mode: SnipMode::default(),
         }
+    }
+
+    /// 取消当前后台任务（若存在）。
+    pub fn cancel_pending_job(&mut self) {
+        if let Some(abort) = self.pending_job_abort.take() {
+            abort.abort();
+        }
+        self.pending_job = None;
     }
 
     /// 设置画布顶部提示信息

@@ -5,6 +5,7 @@ pub mod annotation_builder;
 pub mod drag_calculator;
 pub mod event_dispatcher;
 pub mod events;
+pub mod jobs;
 pub mod mouse;
 pub mod presenter;
 pub mod session;

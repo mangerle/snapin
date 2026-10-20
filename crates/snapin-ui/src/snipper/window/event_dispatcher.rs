@@ -2,6 +2,7 @@
 
 use super::events::handle_key_input;
 use super::events::SnipperState;
+use super::jobs::SnipperUserEvent;
 use super::mouse::{handle_cursor_move, handle_mouse_button, handle_mouse_wheel};
 use super::presenter::SnipperPresenter;
 use super::types::SnipperOutcome;
@@ -23,7 +24,7 @@ impl SnipperEventDispatcher {
         state: &mut SnipperState,
         bg_image: &RgbaImage,
         outcome_slot: &Arc<Mutex<Option<SnipperOutcome>>>,
-        elwt: &EventLoopWindowTarget<()>,
+        elwt: &EventLoopWindowTarget<SnipperUserEvent>,
     ) {
         let screen_w = bg_image.width();
         let screen_h = bg_image.height();
@@ -115,6 +116,7 @@ impl SnipperEventDispatcher {
                 state.modifiers = mods.state();
             }
             WindowEvent::CloseRequested => {
+                state.cancel_pending_job();
                 if let Ok(mut g) = outcome_slot.lock() {
                     *g = Some(SnipperOutcome::Cancelled);
                 }
@@ -125,12 +127,13 @@ impl SnipperEventDispatcher {
     }
 
     /// 检查是否存在有效结果并安全退出事件循环
-    fn check_exit_outcome(
+    pub(crate) fn check_exit_outcome(
         state: &mut SnipperState,
         outcome_slot: &Arc<Mutex<Option<SnipperOutcome>>>,
-        elwt: &EventLoopWindowTarget<()>,
+        elwt: &EventLoopWindowTarget<SnipperUserEvent>,
     ) {
         if state.outcome.is_some() {
+            state.cancel_pending_job();
             if let Ok(mut g) = outcome_slot.lock() {
                 *g = state.outcome.take();
             }

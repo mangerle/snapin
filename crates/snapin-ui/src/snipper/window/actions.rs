@@ -1,13 +1,12 @@
 //! 截图结果输出动作处理 (复制到剪贴板、保存文件、转为贴图)。
 
 use super::events::SnipperState;
+use super::jobs::{SnipperJob, SnipperJobKind};
 use super::types::SnipperOutcome;
 use crate::paster::PasterItem;
 use crate::snipper::selection::SelectionState;
 use image::{GenericImageView, RgbaImage};
-use snapin_platform::{
-    generate_unique_id, save_image_with_config, save_last_selection, write_image_to_clipboard,
-};
+use snapin_platform::{generate_unique_id, save_last_selection, write_image_to_clipboard};
 
 /// 裁剪当前选区图像并合成已绘制的矢量标注
 pub fn crop_selection_image(
@@ -64,38 +63,34 @@ pub fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
 /// 保存选区图像至文件
 pub fn handle_action_save(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
+    if state.pending_job.is_some() {
+        state.set_status_message("请等待当前任务完成");
+        return;
+    }
+
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
+        let origin = match &state.selection {
+            SelectionState::Locked { rect, .. } => {
+                let (x, y, _, _) =
+                    rect.to_pixel_bounds(original_rgba.width(), original_rgba.height());
+                (x, y)
+            }
+            _ => return,
+        };
+
         if let SelectionState::Locked { rect, .. } = &state.selection {
             save_last_selection((rect.x, rect.y, rect.width, rect.height));
         }
 
-        let out_path = match save_image_with_config(&cropped, &state.config.output) {
-            Ok(path) => path,
-            Err(primary_error) => {
-                tracing::warn!(
-                    "按配置保存截图失败: {primary_error}，尝试降级保存至用户 Pictures 目录"
-                );
-                let pictures_dir = snapin_core::AppPaths::pictures_dir();
-                if let Err(create_error) = std::fs::create_dir_all(&pictures_dir) {
-                    tracing::error!("创建 Pictures 目录失败: {create_error}");
-                    state.set_status_message(format!("保存截图失败: {create_error}"));
-                    return;
-                }
-                let fallback_path =
-                    pictures_dir.join(format!("snapin_{}.png", generate_unique_id()));
-                if let Err(save_error) = cropped.save(&fallback_path) {
-                    tracing::error!("降级保存截图失败: {save_error}");
-                    state.set_status_message(format!("保存截图失败: {save_error}"));
-                    return;
-                }
-                fallback_path
-            }
-        };
-
-        if let Err(e) = write_image_to_clipboard(&cropped) {
-            tracing::warn!("保存后同步复制到系统剪贴板失败: {e}");
-        }
-        state.outcome = Some(SnipperOutcome::Saved(out_path));
+        dispatch_job(
+            state,
+            SnipperJob {
+                kind: SnipperJobKind::Save,
+                image: cropped,
+                origin,
+                cover_mode: state.config.translate.cover_mode,
+            },
+        );
     }
 }
 
@@ -130,151 +125,63 @@ pub fn handle_action_pin(state: &mut SnipperState, original_rgba: &RgbaImage) {
 /// 执行选区 OCR 文字识别并静默复制全文至系统剪贴板
 pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
+    if state.pending_job.is_some() {
+        state.set_status_message("请等待当前任务完成");
+        return;
+    }
+
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
+        let origin = match &state.selection {
+            SelectionState::Locked { rect, .. } => {
+                let (x, y, _, _) =
+                    rect.to_pixel_bounds(original_rgba.width(), original_rgba.height());
+                (x, y)
+            }
+            _ => return,
+        };
+
         if let SelectionState::Locked { rect, .. } = &state.selection {
             save_last_selection((rect.x, rect.y, rect.width, rect.height));
         }
 
-        let custom_dir = if state.config.ocr.local.model_dir.is_empty() {
-            None
-        } else {
-            Some(std::path::Path::new(&state.config.ocr.local.model_dir))
-        };
-
-        let engine = match snapin_service::LocalPpOcrEngine::new(custom_dir) {
-            Ok(engine) => engine,
-            Err(e) => {
-                tracing::warn!("本地 OCR 引擎未能初始化: {e}，请检查离线模型文件是否已部署");
-                state.set_status_message(format!("OCR 引擎不可用: {e}"));
-                return;
-            }
-        };
-
-        use snapin_service::OcrEngine;
-        let result = match engine.recognize(&cropped) {
-            Ok(result) => result,
-            Err(e) => {
-                tracing::warn!("本地 OCR 文字识别失败: {e}");
-                state.set_status_message(format!("文字识别失败: {e}"));
-                return;
-            }
-        };
-
-        let text = result.full_text.trim().to_string();
-        if text.is_empty() {
-            state.set_status_message("未识别到文字");
-            return;
-        }
-
-        if let Err(e) = snapin_platform::write_text_to_clipboard(&text) {
-            tracing::warn!("复制 OCR 文本至系统剪贴板失败: {e}");
-            state.set_status_message(format!("复制识别文字失败: {e}"));
-            return;
-        }
-
-        state.outcome = Some(SnipperOutcome::CopiedText(text));
+        dispatch_job(
+            state,
+            SnipperJob {
+                kind: SnipperJobKind::Ocr,
+                image: cropped,
+                origin,
+                cover_mode: state.config.translate.cover_mode,
+            },
+        );
     }
 }
 
-/// 估算指定局部矩形周边的背景主导色 (对四条外边缘进行采样，并采用截尾均值算法剔除边缘深色与高光噪点)
-fn estimate_dominant_background_color(
-    image: &RgbaImage,
-    min_x: u32,
-    min_y: u32,
-    w: u32,
-    h: u32,
-) -> (u8, u8, u8, u8) {
-    let img_w = image.width();
-    let img_h = image.height();
-    if img_w == 0 || img_h == 0 {
-        return (255, 255, 255, 255);
-    }
-
-    // 稍微向外外扩 1 像素采样，避免贴合文字边缘笔画；越界坐标统一夹紧到图内。
-    let max_x = img_w.saturating_sub(1);
-    let max_y = img_h.saturating_sub(1);
-    let x1 = min_x.min(max_x).saturating_sub(1);
-    let y1 = min_y.min(max_y).saturating_sub(1);
-    let x2 = min_x.saturating_add(w).saturating_add(1).min(max_x);
-    let y2 = min_y.saturating_add(h).saturating_add(1).min(max_y);
-    if x1 > x2 || y1 > y2 {
-        return (255, 255, 255, 255);
-    }
-
-    let capacity = ((x2 - x1) as usize)
-        .saturating_add((y2 - y1) as usize)
-        .saturating_add(2)
-        .saturating_mul(2);
-    let mut samples = Vec::with_capacity(capacity);
-
-    // 顶部与底部边缘采样
-    for x in x1..=x2 {
-        let p_top = image.get_pixel(x, y1);
-        samples.push((p_top[0], p_top[1], p_top[2]));
-        let p_bot = image.get_pixel(x, y2);
-        samples.push((p_bot[0], p_bot[1], p_bot[2]));
-    }
-
-    // 左侧与右侧边缘采样
-    for y in (y1 + 1)..y2 {
-        let p_left = image.get_pixel(x1, y);
-        samples.push((p_left[0], p_left[1], p_left[2]));
-        let p_right = image.get_pixel(x2, y);
-        samples.push((p_right[0], p_right[1], p_right[2]));
-    }
-
-    if samples.is_empty() {
-        return (255, 255, 255, 255);
-    }
-
-    // 按灰度亮度排序
-    samples.sort_by(|a, b| {
-        let lum_a = 0.299 * (a.0 as f32) + 0.587 * (a.1 as f32) + 0.114 * (a.2 as f32);
-        let lum_b = 0.299 * (b.0 as f32) + 0.587 * (b.1 as f32) + 0.114 * (b.2 as f32);
-        lum_a
-            .partial_cmp(&lum_b)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    // 截尾均值：剔除前后 15% 离群值（如深色文字笔画或异常反光点）
-    let trim_count = (samples.len() as f32 * 0.15) as usize;
-    let valid_slice = if samples.len() > trim_count * 2 && trim_count > 0 {
-        &samples[trim_count..(samples.len() - trim_count)]
-    } else {
-        &samples[..]
+/// 将任务提交到后台并更新等待状态
+fn dispatch_job(state: &mut SnipperState, job: SnipperJob) {
+    let kind = job.kind;
+    let Some(dispatcher) = state.job_dispatcher.clone() else {
+        state.set_status_message("后台任务调度器不可用");
+        return;
     };
 
-    let mut r_sum: u64 = 0;
-    let mut g_sum: u64 = 0;
-    let mut b_sum: u64 = 0;
-    for &(r, g, b) in valid_slice {
-        r_sum += r as u64;
-        g_sum += g as u64;
-        b_sum += b as u64;
-    }
-
-    let count = valid_slice.len() as u64;
-    (
-        (r_sum / count) as u8,
-        (g_sum / count) as u8,
-        (b_sum / count) as u8,
-        255,
-    )
-}
-
-/// 计算背景色对应的高反差可读前景色 (浅背景配黑灰，深背景配亮白)
-fn get_contrasting_text_color(bg: (u8, u8, u8, u8)) -> (u8, u8, u8, u8) {
-    let luminance = 0.299 * (bg.0 as f32) + 0.587 * (bg.1 as f32) + 0.114 * (bg.2 as f32);
-    if luminance > 135.0 {
-        (30, 30, 30, 255)
-    } else {
-        (245, 245, 245, 255)
+    match dispatcher.dispatch(job) {
+        Some(abort_handle) => {
+            state.pending_job = Some(kind);
+            state.pending_job_abort = Some(abort_handle);
+            state.set_status_message(format!("正在执行{}...", kind.label()));
+        }
+        None => state.set_status_message("后台任务调度器不可用"),
     }
 }
 
 /// 执行选区截图原位翻译替换
 pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
+    if state.pending_job.is_some() {
+        state.set_status_message("请等待当前任务完成");
+        return;
+    }
+
     let (px, py, pw, ph) = match &state.selection {
         SelectionState::Locked { rect, .. } => {
             rect.to_pixel_bounds(original_rgba.width(), original_rgba.height())
@@ -291,124 +198,15 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
         None => return,
     };
 
-    let custom_dir = if state.config.ocr.local.model_dir.is_empty() {
-        None
-    } else {
-        Some(std::path::Path::new(&state.config.ocr.local.model_dir))
-    };
-
-    let engine = match snapin_service::LocalPpOcrEngine::new(custom_dir) {
-        Ok(engine) => engine,
-        Err(e) => {
-            tracing::warn!("原位翻译 OCR 引擎未能初始化: {e}");
-            state.set_status_message(format!("OCR 引擎不可用: {e}"));
-            return;
-        }
-    };
-
-    use snapin_service::OcrEngine;
-    let ocr_res = match engine.recognize(&cropped) {
-        Ok(result) => result,
-        Err(e) => {
-            tracing::warn!("原位翻译文字识别失败: {e}");
-            state.set_status_message(format!("文字识别失败: {e}"));
-            return;
-        }
-    };
-
-    if ocr_res.blocks.is_empty() {
-        tracing::debug!("选区内未检测到有效文字，跳过原位翻译");
-        state.set_status_message("选区内未检测到文字");
-        return;
-    }
-
-    let texts: Vec<String> = ocr_res.blocks.iter().map(|b| b.text.clone()).collect();
-    let translator = snapin_service::create_translator(&state.config.translate);
-    let target_lang = state.config.translate.target_language.as_str();
-
-    let trans_fut = translator.translate_batch(&texts, "auto", target_lang);
-    let trans_result = match tokio::runtime::Handle::try_current() {
-        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(trans_fut)),
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build();
-            match rt {
-                Ok(runtime) => runtime.block_on(trans_fut),
-                Err(_) => {
-                    state.set_status_message("翻译运行时不可用");
-                    return;
-                }
-            }
-        }
-    };
-
-    let translated_texts = match trans_result {
-        Ok(texts) => texts,
-        Err(e) => {
-            tracing::warn!("网络翻译服务调用失败: {e}");
-            state.set_status_message(format!("翻译失败: {e}"));
-            return;
-        }
-    };
-
-    use snapin_core::annotation::action::AnnotationShape;
-    use snapin_core::annotation::shapes::{TranslationAction, TranslationShapeItem};
-
-    let mut shape_items = Vec::with_capacity(ocr_res.blocks.len());
-
-    for (idx, block) in ocr_res.blocks.into_iter().enumerate() {
-        let Some(translated) = translated_texts.get(idx) else {
-            continue;
-        };
-        let translated = translated.trim();
-        // 空译文或与原文相同的译文不生成图元，避免覆盖原图内容。
-        if translated.is_empty() || translated == block.text.trim() {
-            continue;
-        }
-
-        let (bx, by, bw, bh) = block.bbox;
-        let local_w = bw.max(2.0);
-        let local_h = bh.max(2.0);
-
-        let bg_color = estimate_dominant_background_color(
-            &cropped,
-            bx.floor().max(0.0) as u32,
-            by.floor().max(0.0) as u32,
-            local_w.ceil() as u32,
-            local_h.ceil() as u32,
-        );
-        let text_color = get_contrasting_text_color(bg_color);
-        let font_size = (local_h * 0.75).clamp(10.0, 36.0);
-
-        // 转换为全屏绝对坐标
-        let abs_x = (px as f32) + bx;
-        let abs_y = (py as f32) + by;
-
-        shape_items.push(TranslationShapeItem {
-            rect: (abs_x, abs_y, local_w, local_h),
-            original: block.text,
-            translated: translated.to_string(),
-            bg_color,
-            text_color,
-            font_size,
+    dispatch_job(
+        state,
+        SnipperJob {
+            kind: SnipperJobKind::Translate,
+            image: cropped,
+            origin: (px, py),
             cover_mode: state.config.translate.cover_mode,
-        });
-    }
-
-    if shape_items.is_empty() {
-        state.set_status_message("未获得有效翻译结果");
-        return;
-    }
-
-    state
-        .annotations
-        .push(AnnotationShape::Translation(TranslationAction::new(
-            shape_items,
-        )));
-    state.toolbar.active_tool = None;
-    state.toolbar.sub_rect = None;
-    tracing::info!("原位翻译完成，已成功压入标注动作栈");
+        },
+    );
 }
 
 #[cfg(test)]
@@ -525,24 +323,6 @@ mod tests {
             state.status_message.is_some(),
             "识别失败或空结果必须给出用户提示"
         );
-    }
-
-    #[test]
-    fn test_estimate_dominant_background_and_contrast() {
-        let mut img = RgbaImage::new(100, 100);
-        for pixel in img.pixels_mut() {
-            *pixel = Rgba([200, 200, 200, 255]);
-        }
-        let bg = estimate_dominant_background_color(&img, 10, 10, 30, 20);
-        assert_eq!(bg, (200, 200, 200, 255));
-        let fg = get_contrasting_text_color(bg);
-        // 浅背景应该匹配深灰黑文字
-        assert_eq!(fg, (30, 30, 30, 255));
-
-        // 深黑背景测试
-        let dark_bg = (20, 20, 20, 255);
-        let dark_fg = get_contrasting_text_color(dark_bg);
-        assert_eq!(dark_fg, (245, 245, 245, 255));
     }
 
     #[test]

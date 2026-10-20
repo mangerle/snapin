@@ -2,6 +2,7 @@
 
 use super::event_dispatcher::SnipperEventDispatcher;
 use super::events::SnipperState;
+use super::jobs::{handle_job_outcome, SnipperJobDispatcher, SnipperUserEvent};
 use super::presenter::SnipperPresenter;
 use super::types::{SnipMode, SnipperOutcome};
 use crate::error::UiError;
@@ -33,11 +34,12 @@ impl SnipperSession {
 
     /// 启动全屏截图窗口并进入交互事件循环，直到用户确认或取消
     pub fn run(self) -> Result<Option<SnipperOutcome>, UiError> {
-        let mut builder = EventLoopBuilder::new();
+        let mut builder = EventLoopBuilder::<SnipperUserEvent>::with_user_event();
         builder.with_any_thread(true);
         let event_loop = builder.build().map_err(|e| UiError::Window {
             message: format!("构建截图事件循环失败: {e}"),
         })?;
+        let proxy = event_loop.create_proxy();
 
         let screen_w = self.bg_image.width();
         let screen_h = self.bg_image.height();
@@ -58,7 +60,12 @@ impl SnipperSession {
         let mut presenter =
             SnipperPresenter::try_new(window.clone(), screen_w, screen_h, &self.bg_image)?;
 
-        let mut state = SnipperState::from_config(self.config, self.mode);
+        let config = Arc::new(self.config);
+        let mut state = SnipperState::from_config((*config).clone(), self.mode);
+        state.job_dispatcher = Some(Arc::new(SnipperJobDispatcher::new(
+            proxy,
+            Arc::clone(&config),
+        )));
         let raw_scale = window.scale_factor() as f32;
         let auto_scale = if raw_scale > 1.05 {
             raw_scale
@@ -98,7 +105,13 @@ impl SnipperSession {
                             elwt,
                         );
                     }
+                    Event::UserEvent(SnipperUserEvent::JobFinished(outcome)) => {
+                        handle_job_outcome(&mut state, outcome);
+                        window.request_redraw();
+                        SnipperEventDispatcher::check_exit_outcome(&mut state, &outcome_slot, elwt);
+                    }
                     Event::LoopExiting => {
+                        state.cancel_pending_job();
                         tracing::info!("截图交互窗口事件循环即将退出");
                     }
                     _ => {}
