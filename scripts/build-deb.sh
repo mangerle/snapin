@@ -45,13 +45,21 @@ chmod 755 "${STAGE_DIR}/usr/bin/snapin"
 cp "${PROJECT_ROOT}/assets/icons/snapin.svg" "${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps/snapin.svg"
 cp "${PROJECT_ROOT}/assets/icons/snapin-tray.svg" "${STAGE_DIR}/usr/share/icons/hicolor/scalable/status/snapin-tray.svg"
 
-# 4.1 拷贝 PP-OCRv6 离线模型资产 (若 assets/models/ppocrv6 存在)
+# 4.1 打包 PP-OCRv6 离线模型资产至 FHS 只读数据目录 /usr/share/snapin/models
+#     模型为包自带的只读、架构无关数据，按 FHS 归 /usr/share；运行时的解析链已优先
+#     读取 ~/.local/share/snapin/models/ppocrv6，用户需要换模型时自行覆盖即可，
+#     严禁在 postinst 里往用户家目录写入（多用户重复拷贝且 dpkg 卸载无法回收）。
 MODEL_SRC_DIR="${PROJECT_ROOT}/assets/models/ppocrv6"
 MODEL_DST_DIR="${STAGE_DIR}/usr/share/snapin/models/ppocrv6"
-mkdir -p "${MODEL_DST_DIR}"
 if [ -d "${MODEL_SRC_DIR}" ]; then
     echo "[信息] 打包 PP-OCRv6 离线模型资产至 ${MODEL_DST_DIR}..."
-    cp -r "${MODEL_SRC_DIR}/"* "${MODEL_DST_DIR}/" 2>/dev/null || true
+    mkdir -p "${MODEL_DST_DIR}"
+    if ! cp -r "${MODEL_SRC_DIR}/." "${MODEL_DST_DIR}/"; then
+        echo "[错误] PP-OCRv6 模型资产拷贝失败，中止打包（否则会产出装完即 ModelNotFound 的包）" >&2
+        exit 1
+    fi
+else
+    echo "[警告] 未找到 ${MODEL_SRC_DIR}，本次软件包不含离线识别模型" >&2
 fi
 
 cat << 'EOF' > "${STAGE_DIR}/usr/share/applications/snapin.desktop"
@@ -104,12 +112,8 @@ cp "${PROJECT_ROOT}/extension/extension.js" "${STAGE_DIR}/usr/share/gnome-shell/
 mkdir -p "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin@wangle.local/icons"
 cp "${PROJECT_ROOT}/extension/icons/snapin-tray.svg" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin@wangle.local/icons/snapin-tray.svg"
 
-# 7.1 如果存在 PP-OCRv6 模型资产，则打包进 /usr/share/snapin/models/ppocrv6
-if [ -d "${PROJECT_ROOT}/assets/models/ppocrv6" ]; then
-    echo "[信息] 正在打包 PP-OCRv6 离线识别与检测模型资产..."
-    mkdir -p "${STAGE_DIR}/usr/share/snapin/models"
-    cp -r "${PROJECT_ROOT}/assets/models/ppocrv6" "${STAGE_DIR}/usr/share/snapin/models/"
-fi
+# 7.1 PP-OCRv6 模型资产已在第 4.1 步统一打包，此处不得重复拷贝：
+#     目标目录已存在时 cp -r 会再套一层 ppocrv6/ppocrv6，使软件包白带一倍体积。
 
 # 8. 生成 DEBIAN/control 控制文件
 cat << EOF > "${STAGE_DIR}/DEBIAN/control"
