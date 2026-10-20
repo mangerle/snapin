@@ -14,7 +14,7 @@ use winit::window::Window;
 pub fn create_dimmed_pixmap_fast(img: &RgbaImage) -> Result<Pixmap, UiError> {
     let w = img.width();
     let h = img.height();
-    let mut dimmed = Pixmap::new(w, h).ok_or_else(|| UiError::PixmapAlloc {
+    let mut dimmed = Pixmap::new(w, h).ok_or(UiError::PixmapAlloc {
         width: w,
         height: h,
     })?;
@@ -80,7 +80,7 @@ impl SnipperPresenter {
         }
 
         let render_pixmap =
-            Pixmap::new(width, height).ok_or_else(|| UiError::PixmapAlloc { width, height })?;
+            Pixmap::new(width, height).ok_or(UiError::PixmapAlloc { width, height })?;
 
         Ok(Self {
             surface,

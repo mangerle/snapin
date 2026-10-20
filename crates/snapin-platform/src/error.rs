@@ -28,11 +28,14 @@ pub enum PlatformError {
         source: std::io::Error,
     },
 
+    /// 截屏结果图像解码失败。
+    ///
+    /// 编解码库的错误在跨界处即转换为本领域变体，避免 `image` 这类大型依赖的错误枚举
+    /// 变动直接破坏平台层对外的错误契约。
+    #[error("截屏图像内存解码失败，原因: {message}")]
+    ImageDecode { message: String },
+
     /// 核心领域错误透明转换
     #[error(transparent)]
     Core(#[from] CoreError),
-
-    /// 图像编解码失败
-    #[error("平台图像数据编解码失败，原因: {0}")]
-    Image(#[from] image::ImageError),
 }

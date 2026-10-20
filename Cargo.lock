@@ -5195,7 +5195,6 @@ version = "0.3.0"
 dependencies = [
  "bytemuck",
  "cosmic-text",
- "image 0.24.9",
  "rustix 0.38.44",
  "serde",
  "tempfile",

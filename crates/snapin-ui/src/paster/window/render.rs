@@ -39,7 +39,7 @@ pub fn render_paster_to_surface(
     })?;
 
     let mut target_pixmap =
-        Pixmap::new(width, height).ok_or_else(|| UiError::PixmapAlloc { width, height })?;
+        Pixmap::new(width, height).ok_or(UiError::PixmapAlloc { width, height })?;
 
     // 1. 构建几何变换矩阵 (缩放)
     let scale = state.item.transform.scale;

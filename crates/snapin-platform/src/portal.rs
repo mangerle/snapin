@@ -56,7 +56,12 @@ pub async fn capture_fullscreen_portal() -> Result<RgbaImage, PlatformError> {
     if let Err(e) = fs::remove_file(&file_path) {
         tracing::warn!("清理 Portal 临时图片文件失败: {e}");
     }
-    let dynamic_img = image::load_from_memory(&bytes)?;
+    let dynamic_img = image::load_from_memory(&bytes).map_err(|e| PlatformError::ImageDecode {
+        message: format!(
+            "Portal 返回内容无法按受支持的图像格式解码，字节数: {}，原因: {e}",
+            bytes.len()
+        ),
+    })?;
     let rgba_img = dynamic_img.into_rgba8();
     let t_dec_end = std::time::Instant::now();
     tracing::info!(

@@ -18,9 +18,16 @@ pub enum DaemonError {
     #[error("IPC 通信协议或帧格式异常: {0}")]
     Protocol(String),
 
-    /// 本地套接字 I/O 读写异常
-    #[error("IPC 套接字 I/O 操作失败: {0}")]
-    Io(#[from] std::io::Error),
+    /// IPC 分帧读写过程中的套接字 I/O 异常。
+    ///
+    /// `stage` 显式标注失败环节（读取长度前缀、写入响应帧等）。同一条 socket 上的失败
+    /// 在原先的 `#[from] io::Error` 笼统转换下无法区分现场，改为阶段化描述后可直接在日志里定位。
+    #[error("IPC 套接字{stage}失败，原因: {source}")]
+    Io {
+        stage: &'static str,
+        #[source]
+        source: std::io::Error,
+    },
 
     /// 消息载荷序列化/反序列化失败
     #[error("IPC 消息 JSON 编解码失败: {0}")]

@@ -10,7 +10,13 @@ pub async fn read_framed_message<R: AsyncReadExt + Unpin, T: for<'de> Deserializ
     reader: &mut R,
 ) -> Result<T, DaemonError> {
     let mut len_bytes = [0u8; 4];
-    reader.read_exact(&mut len_bytes).await?;
+    reader
+        .read_exact(&mut len_bytes)
+        .await
+        .map_err(|source| DaemonError::Io {
+            stage: "读取分帧长度前缀",
+            source,
+        })?;
 
     let len = u32::from_be_bytes(len_bytes) as usize;
     if len == 0 || len > MAX_IPC_FRAME_SIZE {
@@ -20,7 +26,13 @@ pub async fn read_framed_message<R: AsyncReadExt + Unpin, T: for<'de> Deserializ
     }
 
     let mut buf = vec![0u8; len];
-    reader.read_exact(&mut buf).await?;
+    reader
+        .read_exact(&mut buf)
+        .await
+        .map_err(|source| DaemonError::Io {
+            stage: "读取分帧负载",
+            source,
+        })?;
 
     let val = serde_json::from_slice(&buf)?;
     Ok(val)
@@ -40,9 +52,24 @@ pub async fn write_framed_message<W: AsyncWriteExt + Unpin, T: Serialize>(
         )));
     }
 
-    writer.write_all(&(len as u32).to_be_bytes()).await?;
-    writer.write_all(&payload).await?;
-    writer.flush().await?;
+    writer
+        .write_all(&(len as u32).to_be_bytes())
+        .await
+        .map_err(|source| DaemonError::Io {
+            stage: "写入分帧长度前缀",
+            source,
+        })?;
+    writer
+        .write_all(&payload)
+        .await
+        .map_err(|source| DaemonError::Io {
+            stage: "写入分帧负载",
+            source,
+        })?;
+    writer.flush().await.map_err(|source| DaemonError::Io {
+        stage: "刷写分帧缓冲",
+        source,
+    })?;
 
     Ok(())
 }
