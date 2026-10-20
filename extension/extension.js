@@ -4,17 +4,19 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import St from 'gi://St';
 import Gio from 'gi://Gio';
+import Shell from 'gi://Shell';
 import Meta from 'gi://Meta';
 import GLib from 'gi://GLib';
 
-// 定义 D-Bus 接口：Wayland 协议禁止客户端自行摆放或提级窗口，因此贴图窗口的绝对定位与
-// 置顶必须由拥有特权的 Mutter 扩展代为执行。
+// 定义 D-Bus 接口：
+//   1. PlaceWindowByTitle —— Wayland 禁止客户端自行摆放或提级窗口，贴图窗口的绝对定位与
+//      置顶必须由拥有特权的 Mutter 扩展代为执行。
+//   2. CaptureFullscreen   —— 用合成器内部对象直接把整屏写进给定文件流，无快门白闪。
 //
-// 屏幕捕获刻意不在扩展内实现：在 shell 进程里读取 ClutterStage 像素（read_pixels）于
-// GNOME 50 的 GJS 上会因数组返回值缺少长度注解触发 `Bail out!` 断言，以 SIGABRT 直接
-// 终止 gnome-shell 并登出整个用户会话；而 gnome-shell 自带的
-// org.gnome.Shell.Screenshot 接口自 GNOME 42 起对第三方客户端一律返回 AccessDenied。
-// 因此捕获统一走受支持的 XDG Desktop Portal，扩展只保留窗口特权这一项职责。
+// 曾经还有第三个方法 CaptureFullscreenRaw（在 shell 进程内 read_pixels 取原始像素），
+// 已永久移除：该调用的数组返回值缺少长度注解，在 GNOME 50 的 GJS 上会命中
+// gi/arg.cpp 断言并 `Bail out!` 以 SIGABRT 终止 gnome-shell，表现为按一次截图就被登出。
+// 它在本机历史上从未成功过一次，而 CaptureFullscreen 成功过 46 次（258~1170ms）。
 const IFACE_XML = `
 <node>
   <interface name="org.gnome.Shell.Extensions.Snapin">
@@ -23,6 +25,10 @@ const IFACE_XML = `
       <arg type="i" direction="in" name="x"/>
       <arg type="i" direction="in" name="y"/>
       <arg type="b" direction="out" name="placed"/>
+    </method>
+    <method name="CaptureFullscreen">
+      <arg type="s" direction="in" name="targetPath"/>
+      <arg type="b" direction="out" name="success"/>
     </method>
   </interface>
 </node>`;
@@ -270,5 +276,30 @@ export default class SnapinHelperExtension extends Extension {
             at: GLib.get_monotonic_time(),
         });
         return false;
+    }
+
+    /**
+     * 调用 Mutter 内部原生 Shell.Screenshot 实现零延迟、无快门白闪的全屏截屏。
+     *
+     * 结果直接写入调用方指定的文件流，像素不跨 GJS 边界传递，因此不存在
+     * read_pixels 那类数组编解码断言风险。
+     * @param {string} targetPath 存储目标 PNG 路径
+     * @returns {boolean} 是否捕获成功
+     */
+    async CaptureFullscreen(targetPath) {
+        if (!targetPath) {
+            return false;
+        }
+        try {
+            let screenshot = new Shell.Screenshot();
+            let file = Gio.File.new_for_path(targetPath);
+            let stream = file.replace(null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+            await screenshot.screenshot(false, stream);
+            stream.close(null);
+            return true;
+        } catch (e) {
+            console.error('Snapin 原生截屏失败:', e);
+            return false;
+        }
     }
 }

@@ -2,7 +2,8 @@
 //!
 //! 在程序启动时预先对当前桌面环境（Wayland 会话与 GNOME Mutter 扩展）执行一次系统能力探测，
 //! 并缓存为全局只读快照，避免业务路径（如设置中心状态栏）重复发起
-//! 无效的 D-Bus 探测与超时降级。当前该快照仅用于设置中心展示扩展部署状态。
+//! 无效的 D-Bus 探测与超时降级。业务侧据此决定截屏走扩展原生通道还是 XDG Portal，
+//! 以及设置中心展示的扩展部署状态。
 
 use crate::dbus_session::get_session_connection;
 use std::sync::{Arc, OnceLock, RwLock};

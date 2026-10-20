@@ -5,35 +5,66 @@ use image::RgbaImage;
 use snapin_core::config::Config;
 use snapin_core::AppPaths;
 use snapin_platform::{
-    capture_fullscreen_portal, get_platform_capabilities, send_desktop_notification,
+    capture_fullscreen_extension, capture_fullscreen_portal, get_platform_capabilities,
+    send_desktop_notification,
 };
 use snapin_ui::snipper::{run_snipper_session, SnipMode, SnipperOutcome};
 use std::time::Instant;
 
-/// 获取屏幕快照。
+/// 获取屏幕快照（优先扩展零白闪通道，未命中则优雅降级 XDG Desktop Portal）。
 ///
-/// 通道选择说明：本项目早期在配套 GNOME 扩展内直接读取 ClutterStage 原始像素以求"零白闪极速"，
-/// 但该调用在 GNOME 50 的 GJS 上会因数组返回值缺少长度注解触发 `Bail out!` 断言，
-/// 以 SIGABRT 终止 gnome-shell，表现为"一点截图就被登出"。
-/// gnome-shell 自身的 `org.gnome.Shell.Screenshot` D-Bus 接口自 GNOME 42 起对第三方客户端
-/// 一律返回 `AccessDenied`，因此 XDG Desktop Portal 是 Wayland 下唯一受支持的截屏入口。
+/// 通道沿革：曾存在一条更快的"在扩展进程内 read_pixels 直取原始像素"通道，但其数组返回值
+/// 在 GNOME 50 的 GJS 上命中 gi/arg.cpp 编解码断言，直接以 SIGABRT 终止 gnome-shell，
+/// 表现为按一次截图就被登出。本机历史上该通道成功 0 次、而下面这条 PNG 通道成功 46 次，
+/// 故原始像素通道已永久移除，只保留像素不跨 GJS 边界传递的 PNG 通道。
 pub async fn acquire_screen_snapshot() -> Result<RgbaImage> {
     let t_start = Instant::now();
     let caps = get_platform_capabilities();
 
-    tracing::debug!(
-        "准备通过 XDG Desktop Portal 捕获全屏 (桌面: {}，Wayland: {})",
-        caps.desktop_env,
-        caps.is_wayland
-    );
+    if caps.gnome_extension_active {
+        match capture_via_extension(t_start).await {
+            Ok(image) => return Ok(image),
+            Err(error) => {
+                tracing::warn!("GNOME 扩展零白闪截屏通道未命中，降级 XDG Portal，原因: {error:#}")
+            }
+        }
+    } else {
+        tracing::debug!(
+            "GNOME 扩展未在线（桌面: {}，Wayland: {}），直接走 XDG Portal 通道",
+            caps.desktop_env,
+            caps.is_wayland
+        );
+    }
 
     let rgba = capture_fullscreen_portal()
         .await
         .context("Portal 全屏截图捕获失败")?;
+    Ok(rgba)
+}
+
+/// 经配套扩展的原生 `Shell.Screenshot` 通道完成一次全屏 PNG 捕获与解码
+async fn capture_via_extension(t_start: Instant) -> Result<RgbaImage> {
+    let target_path = AppPaths::generate_temp_path("screen", "png");
+    let target_str = target_path.to_string_lossy().to_string();
+
+    if !capture_fullscreen_extension(&target_str)
+        .await
+        .context("请求 GNOME 扩展执行原生截屏失败")?
+    {
+        anyhow::bail!("GNOME 扩展返回截屏失败，目标: {target_str}");
+    }
+
+    let bytes = tokio::fs::read(&target_path)
+        .await
+        .context("读取扩展输出的全屏快照失败")?;
+    let _ = tokio::fs::remove_file(&target_path).await;
+
+    let rgba = image::load_from_memory(&bytes)
+        .context("全屏快照 PNG 解码失败")?
+        .into_rgba8();
+
     tracing::info!(
-        "XDG Portal 全屏快照完成: {}x{}，耗时: {:.2}ms",
-        rgba.width(),
-        rgba.height(),
+        "命中 GNOME 扩展原生零白闪截屏通道，全屏截屏总耗时: {:.2}ms",
         Instant::now()
             .saturating_duration_since(t_start)
             .as_secs_f64()

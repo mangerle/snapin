@@ -74,11 +74,10 @@ impl Commands {
 
     /// 该子命令是否需要预先探测桌面平台能力（GNOME 特权扩展在线状态）。
     ///
-    /// 探测会发起一次 D-Bus 往返，目前仅设置中心消费该结果（据此展示扩展部署状态）。
-    /// 截图不再依赖此探测：捕获通道固定为 XDG Desktop Portal，探测到的扩展在线状态与之无关，
-    /// 因此在截图启动路径上省掉这次往返可以直接降低首帧延迟。
+    /// 探测会发起一次 D-Bus 往返，两条路径消费其结果：截图据此决定是否走扩展零白闪原生通道
+    /// （扩展未在线时直接走 portal，避免一次注定失败的调用），设置中心据此展示扩展部署状态。
     pub fn needs_capabilities(&self) -> bool {
-        matches!(self, Self::Prefs)
+        matches!(self, Self::Snip { .. } | Self::Prefs)
     }
 }
 
@@ -123,8 +122,7 @@ mod tests {
         }
 
         assert!(Commands::Prefs.needs_capabilities());
-        // 截图走 XDG Portal，与扩展在线状态无关，不应为它付出一次 D-Bus 往返
-        assert!(!Commands::Snip {
+        assert!(Commands::Snip {
             auto_copy: true,
             custom: false
         }
