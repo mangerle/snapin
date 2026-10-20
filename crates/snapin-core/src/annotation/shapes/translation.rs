@@ -1,6 +1,7 @@
 //! 截图原位翻译替换图元光栅化实现。
 
 use crate::annotation::action::AnnotationAction;
+use crate::config::enums::CoverMode;
 use crate::render::with_thread_local_text_renderer;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Transform};
@@ -20,8 +21,8 @@ pub struct TranslationShapeItem {
     pub text_color: (u8, u8, u8, u8),
     /// 适配后的字号大小 (pt)
     pub font_size: f32,
-    /// 覆盖模式: "solid_color" | "frosted_glass"
-    pub cover_mode: String,
+    /// 覆盖模式
+    pub cover_mode: CoverMode,
 }
 
 /// 原图原位翻译复合动作图元
@@ -59,10 +60,9 @@ impl AnnotationAction for TranslationAction {
             }
 
             // 根据覆盖模式决定擦除层 Alpha
-            let alpha = if item.cover_mode == "frosted_glass" {
-                180 // 半透明磨砂遮罩 (约 70% 不透明度)
-            } else {
-                255 // 智能实色平铺擦除
+            let alpha = match item.cover_mode {
+                CoverMode::FrostedGlass => 180,
+                CoverMode::SolidColor => 255,
             };
 
             let bg_c = Color::from_rgba8(item.bg_color.0, item.bg_color.1, item.bg_color.2, alpha);
@@ -146,7 +146,7 @@ mod tests {
             bg_color: (255, 0, 0, 255),
             text_color: (0, 0, 0, 255),
             font_size: 16.0,
-            cover_mode: "solid_color".to_string(),
+            cover_mode: CoverMode::SolidColor,
         }
     }
 

@@ -215,6 +215,83 @@ impl DoubleClickAction {
     }
 }
 
+/// OCR 引擎类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OcrEngineKind {
+    /// 本地 PP-OCRv6 离线推理
+    #[default]
+    #[serde(rename = "local_ppocr")]
+    LocalPpOcr,
+}
+
+/// 机器翻译服务商
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TranslateProvider {
+    /// 微软必应免费接口
+    #[default]
+    BingFree,
+    /// 谷歌翻译免费接口
+    GoogleFree,
+    /// 百度翻译开放平台
+    Baidu,
+    /// 网易有道开放平台
+    Youdao,
+    /// 阿里云机器翻译
+    Aliyun,
+}
+
+/// 翻译目标语言
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TargetLanguage {
+    /// 简体中文
+    #[default]
+    Zh,
+    /// 英语
+    En,
+    /// 日语
+    Ja,
+    /// 韩语
+    Ko,
+    /// 法语
+    Fr,
+    /// 德语
+    De,
+    /// 西班牙语
+    Es,
+    /// 俄语
+    Ru,
+}
+
+impl TargetLanguage {
+    /// 转换为第三方翻译 API 使用的标准语言代码
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Zh => "zh",
+            Self::En => "en",
+            Self::Ja => "ja",
+            Self::Ko => "ko",
+            Self::Fr => "fr",
+            Self::De => "de",
+            Self::Es => "es",
+            Self::Ru => "ru",
+        }
+    }
+}
+
+/// 原位翻译背景覆盖模式
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CoverMode {
+    /// 智能取色实色填充
+    #[default]
+    SolidColor,
+    /// 半透明磨砂覆盖
+    FrostedGlass,
+}
+
 /// 图像输出存储编码格式枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]

@@ -1,48 +1,26 @@
 //! 机器翻译与原位覆盖渲染配置模块。
 
+use crate::config::enums::{CoverMode, TargetLanguage, TranslateProvider};
 use serde::{Deserialize, Serialize};
 
 /// 机器翻译核心配置
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TranslateConfig {
-    /// 翻译服务商，支持 "bing_free" (默认) | "google_free" | "baidu" | "youdao" | "aliyun"
-    #[serde(default = "default_provider")]
-    pub provider: String,
+    /// 翻译服务商
+    #[serde(default)]
+    pub provider: TranslateProvider,
 
-    /// 翻译目标语言代码，默认 "zh"
-    #[serde(default = "default_target_language")]
-    pub target_language: String,
+    /// 翻译目标语言
+    #[serde(default)]
+    pub target_language: TargetLanguage,
 
-    /// 截图原位背景擦除模式: "solid_color" (智能取色平铺) | "frosted_glass" (半透明磨砂模糊)
-    #[serde(default = "default_cover_mode")]
-    pub cover_mode: String,
+    /// 截图原位背景擦除模式
+    #[serde(default)]
+    pub cover_mode: CoverMode,
 
     /// 各第三方翻译服务商凭证配置
     #[serde(default)]
     pub api_keys: TranslateApiKeys,
-}
-
-fn default_provider() -> String {
-    "bing_free".to_string()
-}
-
-fn default_target_language() -> String {
-    "zh".to_string()
-}
-
-fn default_cover_mode() -> String {
-    "solid_color".to_string()
-}
-
-impl Default for TranslateConfig {
-    fn default() -> Self {
-        Self {
-            provider: default_provider(),
-            target_language: default_target_language(),
-            cover_mode: default_cover_mode(),
-            api_keys: TranslateApiKeys::default(),
-        }
-    }
 }
 
 /// 第三方翻译服务商认证凭证集合

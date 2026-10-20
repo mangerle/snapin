@@ -34,7 +34,7 @@ export component InterfaceTab inherits VerticalLayout {
                 spacing: 6px;
                 Text { text: "选区与高亮强调色:"; font-size: 13px; font-weight: 600; color: #334155; }
                 ComboBox {
-                    model: ["天海晴蓝 (#00AEFF)", "翡翠青绿 (#10B981)", "日光亮橙 (#F59E0B)", "优雅紫罗兰 (#8B5CF6)"];
+                    model: ["天海晴蓝 (#00AEFF)", "翡翠青绿 (#10B981)", "日光亮橙 (#F59E0B)", "优雅紫罗兰 (#8B5CF6)", "保留当前自定义颜色"];
                     current-index <=> root.accent_color_index;
                     width: 220px;
                 }
@@ -74,7 +74,7 @@ export component InterfaceTab inherits VerticalLayout {
                     spacing: 6px;
                     Text { text: "放大镜像素倍率:"; font-size: 13px; font-weight: 600; color: #334155; }
                     ComboBox {
-                        model: ["4x 适中放大", "8x 清晰微距 (推荐)", "16x 极致微距"];
+                        model: ["4x 适中放大", "8x 清晰微距 (推荐)", "16x 极致微距", "保留当前自定义倍率"];
                         current-index <=> root.magnifier_scale_index;
                         width: 180px;
                     }

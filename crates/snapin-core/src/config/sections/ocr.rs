@@ -1,13 +1,14 @@
 //! OCR 文字识别配置模块。
 
+use crate::config::enums::OcrEngineKind;
 use serde::{Deserialize, Serialize};
 
 /// OCR 文字识别核心配置
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OcrConfig {
-    /// OCR 引擎类型，当前默认支持 "local_ppocr"
-    #[serde(default = "default_engine")]
-    pub engine: String,
+    /// OCR 引擎类型
+    #[serde(default)]
+    pub engine: OcrEngineKind,
 
     /// 是否跳过文本方向分类 (桌面常规截屏绝大多数为水平文字，跳过可提升 30% 速度)
     #[serde(default = "default_skip_orientation")]
@@ -18,10 +19,6 @@ pub struct OcrConfig {
     pub local: LocalModelConfig,
 }
 
-fn default_engine() -> String {
-    "local_ppocr".to_string()
-}
-
 fn default_skip_orientation() -> bool {
     true
 }
@@ -29,7 +26,7 @@ fn default_skip_orientation() -> bool {
 impl Default for OcrConfig {
     fn default() -> Self {
         Self {
-            engine: default_engine(),
+            engine: OcrEngineKind::default(),
             skip_orientation_classification: default_skip_orientation(),
             local: LocalModelConfig::default(),
         }

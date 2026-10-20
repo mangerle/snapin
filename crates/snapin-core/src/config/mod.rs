@@ -9,9 +9,9 @@ pub mod types;
 
 use crate::error::CoreError;
 pub use model::{
-    ColorFormat, Config, DefaultTool, DoubleClickAction, GeneralConfig, HotkeyConfig, ImageFormat,
-    InterfaceConfig, LogLevel, OcrConfig, OutputConfig, PasterConfig, SnipConfig, Theme,
-    TranslateConfig, TrayTheme, ZoomAnchor,
+    ColorFormat, Config, CoverMode, DefaultTool, DoubleClickAction, GeneralConfig, HotkeyConfig,
+    ImageFormat, InterfaceConfig, LogLevel, OcrConfig, OcrEngineKind, OutputConfig, PasterConfig,
+    SnipConfig, TargetLanguage, Theme, TranslateConfig, TranslateProvider, TrayTheme, ZoomAnchor,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -90,6 +90,29 @@ mod tests {
         let toml_str = toml::to_string_pretty(&original).expect("TOML 序列化不应失败");
         let decoded: Config = toml::from_str(&toml_str).expect("TOML 反序列化不应失败");
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn test_translate_config_enum_serde_and_unknown_rejection() {
+        let raw = r#"
+[translate]
+provider = "google_free"
+target_language = "ja"
+cover_mode = "frosted_glass"
+"#;
+        let cfg: Config = toml::from_str(raw).expect("强类型翻译配置应解析成功");
+        assert_eq!(cfg.translate.provider, TranslateProvider::GoogleFree);
+        assert_eq!(cfg.translate.target_language, TargetLanguage::Ja);
+        assert_eq!(cfg.translate.cover_mode, CoverMode::FrostedGlass);
+
+        let invalid = r#"
+[translate]
+provider = "deepl"
+"#;
+        assert!(
+            toml::from_str::<Config>(invalid).is_err(),
+            "未知翻译服务商必须显式报错，不能静默回退"
+        );
     }
 
     #[test]

@@ -69,7 +69,7 @@ export component SnipTab inherits VerticalLayout {
                     spacing: 6px;
                     Text { text: "默认标注笔触颜色:"; font-size: 13px; font-weight: 600; color: #334155; }
                     ComboBox {
-                        model: ["醒目赤红 (#EF4444)", "天海晴蓝 (#00AEFF)", "清新翠绿 (#10B981)", "明艳亮黄 (#F59E0B)", "纯洁雪白 (#FFFFFF)", "深邃墨黑 (#000000)"];
+                        model: ["醒目赤红 (#EF4444)", "天海晴蓝 (#00AEFF)", "清新翠绿 (#10B981)", "明艳亮黄 (#F59E0B)", "纯洁雪白 (#FFFFFF)", "深邃墨黑 (#000000)", "保留当前自定义颜色"];
                         current-index <=> root.default_color_index;
                         width: 220px;
                     }

@@ -9,17 +9,16 @@ pub mod mapping;
 pub mod shortcut;
 
 use mapping::{
-    accent_color_to_index, color_format_to_index, cover_mode_to_index, default_tool_to_index,
+    accent_color_to_index, color_format_to_index, default_tool_to_index,
     double_click_action_to_index, image_format_to_index, index_to_accent_color,
-    index_to_color_format, index_to_cover_mode, index_to_default_tool,
-    index_to_double_click_action, index_to_image_format, index_to_log_level,
-    index_to_magnifier_scale, index_to_snip_color, index_to_target_language, index_to_theme,
-    index_to_translate_provider, index_to_tray_theme, index_to_zoom_anchor, log_level_to_index,
-    magnifier_scale_to_index, snip_color_to_index, target_language_to_index, theme_to_index,
-    translate_provider_to_index, tray_theme_to_index, zoom_anchor_to_index,
+    index_to_color_format, index_to_default_tool, index_to_double_click_action,
+    index_to_image_format, index_to_log_level, index_to_magnifier_scale, index_to_snip_color,
+    index_to_theme, index_to_tray_theme, index_to_zoom_anchor, log_level_to_index,
+    magnifier_scale_to_index, snip_color_to_index, theme_to_index, tray_theme_to_index,
+    zoom_anchor_to_index, SettingEnum,
 };
 use slint::{ComponentHandle, SharedString};
-use snapin_core::config::{self, Config, Hotkey};
+use snapin_core::config::{self, Config, CoverMode, Hotkey, TargetLanguage, TranslateProvider};
 use snapin_core::error::CoreError;
 use snapin_daemon::notify_daemon_reload_config;
 use snapin_platform::{
@@ -187,9 +186,9 @@ fn sync_ocr_to_window(win: &SettingsWindow, o: &config::model::OcrConfig) {
 
 /// 同步翻译板块设置
 fn sync_translate_to_window(win: &SettingsWindow, t: &config::model::TranslateConfig) {
-    win.set_translate_provider_index(translate_provider_to_index(&t.provider));
-    win.set_target_language_index(target_language_to_index(&t.target_language));
-    win.set_cover_mode_index(cover_mode_to_index(&t.cover_mode));
+    win.set_translate_provider_index(t.provider.to_index());
+    win.set_target_language_index(t.target_language.to_index());
+    win.set_cover_mode_index(t.cover_mode.to_index());
 
     win.set_baidu_app_id(SharedString::from(&t.api_keys.baidu_app_id));
     win.set_baidu_secret_key(SharedString::from(&t.api_keys.baidu_secret_key));
@@ -222,9 +221,10 @@ fn extract_general_from_window(win: &SettingsWindow, g: &mut config::model::Gene
 /// 提取界面外观设置
 fn extract_interface_from_window(win: &SettingsWindow, i: &mut config::model::InterfaceConfig) {
     i.theme = index_to_theme(win.get_theme_index());
-    i.accent_color = index_to_accent_color(win.get_accent_color_index());
+    i.accent_color = index_to_accent_color(win.get_accent_color_index(), i.accent_color);
     i.enable_magnifier = win.get_enable_magnifier();
-    i.magnifier_scale = index_to_magnifier_scale(win.get_magnifier_scale_index());
+    i.magnifier_scale =
+        index_to_magnifier_scale(win.get_magnifier_scale_index(), i.magnifier_scale);
     i.color_format = index_to_color_format(win.get_color_format_index());
     i.show_grid_lines = win.get_show_grid_lines();
     i.toolbar_scale = win.get_toolbar_scale_percent() / 100.0;
@@ -236,7 +236,7 @@ fn extract_snip_from_window(win: &SettingsWindow, s: &mut config::model::SnipCon
     s.smart_window_snapping = win.get_smart_window_snapping();
     s.remember_last_selection = win.get_remember_last_selection();
     s.default_tool = index_to_default_tool(win.get_default_tool_index());
-    s.default_color = index_to_snip_color(win.get_default_color_index());
+    s.default_color = index_to_snip_color(win.get_default_color_index(), s.default_color);
     s.default_stroke_width = win.get_default_stroke_width();
     s.default_font_size = win.get_snip_font_size();
 }
@@ -276,9 +276,9 @@ fn extract_ocr_from_window(win: &SettingsWindow, o: &mut config::model::OcrConfi
 
 /// 提取翻译设置
 fn extract_translate_from_window(win: &SettingsWindow, t: &mut config::model::TranslateConfig) {
-    t.provider = index_to_translate_provider(win.get_translate_provider_index()).to_string();
-    t.target_language = index_to_target_language(win.get_target_language_index()).to_string();
-    t.cover_mode = index_to_cover_mode(win.get_cover_mode_index()).to_string();
+    t.provider = TranslateProvider::from_index(win.get_translate_provider_index());
+    t.target_language = TargetLanguage::from_index(win.get_target_language_index());
+    t.cover_mode = CoverMode::from_index(win.get_cover_mode_index());
 
     t.api_keys.baidu_app_id = win.get_baidu_app_id().to_string();
     t.api_keys.baidu_secret_key = win.get_baidu_secret_key().to_string();
@@ -293,17 +293,48 @@ fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
     let win_weak = win.as_weak();
     let cfg_clone = config_arc.clone();
     win.on_save_and_apply(move || {
-        if let Some(w) = win_weak.upgrade() {
-            if let Ok(mut cfg_guard) = cfg_clone.lock() {
-                extract_config_from_window(&w, &mut cfg_guard);
-                if let Ok(path) = config::get_default_config_path() {
-                    let _ = config::save_config(&cfg_guard, &path);
-                }
-                let _ = sync_hotkeys_to_gnome(&cfg_guard.hotkeys);
-                sync_autostart_desktop_file(cfg_guard.general.autostart);
-                notify_daemon_reload_config();
-                w.set_status_message(SharedString::from("设置已成功保存并同步应用！"));
+        let Some(window) = win_weak.upgrade() else {
+            return;
+        };
+        let Ok(mut config_guard) = cfg_clone.lock() else {
+            window.set_status_message(SharedString::from("保存失败: 配置状态锁异常"));
+            return;
+        };
+
+        extract_config_from_window(&window, &mut config_guard);
+
+        let config_path = match config::get_default_config_path() {
+            Ok(path) => path,
+            Err(error) => {
+                tracing::error!("获取配置文件路径失败: {error}");
+                window.set_status_message(SharedString::from(format!(
+                    "保存失败: 无法定位配置文件 ({error})"
+                )));
+                return;
             }
+        };
+
+        if let Err(error) = config::save_config(&config_guard, &config_path) {
+            tracing::error!("保存配置文件失败: {error}");
+            window.set_status_message(SharedString::from(format!("保存失败: {error}")));
+            return;
+        }
+
+        let mut warnings: Vec<String> = Vec::new();
+        if let Err(error) = sync_hotkeys_to_gnome(&config_guard.hotkeys) {
+            tracing::warn!("保存配置后同步系统快捷键失败: {error}");
+            warnings.push(format!("系统快捷键同步失败 ({error})"));
+        }
+        sync_autostart_desktop_file(config_guard.general.autostart);
+        notify_daemon_reload_config();
+
+        if warnings.is_empty() {
+            window.set_status_message(SharedString::from("设置已成功保存并同步应用！"));
+        } else {
+            window.set_status_message(SharedString::from(format!(
+                "设置已保存，但{}",
+                warnings.join("；")
+            )));
         }
     });
 

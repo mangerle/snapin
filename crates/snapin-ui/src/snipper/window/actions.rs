@@ -315,9 +315,9 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
 
     let texts: Vec<String> = ocr_res.blocks.iter().map(|b| b.text.clone()).collect();
     let translator = snapin_service::create_translator(&state.config.translate);
-    let target_lang = state.config.translate.target_language.clone();
+    let target_lang = state.config.translate.target_language.as_str();
 
-    let trans_fut = translator.translate_batch(&texts, "auto", &target_lang);
+    let trans_fut = translator.translate_batch(&texts, "auto", target_lang);
     let trans_result = match tokio::runtime::Handle::try_current() {
         Ok(handle) => tokio::task::block_in_place(|| handle.block_on(trans_fut)),
         Err(_) => {
@@ -383,7 +383,7 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
             bg_color,
             text_color,
             font_size,
-            cover_mode: state.config.translate.cover_mode.clone(),
+            cover_mode: state.config.translate.cover_mode,
         });
     }
 

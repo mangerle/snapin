@@ -276,7 +276,7 @@ mod tests {
             bg_color: (255, 255, 255, 255),
             text_color: (0, 0, 0, 255),
             font_size: 16.0,
-            cover_mode: "solid_color".to_string(),
+            cover_mode: crate::config::enums::CoverMode::SolidColor,
         };
 
         let action = TranslationAction::new(vec![item]);
