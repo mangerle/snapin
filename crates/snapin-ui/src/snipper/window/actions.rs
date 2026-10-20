@@ -6,7 +6,7 @@ use super::types::SnipperOutcome;
 use crate::paster::PasterItem;
 use crate::snipper::selection::SelectionState;
 use image::{GenericImageView, RgbaImage};
-use snapin_platform::{save_last_selection, write_image_to_clipboard};
+use snapin_platform::write_image_to_clipboard;
 
 /// 裁剪当前选区图像并合成已绘制的矢量标注
 pub fn crop_selection_image(
@@ -48,7 +48,7 @@ pub fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
         if let SelectionState::Locked { rect, .. } = &state.selection {
-            save_last_selection((rect.x, rect.y, rect.width, rect.height));
+            state.remember_selection(*rect);
         }
         match write_image_to_clipboard(&cropped) {
             Ok(()) => state.outcome = Some(SnipperOutcome::CopiedImage),
@@ -79,7 +79,7 @@ pub fn handle_action_save(state: &mut SnipperState, original_rgba: &RgbaImage) {
         };
 
         if let SelectionState::Locked { rect, .. } = &state.selection {
-            save_last_selection((rect.x, rect.y, rect.width, rect.height));
+            state.remember_selection(*rect);
         }
 
         dispatch_job(
@@ -141,7 +141,7 @@ pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
         };
 
         if let SelectionState::Locked { rect, .. } = &state.selection {
-            save_last_selection((rect.x, rect.y, rect.width, rect.height));
+            state.remember_selection(*rect);
         }
 
         dispatch_job(

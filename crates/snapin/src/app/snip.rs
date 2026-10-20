@@ -124,7 +124,7 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode) -> Result<()> {
                 let raw_path = AppPaths::generate_temp_path("paster_ipc", "raw");
                 let mut delivered = false;
                 if snapin_core::AppPaths::write_secure_file(&raw_path, item.pixmap.data()).is_ok() {
-                    let req = snapin_daemon::DaemonCommand::CreatePaster {
+                    let req = snapin_daemon::DaemonRequest::CreatePaster {
                         width: item.pixmap.width(),
                         height: item.pixmap.height(),
                         x: item.position.0,

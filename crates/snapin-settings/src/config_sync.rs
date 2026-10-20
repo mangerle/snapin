@@ -7,8 +7,7 @@ use crate::mapping::{
     double_click_action_to_index, image_format_to_index, index_to_accent_color,
     index_to_color_format, index_to_default_tool, index_to_double_click_action,
     index_to_image_format, index_to_log_level, index_to_magnifier_scale, index_to_snip_color,
-    index_to_theme, index_to_tray_theme, index_to_zoom_anchor, log_level_to_index,
-    magnifier_scale_to_index, snip_color_to_index, theme_to_index, tray_theme_to_index,
+    index_to_zoom_anchor, log_level_to_index, magnifier_scale_to_index, snip_color_to_index,
     zoom_anchor_to_index, SettingEnum,
 };
 use crate::SettingsWindow;
@@ -32,12 +31,10 @@ fn sync_general_to_window(win: &SettingsWindow, g: &config::model::GeneralConfig
     win.set_autostart(g.autostart);
     win.set_notify_on_startup(g.notify_on_startup);
     win.set_log_level_index(log_level_to_index(g.log_level));
-    win.set_tray_theme_index(tray_theme_to_index(g.tray_theme));
 }
 
 /// 同步界面外观板块设置
 fn sync_interface_to_window(win: &SettingsWindow, i: &config::model::InterfaceConfig) {
-    win.set_theme_index(theme_to_index(i.theme));
     win.set_accent_color_index(accent_color_to_index(&i.accent_color));
     win.set_enable_magnifier(i.enable_magnifier);
     win.set_magnifier_scale_index(magnifier_scale_to_index(i.magnifier_scale));
@@ -48,8 +45,6 @@ fn sync_interface_to_window(win: &SettingsWindow, i: &config::model::InterfaceCo
 
 /// 同步截图流程板块设置
 fn sync_snip_to_window(win: &SettingsWindow, s: &config::model::SnipConfig) {
-    win.set_capture_cursor(s.capture_cursor);
-    win.set_smart_window_snapping(s.smart_window_snapping);
     win.set_remember_last_selection(s.remember_last_selection);
     win.set_default_tool_index(default_tool_to_index(s.default_tool));
     win.set_default_color_index(snip_color_to_index(&s.default_color));
@@ -59,11 +54,9 @@ fn sync_snip_to_window(win: &SettingsWindow, s: &config::model::SnipConfig) {
 
 /// 同步贴图板块设置
 fn sync_paster_to_window(win: &SettingsWindow, p: &config::model::PasterConfig) {
-    win.set_enable_above_extension(p.enable_above_extension);
     win.set_initial_opacity_percent(p.initial_opacity * 100.0);
     win.set_zoom_anchor_index(zoom_anchor_to_index(p.zoom_anchor));
     win.set_double_click_action_index(double_click_action_to_index(p.double_click_action));
-    win.set_max_history_count(p.max_history_count as f32);
 }
 
 /// 同步输出与存储板块设置
@@ -74,7 +67,6 @@ fn sync_output_to_window(win: &SettingsWindow, o: &config::model::OutputConfig) 
     win.set_jpeg_quality(o.jpeg_quality as f32);
     win.set_notify_on_copy(o.notify_on_copy);
     win.set_notify_on_save(o.notify_on_save);
-    win.set_auto_backup_raw(o.auto_backup_raw);
 }
 
 /// 同步快捷键板块设置
@@ -121,12 +113,10 @@ fn extract_general_from_window(win: &SettingsWindow, g: &mut config::model::Gene
     g.autostart = win.get_autostart();
     g.notify_on_startup = win.get_notify_on_startup();
     g.log_level = index_to_log_level(win.get_log_level_index());
-    g.tray_theme = index_to_tray_theme(win.get_tray_theme_index());
 }
 
 /// 提取界面外观设置
 fn extract_interface_from_window(win: &SettingsWindow, i: &mut config::model::InterfaceConfig) {
-    i.theme = index_to_theme(win.get_theme_index());
     i.accent_color = index_to_accent_color(win.get_accent_color_index(), i.accent_color);
     i.enable_magnifier = win.get_enable_magnifier();
     i.magnifier_scale =
@@ -138,8 +128,6 @@ fn extract_interface_from_window(win: &SettingsWindow, i: &mut config::model::In
 
 /// 提取截图设置
 fn extract_snip_from_window(win: &SettingsWindow, s: &mut config::model::SnipConfig) {
-    s.capture_cursor = win.get_capture_cursor();
-    s.smart_window_snapping = win.get_smart_window_snapping();
     s.remember_last_selection = win.get_remember_last_selection();
     s.default_tool = index_to_default_tool(win.get_default_tool_index());
     s.default_color = index_to_snip_color(win.get_default_color_index(), s.default_color);
@@ -149,11 +137,9 @@ fn extract_snip_from_window(win: &SettingsWindow, s: &mut config::model::SnipCon
 
 /// 提取贴图设置
 fn extract_paster_from_window(win: &SettingsWindow, p: &mut config::model::PasterConfig) {
-    p.enable_above_extension = win.get_enable_above_extension();
     p.initial_opacity = win.get_initial_opacity_percent() / 100.0;
     p.zoom_anchor = index_to_zoom_anchor(win.get_zoom_anchor_index());
     p.double_click_action = index_to_double_click_action(win.get_double_click_action_index());
-    p.max_history_count = win.get_max_history_count() as usize;
 }
 
 /// 提取输出保存设置
@@ -164,7 +150,6 @@ fn extract_output_from_window(win: &SettingsWindow, o: &mut config::model::Outpu
     o.jpeg_quality = win.get_jpeg_quality() as u8;
     o.notify_on_copy = win.get_notify_on_copy();
     o.notify_on_save = win.get_notify_on_save();
-    o.auto_backup_raw = win.get_auto_backup_raw();
 }
 
 /// 提取快捷键设置

@@ -32,6 +32,3 @@ pub enum CoreError {
     #[error("TOML 配置文件序列化失败，原因: {0}")]
     ConfigSerializeError(#[from] toml::ser::Error),
 }
-
-/// 兼容性别名，便于平滑过渡
-pub type SnapinError = CoreError;

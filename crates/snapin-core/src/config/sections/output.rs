@@ -29,10 +29,6 @@ pub struct OutputConfig {
     /// 保存选区图片到文件后是否触发桌面系统通知
     #[serde(default)]
     pub notify_on_save: bool,
-
-    /// 是否自动静默备份原始底图到缓存
-    #[serde(default)]
-    pub auto_backup_raw: bool,
 }
 
 impl Default for OutputConfig {
@@ -44,7 +40,6 @@ impl Default for OutputConfig {
             jpeg_quality: default_jpeg_quality(),
             notify_on_copy: false,
             notify_on_save: false,
-            auto_backup_raw: false,
         }
     }
 }

@@ -128,24 +128,3 @@ pub(crate) fn handle_sub_click(
         cur_x += 26.0 * s;
     }
 }
-
-/// 根据滚轮方向轮转切换粗细等级
-pub(crate) fn cycle_stroke_width_level(
-    current: StrokeWidthLevel,
-    increase: bool,
-) -> (StrokeWidthLevel, bool) {
-    let next = if increase {
-        match current {
-            StrokeWidthLevel::Thin => StrokeWidthLevel::Medium,
-            StrokeWidthLevel::Medium | StrokeWidthLevel::Thick => StrokeWidthLevel::Thick,
-        }
-    } else {
-        match current {
-            StrokeWidthLevel::Thick => StrokeWidthLevel::Medium,
-            StrokeWidthLevel::Medium | StrokeWidthLevel::Thin => StrokeWidthLevel::Thin,
-        }
-    };
-
-    let changed = next != current;
-    (next, changed)
-}

@@ -8,17 +8,6 @@ use crate::dbus_session::get_session_connection;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
 
-/// 截图捕获通道首选偏好
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CaptureChannelPreference {
-    /// GNOME Shell 扩展原生零延迟 Raw 原始物理像素通道
-    GnomeExtensionRaw,
-    /// GNOME Shell 扩展 PNG 图像通道
-    GnomeExtensionPng,
-    /// XDG Desktop Portal 跨桌面标准通道
-    XdgPortal,
-}
-
 /// 系统底层平台能力快照
 #[derive(Debug, Clone)]
 pub struct PlatformCapabilities {
@@ -28,8 +17,6 @@ pub struct PlatformCapabilities {
     pub desktop_env: String,
     /// 配套 GNOME Shell Mutter 特权扩展是否在线就绪
     pub gnome_extension_active: bool,
-    /// 首选推荐的屏幕捕获通道
-    pub preferred_capture_channel: CaptureChannelPreference,
 }
 
 impl PlatformCapabilities {
@@ -38,25 +25,17 @@ impl PlatformCapabilities {
         let (is_wayland, desktop_env) = probe_desktop_environment();
         let gnome_extension_active = probe_gnome_extension().await;
 
-        let preferred_capture_channel = if gnome_extension_active {
-            CaptureChannelPreference::GnomeExtensionRaw
-        } else {
-            CaptureChannelPreference::XdgPortal
-        };
-
         tracing::info!(
-            "系统平台能力探测完成: Wayland={}, 桌面={}, GNOME特权扩展在线={}, 首选截屏通道={:?}",
+            "系统平台能力探测完成: Wayland={}, 桌面={}, GNOME特权扩展在线={}",
             is_wayland,
             desktop_env,
-            gnome_extension_active,
-            preferred_capture_channel
+            gnome_extension_active
         );
 
         Self {
             is_wayland,
             desktop_env,
             gnome_extension_active,
-            preferred_capture_channel,
         }
     }
 }
@@ -138,7 +117,6 @@ pub fn get_platform_capabilities() -> Arc<PlatformCapabilities> {
         is_wayland,
         desktop_env,
         gnome_extension_active: false,
-        preferred_capture_channel: CaptureChannelPreference::XdgPortal,
     })
 }
 
@@ -158,9 +136,5 @@ mod tests {
     fn test_capabilities_fallback_singleton() {
         let caps = get_platform_capabilities();
         assert!(!caps.gnome_extension_active);
-        assert_eq!(
-            caps.preferred_capture_channel,
-            CaptureChannelPreference::XdgPortal
-        );
     }
 }

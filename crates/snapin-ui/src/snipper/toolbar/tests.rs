@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::snipper::selection::Rect;
-use crate::snipper::toolbar::items::{StrokeWidthLevel, ToolbarItem};
+use crate::snipper::toolbar::items::ToolbarItem;
 
 #[test]
 fn test_toolbar_layout_adaptation() {
@@ -46,26 +46,6 @@ fn test_toolbar_hit_test() {
     assert_eq!(clicked, Some(ToolbarItem::ToolRect));
     assert_eq!(tb.active_tool, Some(ToolbarItem::ToolRect));
     assert!(tb.sub_rect.is_some());
-}
-
-#[test]
-fn test_toolbar_cycle_stroke_width() {
-    let mut tb = Toolbar::default();
-    assert_eq!(tb.sub_options.stroke_width, StrokeWidthLevel::Medium);
-
-    // 滚轮向上增大粗细：Medium -> Thick
-    assert!(tb.cycle_stroke_width(true));
-    assert_eq!(tb.sub_options.stroke_width, StrokeWidthLevel::Thick);
-    // 到顶不再变化
-    assert!(!tb.cycle_stroke_width(true));
-
-    // 滚轮向下减小粗细：Thick -> Medium -> Thin
-    assert!(tb.cycle_stroke_width(false));
-    assert_eq!(tb.sub_options.stroke_width, StrokeWidthLevel::Medium);
-    assert!(tb.cycle_stroke_width(false));
-    assert_eq!(tb.sub_options.stroke_width, StrokeWidthLevel::Thin);
-    // 到底不再变化
-    assert!(!tb.cycle_stroke_width(false));
 }
 
 #[test]

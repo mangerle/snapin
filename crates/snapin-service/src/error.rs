@@ -29,10 +29,6 @@ pub enum ServiceError {
         message: String,
     },
 
-    /// 不支持的语言或转换错误
-    #[error("不支持的翻译语言代码: {lang}，服务商: {provider}")]
-    UnsupportedLanguage { provider: String, lang: String },
-
     /// 缺少必要的 API Key 或凭据配置
     #[error("未配置必要的认证凭据，服务商: {provider}，缺失字段: {field}")]
     MissingCredentials { provider: String, field: String },

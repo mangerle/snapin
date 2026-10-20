@@ -5,7 +5,7 @@ pub mod commands;
 use anyhow::Context;
 use commands::handle_command;
 use snapin_core::config::Config;
-use snapin_daemon::{send_command_to_daemon, DaemonCommand, IpcListener};
+use snapin_daemon::{send_command_to_daemon, DaemonRequest, IpcListener};
 use snapin_platform::{enable_gnome_extension, send_desktop_notification, sync_hotkeys_to_gnome};
 use snapin_ui::paster::spawn_paster_workspace_thread;
 use tokio::signal::unix::{signal, SignalKind};
@@ -15,7 +15,7 @@ use tokio::task::JoinHandle;
 /// 运行后台守护服务
 pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
     // 1. 若已有守护服务在运行，保持幂等性静默退出，不做多余改变
-    if let Ok(true) = send_command_to_daemon(&DaemonCommand::Ping).await {
+    if let Ok(true) = send_command_to_daemon(&DaemonRequest::Ping).await {
         tracing::info!("Snapin 守护服务已在后台运行中，无需重复启动。");
         enable_gnome_extension();
         return Ok(());
@@ -72,7 +72,7 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
                     tracing::info!("IPC 指令通道已关闭，准备退出守护进程");
                     break;
                 };
-                let is_shutdown = matches!(invocation.request, DaemonCommand::Shutdown);
+                let is_shutdown = matches!(invocation.request, DaemonRequest::Shutdown);
                 let response = handle_command(invocation.request, &workspace_proxy).await;
                 let _ = invocation.responder.send(response);
                 if is_shutdown {

@@ -69,23 +69,6 @@ pub fn handle_workspace_user_event(
             }
             tracing::info!("已切换活动贴图分组至: {next_group}");
         }
-        PasterAppEvent::SetVisibility(visible) => {
-            let active = manager.active_group();
-            for inst in instances.values_mut() {
-                if inst.state.item.group_id == active {
-                    inst.state.item.is_visible = visible;
-                    inst.window.set_visible(visible);
-                }
-            }
-        }
-        PasterAppEvent::ClosePaster(id) => {
-            if let Some((&win_id, _)) = instances.iter().find(|(_, inst)| inst.item_id == id) {
-                if let Some(removed) = instances.remove(&win_id) {
-                    manager.remove_paster(removed.item_id);
-                    tracing::info!("已通过指令关闭贴图: {id}");
-                }
-            }
-        }
         PasterAppEvent::GetStatus(responder) => {
             let status = WorkspaceStatus {
                 active_group: manager.active_group(),
@@ -176,9 +159,6 @@ pub fn handle_workspace_window_event(
     if should_close {
         if let Some(removed) = instances.remove(&window_id) {
             manager.remove_paster(removed.item_id);
-            if let Some(observer) = super::get_paster_observer() {
-                observer.on_paster_closed(window_id);
-            }
             tracing::info!(
                 "贴图已安全关闭: {}，工作区剩余活动贴图: {}",
                 removed.item_id,

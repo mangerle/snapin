@@ -23,10 +23,6 @@ pub enum PasterAppEvent {
     ToggleVisibility,
     /// 切换活动分组（若为 None 则循环轮转至下一个分组）
     SwitchGroup(Option<usize>),
-    /// 显式设置当前活动组所有贴图的可见性
-    SetVisibility(bool),
-    /// 关闭指定 ID 的贴图
-    ClosePaster(u64),
     /// 查询当前工作区运行状态
     GetStatus(oneshot::Sender<WorkspaceStatus>),
     /// 请求工作区平滑停机，并在事件循环即将退出时回传确认

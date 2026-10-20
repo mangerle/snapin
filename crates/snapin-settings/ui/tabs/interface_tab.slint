@@ -5,7 +5,6 @@ export component InterfaceTab inherits VerticalLayout {
     spacing: 16px;
     padding-right: 8px;
 
-    in-out property <int> theme_index: 0;           // 0: 跟随系统, 1: 深色模式, 2: 浅色模式
     in-out property <int> accent_color_index: 0;    // 0: 经典天蓝, 1: 翡翠青绿, 2: 活力亮橙, 3: 雅致紫罗兰
     in-out property <bool> enable_magnifier: true;
     in-out property <int> magnifier_scale_index: 1; // 0: 4x, 1: 8x, 2: 16x
@@ -14,30 +13,16 @@ export component InterfaceTab inherits VerticalLayout {
     in-out property <float> toolbar_scale_percent: 100; // 80 ~ 150 %
 
     SettingCard {
-        title: "主题与强调色彩";
-        subtitle: "定制 Snapin 选区边框高亮色与控制台视觉风格";
+        title: "强调色彩";
+        subtitle: "定制 Snapin 选区边框高亮色";
 
-        HorizontalLayout {
-            spacing: 28px;
-
-            VerticalLayout {
-                spacing: 6px;
-                Text { text: "界面外观主题:"; font-size: 13px; font-weight: 600; color: #334155; }
-                ComboBox {
-                    model: ["跟随系统外观", "强制深色模式 (Dark)", "强制浅色模式 (Light)"];
-                    current-index <=> root.theme_index;
-                    width: 200px;
-                }
-            }
-
-            VerticalLayout {
-                spacing: 6px;
-                Text { text: "选区与高亮强调色:"; font-size: 13px; font-weight: 600; color: #334155; }
-                ComboBox {
-                    model: ["天海晴蓝 (#00AEFF)", "翡翠青绿 (#10B981)", "日光亮橙 (#F59E0B)", "优雅紫罗兰 (#8B5CF6)", "保留当前自定义颜色"];
-                    current-index <=> root.accent_color_index;
-                    width: 220px;
-                }
+        VerticalLayout {
+            spacing: 6px;
+            Text { text: "选区与高亮强调色:"; font-size: 13px; font-weight: 600; color: #334155; }
+            ComboBox {
+                model: ["天海晴蓝 (#00AEFF)", "翡翠青绿 (#10B981)", "日光亮橙 (#F59E0B)", "优雅紫罗兰 (#8B5CF6)", "保留当前自定义颜色"];
+                current-index <=> root.accent_color_index;
+                width: 220px;
             }
         }
     }

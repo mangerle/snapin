@@ -11,7 +11,6 @@ export component OutputTab inherits VerticalLayout {
     in-out property <float> jpeg_quality: 90;    // 10 ~ 100
     in-out property <bool> notify_on_copy: false;
     in-out property <bool> notify_on_save: true;
-    in-out property <bool> auto_backup_raw: false;
 
     SettingCard {
         title: "文件存储与自动命名";
@@ -130,13 +129,6 @@ export component OutputTab inherits VerticalLayout {
                 checked <=> root.notify_on_copy;
             }
 
-            Rectangle { height: 1px; background: #f1f5f9; }
-
-            AppSwitch {
-                title: "自动静默备份全屏原始底图到本地缓存";
-                subtitle: "防止截图误操作丢失背景，可在需要时从缓存找回完整桌面";
-                checked <=> root.auto_backup_raw;
-            }
         }
     }
 }

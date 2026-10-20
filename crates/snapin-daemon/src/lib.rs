@@ -13,8 +13,7 @@ pub use client::{
 pub use codec::{read_framed_message, write_framed_message};
 pub use error::DaemonError;
 pub use protocol::{
-    get_socket_path, DaemonCommand, DaemonRequest, DaemonResponse, IpcInvocation,
-    MAX_IPC_FRAME_SIZE,
+    get_socket_path, DaemonRequest, DaemonResponse, IpcInvocation, MAX_IPC_FRAME_SIZE,
 };
 pub use server::IpcListener;
 

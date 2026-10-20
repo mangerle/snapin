@@ -15,7 +15,7 @@ use app::snip::run_oneshot_snip;
 use clap::Parser;
 use cli::{Cli, Commands};
 use snapin_core::config;
-use snapin_daemon::{send_command_to_daemon, DaemonCommand};
+use snapin_daemon::{send_command_to_daemon, DaemonRequest};
 use snapin_platform::{init_platform_capabilities, sync_hotkeys_to_gnome};
 use snapin_settings::run_settings_gui;
 use snapin_ui::snipper::SnipMode;
@@ -41,9 +41,6 @@ async fn main() -> Result<()> {
     // 3. 初始化底层平台能力探测（探测 Wayland、GNOME Mutter 扩展等环境并全局缓存）
     init_platform_capabilities().await;
 
-    // 4. 注册贴图窗口平台特权观察者（解耦 UI 层直接调用 GNOME 扩展）
-    app::setup_paster_platform_observer();
-
     let cli = Cli::parse();
 
     // 5. 校验配置加载结果，若配置文件损坏则附带上下文优雅报错
@@ -63,7 +60,7 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Paste) => {
             tracing::info!("正在检查剪贴板生成贴图...");
-            if let Ok(true) = send_command_to_daemon(&DaemonCommand::Paste).await {
+            if let Ok(true) = send_command_to_daemon(&DaemonRequest::Paste).await {
                 tracing::info!("已通过轻量 IPC 委托常驻守护服务完成贴图");
             } else {
                 tracing::info!("守护服务未运行，降级为本地直接执行贴图");
@@ -78,14 +75,14 @@ async fn main() -> Result<()> {
             run_settings_gui().context("启动设置中心图形界面失败")?;
         }
         Some(Commands::Toggle) => {
-            if let Ok(true) = send_command_to_daemon(&DaemonCommand::TogglePasters).await {
+            if let Ok(true) = send_command_to_daemon(&DaemonRequest::TogglePasters).await {
                 tracing::info!("已通过 IPC 请求守护进程批量切换贴图显隐状态");
             } else {
                 tracing::info!("未检测到常驻守护服务，无活动贴图需要切换");
             }
         }
         Some(Commands::SwitchGroup { id }) => {
-            if let Ok(true) = send_command_to_daemon(&DaemonCommand::SwitchGroup(id)).await {
+            if let Ok(true) = send_command_to_daemon(&DaemonRequest::SwitchGroup(id)).await {
                 tracing::info!("已通过 IPC 请求守护进程切换贴图分组至: {id:?}");
             } else {
                 tracing::info!("未检测到常驻守护服务，无活动贴图分组需要切换");

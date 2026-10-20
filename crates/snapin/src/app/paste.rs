@@ -123,7 +123,7 @@ pub async fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
     let height = pixmap.height();
     let raw_temp = AppPaths::generate_temp_path("paster_pin", "raw");
     if snapin_core::AppPaths::write_secure_file(&raw_temp, pixmap.data()).is_ok() {
-        let req = snapin_daemon::DaemonCommand::CreatePaster {
+        let req = snapin_daemon::DaemonRequest::CreatePaster {
             width,
             height,
             x,

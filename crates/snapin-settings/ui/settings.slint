@@ -33,11 +33,9 @@ export component SettingsWindow inherits Window {
     in-out property <bool> autostart: true;
     in-out property <bool> notify_on_startup: false;
     in-out property <int> log_level_index: 2;
-    in-out property <int> tray_theme_index: 0;
     in-out property <string> extension_status_text: "GNOME Shell 原生零白闪扩展已就绪";
 
     // 2. 界面外观
-    in-out property <int> theme_index: 0;
     in-out property <int> accent_color_index: 0;
     in-out property <bool> enable_magnifier: true;
     in-out property <int> magnifier_scale_index: 1;
@@ -46,8 +44,6 @@ export component SettingsWindow inherits Window {
     in-out property <float> toolbar_scale_percent: 100;
 
     // 3. 截图流程
-    in-out property <bool> capture_cursor: false;
-    in-out property <bool> smart_window_snapping: true;
     in-out property <bool> remember_last_selection: true;
     in-out property <int> default_tool_index: 0;
     in-out property <int> default_color_index: 0;
@@ -55,11 +51,9 @@ export component SettingsWindow inherits Window {
     in-out property <float> snip_font_size: 18;
 
     // 4. 贴图窗口
-    in-out property <bool> enable_above_extension: true;
     in-out property <float> initial_opacity_percent: 100;
     in-out property <int> zoom_anchor_index: 0;
     in-out property <int> double_click_action_index: 0;
-    in-out property <float> max_history_count: 20;
 
     // 5. 输出保存
     in-out property <string> quick_save_dir: "~/Pictures/Screenshots";
@@ -68,7 +62,6 @@ export component SettingsWindow inherits Window {
     in-out property <float> jpeg_quality: 90;
     in-out property <bool> notify_on_copy: false;
     in-out property <bool> notify_on_save: true;
-    in-out property <bool> auto_backup_raw: false;
 
     // 6. 文字识别与翻译
     in-out property <string> ocr_model_dir: "";
@@ -243,13 +236,11 @@ export component SettingsWindow inherits Window {
                         autostart <=> root.autostart;
                         notify_on_startup <=> root.notify_on_startup;
                         log_level_index <=> root.log_level_index;
-                        tray_theme_index <=> root.tray_theme_index;
                         extension_status_text: root.extension_status_text;
                         open_config_folder => { root.open_config_folder(); }
                     }
 
                     if root.active_tab == 1: InterfaceTab {
-                        theme_index <=> root.theme_index;
                         accent_color_index <=> root.accent_color_index;
                         enable_magnifier <=> root.enable_magnifier;
                         magnifier_scale_index <=> root.magnifier_scale_index;
@@ -259,8 +250,6 @@ export component SettingsWindow inherits Window {
                     }
 
                     if root.active_tab == 2: SnipTab {
-                        capture_cursor <=> root.capture_cursor;
-                        smart_window_snapping <=> root.smart_window_snapping;
                         remember_last_selection <=> root.remember_last_selection;
                         default_tool_index <=> root.default_tool_index;
                         default_color_index <=> root.default_color_index;
@@ -269,11 +258,9 @@ export component SettingsWindow inherits Window {
                     }
 
                     if root.active_tab == 3: PasterTab {
-                        enable_above_extension <=> root.enable_above_extension;
                         initial_opacity_percent <=> root.initial_opacity_percent;
                         zoom_anchor_index <=> root.zoom_anchor_index;
                         double_click_action_index <=> root.double_click_action_index;
-                        max_history_count <=> root.max_history_count;
                     }
 
                     if root.active_tab == 4: OutputTab {
@@ -283,7 +270,6 @@ export component SettingsWindow inherits Window {
                         jpeg_quality <=> root.jpeg_quality;
                         notify_on_copy <=> root.notify_on_copy;
                         notify_on_save <=> root.notify_on_save;
-                        auto_backup_raw <=> root.auto_backup_raw;
                     }
 
                     if root.active_tab == 5: OcrTab {

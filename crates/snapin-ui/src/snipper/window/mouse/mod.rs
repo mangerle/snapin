@@ -180,12 +180,15 @@ fn handle_left_release(
 ) -> bool {
     let screen_w = original_rgba.width() as f32;
     let screen_h = original_rgba.height() as f32;
+    let remember_selection = state.config.snip.remember_last_selection;
 
     match &mut state.selection {
         SelectionState::Creating { start, current } => {
             let rect = Rect::from_points(*start, *current);
             if rect.width > 4.0 && rect.height > 4.0 {
-                snapin_platform::save_last_selection((rect.x, rect.y, rect.width, rect.height));
+                if remember_selection {
+                    snapin_platform::save_last_selection((rect.x, rect.y, rect.width, rect.height));
+                }
                 state.history.push(rect);
                 state.toolbar.update_layout(&rect, screen_w, screen_h);
                 state.selection = SelectionState::Locked {
@@ -210,7 +213,9 @@ fn handle_left_release(
 
             if active_drag.is_some() {
                 *active_drag = None;
-                snapin_platform::save_last_selection((rect.x, rect.y, rect.width, rect.height));
+                if remember_selection {
+                    snapin_platform::save_last_selection((rect.x, rect.y, rect.width, rect.height));
+                }
                 state.history.push(*rect);
                 state.toolbar.update_layout(rect, screen_w, screen_h);
                 true

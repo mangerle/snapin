@@ -17,7 +17,7 @@ mod tests;
 pub use items::{preset_colors, StrokeWidthLevel, SubToolOptions, ToolbarItem};
 
 use crate::snipper::selection::Rect;
-use interaction::{cycle_stroke_width_level, handle_sub_click, hit_test_main_items};
+use interaction::{handle_sub_click, hit_test_main_items};
 use layout::{calculate_main_layout, calculate_sub_layout};
 use render::render_toolbar;
 use tiny_skia::PixmapMut;
@@ -167,15 +167,6 @@ impl Toolbar {
         }
 
         None
-    }
-
-    /// 根据鼠标滚轮滚动方向阶梯调节标注粗细 (向前滚轮变粗，向后滚轮变细)
-    pub fn cycle_stroke_width(&mut self, increase: bool) -> bool {
-        let (next, changed) = cycle_stroke_width_level(self.sub_options.stroke_width, increase);
-        if changed {
-            self.sub_options.stroke_width = next;
-        }
-        changed
     }
 
     /// 使用 tiny-skia 将工具栏绘制到目标 Pixmap

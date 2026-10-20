@@ -30,46 +30,6 @@ impl LogLevel {
     }
 }
 
-/// 顶栏托盘图标色彩主题枚举
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum TrayTheme {
-    #[default]
-    Auto,
-    Dark,
-    Light,
-}
-
-impl TrayTheme {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Dark => "dark",
-            Self::Light => "light",
-        }
-    }
-}
-
-/// 界面主题模式强类型枚举
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum Theme {
-    #[default]
-    System,
-    Dark,
-    Light,
-}
-
-impl Theme {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::System => "system",
-            Self::Dark => "dark",
-            Self::Light => "light",
-        }
-    }
-}
-
 /// 放大镜取色文本格式强类型枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -213,16 +173,6 @@ impl DoubleClickAction {
             Self::Copy => "copy",
         }
     }
-}
-
-/// OCR 引擎类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum OcrEngineKind {
-    /// 本地 PP-OCRv6 离线推理
-    #[default]
-    #[serde(rename = "local_ppocr")]
-    LocalPpOcr,
 }
 
 /// 机器翻译服务商

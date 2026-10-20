@@ -6,8 +6,8 @@
 use super::super::paste::paste_clipboard_to_workspace;
 use snapin_core::config;
 use snapin_core::AppPaths;
-use snapin_daemon::{DaemonCommand, DaemonResponse};
-use snapin_platform::{send_desktop_notification, spawn_detached_system_command};
+use snapin_daemon::{DaemonRequest, DaemonResponse};
+use snapin_platform::send_desktop_notification;
 use snapin_ui::paster::{PasterItem, PasterWorkspaceProxy};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -18,17 +18,12 @@ const STATUS_QUERY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// 处理单条守护进程指令
 pub async fn handle_command(
-    command: DaemonCommand,
+    command: DaemonRequest,
     workspace: &PasterWorkspaceProxy,
 ) -> DaemonResponse {
     match command {
-        DaemonCommand::ReloadConfig => reload_config(workspace).await,
-        DaemonCommand::Snip => {
-            let current_exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("snapin"));
-            spawn_detached_system_command(&current_exe.to_string_lossy(), &["snip"]);
-            DaemonResponse::Ok
-        }
-        DaemonCommand::Paste => {
+        DaemonRequest::ReloadConfig => reload_config(workspace).await,
+        DaemonRequest::Paste => {
             if let Err(error) = paste_clipboard_to_workspace(workspace).await {
                 tracing::error!("守护服务执行剪贴板贴图失败: {error}");
                 DaemonResponse::Error(format!("剪贴板贴图失败: {error}"))
@@ -36,7 +31,7 @@ pub async fn handle_command(
                 DaemonResponse::Ok
             }
         }
-        DaemonCommand::CreatePaster {
+        DaemonRequest::CreatePaster {
             width,
             height,
             x,
@@ -44,23 +39,23 @@ pub async fn handle_command(
             title,
             raw_path,
         } => create_paster(workspace, width, height, x, y, title, raw_path).await,
-        DaemonCommand::TogglePasters => {
+        DaemonRequest::TogglePasters => {
             if let Err(error) = workspace.toggle_visibility() {
                 DaemonResponse::Error(format!("切换贴图显隐失败: {error}"))
             } else {
                 DaemonResponse::Ok
             }
         }
-        DaemonCommand::SwitchGroup(target_id) => {
+        DaemonRequest::SwitchGroup(target_id) => {
             if let Err(error) = workspace.switch_group(target_id) {
                 return DaemonResponse::Error(format!("切换贴图分组失败: {error}"));
             }
             let _ = send_desktop_notification("Snapin 贴图组", "已切换贴图活动分组").await;
             DaemonResponse::Ok
         }
-        DaemonCommand::Shutdown => DaemonResponse::Ok,
-        DaemonCommand::Ping => DaemonResponse::Pong,
-        DaemonCommand::GetStatus => {
+        DaemonRequest::Shutdown => DaemonResponse::Ok,
+        DaemonRequest::Ping => DaemonResponse::Pong,
+        DaemonRequest::GetStatus => {
             match timeout(STATUS_QUERY_TIMEOUT, workspace.get_status()).await {
                 Ok(Ok(status)) => DaemonResponse::Status {
                     active_group: status.active_group,

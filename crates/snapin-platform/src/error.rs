@@ -16,10 +16,6 @@ pub enum PlatformError {
     #[error("D-Bus 进程间通信异常，目标服务: {service}，原因: {message}")]
     DBus { service: String, message: String },
 
-    /// 系统剪贴板读取失败或不支持目标格式
-    #[error("系统剪贴板读取失败，不支持的 MIME 类型或数据损坏")]
-    ClipboardEmptyOrUnsupported,
-
     /// 系统剪贴板操作失败
     #[error("系统剪贴板操作失败，描述: {message}")]
     Clipboard { message: String },

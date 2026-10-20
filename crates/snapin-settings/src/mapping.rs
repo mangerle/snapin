@@ -6,7 +6,7 @@
 
 use snapin_core::config::{
     ColorFormat, CoverMode, DefaultTool, DoubleClickAction, HexColor, ImageFormat, LogLevel,
-    TargetLanguage, Theme, TranslateProvider, TrayTheme, ZoomAnchor,
+    TargetLanguage, TranslateProvider, ZoomAnchor,
 };
 
 /// 预设强调色表（顺序与 Slint interface_tab 中的 ComboBox 严格一一对应）
@@ -124,18 +124,6 @@ impl SettingEnum for LogLevel {
     }
 }
 
-impl SettingEnum for TrayTheme {
-    fn all_variants() -> &'static [Self] {
-        &[Self::Auto, Self::Dark, Self::Light]
-    }
-}
-
-impl SettingEnum for Theme {
-    fn all_variants() -> &'static [Self] {
-        &[Self::System, Self::Dark, Self::Light]
-    }
-}
-
 impl SettingEnum for ColorFormat {
     fn all_variants() -> &'static [Self] {
         &[Self::Hex, Self::Rgb, Self::Hsl]
@@ -215,22 +203,6 @@ pub fn index_to_log_level(index: i32) -> LogLevel {
     SettingEnum::from_index(index)
 }
 
-pub fn tray_theme_to_index(theme: TrayTheme) -> i32 {
-    theme.to_index()
-}
-
-pub fn index_to_tray_theme(index: i32) -> TrayTheme {
-    SettingEnum::from_index(index)
-}
-
-pub fn theme_to_index(theme: Theme) -> i32 {
-    theme.to_index()
-}
-
-pub fn index_to_theme(index: i32) -> Theme {
-    SettingEnum::from_index(index)
-}
-
 pub fn color_format_to_index(format: ColorFormat) -> i32 {
     format.to_index()
 }
@@ -287,8 +259,6 @@ mod tests {
         }
 
         check_roundtrip::<LogLevel>();
-        check_roundtrip::<TrayTheme>();
-        check_roundtrip::<Theme>();
         check_roundtrip::<ColorFormat>();
         check_roundtrip::<DefaultTool>();
         check_roundtrip::<ZoomAnchor>();

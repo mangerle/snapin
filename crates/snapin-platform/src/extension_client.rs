@@ -52,19 +52,6 @@ where
         })
 }
 
-/// 请求配套 GNOME Shell 扩展将指定标题的贴图窗口置顶
-pub async fn pin_window_above(window_title: &str) -> Result<bool, PlatformError> {
-    tracing::debug!("正在请求 GNOME 扩展置顶窗口，标题: {}", window_title);
-    let (success,): (bool,) = call_extension("PinWindowByTitle", &(window_title)).await?;
-
-    if success {
-        tracing::info!("贴图窗口成功置顶: {}", window_title);
-    } else {
-        tracing::warn!("GNOME 扩展未能找到该标题的窗口进行置顶: {}", window_title);
-    }
-    Ok(success)
-}
-
 /// 请求配套 GNOME Shell 扩展执行毫秒级原生无白闪全屏截屏
 pub async fn capture_fullscreen_extension(target_path: &str) -> Result<bool, PlatformError> {
     tracing::debug!("正在向 GNOME 扩展请求原生极速全屏截屏: {}", target_path);

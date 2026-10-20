@@ -5,8 +5,6 @@ export component SnipTab inherits VerticalLayout {
     spacing: 16px;
     padding-right: 8px;
 
-    in-out property <bool> capture_cursor: false;
-    in-out property <bool> smart_window_snapping: true;
     in-out property <bool> remember_last_selection: true;
 
     in-out property <int> default_tool_index: 0;   // 0: 无, 1: 矩形/椭圆, 2: 自由画笔, 3: 荧光笔, 4: 箭头, 5: 文字, 6: 序号
@@ -15,33 +13,13 @@ export component SnipTab inherits VerticalLayout {
     in-out property <float> snip_font_size: 18;    // 12 ~ 48 px
 
     SettingCard {
-        title: "选区与屏幕捕获行为";
-        subtitle: "控制截图启动时的全屏抓取内容与选区边缘吸附逻辑";
+        title: "选区记忆";
+        subtitle: "控制再次截图时是否恢复上一次的选区范围";
 
-        VerticalLayout {
-            spacing: 14px;
-
-            AppSwitch {
-                title: "截图画面中捕获系统鼠标指针";
-                subtitle: "开启后截取的底图中将保留当前光标物理形态与绝对位置";
-                checked <=> root.capture_cursor;
-            }
-
-            Rectangle { height: 1px; background: #f1f5f9; }
-
-            AppSwitch {
-                title: "启用窗口与屏幕边缘智能磁吸";
-                subtitle: "拖拽选区接近屏幕边界或目标窗口边缘时自动精准对齐吸附";
-                checked <=> root.smart_window_snapping;
-            }
-
-            Rectangle { height: 1px; background: #f1f5f9; }
-
-            AppSwitch {
-                title: "记忆并恢复上次截图选区";
-                subtitle: "按下截图热键时自动高亮上一次的截取矩形范围，方便连续定格";
-                checked <=> root.remember_last_selection;
-            }
+        AppSwitch {
+            title: "记忆并恢复上次截图选区";
+            subtitle: "按下截图热键时自动高亮上一次的截取矩形范围，方便连续定格";
+            checked <=> root.remember_last_selection;
         }
     }
 

@@ -4,7 +4,6 @@
 //! 像素数据由各贴图窗口独占，避免每张图在窗口与管理器之间发生多次深拷贝。
 
 use crate::paster::transform::PasterTransform;
-use std::collections::HashMap;
 use tiny_skia::Pixmap;
 
 /// 单张贴图的数据上下文（像素数据由所属窗口独占）
@@ -43,33 +42,16 @@ struct PasterEntry {
 }
 
 /// 贴图分组管理器
+#[derive(Default)]
 pub struct PasterManager {
     active_group: usize,
     entries: Vec<PasterEntry>,
-    group_names: HashMap<usize, String>,
-}
-
-impl Default for PasterManager {
-    fn default() -> Self {
-        let mut group_names = HashMap::new();
-        group_names.insert(0, "默认分组".to_string());
-        Self {
-            active_group: 0,
-            entries: Vec::new(),
-            group_names,
-        }
-    }
 }
 
 impl PasterManager {
     /// 获取当前活动分组 ID
     pub fn active_group(&self) -> usize {
         self.active_group
-    }
-
-    /// 获取指定分组的展示名称
-    pub fn group_name(&self, id: usize) -> Option<&str> {
-        self.group_names.get(&id).map(|name| name.as_str())
     }
 
     /// 登记一张新贴图；ID 重复时返回 `false`，可见性由当前活动分组决定。

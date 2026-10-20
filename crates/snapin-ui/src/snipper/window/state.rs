@@ -4,7 +4,7 @@ use super::jobs::{SnipperJobDispatcher, SnipperJobKind};
 use super::text_input::TextInputSession;
 use super::types::{SnipMode, SnipperOutcome};
 use crate::snipper::magnifier::Magnifier;
-use crate::snipper::selection::{SelectionHistory, SelectionState};
+use crate::snipper::selection::{Rect, SelectionHistory, SelectionState};
 use crate::snipper::toolbar::{Toolbar, ToolbarItem};
 use snapin_core::annotation::AnnotationHistory;
 use snapin_core::config::{Config, DefaultTool, InterfaceConfig, SnipConfig};
@@ -54,6 +54,13 @@ impl SnipperState {
             pending_job_abort: None,
             config: Config::default(),
             mode: SnipMode::default(),
+        }
+    }
+
+    /// 按用户配置决定是否持久化本次选区。
+    pub fn remember_selection(&self, rect: Rect) {
+        if self.config.snip.remember_last_selection {
+            snapin_platform::save_last_selection((rect.x, rect.y, rect.width, rect.height));
         }
     }
 
@@ -109,8 +116,8 @@ fn apply_snip_config(state: &mut SnipperState, snip: &SnipConfig, mode: SnipMode
     // 初始进入截图时，未完成选区前不激活标注工具，确保左键优先用于选区拉框
     state.toolbar.active_tool = None;
 
-    // 仅在明确触发“自定义截屏”模式时才恢复上次历史选区，常规截图始终从空白选区开始
-    if mode == SnipMode::Custom {
+    // 仅在“自定义截屏”模式且用户开启记忆时恢复上次选区，常规截图始终从空白选区开始
+    if mode == SnipMode::Custom && snip.remember_last_selection {
         if let Some((lx, ly, lw, lh)) = snapin_platform::load_last_selection() {
             let rect = crate::snipper::selection::Rect {
                 x: lx,

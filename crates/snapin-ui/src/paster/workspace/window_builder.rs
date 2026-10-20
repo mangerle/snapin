@@ -90,10 +90,5 @@ pub fn create_new_paster_window(
         instances.len()
     );
 
-    // 通知贴图生命周期观察者（由外部注入 GNOME 扩展置顶等平台行为，解耦 UI 表现层与平台特权）
-    if let Some(observer) = super::get_paster_observer() {
-        observer.on_paster_created(&title, win_id);
-    }
-
     Ok(())
 }

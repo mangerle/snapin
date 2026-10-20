@@ -16,8 +16,6 @@ pub const IPC_TIMEOUT: Duration = Duration::from_secs(2);
 pub enum DaemonRequest {
     /// 重新加载配置文件并热更新快捷键与运行时参数
     ReloadConfig,
-    /// 触发区域截图流水线
-    Snip,
     /// 触发贴图（由剪贴板生成）
     Paste,
     /// 客户端直接向常驻守护进程投递像素数据创建贴图窗口（通过内存文件系统 Raw 路径零膨胀传输）
@@ -40,9 +38,6 @@ pub enum DaemonRequest {
     /// 查询守护进程当前运行状态
     GetStatus,
 }
-
-/// 兼容别名：保留 DaemonCommand 便于渐进过渡
-pub type DaemonCommand = DaemonRequest;
 
 /// 守护进程向 IPC 客户端返回的强类型响应协议
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
