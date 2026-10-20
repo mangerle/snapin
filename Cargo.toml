@@ -71,6 +71,9 @@ base64 = "0.22"
 # 纯 Rust 复杂多语言与中文字体排版引擎
 cosmic-text = "0.11"
 
+# ONNX Runtime 动态加载推理 (复用系统 libonnxruntime，避免静态捆绑)
+ort = { version = "2.0.0-rc.15", default-features = false, features = ["load-dynamic"] }
+
 # 跨平台剪贴板操作 (支持 Wayland RGBA 图像与文本读写)
 arboard = { version = "3.4", default-features = false, features = ["wayland-data-control", "image-data"] }
 

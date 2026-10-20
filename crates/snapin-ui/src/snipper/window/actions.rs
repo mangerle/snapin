@@ -120,26 +120,17 @@ pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
         match snapin_service::LocalPpOcrEngine::new(custom_dir) {
             Ok(engine) => {
                 use snapin_service::OcrEngine;
-                let recognize_fut = engine.recognize(&cropped);
-                let ocr_result = match tokio::runtime::Handle::try_current() {
-                    Ok(handle) => tokio::task::block_in_place(|| handle.block_on(recognize_fut)),
-                    Err(_) => {
-                        let rt = tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build();
-                        match rt {
-                            Ok(runtime) => runtime.block_on(recognize_fut),
-                            Err(_) => Ok(snapin_service::OcrResult::default()),
+                match engine.recognize(&cropped) {
+                    Ok(res) => {
+                        let text = res.full_text;
+                        if !text.is_empty() {
+                            if let Err(e) = snapin_platform::write_text_to_clipboard(&text) {
+                                tracing::warn!("复制 OCR 文本至系统剪贴板失败: {e}");
+                            }
                         }
                     }
-                };
-
-                if let Ok(res) = ocr_result {
-                    let text = res.full_text;
-                    if !text.is_empty() {
-                        if let Err(e) = snapin_platform::write_text_to_clipboard(&text) {
-                            tracing::warn!("复制 OCR 文本至系统剪贴板失败: {e}");
-                        }
+                    Err(e) => {
+                        tracing::warn!("本地 OCR 文字识别失败: {e}");
                     }
                 }
             }
@@ -272,22 +263,8 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
     };
 
     use snapin_service::OcrEngine;
-    let recognize_fut = engine.recognize(&cropped);
-    let ocr_result = match tokio::runtime::Handle::try_current() {
-        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(recognize_fut)),
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build();
-            match rt {
-                Ok(runtime) => runtime.block_on(recognize_fut),
-                Err(_) => return,
-            }
-        }
-    };
-
-    let ocr_res = match ocr_result {
-        Ok(r) => r,
+    let ocr_res = match engine.recognize(&cropped) {
+        Ok(result) => result,
         Err(e) => {
             tracing::warn!("原位翻译文字识别失败: {e}");
             return;

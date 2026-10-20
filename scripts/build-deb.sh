@@ -119,7 +119,7 @@ Section: graphics
 Priority: optional
 Architecture: ${ARCH}
 Maintainer: wangle <wangle@local>
-Depends: libc6 (>= 2.34)
+Depends: libc6 (>= 2.34), libonnxruntime1.23
 Description: 专为 Linux Wayland (Ubuntu GNOME) 打造的纯 Rust 原生截图与贴图工具
  Snapin 是一款对标 Snipaste 的纯原生 Rust Wayland 截图软件。
  支持像素级十字放大镜取色、8 锚点选区拖拽、矢量标注画笔、荧光记号笔、

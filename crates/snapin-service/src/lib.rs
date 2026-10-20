@@ -8,7 +8,8 @@ pub mod translate;
 
 pub use error::ServiceError;
 pub use ocr::{
-    load_character_dict, LocalOcrPaths, LocalPpOcrEngine, OcrEngine, OcrResult, OcrTextBlock,
+    is_runtime_available as is_ocr_runtime_available, load_character_dict, LocalOcrPaths,
+    LocalPpOcrEngine, OcrEngine, OcrResult, OcrTextBlock,
 };
 pub use translate::{
     create_translator, TranslateOptions, TranslateResult, TranslationItem, Translator,
@@ -107,14 +108,18 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_real_model_loading_and_pipeline() {
+    #[test]
+    fn test_real_model_loading_and_pipeline() {
         let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
         let model_dir = workspace_root.join("assets").join("models").join("ppocrv6");
 
         if !model_dir.exists() || !model_dir.join("ppocrv6_small_rec.onnx").exists() {
             // 模型文件尚不存在时安全返回
+            return;
+        }
+        if !crate::is_ocr_runtime_available() {
+            // 无系统 ONNX Runtime 的开发机允许跳过真实推理用例
             return;
         }
 
@@ -136,15 +141,33 @@ mod tests {
         let engine = LocalPpOcrEngine::new(Some(&model_dir)).expect("应成功基于真实模型实例化引擎");
         assert_eq!(engine.dict_len(), dict.len());
 
-        // 4. 执行图像识别端到端管线验证
-        let mut sample_img = image::RgbaImage::new(320, 48);
-        for pixel in sample_img.pixels_mut() {
-            *pixel = image::Rgba([245, 245, 245, 255]);
-        }
-        let res = engine
-            .recognize(&sample_img)
-            .await
-            .expect("识别管线执行应成功");
+        // 4. 构造包含真实文字的合成截图并验证识别文本内容
+        let mut pixmap = tiny_skia::Pixmap::new(380, 90).expect("分配测试画布失败");
+        pixmap.fill(tiny_skia::Color::WHITE);
+        let mut renderer = snapin_core::render::TextRenderer::new();
+        renderer.draw_text_box_rgba(
+            &mut pixmap.as_mut(),
+            "Snapin OCR 2026",
+            snapin_core::render::TextBoxOptions {
+                rect: (12.0, 12.0, 356.0, 66.0),
+                font_size: 28.0,
+                rgba: (20, 20, 20, 255),
+            },
+        );
+        let sample_img =
+            image::RgbaImage::from_raw(380, 90, pixmap.take()).expect("转换测试图像为 RGBA 失败");
+
+        let res = engine.recognize(&sample_img).expect("识别管线执行应成功");
         assert!(!res.blocks.is_empty(), "应返回识别文本块");
+        let merged = res.full_text.to_lowercase();
+        assert!(
+            merged.contains("snapin"),
+            "识别结果应包含 Snapin，实际: {:?}",
+            res.full_text
+        );
+        assert!(
+            res.blocks.iter().all(|block| block.confidence > 0.0),
+            "文本块置信度必须为正"
+        );
     }
 }

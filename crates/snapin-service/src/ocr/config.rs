@@ -63,10 +63,7 @@ impl LocalOcrPaths {
             root.join("inference.yml"),
             root.join("ppocrv6_dict.txt"),
         ];
-        let rec_config = config_candidates
-            .into_iter()
-            .find(|p| p.exists())
-            .unwrap_or_else(|| root.join("ppocrv6_small_rec.yml"));
+        let rec_config = config_candidates.into_iter().find(|p| p.exists())?;
 
         Some(Self {
             rec_model,
@@ -77,14 +74,25 @@ impl LocalOcrPaths {
 
     /// 按照 XDG 规范三级回退链搜索并定位模型资产
     pub fn resolve_model_paths(custom_dir: Option<&Path>) -> Result<Self, ServiceError> {
-        // 1. 自定义显式指定路径
+        // 1. 自定义显式指定路径：显式配置无效时必须直接报错，禁止静默回退到其他目录。
         if let Some(custom) = custom_dir {
-            if let Some(paths) = Self::discover_in_root(custom) {
-                return Ok(paths);
-            }
+            return Self::discover_in_root(custom).ok_or_else(|| ServiceError::ModelNotFound {
+                path: custom.to_string_lossy().to_string(),
+            });
         }
 
-        // 2. 用户数据目录: ~/.local/share/snapin/models/ppocrv6
+        // 2. 开发与调试环境变量覆盖
+        if let Ok(custom) = std::env::var("SNAPIN_OCR_MODEL_DIR") {
+            let dir = PathBuf::from(custom);
+            if let Some(paths) = Self::discover_in_root(&dir) {
+                return Ok(paths);
+            }
+            return Err(ServiceError::ModelNotFound {
+                path: dir.to_string_lossy().to_string(),
+            });
+        }
+
+        // 3. 用户数据目录: ~/.local/share/snapin/models/ppocrv6
         if let Ok(home) = std::env::var("HOME") {
             let user_dir = Path::new(&home)
                 .join(".local")
