@@ -1,7 +1,35 @@
 //! 截图历史选区坐标持久化与缓存管理模块。
 
-use snapin_core::config::SelectionRectRecord;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+/// 持久化缓存的历史选区矩形数据契约。
+///
+/// 该结构只描述缓存文件本身的落盘格式，既非用户偏好也不跨模块共享，因此收敛为本模块私有类型，
+/// 避免核心配置层为单一存储实现承担对外 API 义务。
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+struct SelectionRectRecord {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+}
+
+impl SelectionRectRecord {
+    fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    /// 过滤宽高不足或坐标为负的畸形记录，避免恢复时生成不可见的历史选区
+    fn is_valid(&self) -> bool {
+        self.width > 10.0 && self.height > 10.0 && self.x >= 0.0 && self.y >= 0.0
+    }
+}
 
 /// 获取 Snapin 缓存目录
 fn get_cache_dir() -> Option<PathBuf> {
