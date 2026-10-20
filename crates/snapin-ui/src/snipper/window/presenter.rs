@@ -97,7 +97,7 @@ impl SnipperPresenter {
                 Some((
                     tool,
                     state.pending_stroke_points.as_slice(),
-                    state.next_badge_number,
+                    state.annotations.next_badge_number(),
                 ))
             } else {
                 None

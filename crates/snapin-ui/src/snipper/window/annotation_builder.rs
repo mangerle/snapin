@@ -46,7 +46,7 @@ impl<'a> AnnotationDraftParams<'a> {
             stroke_width: stroke_w,
             color_rgba: rgba,
             ui_scale: state.toolbar.ui_scale,
-            badge_number: state.next_badge_number,
+            badge_number: state.annotations.next_badge_number(),
         })
     }
 
@@ -235,9 +235,6 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
 pub fn commit_annotation(state: &mut SnipperState) {
     if let Some(params) = AnnotationDraftParams::from_state(state) {
         if let Some(shape) = build_shape(&params) {
-            if params.tool == ToolbarItem::ToolBadge {
-                state.next_badge_number += 1;
-            }
             state.annotations.push(shape);
         }
     }

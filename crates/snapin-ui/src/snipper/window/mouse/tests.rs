@@ -85,7 +85,11 @@ fn test_toolbar_click_does_not_create_annotation() {
         !state.annotations.can_undo(),
         "工具栏点击绝不应生成画布标注"
     );
-    assert_eq!(state.next_badge_number, 1, "序号印章不应被误创建");
+    assert_eq!(
+        state.annotations.next_badge_number(),
+        1,
+        "序号印章不应被误创建"
+    );
 }
 
 #[test]

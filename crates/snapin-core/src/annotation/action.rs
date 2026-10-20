@@ -89,14 +89,53 @@ impl AnnotationHistory {
         self.redo_stack.clear();
     }
 
-    /// 动态调节历史栈顶图元（最近绘制的标注）的粗细或字体大小
-    pub fn adjust_last_action_size(&mut self, stroke_w: f32, font_sz: f32) -> bool {
-        if let Some(last) = self.undo_stack.last_mut() {
-            last.adjust_size(stroke_w, font_sz);
-            true
-        } else {
-            false
+    /// 动态调节最近绘制的描边类图元粗细；最近图元不是描边类时不做任何修改。
+    pub fn adjust_last_stroke_width(&mut self, stroke_width: f32) -> bool {
+        let Some(last) = self.undo_stack.last_mut() else {
+            return false;
+        };
+        match last {
+            AnnotationShape::Rect(_)
+            | AnnotationShape::Ellipse(_)
+            | AnnotationShape::Arrow(_)
+            | AnnotationShape::Pen(_)
+            | AnnotationShape::Marker(_)
+            | AnnotationShape::Badge(_) => {
+                last.adjust_size(stroke_width, 0.0);
+                true
+            }
+            _ => false,
         }
+    }
+
+    /// 动态调节最近绘制的文本/译文图元字号；最近图元不是文本类时不做任何修改。
+    pub fn adjust_last_font_size(&mut self, font_size: f32) -> bool {
+        let Some(last) = self.undo_stack.last_mut() else {
+            return false;
+        };
+        match last {
+            AnnotationShape::Text(_) | AnnotationShape::Translation(_) => {
+                last.adjust_size(0.0, font_size);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// 根据当前生效的徽章图元推导下一个可用序号。
+    ///
+    /// 序号始终基于历史栈中仍然存在的最大值计算，撤销、重做与随机删除都不会造成重复编号。
+    pub fn next_badge_number(&self) -> u32 {
+        let max_number = self
+            .undo_stack
+            .iter()
+            .filter_map(|shape| match shape {
+                AnnotationShape::Badge(badge) => Some(badge.number),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0);
+        (max_number as u32).saturating_add(1)
     }
 
     /// 撤销上一次标注
@@ -187,6 +226,64 @@ mod tests {
         assert!(history.redo());
         assert!(history.can_undo());
         assert!(!history.can_redo());
+    }
+
+    #[test]
+    fn test_badge_number_is_derived_from_history() {
+        use crate::annotation::shapes::{BadgeAction, TextAction};
+
+        let mut history = AnnotationHistory::default();
+        assert_eq!(history.next_badge_number(), 1);
+
+        history.push(AnnotationShape::Badge(BadgeAction {
+            center: (10.0, 10.0),
+            radius: 12.0,
+            number: 1,
+            color: (255, 0, 0, 255),
+        }));
+        history.push(AnnotationShape::Badge(BadgeAction {
+            center: (30.0, 10.0),
+            radius: 12.0,
+            number: 2,
+            color: (255, 0, 0, 255),
+        }));
+        assert_eq!(history.next_badge_number(), 3);
+
+        history.push(AnnotationShape::Text(TextAction {
+            pos: (0.0, 0.0),
+            text: "说明".to_string(),
+            color: (0, 0, 0, 255),
+            font_size: 16.0,
+        }));
+        history.undo();
+        assert_eq!(history.next_badge_number(), 3);
+        history.undo();
+        assert_eq!(history.next_badge_number(), 2);
+        history.redo();
+        assert_eq!(history.next_badge_number(), 3);
+    }
+
+    #[test]
+    fn test_adjust_last_size_only_matches_shape_kind() {
+        use crate::annotation::shapes::{PenAction, TextAction};
+
+        let mut history = AnnotationHistory::default();
+        history.push(AnnotationShape::Pen(PenAction {
+            points: vec![(0.0, 0.0), (10.0, 10.0)],
+            color: (255, 0, 0, 255),
+            stroke_width: 2.0,
+        }));
+        assert!(history.adjust_last_stroke_width(8.0));
+        assert!(!history.adjust_last_font_size(30.0));
+
+        history.push(AnnotationShape::Text(TextAction {
+            pos: (0.0, 0.0),
+            text: "说明".to_string(),
+            color: (0, 0, 0, 255),
+            font_size: 16.0,
+        }));
+        assert!(!history.adjust_last_stroke_width(12.0));
+        assert!(history.adjust_last_font_size(30.0));
     }
 
     #[test]

@@ -15,10 +15,7 @@ pub fn dispatch_toolbar_action(
     original_rgba: &RgbaImage,
 ) -> bool {
     match item {
-        ToolbarItem::ActionUndo => {
-            state.next_badge_number = state.next_badge_number.saturating_sub(1).max(1);
-            state.annotations.undo()
-        }
+        ToolbarItem::ActionUndo => state.annotations.undo(),
         ToolbarItem::ActionRedo => state.annotations.redo(),
         ToolbarItem::ActionCopy => {
             handle_action_copy(state, original_rgba);

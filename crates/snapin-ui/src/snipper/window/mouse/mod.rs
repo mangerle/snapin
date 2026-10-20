@@ -250,9 +250,7 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
             session.font_size = new_font_size;
         }
 
-        state
-            .annotations
-            .adjust_last_action_size(state.toolbar.sub_options.custom_stroke_width, new_font_size);
+        state.annotations.adjust_last_font_size(new_font_size);
         true
     } else {
         let step = if delta_y > 0.0 { 1.0 } else { -1.0 };
@@ -267,9 +265,7 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
             StrokeWidthLevel::Thick
         };
 
-        state
-            .annotations
-            .adjust_last_action_size(new_stroke_w, state.toolbar.sub_options.font_size);
+        state.annotations.adjust_last_stroke_width(new_stroke_w);
         true
     }
 }

@@ -19,7 +19,6 @@ pub struct SnipperState {
     pub cursor_pos: (f64, f64),
     pub modifiers: ModifiersState,
     pub pending_stroke_points: Vec<(f32, f32)>,
-    pub next_badge_number: u32,
     pub active_text_input: Option<TextInputSession>,
     pub outcome: Option<SnipperOutcome>,
     /// 操作失败或空结果提示（显示在画布顶部，下一次操作时清除）
@@ -39,7 +38,6 @@ impl SnipperState {
             cursor_pos: (0.0, 0.0),
             modifiers: ModifiersState::default(),
             pending_stroke_points: Vec::with_capacity(64),
-            next_badge_number: 1,
             active_text_input: None,
             outcome: None,
             status_message: None,

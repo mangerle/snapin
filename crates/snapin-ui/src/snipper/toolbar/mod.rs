@@ -36,8 +36,6 @@ pub struct Toolbar {
     pub main_rect: Rect,
     /// 二级属性栏当前在屏幕上的包围盒 (若激活)
     pub sub_rect: Option<Rect>,
-    /// 步骤序号累加计数器 (用于 ToolBadge)
-    pub badge_counter: usize,
 }
 
 impl Default for Toolbar {
@@ -54,7 +52,6 @@ impl Default for Toolbar {
                 height: 0.0,
             },
             sub_rect: None,
-            badge_counter: 1,
         }
     }
 }
