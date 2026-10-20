@@ -1,7 +1,8 @@
 //! 与配套 GNOME Shell 扩展通信的 D-Bus 客户端实现。
 //!
 //! Wayland 协议禁止客户端自行摆放或提级窗口，贴图窗口的绝对定位与最高层级置顶只能由拥有
-//! 合成器特权的配套扩展代为执行；扩展同时提供毫秒级原生无白闪全屏截屏能力。
+//! 合成器特权的配套扩展代为执行。屏幕捕获不经此通道：在 shell 进程内读像素会触发 GJS 断言
+//! 并 abort 掉 gnome-shell，捕获统一由 XDG Desktop Portal 承担（见 portal.rs）。
 //! 所有方法共用统一的超时、错误映射与反序列化逻辑。
 
 use crate::dbus_session::get_session_connection;
@@ -64,33 +65,6 @@ pub async fn place_paster_window(title: &str, x: i32, y: i32) -> Result<bool, Pl
     tracing::debug!("正在请求 GNOME 扩展放置贴图窗口: {title}，坐标: ({x}, {y})");
     let (placed,): (bool,) = call_extension("PlaceWindowByTitle", &(title, x, y)).await?;
     Ok(placed)
-}
-
-/// 请求配套 GNOME Shell 扩展执行毫秒级原生无白闪全屏截屏
-pub async fn capture_fullscreen_extension(target_path: &str) -> Result<bool, PlatformError> {
-    tracing::debug!("正在向 GNOME 扩展请求原生极速全屏截屏: {}", target_path);
-    let (success,): (bool,) = call_extension("CaptureFullscreen", &(target_path)).await?;
-    Ok(success)
-}
-
-/// 请求配套 GNOME Shell 扩展从 Mutter ClutterStage 直接抓取原始物理像素（跳过 PNG 压缩）
-///
-/// 成功捕获后返回原始图像分辨率 `Some((width, height))`
-pub async fn capture_fullscreen_extension_raw(
-    target_path: &str,
-) -> Result<Option<(u32, u32)>, PlatformError> {
-    tracing::debug!(
-        "正在向 GNOME 扩展请求零拷贝原始像素全屏截屏: {}",
-        target_path
-    );
-    let (width, height, success): (u32, u32, bool) =
-        call_extension("CaptureFullscreenRaw", &(target_path)).await?;
-
-    if success && width > 0 && height > 0 {
-        Ok(Some((width, height)))
-    } else {
-        Ok(None)
-    }
 }
 
 #[cfg(test)]

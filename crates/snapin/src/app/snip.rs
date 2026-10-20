@@ -5,79 +5,40 @@ use image::RgbaImage;
 use snapin_core::config::Config;
 use snapin_core::AppPaths;
 use snapin_platform::{
-    capture_fullscreen_extension, capture_fullscreen_extension_raw, capture_fullscreen_portal,
-    get_platform_capabilities, send_desktop_notification,
+    capture_fullscreen_portal, get_platform_capabilities, send_desktop_notification,
 };
 use snapin_ui::snipper::{run_snipper_session, SnipMode, SnipperOutcome};
 use std::time::Instant;
 
-/// 获取屏幕快照（依据全局平台能力缓存选择最优通道，彻底消除无用 D-Bus 探测等待）
+/// 获取屏幕快照。
+///
+/// 通道选择说明：本项目早期在配套 GNOME 扩展内直接读取 ClutterStage 原始像素以求"零白闪极速"，
+/// 但该调用在 GNOME 50 的 GJS 上会因数组返回值缺少长度注解触发 `Bail out!` 断言，
+/// 以 SIGABRT 终止 gnome-shell，表现为"一点截图就被登出"。
+/// gnome-shell 自身的 `org.gnome.Shell.Screenshot` D-Bus 接口自 GNOME 42 起对第三方客户端
+/// 一律返回 `AccessDenied`，因此 XDG Desktop Portal 是 Wayland 下唯一受支持的截屏入口。
 pub async fn acquire_screen_snapshot() -> Result<RgbaImage> {
     let t_start = Instant::now();
     let caps = get_platform_capabilities();
 
-    // 1. 若全局能力缓存确认 GNOME 扩展在线，优先尝试扩展极速通道
-    if caps.gnome_extension_active {
-        // 1.1 尝试零延迟 Raw 原始物理像素截屏（跳过压缩与解码）
-        let raw_path = AppPaths::generate_temp_path("screen", "raw");
-        let raw_str = raw_path.to_string_lossy().to_string();
-        if let Ok(Some((w, h))) = capture_fullscreen_extension_raw(&raw_str).await {
-            if let Ok(bytes) = std::fs::read(&raw_path) {
-                let _ = std::fs::remove_file(&raw_path);
-                if bytes.len() == (w as usize) * (h as usize) * 4 {
-                    if let Some(rgba) = RgbaImage::from_raw(w, h, bytes) {
-                        tracing::info!(
-                            "命中 GNOME 扩展原生零延迟 Raw 像素通道，全屏截屏总耗时: {:.2}ms",
-                            t_start.elapsed().as_secs_f64() * 1000.0
-                        );
-                        return Ok(rgba);
-                    }
-                }
-            }
-        }
-
-        // 1.2 降级尝试 GNOME 扩展 PNG 截屏通道
-        let target_path = AppPaths::generate_temp_path("screen", "png");
-        let target_str = target_path.to_string_lossy().to_string();
-
-        let t_dbus_start = Instant::now();
-        if let Ok(true) = capture_fullscreen_extension(&target_str).await {
-            let t_dbus_end = Instant::now();
-            tracing::info!(
-                "命中 GNOME 扩展原生零白闪截屏通道，D-Bus 耗时: {:.2}ms",
-                (t_dbus_end - t_dbus_start).as_secs_f64() * 1000.0
-            );
-
-            let t_decode_start = Instant::now();
-            if let Ok(bytes) = std::fs::read(&target_path) {
-                let _ = std::fs::remove_file(&target_path);
-                if let Ok(dynamic_img) = image::load_from_memory(&bytes) {
-                    let rgba = dynamic_img.into_rgba8();
-                    let t_decode_end = Instant::now();
-                    tracing::info!(
-                        "PNG 读取并内存解码耗时: {:.2}ms, 原生全屏截屏总耗时: {:.2}ms",
-                        (t_decode_end - t_decode_start).as_secs_f64() * 1000.0,
-                        (t_decode_end - t_start).as_secs_f64() * 1000.0
-                    );
-                    return Ok(rgba);
-                }
-            }
-        }
-    } else {
-        tracing::debug!(
-            "GNOME 扩展未在线（环境: {}，Wayland: {}），直接走 XDG Portal 通道，消除 D-Bus 试探延迟",
-            caps.desktop_env,
-            caps.is_wayland
-        );
-    }
-
-    // 2. 扩展未激活或调用失败时，走 XDG Desktop Portal 通道
-    tracing::info!(
-        "当前走 XDG Desktop Portal 通道 (注销重新登录桌面后将自动激活 GNOME 原生零白闪通道)"
+    tracing::debug!(
+        "准备通过 XDG Desktop Portal 捕获全屏 (桌面: {}，Wayland: {})",
+        caps.desktop_env,
+        caps.is_wayland
     );
+
     let rgba = capture_fullscreen_portal()
         .await
         .context("Portal 全屏截图捕获失败")?;
+    tracing::info!(
+        "XDG Portal 全屏快照完成: {}x{}，耗时: {:.2}ms",
+        rgba.width(),
+        rgba.height(),
+        Instant::now()
+            .saturating_duration_since(t_start)
+            .as_secs_f64()
+            * 1000.0
+    );
     Ok(rgba)
 }
 

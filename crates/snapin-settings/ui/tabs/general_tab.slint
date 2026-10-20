@@ -9,7 +9,7 @@ export component GeneralTab inherits VerticalLayout {
     in-out property <bool> notify_on_startup: false;
     in-out property <int> log_level_index: 2;   // 0: Trace, 1: Debug, 2: Info, 3: Warn, 4: Error
 
-    in property <string> extension_status_text: "GNOME Shell 原生零白闪扩展已部署就绪";
+    in property <string> extension_status_text: "GNOME Shell 窗口特权扩展已部署就绪";
     callback open_config_folder();
 
     SettingCard {
@@ -57,7 +57,7 @@ export component GeneralTab inherits VerticalLayout {
 
     SettingCard {
         title: "GNOME 原生特权扩展通道";
-        subtitle: "实现 0 快门白闪与 200ms 原生合成器极速截屏";
+        subtitle: "为贴图窗口授予强制置顶与精确落位的合成器特权";
 
         VerticalLayout {
             spacing: 10px;

@@ -55,9 +55,9 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
 
     let caps = get_platform_capabilities();
     let status_text = if caps.gnome_extension_active {
-        "GNOME Shell 原生特权扩展已在线运行"
+        "GNOME Shell 窗口特权扩展已在线运行（贴图可强制置顶并精确落位）"
     } else {
-        "GNOME Shell 原生特权扩展未激活 (当前自动使用 XDG Portal)"
+        "GNOME Shell 窗口特权扩展未激活（贴图无法强制置顶与精确落位）"
     };
     window.set_extension_status_text(SharedString::from(status_text));
 

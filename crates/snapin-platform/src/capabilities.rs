@@ -1,8 +1,8 @@
 //! 系统平台能力探测与全局运行期缓存单例。
 //!
-//! 在程序或守护进程启动时预先对当前桌面环境（Wayland 会话、GNOME Mutter 扩展、XDG Desktop Portal）
-//! 执行一次系统能力探测，并缓存为全局只读快照，避免业务路径（如全屏截屏、窗口置顶）重复发起
-//! 无效的 D-Bus 探测与超时降级。
+//! 在程序启动时预先对当前桌面环境（Wayland 会话与 GNOME Mutter 扩展）执行一次系统能力探测，
+//! 并缓存为全局只读快照，避免业务路径（如设置中心状态栏）重复发起
+//! 无效的 D-Bus 探测与超时降级。当前该快照仅用于设置中心展示扩展部署状态。
 
 use crate::dbus_session::get_session_connection;
 use std::sync::{Arc, OnceLock, RwLock};
