@@ -11,9 +11,13 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// 网易有道翻译开放接口地址
+const YOUDAO_ENDPOINT: &str = "https://openapi.youdao.com/api";
+
 /// 网易有道翻译服务适配器
 pub struct YoudaoTranslator {
     client: Client,
+    endpoint: String,
     app_key: String,
     app_secret: String,
 }
@@ -21,8 +25,18 @@ pub struct YoudaoTranslator {
 impl YoudaoTranslator {
     /// 构造新的网易有道翻译适配器
     pub fn new(app_key: String, app_secret: String) -> Self {
+        Self::with_endpoint(YOUDAO_ENDPOINT, app_key, app_secret)
+    }
+
+    /// 以指定端点构造适配器，供集成测试注入本地 Mock 服务校验响应契约。
+    pub(crate) fn with_endpoint(
+        endpoint: impl Into<String>,
+        app_key: String,
+        app_secret: String,
+    ) -> Self {
         Self {
             client: shared_client(),
+            endpoint: endpoint.into(),
             app_key,
             app_secret,
         }
@@ -96,7 +110,7 @@ impl Translator for YoudaoTranslator {
         hasher.update(raw_sign.as_bytes());
         let sign = format!("{:x}", hasher.finalize());
 
-        let url = "https://openapi.youdao.com/api";
+        let url = self.endpoint.as_str();
         let response = self
             .client
             .post(url)

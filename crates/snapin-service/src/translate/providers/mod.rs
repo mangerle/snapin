@@ -13,3 +13,6 @@ pub use bing_free::BingFreeTranslator;
 pub use google_free::GoogleFreeTranslator;
 pub use manager::create_translator;
 pub use youdao::YoudaoTranslator;
+
+#[cfg(test)]
+mod contract_tests;

@@ -14,9 +14,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 type HmacSha1 = Hmac<Sha1>;
 
+/// 阿里云机器翻译开放接口地址
+const ALIYUN_ENDPOINT: &str = "https://mt.aliyuncs.com/";
+
 /// 阿里云机器翻译服务适配器
 pub struct AliyunTranslator {
     client: Client,
+    endpoint: String,
     access_key_id: String,
     access_key_secret: String,
 }
@@ -24,8 +28,18 @@ pub struct AliyunTranslator {
 impl AliyunTranslator {
     /// 构造新的阿里云翻译适配器
     pub fn new(access_key_id: String, access_key_secret: String) -> Self {
+        Self::with_endpoint(ALIYUN_ENDPOINT, access_key_id, access_key_secret)
+    }
+
+    /// 以指定端点构造适配器，供集成测试注入本地 Mock 服务校验响应契约。
+    pub(crate) fn with_endpoint(
+        endpoint: impl Into<String>,
+        access_key_id: String,
+        access_key_secret: String,
+    ) -> Self {
         Self {
             client: shared_client(),
+            endpoint: endpoint.into(),
             access_key_id,
             access_key_secret,
         }
@@ -135,7 +149,7 @@ impl Translator for AliyunTranslator {
 
         params.push(("Signature", signature.as_str()));
 
-        let url = "https://mt.aliyuncs.com/";
+        let url = self.endpoint.as_str();
         let response = self
             .client
             .post(url)

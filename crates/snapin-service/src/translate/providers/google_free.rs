@@ -10,9 +10,13 @@ use futures::stream::{self, StreamExt};
 use reqwest::Client;
 use serde_json::Value;
 
+/// 谷歌免费翻译接口地址
+const GOOGLE_ENDPOINT: &str = "https://translate.googleapis.com/translate_a/single";
+
 /// 免费谷歌翻译服务适配器
 pub struct GoogleFreeTranslator {
     client: Client,
+    endpoint: String,
 }
 
 impl Default for GoogleFreeTranslator {
@@ -24,13 +28,20 @@ impl Default for GoogleFreeTranslator {
 impl GoogleFreeTranslator {
     /// 构造新的谷歌翻译客户端实例（复用进程级 HTTP 连接池）
     pub fn new() -> Self {
+        Self::with_endpoint(GOOGLE_ENDPOINT)
+    }
+
+    /// 以指定端点构造适配器，供集成测试注入本地 Mock 服务校验响应契约。
+    pub(crate) fn with_endpoint(endpoint: impl Into<String>) -> Self {
         Self {
             client: shared_client(),
+            endpoint: endpoint.into(),
         }
     }
 
     async fn translate_one(
         client: &Client,
+        endpoint: &str,
         text: &str,
         source_lang: &str,
         target_lang: &str,
@@ -40,7 +51,7 @@ impl GoogleFreeTranslator {
             return Ok(String::new());
         }
 
-        let url = "https://translate.googleapis.com/translate_a/single";
+        let url = endpoint;
         let response = client
             .get(url)
             .query(&[
@@ -110,11 +121,13 @@ impl Translator for GoogleFreeTranslator {
         let results = stream::iter(texts.iter().cloned().enumerate())
             .map(|(index, text)| {
                 let client = self.client.clone();
+                let endpoint = self.endpoint.clone();
                 let source_lang = source_lang.clone();
                 let target_lang = target_lang.clone();
                 async move {
                     let result =
-                        Self::translate_one(&client, &text, &source_lang, &target_lang).await;
+                        Self::translate_one(&client, &endpoint, &text, &source_lang, &target_lang)
+                            .await;
                     (index, result)
                 }
             })

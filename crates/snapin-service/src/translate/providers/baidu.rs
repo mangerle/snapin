@@ -11,9 +11,13 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// 百度通用文本翻译开放接口地址
+const BAIDU_ENDPOINT: &str = "https://fanyi-api.baidu.com/api/trans/vip/translate";
+
 /// 百度翻译服务适配器
 pub struct BaiduTranslator {
     client: Client,
+    endpoint: String,
     app_id: String,
     secret_key: String,
 }
@@ -21,8 +25,18 @@ pub struct BaiduTranslator {
 impl BaiduTranslator {
     /// 构造新的百度翻译服务适配器
     pub fn new(app_id: String, secret_key: String) -> Self {
+        Self::with_endpoint(BAIDU_ENDPOINT, app_id, secret_key)
+    }
+
+    /// 以指定端点构造适配器，供集成测试注入本地 Mock 服务校验响应契约。
+    pub(crate) fn with_endpoint(
+        endpoint: impl Into<String>,
+        app_id: String,
+        secret_key: String,
+    ) -> Self {
         Self {
             client: shared_client(),
+            endpoint: endpoint.into(),
             app_id,
             secret_key,
         }
@@ -80,7 +94,7 @@ impl Translator for BaiduTranslator {
         hasher.update(raw_sign.as_bytes());
         let sign = format!("{:x}", hasher.finalize());
 
-        let url = "https://fanyi-api.baidu.com/api/trans/vip/translate";
+        let url = self.endpoint.as_str();
         let response = self
             .client
             .post(url)

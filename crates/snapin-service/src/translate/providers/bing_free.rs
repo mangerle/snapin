@@ -10,9 +10,13 @@ use futures::stream::{self, StreamExt};
 use reqwest::Client;
 use serde_json::Value;
 
+/// 必应免费翻译接口地址
+const BING_ENDPOINT: &str = "https://www.bing.com/ttranslatev3";
+
 /// 免费微软必应翻译服务适配器
 pub struct BingFreeTranslator {
     client: Client,
+    endpoint: String,
 }
 
 impl Default for BingFreeTranslator {
@@ -24,13 +28,20 @@ impl Default for BingFreeTranslator {
 impl BingFreeTranslator {
     /// 构造新的必应翻译适配器实例（复用进程级 HTTP 连接池）
     pub fn new() -> Self {
+        Self::with_endpoint(BING_ENDPOINT)
+    }
+
+    /// 以指定端点构造适配器，供集成测试注入本地 Mock 服务校验响应契约。
+    pub(crate) fn with_endpoint(endpoint: impl Into<String>) -> Self {
         Self {
             client: shared_client(),
+            endpoint: endpoint.into(),
         }
     }
 
     async fn translate_one(
         client: &Client,
+        endpoint: &str,
         text: &str,
         from_lang: Option<&str>,
         to_lang: &str,
@@ -40,7 +51,7 @@ impl BingFreeTranslator {
             return Ok(String::new());
         }
 
-        let url = "https://www.bing.com/ttranslatev3";
+        let url = endpoint;
         let mut params = vec![("to", to_lang), ("text", trimmed)];
         if let Some(from_lang) = from_lang {
             params.push(("fromLang", from_lang));
@@ -116,11 +127,18 @@ impl Translator for BingFreeTranslator {
         let results = stream::iter(texts.iter().cloned().enumerate())
             .map(|(index, text)| {
                 let client = self.client.clone();
+                let endpoint = self.endpoint.clone();
                 let from_lang = from_lang.clone();
                 let to_lang = to_lang.clone();
                 async move {
-                    let result =
-                        Self::translate_one(&client, &text, from_lang.as_deref(), &to_lang).await;
+                    let result = Self::translate_one(
+                        &client,
+                        &endpoint,
+                        &text,
+                        from_lang.as_deref(),
+                        &to_lang,
+                    )
+                    .await;
                     (index, result)
                 }
             })
