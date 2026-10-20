@@ -191,7 +191,11 @@ if which loginctl > /dev/null 2>&1; then
         cp -r /usr/share/gnome-shell/extensions/snapin@wangle.local/* "$user_ext_dir/" 2>/dev/null || true
         chown -R "$user_name:$user_name" "$user_ext_dir" 2>/dev/null || true
 
-        # 2. 如果用户当前处于图形会话中，立即禁用旧版并热加载全新扩展
+        # 2. 清理旧版扩展并置为启用态。
+        #    注意：gnome-extensions enable 只会重新实例化扩展对象，不会重新读取磁盘上的 JS ——
+        #    GJS 按 URI 缓存扩展模块，GNOME 41+ 又禁用了 org.gnome.Shell.Eval，Wayland 下也没有
+        #    Alt+F2 r。因此扩展代码变更必须等用户注销重登（或重启 gnome-shell 会话）才真正生效，
+        #    运行中的 shell 在此期间仍是旧代码，切勿在提示文案里宣称"无需注销"。
         if [ -d "$runtime_dir" ]; then
             runuser -u "$user_name" -- env XDG_RUNTIME_DIR="$runtime_dir" DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" gnome-extensions disable snapin-helper@wangle.local 2>/dev/null || true
             runuser -u "$user_name" -- env XDG_RUNTIME_DIR="$runtime_dir" DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" gnome-extensions enable snapin@wangle.local 2>/dev/null || true
@@ -205,10 +209,12 @@ if which loginctl > /dev/null 2>&1; then
 fi
 
 echo "=========================================================="
-echo " Snapin 截图与贴图工具已成功安装并热激活！"
-echo " 1. 顶栏托盘菜单已热重载为最新版本（无需注销或重启系统）。"
-echo " 2. 后台守护服务已由 systemd 用户服务自动启动（systemctl --user status snapin）。"
-echo " 3. 系统快捷键与置顶特权已同步就绪：直接按下 F1 即可开始截图！"
+echo " Snapin 截图与贴图工具已成功安装！"
+echo " 1. 后台守护服务与命令行已即时更新（systemctl --user status snapin）。"
+echo " 2. 系统快捷键与自启配置已同步就绪。"
+echo " 3. 【重要】GNOME Shell 扩展的 JS 代码无法热更新：GJS 会按 URI 缓存扩展模块，"
+echo "    运行中的 shell 仍是旧版本。请注销并重新登录一次，新扩展才会生效。"
+echo "    未重登前截图会自动降级到 XDG Portal 通道（可用，但带快门闪屏）。"
 echo "=========================================================="
 
 exit 0

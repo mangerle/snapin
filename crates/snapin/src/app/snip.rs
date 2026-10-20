@@ -25,7 +25,10 @@ pub async fn acquire_screen_snapshot() -> Result<RgbaImage> {
         match capture_via_extension(t_start).await {
             Ok(image) => return Ok(image),
             Err(error) => {
-                tracing::warn!("GNOME 扩展零白闪截屏通道未命中，降级 XDG Portal，原因: {error:#}")
+                tracing::warn!(
+                    "GNOME 扩展零白闪截屏通道未命中，降级 XDG Portal（该通道带快门闪屏）。\
+                     若刚升级过软件包，扩展 JS 无法热更新，需注销重登一次方可生效；原因: {error:#}"
+                )
             }
         }
     } else {
