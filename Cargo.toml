@@ -60,6 +60,7 @@ rustix = { version = "0.38", features = ["process"] }
 # HTTP 网络请求与异步服务抽象
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 async-trait = "0.1"
+futures = "0.3"
 
 # 密码学哈希与签名 (用于第三方翻译 API 鉴权)
 md-5 = "0.10"

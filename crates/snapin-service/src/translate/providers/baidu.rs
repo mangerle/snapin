@@ -1,11 +1,15 @@
 //! 百度通用文本翻译 API 适配器。
 
 use crate::error::ServiceError;
+use crate::translate::config::TranslateProvider;
 use crate::translate::engine::Translator;
+use crate::translate::http::{network_error, shared_client};
+use crate::translate::language::normalize_language;
 use async_trait::async_trait;
 use md5::{Digest, Md5};
 use reqwest::Client;
 use serde::Deserialize;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 百度翻译服务适配器
 pub struct BaiduTranslator {
@@ -17,29 +21,10 @@ pub struct BaiduTranslator {
 impl BaiduTranslator {
     /// 构造新的百度翻译服务适配器
     pub fn new(app_id: String, secret_key: String) -> Self {
-        let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .unwrap_or_else(|_| Client::new());
         Self {
-            client,
+            client: shared_client(),
             app_id,
             secret_key,
-        }
-    }
-
-    /// 规范化语言代号 (百度格式)
-    fn normalize_lang(lang: &str) -> &str {
-        match lang {
-            "zh" | "zh-CN" | "zh-Hans" => "zh",
-            "zh-TW" | "zh-Hant" => "cht",
-            "en" => "en",
-            "ja" => "jp",
-            "ko" => "kor",
-            "fr" => "fra",
-            "es" => "spa",
-            "ru" => "ru",
-            _ => lang,
         }
     }
 }
@@ -58,6 +43,10 @@ struct BaiduTransItem {
 
 #[async_trait]
 impl Translator for BaiduTranslator {
+    fn name(&self) -> &'static str {
+        "baidu"
+    }
+
     async fn translate_batch(
         &self,
         texts: &[String],
@@ -75,12 +64,16 @@ impl Translator for BaiduTranslator {
             });
         }
 
-        let from_lang = Self::normalize_lang(from);
-        let to_lang = Self::normalize_lang(to);
+        let from_lang = normalize_language(TranslateProvider::Baidu, from);
+        let to_lang = normalize_language(TranslateProvider::Baidu, to);
 
         // 百度支持通过换行符批量合并翻译
         let query = texts.join("\n");
-        let salt = "snapin_salt_2026";
+        let salt = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+            .to_string();
         let raw_sign = format!("{}{}{}{}", self.app_id, query, salt, self.secret_key);
 
         let mut hasher = Md5::new();
@@ -96,24 +89,17 @@ impl Translator for BaiduTranslator {
                 ("from", from_lang),
                 ("to", to_lang),
                 ("appid", self.app_id.as_str()),
-                ("salt", salt),
+                ("salt", salt.as_str()),
                 ("sign", sign.as_str()),
             ])
             .send()
             .await
-            .map_err(|e| ServiceError::NetworkError {
-                provider: "baidu".to_string(),
-                source: e,
-            })?;
+            .map_err(|error| network_error("baidu", error))?;
 
-        let resp_data: BaiduResponse =
-            response
-                .json()
-                .await
-                .map_err(|e| ServiceError::NetworkError {
-                    provider: "baidu".to_string(),
-                    source: e,
-                })?;
+        let resp_data: BaiduResponse = response
+            .json()
+            .await
+            .map_err(|error| network_error("baidu", error))?;
 
         if let Some(err_code) = resp_data.error_code {
             if err_code != "52000" {
@@ -125,11 +111,25 @@ impl Translator for BaiduTranslator {
             }
         }
 
-        if let Some(trans_items) = resp_data.trans_result {
-            let res = trans_items.into_iter().map(|item| item.dst).collect();
-            Ok(res)
-        } else {
-            Ok(texts.to_vec())
+        let trans_items = resp_data
+            .trans_result
+            .ok_or_else(|| ServiceError::ApiError {
+                provider: "baidu".to_string(),
+                code: "EMPTY_RESULT".to_string(),
+                message: "百度翻译接口未返回译文列表".to_string(),
+            })?;
+        let results: Vec<String> = trans_items.into_iter().map(|item| item.dst).collect();
+        if results.len() != texts.len() {
+            return Err(ServiceError::ApiError {
+                provider: "baidu".to_string(),
+                code: "RESULT_COUNT_MISMATCH".to_string(),
+                message: format!(
+                    "百度翻译返回 {} 条译文，与请求 {} 条不一致",
+                    results.len(),
+                    texts.len()
+                ),
+            });
         }
+        Ok(results)
     }
 }

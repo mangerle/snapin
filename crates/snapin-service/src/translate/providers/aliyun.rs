@@ -1,7 +1,10 @@
 //! 阿里云机器翻译 API 适配器。
 
 use crate::error::ServiceError;
+use crate::translate::config::TranslateProvider;
 use crate::translate::engine::Translator;
+use crate::translate::http::{network_error, shared_client};
+use crate::translate::language::normalize_language;
 use async_trait::async_trait;
 use hmac::{Hmac, Mac};
 use reqwest::Client;
@@ -21,29 +24,10 @@ pub struct AliyunTranslator {
 impl AliyunTranslator {
     /// 构造新的阿里云翻译适配器
     pub fn new(access_key_id: String, access_key_secret: String) -> Self {
-        let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .unwrap_or_else(|_| Client::new());
         Self {
-            client,
+            client: shared_client(),
             access_key_id,
             access_key_secret,
-        }
-    }
-
-    /// 规范化语言代号 (阿里格式)
-    fn normalize_lang(lang: &str) -> &str {
-        match lang {
-            "zh" | "zh-CN" | "zh-Hans" => "zh",
-            "zh-TW" | "zh-Hant" => "zh-tw",
-            "en" => "en",
-            "ja" => "ja",
-            "ko" => "ko",
-            "fr" => "fr",
-            "es" => "es",
-            "ru" => "ru",
-            _ => lang,
         }
     }
 }
@@ -80,6 +64,10 @@ fn percent_encode(s: &str) -> String {
 
 #[async_trait]
 impl Translator for AliyunTranslator {
+    fn name(&self) -> &'static str {
+        "aliyun"
+    }
+
     async fn translate_batch(
         &self,
         texts: &[String],
@@ -97,8 +85,8 @@ impl Translator for AliyunTranslator {
             });
         }
 
-        let source_lang = Self::normalize_lang(from);
-        let target_lang = Self::normalize_lang(to);
+        let source_lang = normalize_language(TranslateProvider::Aliyun, from);
+        let target_lang = normalize_language(TranslateProvider::Aliyun, to);
 
         let query = texts.join("\n");
         let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
@@ -154,19 +142,12 @@ impl Translator for AliyunTranslator {
             .form(&params)
             .send()
             .await
-            .map_err(|e| ServiceError::NetworkError {
-                provider: "aliyun".to_string(),
-                source: e,
-            })?;
+            .map_err(|error| network_error("aliyun", error))?;
 
-        let res_data: AliyunResponse =
-            response
-                .json()
-                .await
-                .map_err(|e| ServiceError::NetworkError {
-                    provider: "aliyun".to_string(),
-                    source: e,
-                })?;
+        let res_data: AliyunResponse = response
+            .json()
+            .await
+            .map_err(|error| network_error("aliyun", error))?;
 
         if let Some(code) = res_data.code {
             if code != "200" {
@@ -178,15 +159,27 @@ impl Translator for AliyunTranslator {
             }
         }
 
-        if let Some(data) = res_data.data {
-            if let Some(trans) = data.translated {
-                let lines: Vec<String> = trans.lines().map(|s| s.to_string()).collect();
-                if lines.len() == texts.len() {
-                    return Ok(lines);
-                }
-            }
-        }
+        let translated = res_data
+            .data
+            .and_then(|data| data.translated)
+            .ok_or_else(|| ServiceError::ApiError {
+                provider: "aliyun".to_string(),
+                code: "EMPTY_RESULT".to_string(),
+                message: "阿里云翻译接口未返回译文".to_string(),
+            })?;
 
-        Ok(texts.to_vec())
+        let lines: Vec<String> = translated.lines().map(|line| line.to_string()).collect();
+        if lines.len() != texts.len() {
+            return Err(ServiceError::ApiError {
+                provider: "aliyun".to_string(),
+                code: "RESULT_COUNT_MISMATCH".to_string(),
+                message: format!(
+                    "阿里云翻译返回 {} 条译文，与请求 {} 条不一致",
+                    lines.len(),
+                    texts.len()
+                ),
+            });
+        }
+        Ok(lines)
     }
 }

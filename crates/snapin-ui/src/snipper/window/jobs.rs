@@ -15,7 +15,7 @@ use snapin_service::ocr::{
     estimate_dominant_background_color, get_contrasting_text_color, LocalPpOcrEngine, OcrEngine,
     OcrResult, OcrTextBlock,
 };
-use snapin_service::{create_translator, Translator};
+use snapin_service::{create_translator, ServiceTranslateProvider, Translator, TranslatorOptions};
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 use tokio::runtime::Handle;
@@ -107,8 +107,29 @@ impl AppServices {
 
     fn translator(&self) -> Arc<dyn Translator> {
         self.translator
-            .get_or_init(|| create_translator(&self.config.translate))
+            .get_or_init(|| create_translator(&translator_options(&self.config.translate)))
             .clone()
+    }
+}
+
+/// 将应用配置映射为服务层独立的翻译器参数。
+fn translator_options(config: &snapin_core::config::TranslateConfig) -> TranslatorOptions {
+    let provider = match config.provider {
+        snapin_core::config::TranslateProvider::BingFree => ServiceTranslateProvider::BingFree,
+        snapin_core::config::TranslateProvider::GoogleFree => ServiceTranslateProvider::GoogleFree,
+        snapin_core::config::TranslateProvider::Baidu => ServiceTranslateProvider::Baidu,
+        snapin_core::config::TranslateProvider::Youdao => ServiceTranslateProvider::Youdao,
+        snapin_core::config::TranslateProvider::Aliyun => ServiceTranslateProvider::Aliyun,
+    };
+
+    TranslatorOptions {
+        provider,
+        baidu_app_id: config.api_keys.baidu_app_id.clone(),
+        baidu_secret_key: config.api_keys.baidu_secret_key.clone(),
+        youdao_app_key: config.api_keys.youdao_app_key.clone(),
+        youdao_app_secret: config.api_keys.youdao_app_secret.clone(),
+        aliyun_access_key_id: config.api_keys.aliyun_access_key_id.clone(),
+        aliyun_access_key_secret: config.api_keys.aliyun_access_key_secret.clone(),
     }
 }
 

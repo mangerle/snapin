@@ -6,6 +6,9 @@ use async_trait::async_trait;
 /// 统一翻译服务接口特型
 #[async_trait]
 pub trait Translator: Send + Sync {
+    /// 服务商名称，用于错误定位
+    fn name(&self) -> &'static str;
+
     /// 批量翻译文本列表，返回与入参保持严格下标顺序对应的译文列表
     async fn translate_batch(
         &self,
@@ -21,7 +24,7 @@ pub trait Translator: Send + Sync {
             .into_iter()
             .next()
             .ok_or_else(|| ServiceError::ApiError {
-                provider: "unknown".to_string(),
+                provider: self.name().to_string(),
                 code: "EMPTY_RESULT".to_string(),
                 message: "未返回有效的翻译结果".to_string(),
             })

@@ -241,6 +241,18 @@ mod tests {
     }
 
     #[test]
+    fn test_estimate_dominant_background_and_contrast() {
+        let image = RgbaImage::from_pixel(100, 100, Rgba([200, 200, 200, 255]));
+        let background = estimate_dominant_background_color(&image, (10.0, 10.0, 30.0, 20.0));
+        assert_eq!(background, (200, 200, 200, 255));
+        assert_eq!(get_contrasting_text_color(background), (24, 24, 27, 255));
+        assert_eq!(
+            get_contrasting_text_color((20, 20, 20, 255)),
+            (245, 245, 245, 255)
+        );
+    }
+
+    #[test]
     fn test_estimate_dominant_background_clamps_out_of_bounds_bbox() {
         let image = RgbaImage::from_pixel(10, 10, Rgba([12, 34, 56, 255]));
         let color = estimate_dominant_background_color(&image, (100.0, 100.0, 50.0, 50.0));

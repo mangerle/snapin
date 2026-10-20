@@ -7,7 +7,6 @@ license.workspace = true
 description = "Snapin 离线 OCR 文字识别与多引擎翻译服务层"
 
 [dependencies]
-snapin-core = { workspace = true }
 image = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
@@ -17,6 +16,7 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 reqwest = { workspace = true }
 async-trait = { workspace = true }
+futures = { workspace = true }
 ort = { workspace = true }
 md-5 = { workspace = true }
 sha1 = { workspace = true }
@@ -26,6 +26,7 @@ base64 = { workspace = true }
 chrono = { workspace = true }
 
 [dev-dependencies]
+snapin-core = { workspace = true }
 tempfile = { workspace = true }
 tiny-skia = { workspace = true }
 

@@ -12,7 +12,7 @@ pub use ocr::{
     LocalPpOcrEngine, OcrEngine, OcrResult, OcrTextBlock,
 };
 pub use translate::{
-    create_translator, TranslateOptions, TranslateResult, TranslationItem, Translator,
+    create_translator, TranslateProvider as ServiceTranslateProvider, Translator, TranslatorOptions,
 };
 
 #[cfg(test)]
@@ -64,6 +64,25 @@ mod tests {
         std::fs::write(&invalid_yml, "Invalid: [Yaml Content").unwrap();
         let res = load_character_dict(&invalid_yml);
         assert!(matches!(res, Err(ServiceError::ConfigParseError { .. })));
+    }
+
+    #[test]
+    fn test_create_translator_maps_provider() {
+        let cases = [
+            (ServiceTranslateProvider::BingFree, "bing_free"),
+            (ServiceTranslateProvider::GoogleFree, "google_free"),
+            (ServiceTranslateProvider::Baidu, "baidu"),
+            (ServiceTranslateProvider::Youdao, "youdao"),
+            (ServiceTranslateProvider::Aliyun, "aliyun"),
+        ];
+
+        for (provider, expected_name) in cases {
+            let translator = create_translator(&TranslatorOptions {
+                provider,
+                ..TranslatorOptions::default()
+            });
+            assert_eq!(translator.name(), expected_name);
+        }
     }
 
     #[tokio::test]

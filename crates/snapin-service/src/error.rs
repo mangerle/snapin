@@ -18,11 +18,8 @@ pub enum ServiceError {
     InferenceError { stage: String, reason: String },
 
     /// 网络请求错误
-    #[error("服务请求网络异常，服务商: {provider}，原因: {source}")]
-    NetworkError {
-        provider: String,
-        source: reqwest::Error,
-    },
+    #[error("服务请求网络异常，服务商: {provider}，原因: {message}")]
+    NetworkError { provider: String, message: String },
 
     /// 第三方 API 响应解析或返回业务错误
     #[error("服务商业务报错，服务商: {provider}，错误码: {code}，详情: {message}")]

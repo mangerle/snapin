@@ -1,7 +1,10 @@
 //! 网易有道翻译 OpenAPI 适配器。
 
 use crate::error::ServiceError;
+use crate::translate::config::TranslateProvider;
 use crate::translate::engine::Translator;
+use crate::translate::http::{network_error, shared_client};
+use crate::translate::language::normalize_language;
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
@@ -18,41 +21,22 @@ pub struct YoudaoTranslator {
 impl YoudaoTranslator {
     /// 构造新的网易有道翻译适配器
     pub fn new(app_key: String, app_secret: String) -> Self {
-        let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .unwrap_or_else(|_| Client::new());
         Self {
-            client,
+            client: shared_client(),
             app_key,
             app_secret,
         }
     }
 
     /// 有道 v3 截断规则算法
-    fn truncate_input(q: &str) -> String {
-        let char_count = q.chars().count();
+    fn truncate_input(query: &str) -> String {
+        let char_count = query.chars().count();
         if char_count <= 20 {
-            q.to_string()
+            query.to_string()
         } else {
-            let prefix: String = q.chars().take(10).collect();
-            let suffix: String = q.chars().skip(char_count - 10).collect();
+            let prefix: String = query.chars().take(10).collect();
+            let suffix: String = query.chars().skip(char_count - 10).collect();
             format!("{}{}{}", prefix, char_count, suffix)
-        }
-    }
-
-    /// 规范化语言代号 (有道格式)
-    fn normalize_lang(lang: &str) -> &str {
-        match lang {
-            "zh" | "zh-CN" | "zh-Hans" => "zh-CHS",
-            "zh-TW" | "zh-Hant" => "zh-CHT",
-            "en" => "en",
-            "ja" => "ja",
-            "ko" => "ko",
-            "fr" => "fr",
-            "es" => "es",
-            "ru" => "ru",
-            _ => lang,
         }
     }
 }
@@ -66,6 +50,10 @@ struct YoudaoResponse {
 
 #[async_trait]
 impl Translator for YoudaoTranslator {
+    fn name(&self) -> &'static str {
+        "youdao"
+    }
+
     async fn translate_batch(
         &self,
         texts: &[String],
@@ -83,11 +71,15 @@ impl Translator for YoudaoTranslator {
             });
         }
 
-        let from_lang = Self::normalize_lang(from);
-        let to_lang = Self::normalize_lang(to);
+        let from_lang = normalize_language(TranslateProvider::Youdao, from);
+        let to_lang = normalize_language(TranslateProvider::Youdao, to);
 
         let query = texts.join("\n");
-        let salt = "snapin_youdao_salt";
+        let salt = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+            .to_string();
         let curtime = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -113,48 +105,54 @@ impl Translator for YoudaoTranslator {
                 ("from", from_lang),
                 ("to", to_lang),
                 ("appKey", self.app_key.as_str()),
-                ("salt", salt),
+                ("salt", salt.as_str()),
                 ("sign", sign.as_str()),
                 ("signType", "v3"),
                 ("curtime", curtime.as_str()),
             ])
             .send()
             .await
-            .map_err(|e| ServiceError::NetworkError {
-                provider: "youdao".to_string(),
-                source: e,
-            })?;
+            .map_err(|error| network_error("youdao", error))?;
 
-        let data: YoudaoResponse =
-            response
-                .json()
-                .await
-                .map_err(|e| ServiceError::NetworkError {
-                    provider: "youdao".to_string(),
-                    source: e,
-                })?;
+        let data: YoudaoResponse = response
+            .json()
+            .await
+            .map_err(|error| network_error("youdao", error))?;
 
         if data.error_code != "0" {
             return Err(ServiceError::ApiError {
                 provider: "youdao".to_string(),
                 code: data.error_code,
-                message: "有道云翻译请求未成功".to_string(),
+                message: "有道翻译请求未成功".to_string(),
             });
         }
 
-        if let Some(trans) = data.translation {
-            // 有道通常返回单个合并文本，按行切割以匹配各文本行
-            let lines: Vec<String> = trans
-                .into_iter()
-                .flat_map(|s| s.lines().map(|l| l.to_string()).collect::<Vec<_>>())
-                .collect();
-            if lines.len() == texts.len() {
-                Ok(lines)
-            } else {
-                Ok(texts.to_vec())
-            }
-        } else {
-            Ok(texts.to_vec())
+        let translated = data.translation.ok_or_else(|| ServiceError::ApiError {
+            provider: "youdao".to_string(),
+            code: "EMPTY_RESULT".to_string(),
+            message: "有道翻译接口未返回译文".to_string(),
+        })?;
+
+        // 有道通常返回单个合并文本，按行切割以匹配各文本行
+        let lines: Vec<String> = translated
+            .into_iter()
+            .flat_map(|text| {
+                text.lines()
+                    .map(|line| line.to_string())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        if lines.len() != texts.len() {
+            return Err(ServiceError::ApiError {
+                provider: "youdao".to_string(),
+                code: "RESULT_COUNT_MISMATCH".to_string(),
+                message: format!(
+                    "有道翻译返回 {} 条译文，与请求 {} 条不一致",
+                    lines.len(),
+                    texts.len()
+                ),
+            });
         }
+        Ok(lines)
     }
 }

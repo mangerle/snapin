@@ -5244,6 +5244,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
+ "futures",
  "hmac",
  "image 0.24.9",
  "md-5",
