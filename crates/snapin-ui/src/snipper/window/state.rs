@@ -22,6 +22,8 @@ pub struct SnipperState {
     pub next_badge_number: u32,
     pub active_text_input: Option<TextInputSession>,
     pub outcome: Option<SnipperOutcome>,
+    /// 操作失败或空结果提示（显示在画布顶部，下一次操作时清除）
+    pub status_message: Option<String>,
     pub config: Config,
     pub mode: SnipMode,
 }
@@ -40,9 +42,20 @@ impl SnipperState {
             next_badge_number: 1,
             active_text_input: None,
             outcome: None,
+            status_message: None,
             config: Config::default(),
             mode: SnipMode::default(),
         }
+    }
+
+    /// 设置画布顶部提示信息
+    pub fn set_status_message(&mut self, message: impl Into<String>) {
+        self.status_message = Some(message.into());
+    }
+
+    /// 清除画布顶部提示信息
+    pub fn clear_status_message(&mut self) {
+        self.status_message = None;
     }
 
     /// 根据用户配置文件与触发模式构建初始状态

@@ -100,9 +100,16 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode) -> Result<()> {
 
     if let Some(outcome) = outcome {
         match outcome {
-            SnipperOutcome::Copied(_) => {
+            SnipperOutcome::CopiedImage => {
                 if cfg.output.notify_on_copy {
                     send_desktop_notification("Snapin 截图", "选区图像已成功复制到剪贴板").await?;
+                }
+            }
+            SnipperOutcome::CopiedText(text) => {
+                if cfg.output.notify_on_copy {
+                    let summary =
+                        format!("识别文字已复制到剪贴板（{} 字符）", text.chars().count());
+                    send_desktop_notification("Snapin 文字识别", &summary).await?;
                 }
             }
             SnipperOutcome::Saved(path) => {

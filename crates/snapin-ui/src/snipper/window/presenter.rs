@@ -116,6 +116,7 @@ impl SnipperPresenter {
             accent_color: state.config.interface.accent_color.to_rgb(),
             pending_stroke,
             active_text_input: state.active_text_input.as_ref(),
+            status_message: state.status_message.as_deref(),
         };
 
         let mut pixmap_mut = self.render_pixmap.as_mut();

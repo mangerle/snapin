@@ -9,6 +9,7 @@ use crate::snipper::window::annotation_builder::{render_draft_preview, Annotatio
 use crate::snipper::window::text_input::TextInputSession;
 use image::RgbaImage;
 use snapin_core::annotation::AnnotationHistory;
+use snapin_core::render::with_thread_local_text_renderer;
 use tiny_skia::{Paint, PathBuilder, Pixmap, PixmapMut, Rect as SkiaRect, Stroke, Transform};
 
 /// 正在拉伸绘制中的待提交标注笔触元数据 (工具类型, 轨迹点集合, 预设色值)
@@ -27,6 +28,7 @@ pub struct SnipperCanvas<'a> {
     pub accent_color: (u8, u8, u8),
     pub pending_stroke: Option<PendingStroke<'a>>,
     pub active_text_input: Option<&'a TextInputSession>,
+    pub status_message: Option<&'a str>,
 }
 
 impl<'a> SnipperCanvas<'a> {
@@ -87,6 +89,86 @@ impl<'a> SnipperCanvas<'a> {
                 self.cursor_pos.1 as i32,
             );
         }
+
+        self.render_status_message(pixmap);
+    }
+
+    /// 在画布顶部居中绘制操作失败或空结果提示
+    fn render_status_message(&self, pixmap: &mut PixmapMut) {
+        let Some(message) = self.status_message else {
+            return;
+        };
+        if message.is_empty() {
+            return;
+        }
+
+        let scale = self.ui_scale.max(0.5);
+        let font_size = 13.0 * scale;
+        let padding_x = 14.0 * scale;
+        let padding_y = 8.0 * scale;
+        let estimated_width = message
+            .chars()
+            .map(|ch| if ch.is_ascii() { 7.5 } else { 13.0 })
+            .sum::<f32>()
+            * scale;
+        let max_width = (pixmap.width() as f32 - 16.0 * scale).max(120.0 * scale);
+        let box_width = (estimated_width + padding_x * 2.0).min(max_width);
+        let box_height = font_size * 1.4 + padding_y * 2.0;
+        let box_x = ((pixmap.width() as f32 - box_width) / 2.0).max(8.0 * scale);
+        let box_y = 16.0 * scale;
+
+        let mut path = PathBuilder::new();
+        let radius = 6.0 * scale;
+        path.move_to(box_x + radius, box_y);
+        path.line_to(box_x + box_width - radius, box_y);
+        path.quad_to(box_x + box_width, box_y, box_x + box_width, box_y + radius);
+        path.line_to(box_x + box_width, box_y + box_height - radius);
+        path.quad_to(
+            box_x + box_width,
+            box_y + box_height,
+            box_x + box_width - radius,
+            box_y + box_height,
+        );
+        path.line_to(box_x + radius, box_y + box_height);
+        path.quad_to(
+            box_x,
+            box_y + box_height,
+            box_x,
+            box_y + box_height - radius,
+        );
+        path.line_to(box_x, box_y + radius);
+        path.quad_to(box_x, box_y, box_x + radius, box_y);
+        path.close();
+
+        if let Some(path) = path.finish() {
+            let mut paint = Paint::default();
+            paint.set_color_rgba8(28, 30, 38, 238);
+            pixmap.fill_path(
+                &path,
+                &paint,
+                tiny_skia::FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+            let mut border = Paint::default();
+            border.set_color_rgba8(255, 255, 255, 36);
+            let stroke = Stroke {
+                width: 1.0 * scale,
+                ..Default::default()
+            };
+            pixmap.stroke_path(&path, &border, &stroke, Transform::identity(), None);
+        }
+
+        with_thread_local_text_renderer(|renderer| {
+            renderer.draw_text(
+                pixmap,
+                message,
+                box_x + padding_x,
+                box_y + padding_y,
+                font_size,
+                tiny_skia::Color::from_rgba8(240, 243, 250, 255),
+            );
+        });
     }
 
     /// 通过直接内存行切片快速将原图像素恢复到选区内（亚毫秒级完成镂空透出）

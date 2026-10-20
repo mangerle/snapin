@@ -44,6 +44,11 @@ impl AnnotationAction for TranslationAction {
 
         // 1. 批量绘制背景擦除层 (覆盖遮蔽原文字)
         for item in &self.items {
+            // 没有有效译文或译文与原文相同时不得擦除原图，否则会破坏截图内容。
+            if item.translated.trim().is_empty() || item.translated.trim() == item.original.trim() {
+                continue;
+            }
+
             let rx = item.rect.0 + offset_x;
             let ry = item.rect.1 + offset_y;
             let rw = item.rect.2;
@@ -95,7 +100,10 @@ impl AnnotationAction for TranslationAction {
         use crate::render::TextBoxOptions;
         with_thread_local_text_renderer(|renderer| {
             for item in &self.items {
-                if item.translated.trim().is_empty() {
+                // 译文与原文相同时保留原图像素，避免无意义的覆盖与重新排版。
+                if item.translated.trim().is_empty()
+                    || item.translated.trim() == item.original.trim()
+                {
                     continue;
                 }
 
@@ -122,5 +130,39 @@ impl AnnotationAction for TranslationAction {
         for item in &mut self.items {
             item.font_size = font_sz;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tiny_skia::{Color, Pixmap};
+
+    fn make_item(translated: &str) -> TranslationShapeItem {
+        TranslationShapeItem {
+            rect: (10.0, 10.0, 60.0, 30.0),
+            original: "Hello".to_string(),
+            translated: translated.to_string(),
+            bg_color: (255, 0, 0, 255),
+            text_color: (0, 0, 0, 255),
+            font_size: 16.0,
+            cover_mode: "solid_color".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_empty_translation_does_not_cover_image() {
+        let mut pixmap = Pixmap::new(100, 60).expect("分配测试画布失败");
+        pixmap.fill(Color::WHITE);
+        TranslationAction::new(vec![make_item("")]).draw(&mut pixmap.as_mut());
+        assert_eq!(pixmap.pixel(20, 20).map(|p| p.red()), Some(255));
+    }
+
+    #[test]
+    fn test_identical_translation_does_not_cover_image() {
+        let mut pixmap = Pixmap::new(100, 60).expect("分配测试画布失败");
+        pixmap.fill(Color::WHITE);
+        TranslationAction::new(vec![make_item("Hello")]).draw(&mut pixmap.as_mut());
+        assert_eq!(pixmap.pixel(20, 20).map(|p| p.red()), Some(255));
     }
 }

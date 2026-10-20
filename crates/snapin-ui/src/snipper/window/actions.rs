@@ -8,7 +8,6 @@ use image::{GenericImageView, RgbaImage};
 use snapin_platform::{
     generate_unique_id, save_image_with_config, save_last_selection, write_image_to_clipboard,
 };
-use std::path::PathBuf;
 
 /// 裁剪当前选区图像并合成已绘制的矢量标注
 pub fn crop_selection_image(
@@ -47,36 +46,49 @@ pub fn crop_selection_image(
 
 /// 复制选区图像到剪贴板并准备退出
 pub fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    state.clear_status_message();
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
         if let SelectionState::Locked { rect, .. } = &state.selection {
             save_last_selection((rect.x, rect.y, rect.width, rect.height));
         }
-        if let Err(e) = write_image_to_clipboard(&cropped) {
-            tracing::warn!("复制选区图像到系统剪贴板失败: {e}");
+        match write_image_to_clipboard(&cropped) {
+            Ok(()) => state.outcome = Some(SnipperOutcome::CopiedImage),
+            Err(e) => {
+                tracing::warn!("复制选区图像到系统剪贴板失败: {e}");
+                state.set_status_message(format!("复制图像失败: {e}"));
+            }
         }
-        state.outcome = Some(SnipperOutcome::Copied(cropped));
     }
 }
 
 /// 保存选区图像至文件
 pub fn handle_action_save(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    state.clear_status_message();
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
         if let SelectionState::Locked { rect, .. } = &state.selection {
             save_last_selection((rect.x, rect.y, rect.width, rect.height));
         }
 
         let out_path = match save_image_with_config(&cropped, &state.config.output) {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("按配置保存截图失败: {e}，尝试降级保存至用户 Pictures 目录");
-                let pictures_dir = std::env::var("HOME")
-                    .map(|h| PathBuf::from(h).join("Pictures"))
-                    .unwrap_or_else(|_| PathBuf::from("."));
-                let p = pictures_dir.join(format!("snapin_{}.png", generate_unique_id()));
-                if let Err(save_err) = cropped.save(&p) {
-                    tracing::error!("降级保存截图失败: {save_err}");
+            Ok(path) => path,
+            Err(primary_error) => {
+                tracing::warn!(
+                    "按配置保存截图失败: {primary_error}，尝试降级保存至用户 Pictures 目录"
+                );
+                let pictures_dir = snapin_core::AppPaths::pictures_dir();
+                if let Err(create_error) = std::fs::create_dir_all(&pictures_dir) {
+                    tracing::error!("创建 Pictures 目录失败: {create_error}");
+                    state.set_status_message(format!("保存截图失败: {create_error}"));
+                    return;
                 }
-                p
+                let fallback_path =
+                    pictures_dir.join(format!("snapin_{}.png", generate_unique_id()));
+                if let Err(save_error) = cropped.save(&fallback_path) {
+                    tracing::error!("降级保存截图失败: {save_error}");
+                    state.set_status_message(format!("保存截图失败: {save_error}"));
+                    return;
+                }
+                fallback_path
             }
         };
 
@@ -89,23 +101,35 @@ pub fn handle_action_save(state: &mut SnipperState, original_rgba: &RgbaImage) {
 
 /// 将选区转为贴图固定在屏幕
 pub fn handle_action_pin(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    state.clear_status_message();
     let pin_pos = match &state.selection {
         SelectionState::Locked { rect, .. } => (rect.x as i32, rect.y as i32),
         _ => return,
     };
 
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
-        if let Some(mut pixmap) = tiny_skia::Pixmap::new(cropped.width(), cropped.height()) {
-            pixmap.data_mut().copy_from_slice(cropped.as_raw());
-            let id = generate_unique_id();
-            let item = PasterItem::new(id, format!("pin_{id}"), pixmap, pin_pos);
-            state.outcome = Some(SnipperOutcome::Pinned(item));
+        match tiny_skia::Pixmap::new(cropped.width(), cropped.height()) {
+            Some(mut pixmap) => {
+                pixmap.data_mut().copy_from_slice(cropped.as_raw());
+                let id = generate_unique_id();
+                let item = PasterItem::new(id, format!("pin_{id}"), pixmap, pin_pos);
+                state.outcome = Some(SnipperOutcome::Pinned(item));
+            }
+            None => {
+                tracing::error!(
+                    "创建贴图像素缓冲区失败，尺寸: {}x{}",
+                    cropped.width(),
+                    cropped.height()
+                );
+                state.set_status_message("创建贴图缓冲区失败");
+            }
         }
     }
 }
 
 /// 执行选区 OCR 文字识别并静默复制全文至系统剪贴板
 pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    state.clear_status_message();
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
         if let SelectionState::Locked { rect, .. } = &state.selection {
             save_last_selection((rect.x, rect.y, rect.width, rect.height));
@@ -117,29 +141,38 @@ pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
             Some(std::path::Path::new(&state.config.ocr.local.model_dir))
         };
 
-        match snapin_service::LocalPpOcrEngine::new(custom_dir) {
-            Ok(engine) => {
-                use snapin_service::OcrEngine;
-                match engine.recognize(&cropped) {
-                    Ok(res) => {
-                        let text = res.full_text;
-                        if !text.is_empty() {
-                            if let Err(e) = snapin_platform::write_text_to_clipboard(&text) {
-                                tracing::warn!("复制 OCR 文本至系统剪贴板失败: {e}");
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("本地 OCR 文字识别失败: {e}");
-                    }
-                }
-            }
+        let engine = match snapin_service::LocalPpOcrEngine::new(custom_dir) {
+            Ok(engine) => engine,
             Err(e) => {
                 tracing::warn!("本地 OCR 引擎未能初始化: {e}，请检查离线模型文件是否已部署");
+                state.set_status_message(format!("OCR 引擎不可用: {e}"));
+                return;
             }
+        };
+
+        use snapin_service::OcrEngine;
+        let result = match engine.recognize(&cropped) {
+            Ok(result) => result,
+            Err(e) => {
+                tracing::warn!("本地 OCR 文字识别失败: {e}");
+                state.set_status_message(format!("文字识别失败: {e}"));
+                return;
+            }
+        };
+
+        let text = result.full_text.trim().to_string();
+        if text.is_empty() {
+            state.set_status_message("未识别到文字");
+            return;
         }
 
-        state.outcome = Some(SnipperOutcome::Copied(cropped));
+        if let Err(e) = snapin_platform::write_text_to_clipboard(&text) {
+            tracing::warn!("复制 OCR 文本至系统剪贴板失败: {e}");
+            state.set_status_message(format!("复制识别文字失败: {e}"));
+            return;
+        }
+
+        state.outcome = Some(SnipperOutcome::CopiedText(text));
     }
 }
 
@@ -232,6 +265,7 @@ fn get_contrasting_text_color(bg: (u8, u8, u8, u8)) -> (u8, u8, u8, u8) {
 
 /// 执行选区截图原位翻译替换
 pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    state.clear_status_message();
     let (px, py, pw, ph) = match &state.selection {
         SelectionState::Locked { rect, .. } => {
             rect.to_pixel_bounds(original_rgba.width(), original_rgba.height())
@@ -244,7 +278,7 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
 
     // 获取当前选区裁切图像 (原图 + 已绘制标注)
     let cropped = match crop_selection_image(state, original_rgba) {
-        Some(c) => c,
+        Some(cropped) => cropped,
         None => return,
     };
 
@@ -255,9 +289,10 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
     };
 
     let engine = match snapin_service::LocalPpOcrEngine::new(custom_dir) {
-        Ok(e) => e,
+        Ok(engine) => engine,
         Err(e) => {
             tracing::warn!("原位翻译 OCR 引擎未能初始化: {e}");
+            state.set_status_message(format!("OCR 引擎不可用: {e}"));
             return;
         }
     };
@@ -267,20 +302,22 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
         Ok(result) => result,
         Err(e) => {
             tracing::warn!("原位翻译文字识别失败: {e}");
+            state.set_status_message(format!("文字识别失败: {e}"));
             return;
         }
     };
 
     if ocr_res.blocks.is_empty() {
         tracing::debug!("选区内未检测到有效文字，跳过原位翻译");
+        state.set_status_message("选区内未检测到文字");
         return;
     }
 
     let texts: Vec<String> = ocr_res.blocks.iter().map(|b| b.text.clone()).collect();
     let translator = snapin_service::create_translator(&state.config.translate);
-    let target_lang = &state.config.translate.target_language;
+    let target_lang = state.config.translate.target_language.clone();
 
-    let trans_fut = translator.translate_batch(&texts, "auto", target_lang);
+    let trans_fut = translator.translate_batch(&texts, "auto", &target_lang);
     let trans_result = match tokio::runtime::Handle::try_current() {
         Ok(handle) => tokio::task::block_in_place(|| handle.block_on(trans_fut)),
         Err(_) => {
@@ -289,7 +326,10 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
                 .build();
             match rt {
                 Ok(runtime) => runtime.block_on(trans_fut),
-                Err(_) => return,
+                Err(_) => {
+                    state.set_status_message("翻译运行时不可用");
+                    return;
+                }
             }
         }
     };
@@ -297,8 +337,9 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
     let translated_texts = match trans_result {
         Ok(texts) => texts,
         Err(e) => {
-            tracing::warn!("网络翻译服务调用失败: {e}，优雅降级为原位呈现识别文字");
-            texts.clone()
+            tracing::warn!("网络翻译服务调用失败: {e}");
+            state.set_status_message(format!("翻译失败: {e}"));
+            return;
         }
     };
 
@@ -308,11 +349,14 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
     let mut shape_items = Vec::with_capacity(ocr_res.blocks.len());
 
     for (idx, block) in ocr_res.blocks.into_iter().enumerate() {
-        let translated = if idx < translated_texts.len() {
-            translated_texts[idx].clone()
-        } else {
-            block.text.clone()
+        let Some(translated) = translated_texts.get(idx) else {
+            continue;
         };
+        let translated = translated.trim();
+        // 空译文或与原文相同的译文不生成图元，避免覆盖原图内容。
+        if translated.is_empty() || translated == block.text.trim() {
+            continue;
+        }
 
         let (bx, by, bw, bh) = block.bbox;
         let local_w = bw.max(2.0);
@@ -335,7 +379,7 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
         shape_items.push(TranslationShapeItem {
             rect: (abs_x, abs_y, local_w, local_h),
             original: block.text,
-            translated,
+            translated: translated.to_string(),
             bg_color,
             text_color,
             font_size,
@@ -343,16 +387,19 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
         });
     }
 
-    if !shape_items.is_empty() {
-        state
-            .annotations
-            .push(AnnotationShape::Translation(TranslationAction::new(
-                shape_items,
-            )));
-        state.toolbar.active_tool = None;
-        state.toolbar.sub_rect = None;
-        tracing::info!("原位翻译完成，已成功压入标注动作栈");
+    if shape_items.is_empty() {
+        state.set_status_message("未获得有效翻译结果");
+        return;
     }
+
+    state
+        .annotations
+        .push(AnnotationShape::Translation(TranslationAction::new(
+            shape_items,
+        )));
+    state.toolbar.active_tool = None;
+    state.toolbar.sub_rect = None;
+    tracing::info!("原位翻译完成，已成功压入标注动作栈");
 }
 
 #[cfg(test)]
@@ -447,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_action_ocr_sets_outcome() {
+    fn test_handle_action_ocr_empty_image_keeps_session_open() {
         let mut state = SnipperState::new();
         state.selection = SelectionState::Locked {
             rect: Rect {
@@ -461,7 +508,14 @@ mod tests {
         let original = RgbaImage::from_pixel(100, 100, Rgba([255, 255, 255, 255]));
         handle_action_ocr(&mut state, &original);
 
-        assert!(matches!(state.outcome, Some(SnipperOutcome::Copied(_))));
+        assert!(
+            state.outcome.is_none(),
+            "空图像或引擎不可用时不得以 Copied 状态退出"
+        );
+        assert!(
+            state.status_message.is_some(),
+            "识别失败或空结果必须给出用户提示"
+        );
     }
 
     #[test]
@@ -495,8 +549,10 @@ mod tests {
             active_drag: None,
         };
         let original = RgbaImage::from_pixel(100, 100, Rgba([255, 255, 255, 255]));
-        // 无可用本地模型时安全返回，不崩溃
+        // 无可用模型或未识别到文字时安全返回，不崩溃，也不得压入破坏性图元
         handle_action_translate(&mut state, &original);
+        assert!(!state.annotations.can_undo());
+        assert!(state.status_message.is_some());
     }
 
     #[test]
