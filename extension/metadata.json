@@ -3,5 +3,5 @@
   "description": "为纯 Rust Snapin 截图与贴图工具提供 Mutter 窗口置顶与精确定位特权、原生托盘与零白闪原生截屏",
   "uuid": "snapin@wangle.local",
   "shell-version": ["45", "46", "47", "48", "49", "50", "50.1", "51"],
-  "version": 3
+  "version": 4
 }

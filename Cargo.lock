@@ -5172,7 +5172,7 @@ dependencies = [
 
 [[package]]
 name = "snapin"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5191,7 +5191,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bytemuck",
  "cosmic-text",
@@ -5206,7 +5206,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-daemon"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "rustix 0.38.44",
  "serde",
@@ -5220,7 +5220,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-platform"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "arboard",
  "ashpd",
@@ -5238,7 +5238,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-service"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5264,7 +5264,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-settings"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "slint",
  "slint-build",
@@ -5277,7 +5277,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-ui"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "arboard",
  "chrono",
