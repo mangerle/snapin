@@ -3,6 +3,7 @@
 //! 统一遵循 XDG Base Directory 规范收敛管理配置文件、缓存目录、IPC 套接字与安全运行时临时目录，
 //! 消除各子系统分散拼接路径导致的不一致与误删隐患。
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -19,7 +20,7 @@ impl AppPaths {
             .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".config")))
             .unwrap_or_else(|_| PathBuf::from("."));
         let p = base.join("snapin");
-        let _ = std::fs::create_dir_all(&p);
+        ensure_private_dir(&p);
         p
     }
 
@@ -35,7 +36,7 @@ impl AppPaths {
             .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".cache")))
             .unwrap_or_else(|_| PathBuf::from("."));
         let p = base.join("snapin");
-        let _ = std::fs::create_dir_all(&p);
+        ensure_private_dir(&p);
         p
     }
 
@@ -44,7 +45,7 @@ impl AppPaths {
     pub fn runtime_dir() -> PathBuf {
         if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
             let p = PathBuf::from(runtime_dir).join("snapin");
-            let _ = std::fs::create_dir_all(&p);
+            ensure_private_dir(&p);
             return p;
         }
 
@@ -55,7 +56,7 @@ impl AppPaths {
         } else {
             std::env::temp_dir().join(format!("snapin-{uid}"))
         };
-        let _ = std::fs::create_dir_all(&base);
+        ensure_private_dir(&base);
         base
     }
 
@@ -99,6 +100,48 @@ impl AppPaths {
         let id = Self::generate_unique_id();
         let pid = std::process::id();
         dir.join(format!("{prefix}_{pid}_{id}.{ext}"))
+    }
+
+    /// 以仅当前用户可读写的权限（0600）写入文件。
+    ///
+    /// # Errors
+    ///
+    /// 当父目录不存在、文件创建失败或写入磁盘失败时返回底层 I/O 错误。
+    pub fn write_secure_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+
+        let mut file = options.open(path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        file.write_all(bytes)?;
+        file.sync_all()
+    }
+}
+
+/// 创建目录并收紧为仅当前用户可访问的 0700 权限。
+///
+/// 权限设置失败时不会阻断主流程（只记录警告），避免在不支持权限位的文件系统上崩溃。
+fn ensure_private_dir(path: &Path) {
+    if let Err(error) = std::fs::create_dir_all(path) {
+        tracing::warn!("创建私有目录失败，路径: {:?}，原因: {error}", path);
+        return;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(error) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)) {
+            tracing::warn!("收紧目录权限失败，路径: {:?}，原因: {error}", path);
+        }
     }
 }
 

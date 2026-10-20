@@ -83,7 +83,7 @@ pub fn write_raw_image_to_clipboard(
 pub fn write_text_to_clipboard(text: &str) -> Result<(), PlatformError> {
     with_clipboard(|cb| cb.set_text(text))?;
 
-    tracing::info!("已将文本写入系统剪贴板: {text}");
+    tracing::debug!("已将文本写入系统剪贴板，字符数: {}", text.chars().count());
     Ok(())
 }
 

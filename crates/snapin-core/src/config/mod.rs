@@ -53,8 +53,27 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreE
         source: e,
     })?;
 
+    tighten_config_permissions(&target_path);
     tracing::debug!("成功加载配置文件: {:?}", target_path);
     Ok(config)
+}
+
+/// 将已存在配置文件的权限收紧为 0600，避免历史版本创建的 0644 文件泄露 API 密钥。
+fn tighten_config_permissions(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = std::fs::metadata(path) {
+            let mode = metadata.permissions().mode() & 0o777;
+            if mode & 0o077 != 0 {
+                if let Err(error) =
+                    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+                {
+                    tracing::warn!("收紧配置文件权限失败，路径: {:?}，原因: {error}", path);
+                }
+            }
+        }
+    }
 }
 
 /// 将内存配置结构体持久化写入指定的 TOML 文件
@@ -70,10 +89,36 @@ pub fn save_config(config: &Config, target_path: &Path) -> Result<(), CoreError>
         }
     }
 
-    fs::write(target_path, toml_string).map_err(|e| CoreError::IoError {
-        path: target_path.to_string_lossy().to_string(),
-        source: e,
-    })?;
+    // 同目录临时文件 + 原子 rename，避免写入中断导致配置被截断；
+    // 临时文件使用 0600 权限，防止包含 API Key 的配置被其他本机用户读取。
+    let parent = target_path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = target_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.toml");
+    let temp_path = parent.join(format!(
+        ".{file_name}.{}.{}.tmp",
+        std::process::id(),
+        crate::paths::AppPaths::generate_unique_id()
+    ));
+
+    if let Err(error) =
+        crate::paths::AppPaths::write_secure_file(&temp_path, toml_string.as_bytes())
+    {
+        let _ = fs::remove_file(&temp_path);
+        return Err(CoreError::IoError {
+            path: temp_path.to_string_lossy().to_string(),
+            source: error,
+        });
+    }
+
+    if let Err(error) = fs::rename(&temp_path, target_path) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(CoreError::IoError {
+            path: target_path.to_string_lossy().to_string(),
+            source: error,
+        });
+    }
 
     tracing::info!("配置文件保存就绪: {:?}", target_path);
     Ok(())
@@ -124,5 +169,23 @@ provider = "deepl"
         let loaded = load_or_create_config(Some(&config_file)).expect("加载默认配置失败");
         assert!(config_file.exists());
         assert_eq!(loaded, Config::default());
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&config_file)
+                .expect("读取配置文件元数据失败")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600, "配置文件必须仅当前用户可读写");
+        }
+
+        let temp_files: Vec<_> = std::fs::read_dir(config_file.parent().expect("父目录存在"))
+            .expect("读取配置目录失败")
+            .flatten()
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(temp_files.is_empty(), "原子写入后不得遗留临时文件");
     }
 }

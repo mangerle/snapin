@@ -122,7 +122,7 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode) -> Result<()> {
                 tracing::info!("正在向常驻集中贴图工作区投递选区窗口...");
                 let raw_path = generate_secure_temp_path("paster_ipc", "raw");
                 let mut delivered = false;
-                if std::fs::write(&raw_path, item.pixmap.data()).is_ok() {
+                if snapin_core::AppPaths::write_secure_file(&raw_path, item.pixmap.data()).is_ok() {
                     let req = snapin_daemon::DaemonCommand::CreatePaster {
                         width: item.pixmap.width(),
                         height: item.pixmap.height(),

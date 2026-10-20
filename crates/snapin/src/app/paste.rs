@@ -76,13 +76,24 @@ pub async fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
 
     let pixmap = if path.extension().and_then(|e| e.to_str()) == Some("raw") {
         // 读取原生二进制像素格式，零解压计算开销
+        let metadata = std::fs::metadata(&path).context("读取贴图原生像素文件元数据失败")?;
+        let max_bytes = snapin_platform::MAX_RAW_PIXELS
+            .saturating_mul(4)
+            .saturating_add(8);
+        if metadata.len() > max_bytes {
+            anyhow::bail!("贴图原生像素文件过大: {} 字节", metadata.len());
+        }
         let bytes = std::fs::read(&path).context("读取贴图原生像素文件失败")?;
         if bytes.len() < 8 {
             anyhow::bail!("贴图原生数据损坏");
         }
         let width = u32::from_be_bytes(bytes[0..4].try_into()?);
         let height = u32::from_be_bytes(bytes[4..8].try_into()?);
-        let expected_len = 8 + (width as usize) * (height as usize) * 4;
+        let pixel_bytes = snapin_platform::checked_rgba_byte_len(width, height)
+            .ok_or_else(|| anyhow::anyhow!("贴图像素尺寸非法或超过上限"))?;
+        let expected_len = 8usize
+            .checked_add(pixel_bytes)
+            .ok_or_else(|| anyhow::anyhow!("贴图像素长度溢出"))?;
         if bytes.len() != expected_len {
             anyhow::bail!("贴图像素尺寸与数据长度不一致");
         }
@@ -105,7 +116,7 @@ pub async fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
     let width = pixmap.width();
     let height = pixmap.height();
     let raw_temp = generate_secure_temp_path("paster_pin", "raw");
-    if std::fs::write(&raw_temp, pixmap.data()).is_ok() {
+    if snapin_core::AppPaths::write_secure_file(&raw_temp, pixmap.data()).is_ok() {
         let req = snapin_daemon::DaemonCommand::CreatePaster {
             width,
             height,

@@ -106,37 +106,54 @@ pub async fn run_daemon_server(cfg: Config) -> Result<()> {
             } => {
                 let file_path = PathBuf::from(&raw_path);
                 let runtime_dir = snapin_platform::get_secure_runtime_dir();
-                // 路径防穿越安全校验：确保临时文件位于受控的安全运行时目录
+                // 路径防穿越安全校验：运行时目录与目标文件都先规范化，避免符号链接绕过
+                let runtime_dir = runtime_dir
+                    .canonicalize()
+                    .unwrap_or_else(|_| runtime_dir.clone());
                 let is_safe = file_path
                     .canonicalize()
-                    .map(|p| p.starts_with(&runtime_dir))
+                    .map(|path| path.starts_with(&runtime_dir))
                     .unwrap_or(false);
+
+                let Some(expected_len) = snapin_platform::checked_rgba_byte_len(width, height)
+                else {
+                    let _ = inv.responder.send(DaemonResponse::Error(
+                        "贴图像素尺寸非法或超过上限".to_string(),
+                    ));
+                    continue;
+                };
 
                 if !is_safe {
                     tracing::warn!("拒绝接收不受信任目录下的贴图临时文件: {:?}", file_path);
                     DaemonResponse::Error("非法贴图临时物理路径".to_string())
-                } else if let Ok(bytes) = std::fs::read(&file_path) {
-                    let _ = std::fs::remove_file(&file_path);
-                    let expected_len = (width as usize) * (height as usize) * 4;
-                    if bytes.len() == expected_len {
-                        if let Some(mut pixmap) = Pixmap::new(width, height) {
-                            pixmap.data_mut().copy_from_slice(&bytes);
-                            let uid = generate_unique_id();
-                            let item = PasterItem::new(uid, title, pixmap, (x, y));
-                            if let Err(e) = workspace_proxy.open_paster(item) {
-                                tracing::error!("在集中工作区中打开贴图失败: {e}");
-                                DaemonResponse::Error(format!("打开贴图失败: {e}"))
+                } else if std::fs::metadata(&file_path)
+                    .map(|metadata| metadata.len() == expected_len as u64)
+                    .unwrap_or(false)
+                {
+                    if let Ok(bytes) = std::fs::read(&file_path) {
+                        let _ = std::fs::remove_file(&file_path);
+                        if bytes.len() == expected_len {
+                            if let Some(mut pixmap) = Pixmap::new(width, height) {
+                                pixmap.data_mut().copy_from_slice(&bytes);
+                                let uid = generate_unique_id();
+                                let item = PasterItem::new(uid, title, pixmap, (x, y));
+                                if let Err(e) = workspace_proxy.open_paster(item) {
+                                    tracing::error!("在集中工作区中打开贴图失败: {e}");
+                                    DaemonResponse::Error(format!("打开贴图失败: {e}"))
+                                } else {
+                                    DaemonResponse::Ok
+                                }
                             } else {
-                                DaemonResponse::Ok
+                                DaemonResponse::Error("分配像素缓冲区失败".to_string())
                             }
                         } else {
-                            DaemonResponse::Error("分配像素缓冲区失败".to_string())
+                            DaemonResponse::Error("像素数据长度与图像分辨率不匹配".to_string())
                         }
                     } else {
-                        DaemonResponse::Error("像素数据长度与图像分辨率不匹配".to_string())
+                        DaemonResponse::Error("读取贴图临时文件失败".to_string())
                     }
                 } else {
-                    DaemonResponse::Error("读取贴图临时文件失败".to_string())
+                    DaemonResponse::Error("像素数据长度与图像分辨率不匹配".to_string())
                 }
             }
             DaemonCommand::TogglePasters => {

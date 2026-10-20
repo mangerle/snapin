@@ -190,13 +190,22 @@ fn estimate_dominant_background_color(
         return (255, 255, 255, 255);
     }
 
-    // 稍微向外外扩 1 像素采样，避免贴合文字边缘笔画
-    let x1 = min_x.saturating_sub(1);
-    let y1 = min_y.saturating_sub(1);
-    let x2 = (min_x + w + 1).min(img_w.saturating_sub(1));
-    let y2 = (min_y + h + 1).min(img_h.saturating_sub(1));
+    // 稍微向外外扩 1 像素采样，避免贴合文字边缘笔画；越界坐标统一夹紧到图内。
+    let max_x = img_w.saturating_sub(1);
+    let max_y = img_h.saturating_sub(1);
+    let x1 = min_x.min(max_x).saturating_sub(1);
+    let y1 = min_y.min(max_y).saturating_sub(1);
+    let x2 = min_x.saturating_add(w).saturating_add(1).min(max_x);
+    let y2 = min_y.saturating_add(h).saturating_add(1).min(max_y);
+    if x1 > x2 || y1 > y2 {
+        return (255, 255, 255, 255);
+    }
 
-    let mut samples = Vec::with_capacity(((x2 - x1 + y2 - y1) * 2) as usize);
+    let capacity = ((x2 - x1) as usize)
+        .saturating_add((y2 - y1) as usize)
+        .saturating_add(2)
+        .saturating_mul(2);
+    let mut samples = Vec::with_capacity(capacity);
 
     // 顶部与底部边缘采样
     for x in x1..=x2 {

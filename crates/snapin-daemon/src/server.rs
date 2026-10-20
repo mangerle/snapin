@@ -39,6 +39,19 @@ impl IpcListener {
             message: format!("绑定 IPC 套接字失败: {e}"),
         })?;
 
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Err(error) =
+                std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))
+            {
+                tracing::warn!(
+                    "收紧 IPC 套接字权限失败，路径: {:?}，原因: {error}",
+                    socket_path
+                );
+            }
+        }
+
         tracing::info!("Snapin IPC 监听服务就绪，套接字路径: {:?}", socket_path);
         Ok(Self {
             socket_path,
