@@ -16,7 +16,6 @@ pub enum MenuItemId {
     PasteFromClipboard,
     OpenInFolder,
     Close,
-    Destroy,
 }
 
 /// 二级子菜单类型
@@ -100,7 +99,6 @@ impl MenuItem {
             MenuItem::action(MenuItemId::OpenInFolder, "在文件夹中查看"),
             MenuItem::separator(),
             MenuItem::action(MenuItemId::Close, "关闭"),
-            MenuItem::action(MenuItemId::Destroy, "销毁"),
         ]
     }
 

@@ -9,6 +9,7 @@ use super::proxy::{PasterAppEvent, WorkspaceStatus};
 use super::window_builder::{create_new_paster_window, PasterInstance};
 use snapin_core::config::Config;
 use std::collections::HashMap;
+use std::sync::Arc;
 use winit::event::WindowEvent;
 use winit::event_loop::EventLoopWindowTarget;
 use winit::window::WindowId;
@@ -21,14 +22,14 @@ pub fn handle_workspace_user_event(
     event: PasterAppEvent,
     instances: &mut HashMap<WindowId, PasterInstance>,
     manager: &mut PasterManager,
-    cfg: &mut Config,
+    cfg: &mut Arc<Config>,
     elwt: &EventLoopWindowTarget<PasterAppEvent>,
 ) {
     match event {
         PasterAppEvent::ReloadConfig(new_cfg) => {
-            *cfg = (*new_cfg).clone();
+            *cfg = Arc::new(*new_cfg);
             for inst in instances.values_mut() {
-                inst.state.config = (*new_cfg).clone();
+                inst.state.config = cfg.clone();
             }
             tracing::info!("集中贴图工作区已完成全局配置热更新");
         }
@@ -41,7 +42,7 @@ pub fn handle_workspace_user_event(
             let new_visible = manager.toggle_current_group_visibility();
             let active = manager.active_group();
             for inst in instances.values_mut() {
-                if inst.group_id == active {
+                if inst.state.item.group_id == active {
                     inst.state.item.is_visible = new_visible;
                     inst.window.set_visible(new_visible);
                 }
@@ -62,7 +63,7 @@ pub fn handle_workspace_user_event(
             };
             manager.switch_group(next_group);
             for inst in instances.values_mut() {
-                let visible = inst.group_id == next_group;
+                let visible = inst.state.item.group_id == next_group;
                 inst.state.item.is_visible = visible;
                 inst.window.set_visible(visible);
             }
@@ -71,7 +72,7 @@ pub fn handle_workspace_user_event(
         PasterAppEvent::SetVisibility(visible) => {
             let active = manager.active_group();
             for inst in instances.values_mut() {
-                if inst.group_id == active {
+                if inst.state.item.group_id == active {
                     inst.state.item.is_visible = visible;
                     inst.window.set_visible(visible);
                 }

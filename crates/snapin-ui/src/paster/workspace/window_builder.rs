@@ -15,7 +15,6 @@ use winit::window::{Window, WindowBuilder, WindowId};
 /// 单个受管贴图窗口的运行时物理实例
 pub struct PasterInstance {
     pub item_id: u64,
-    pub group_id: usize,
     pub window: Arc<Window>,
     pub _context: softbuffer::Context<Arc<Window>>,
     pub surface: softbuffer::Surface<Arc<Window>, Arc<Window>>,
@@ -24,12 +23,14 @@ pub struct PasterInstance {
 
 /// 在当前集中事件循环中动态创建并注入一个新贴图子窗口
 pub fn create_new_paster_window(
-    item: PasterItem,
+    mut item: PasterItem,
     instances: &mut HashMap<WindowId, PasterInstance>,
     manager: &mut PasterManager,
-    cfg: &Config,
+    cfg: &Arc<Config>,
     elwt: &EventLoopWindowTarget<PasterAppEvent>,
 ) -> Result<(), UiError> {
+    // 新贴图始终归属当前活动分组，避免分组切换后出现“管理器隐藏但窗口仍显示”的分裂状态。
+    item.group_id = manager.active_group();
     let title = item.title.clone();
     let initial_w = item.pixmap.width();
     let initial_h = item.pixmap.height();
@@ -65,20 +66,18 @@ pub fn create_new_paster_window(
         1.0
     };
 
-    let mut state = PasterWindowState::from_config(item.clone(), cfg.clone());
+    let item_id = item.id;
+    let group_id = item.group_id;
+    let mut state = PasterWindowState::from_config(item, cfg.clone());
     state.ui_scale = auto_scale;
     state.context_menu.set_ui_scale(auto_scale);
 
-    let item_id = item.id;
-    let group_id = item.group_id;
     let win_id = window.id();
-
-    manager.add_item(item.clone());
+    manager.add_entry(item_id, group_id);
     window.request_redraw();
 
     let instance = PasterInstance {
         item_id,
-        group_id,
         window,
         _context: context,
         surface,

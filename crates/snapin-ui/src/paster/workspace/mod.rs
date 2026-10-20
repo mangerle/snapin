@@ -94,7 +94,12 @@ pub fn run_paster_workspace_loop(
 ) -> Result<(), UiError> {
     let mut instances: HashMap<WindowId, PasterInstance> = HashMap::new();
     let mut manager = PasterManager::default();
-    let mut cfg = snapin_core::config::load_or_create_config(None).unwrap_or_default();
+    let mut cfg = Arc::new(snapin_core::config::load_or_create_config(None).unwrap_or_default());
+    let initial_group = cfg
+        .paster
+        .active_group_id
+        .min(event_handler::TOTAL_PIN_GROUPS.saturating_sub(1));
+    manager.switch_group(initial_group);
 
     event_loop
         .run(move |event, elwt| {

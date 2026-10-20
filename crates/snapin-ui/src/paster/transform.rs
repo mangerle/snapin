@@ -3,16 +3,12 @@
 //! 负责缩放因子限制、中心锚点缩放计算以及 90 度旋转与镜像翻转。
 
 /// 贴图几何变换状态
+///
+/// 旋转与翻转直接作用于像素缓冲区，不再保存重复的角度/镜像标志，避免状态与画面脱节。
 #[derive(Debug, Clone, PartialEq)]
 pub struct PasterTransform {
     /// 缩放倍率 (0.1 ~ 10.0)
     pub scale: f32,
-    /// 旋转角度 (0, 90, 180, 270)
-    pub rotation_deg: u16,
-    /// 水平镜像翻转
-    pub flip_horizontal: bool,
-    /// 垂直镜像翻转
-    pub flip_vertical: bool,
     /// 窗口不透明度 (0.1 ~ 1.0)
     pub opacity: f32,
 }
@@ -21,9 +17,6 @@ impl Default for PasterTransform {
     fn default() -> Self {
         Self {
             scale: 1.0,
-            rotation_deg: 0,
-            flip_horizontal: false,
-            flip_vertical: false,
             opacity: 1.0,
         }
     }
@@ -36,29 +29,9 @@ impl PasterTransform {
         self.scale = (self.scale * factor).clamp(0.1, 10.0);
     }
 
-    /// 顺时针旋转 90 度 (向右旋转)
-    pub fn rotate_clockwise(&mut self) {
-        self.rotation_deg = (self.rotation_deg + 90) % 360;
-    }
-
-    /// 逆时针旋转 90 度 (向左旋转)
-    pub fn rotate_counter_clockwise(&mut self) {
-        self.rotation_deg = (self.rotation_deg + 270) % 360;
-    }
-
     /// 精确设置缩放比例
-    pub fn set_scale(&mut self, s: f32) {
-        self.scale = s.clamp(0.1, 10.0);
-    }
-
-    /// 水平翻转切换
-    pub fn toggle_flip_horizontal(&mut self) {
-        self.flip_horizontal = !self.flip_horizontal;
-    }
-
-    /// 垂直翻转切换
-    pub fn toggle_flip_vertical(&mut self) {
-        self.flip_vertical = !self.flip_vertical;
+    pub fn set_scale(&mut self, scale: f32) {
+        self.scale = scale.clamp(0.1, 10.0);
     }
 
     /// 调整不透明度
@@ -158,23 +131,15 @@ mod tests {
     }
 
     #[test]
-    fn test_rotation() {
-        let mut tf = PasterTransform::default();
-        assert_eq!(tf.rotation_deg, 0);
-        tf.rotate_clockwise();
-        assert_eq!(tf.rotation_deg, 90);
-        tf.rotate_clockwise();
-        tf.rotate_clockwise();
-        tf.rotate_clockwise();
-        assert_eq!(tf.rotation_deg, 0);
+    fn test_scale_and_opacity() {
+        let mut transform = PasterTransform::default();
+        transform.set_scale(0.5);
+        assert_eq!(transform.scale, 0.5);
 
-        tf.rotate_counter_clockwise();
-        assert_eq!(tf.rotation_deg, 270);
-        tf.rotate_counter_clockwise();
-        assert_eq!(tf.rotation_deg, 180);
-
-        tf.set_scale(0.5);
-        assert_eq!(tf.scale, 0.5);
+        transform.adjust_opacity(-5.0);
+        assert_eq!(transform.opacity, 0.1);
+        transform.adjust_opacity(5.0);
+        assert_eq!(transform.opacity, 1.0);
     }
 
     #[test]

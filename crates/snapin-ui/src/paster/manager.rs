@@ -1,13 +1,14 @@
 //! 贴图多窗口生命周期调度与多分组隔离管理器。
 //!
-//! 维护活动贴图列表、历史缓存栈、多工作区分组以及批量显示隐藏状态。
+//! 管理器只维护贴图 ID、分组与可见性等轻量元数据，不持有像素缓冲区，
+//! 像素数据由各贴图窗口独占，避免每张图在窗口与管理器之间发生多次深拷贝。
 
 use crate::paster::transform::PasterTransform;
 use std::collections::HashMap;
 use tiny_skia::Pixmap;
 
-/// 单张贴图的数据上下文
-#[derive(Debug, Clone)]
+/// 单张贴图的数据上下文（像素数据由所属窗口独占）
+#[derive(Debug)]
 pub struct PasterItem {
     pub id: u64,
     pub title: String,
@@ -33,13 +34,19 @@ impl PasterItem {
     }
 }
 
+/// 单张贴图的元数据条目
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PasterEntry {
+    id: u64,
+    group_id: usize,
+    is_visible: bool,
+}
+
 /// 贴图分组管理器
 pub struct PasterManager {
-    next_id: u64,
     active_group: usize,
-    items: Vec<PasterItem>,
+    entries: Vec<PasterEntry>,
     group_names: HashMap<usize, String>,
-    max_history: usize,
 }
 
 impl Default for PasterManager {
@@ -47,36 +54,14 @@ impl Default for PasterManager {
         let mut group_names = HashMap::new();
         group_names.insert(0, "默认分组".to_string());
         Self {
-            next_id: 1,
             active_group: 0,
-            items: Vec::new(),
+            entries: Vec::new(),
             group_names,
-            max_history: 20,
         }
     }
 }
 
 impl PasterManager {
-    /// 创建并添加一张新贴图
-    pub fn add_paster(&mut self, pixmap: Pixmap, pos: (i32, i32)) -> u64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        let title = format!("Snapin_Paster_{id}");
-
-        let item = PasterItem {
-            id,
-            title,
-            pixmap,
-            position: pos,
-            transform: PasterTransform::default(),
-            is_visible: true,
-            group_id: self.active_group,
-        };
-
-        self.items.push(item);
-        id
-    }
-
     /// 获取当前活动分组 ID
     pub fn active_group(&self) -> usize {
         self.active_group
@@ -84,61 +69,61 @@ impl PasterManager {
 
     /// 获取指定分组的展示名称
     pub fn group_name(&self, id: usize) -> Option<&str> {
-        self.group_names.get(&id).map(|s| s.as_str())
+        self.group_names.get(&id).map(|name| name.as_str())
     }
 
-    /// 获取最大历史记录上限
-    pub fn max_history(&self) -> usize {
-        self.max_history
+    /// 登记一张新贴图；ID 重复时返回 `false`，可见性由当前活动分组决定。
+    pub fn add_entry(&mut self, id: u64, group_id: usize) -> bool {
+        if self.entries.iter().any(|entry| entry.id == id) {
+            return false;
+        }
+
+        self.entries.push(PasterEntry {
+            id,
+            group_id,
+            is_visible: group_id == self.active_group,
+        });
+        true
     }
 
-    /// 切换当前活动分组
+    /// 切换当前活动分组，并同步组内贴图可见性。
     pub fn switch_group(&mut self, group_id: usize) {
         self.active_group = group_id;
-        // 同步更新各贴图可见性：仅显示属于当前组的贴图
-        for item in &mut self.items {
-            item.is_visible = item.group_id == group_id;
+        for entry in &mut self.entries {
+            entry.is_visible = entry.group_id == group_id;
         }
     }
 
-    /// 批量切换当前分组内所有贴图的显示/隐藏状态
+    /// 批量切换当前分组内所有贴图的显示/隐藏状态，返回切换后的可见状态。
     pub fn toggle_current_group_visibility(&mut self) -> bool {
         let any_visible = self
-            .items
+            .entries
             .iter()
-            .any(|it| it.group_id == self.active_group && it.is_visible);
+            .any(|entry| entry.group_id == self.active_group && entry.is_visible);
         let new_state = !any_visible;
 
-        for item in &mut self.items {
-            if item.group_id == self.active_group {
-                item.is_visible = new_state;
+        for entry in &mut self.entries {
+            if entry.group_id == self.active_group {
+                entry.is_visible = new_state;
             }
         }
         new_state
     }
 
-    /// 移除指定 ID 的贴图
-    pub fn remove_paster(&mut self, id: u64) -> Option<PasterItem> {
-        if let Some(idx) = self.items.iter().position(|it| it.id == id) {
-            Some(self.items.remove(idx))
-        } else {
-            None
-        }
-    }
-
-    /// 纳入一个贴图图元项
-    pub fn add_item(&mut self, mut item: PasterItem) {
-        if !self.items.iter().any(|it| it.id == item.id) {
-            item.is_visible = item.group_id == self.active_group;
-            self.items.push(item);
-        }
+    /// 移除指定 ID 的贴图元数据。
+    pub fn remove_paster(&mut self, id: u64) -> bool {
+        let Some(index) = self.entries.iter().position(|entry| entry.id == id) else {
+            return false;
+        };
+        self.entries.remove(index);
+        true
     }
 
     /// 获取当前活动组的贴图数量
     pub fn count_in_active_group(&self) -> usize {
-        self.items
+        self.entries
             .iter()
-            .filter(|it| it.group_id == self.active_group)
+            .filter(|entry| entry.group_id == self.active_group)
             .count()
     }
 }
@@ -149,52 +134,30 @@ mod tests {
 
     #[test]
     fn test_paster_grouping_and_toggle() {
-        let mut mgr = PasterManager::default();
-        let dummy = Pixmap::new(10, 10).unwrap();
+        let mut manager = PasterManager::default();
+        assert!(manager.add_entry(1, 0));
+        assert_eq!(manager.count_in_active_group(), 1);
 
-        let id1 = mgr.add_paster(dummy.clone(), (0, 0));
-        assert_eq!(mgr.count_in_active_group(), 1);
+        manager.switch_group(1);
+        assert_eq!(manager.count_in_active_group(), 0);
+        assert!(manager.add_entry(2, 1));
+        assert_eq!(manager.count_in_active_group(), 1);
 
-        // 切换到分组 1 并添加贴图
-        mgr.switch_group(1);
-        assert_eq!(mgr.count_in_active_group(), 0);
-        let _id2 = mgr.add_paster(dummy.clone(), (10, 10));
-        assert_eq!(mgr.count_in_active_group(), 1);
+        manager.switch_group(0);
+        assert_eq!(manager.count_in_active_group(), 1);
 
-        // 切换回默认分组 0
-        mgr.switch_group(0);
-        assert_eq!(mgr.count_in_active_group(), 1);
+        assert!(!manager.toggle_current_group_visibility());
+        assert!(manager.toggle_current_group_visibility());
 
-        // 批量切换可见性
-        let state = mgr.toggle_current_group_visibility();
-        assert!(!state); // 变为全部隐藏
-        let state = mgr.toggle_current_group_visibility();
-        assert!(state); // 变为全部显示
-
-        mgr.remove_paster(id1);
-        assert_eq!(mgr.count_in_active_group(), 0);
+        assert!(manager.remove_paster(1));
+        assert_eq!(manager.count_in_active_group(), 0);
     }
 
     #[test]
-    fn test_paster_add_item_and_remove() {
-        let mut mgr = PasterManager::default();
-        let dummy = Pixmap::new(10, 10).unwrap();
-        let item1 = PasterItem::new(101, "item_101".to_string(), dummy.clone(), (0, 0));
-        mgr.add_item(item1);
-        assert_eq!(mgr.count_in_active_group(), 1);
-
-        // 添加到非活动组
-        let mut item2 = PasterItem::new(102, "item_102".to_string(), dummy.clone(), (0, 0));
-        item2.group_id = 1;
-        mgr.add_item(item2);
-        assert_eq!(mgr.count_in_active_group(), 1);
-
-        // 切换组
-        mgr.switch_group(1);
-        assert_eq!(mgr.count_in_active_group(), 1);
-
-        // 移除贴图
-        assert!(mgr.remove_paster(102).is_some());
-        assert_eq!(mgr.count_in_active_group(), 0);
+    fn test_duplicate_id_is_rejected() {
+        let mut manager = PasterManager::default();
+        assert!(manager.add_entry(7, 0));
+        assert!(!manager.add_entry(7, 0));
+        assert_eq!(manager.count_in_active_group(), 1);
     }
 }

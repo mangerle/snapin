@@ -2,17 +2,17 @@
 
 use crate::paster::context_menu::ContextMenuState;
 use crate::paster::manager::PasterItem;
-use snapin_core::config::Config;
+use snapin_core::config::{Config, ZoomAnchor};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
-use winit::dpi::PhysicalSize;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::window::Window;
 
 /// 贴图窗口运行时状态
 pub struct PasterWindowState {
     pub item: PasterItem,
     pub should_close: bool,
-    pub should_destroy: bool,
     pub has_shadow: bool,
     pub show_toolbar: bool,
     pub smooth_scaling: bool,
@@ -20,7 +20,7 @@ pub struct PasterWindowState {
     pub context_menu: ContextMenuState,
     pub cursor_pos: (f32, f32),
     pub ui_scale: f32,
-    pub config: Config,
+    pub config: Arc<Config>,
     pub(crate) last_click_time: Option<Instant>,
 }
 
@@ -29,7 +29,6 @@ impl PasterWindowState {
         Self {
             item,
             should_close: false,
-            should_destroy: false,
             has_shadow: true,
             show_toolbar: false,
             smooth_scaling: true,
@@ -37,16 +36,16 @@ impl PasterWindowState {
             context_menu: ContextMenuState::default(),
             cursor_pos: (0.0, 0.0),
             ui_scale: 1.0,
-            config: Config::default(),
+            config: Arc::new(Config::default()),
             last_click_time: None,
         }
     }
 
     /// 根据用户配置初始化贴图状态（注入初始不透明度）
-    pub fn from_config(mut item: PasterItem, cfg: Config) -> Self {
-        item.transform.opacity = cfg.paster.initial_opacity.clamp(0.1, 1.0);
+    pub fn from_config(mut item: PasterItem, config: Arc<Config>) -> Self {
+        item.transform.opacity = config.paster.initial_opacity.clamp(0.1, 1.0);
         let mut state = Self::new(item);
-        state.config = cfg;
+        state.config = config;
         state
     }
 
@@ -98,9 +97,36 @@ impl PasterWindowState {
         apply_window_scale_resize(self, window);
     }
 
-    /// 滚轮平滑缩放并同步调整物理窗口尺寸
+    /// 滚轮平滑缩放，并按配置的光标/中心锚点重新定位窗口。
     pub fn zoom(&mut self, delta: f32, window: &Window) {
+        let old_size = window.inner_size();
+        let old_scale = self.item.transform.scale;
         self.item.transform.zoom(delta);
+        let new_scale = self.item.transform.scale;
+        if (new_scale - old_scale).abs() < f32::EPSILON {
+            return;
+        }
+
+        let base_width = self.item.pixmap.width() as f32;
+        let base_height = self.item.pixmap.height() as f32;
+        let new_width = (base_width * new_scale).max(20.0);
+        let new_height = (base_height * new_scale).max(20.0);
+        let (ratio_x, ratio_y) = zoom_anchor_ratio(
+            self.config.paster.zoom_anchor,
+            self.cursor_pos,
+            old_size.width as f32,
+            old_size.height as f32,
+        );
+
+        if let Ok(position) = window.outer_position() {
+            let delta_x = ((new_width - old_size.width as f32) * ratio_x).round() as i32;
+            let delta_y = ((new_height - old_size.height as f32) * ratio_y).round() as i32;
+            window.set_outer_position(PhysicalPosition::new(
+                position.x - delta_x,
+                position.y - delta_y,
+            ));
+        }
+
         apply_window_scale_resize(self, window);
     }
 
@@ -137,4 +163,44 @@ pub(crate) fn apply_window_scale_resize(state: &PasterWindowState, window: &Wind
     }
 
     let _ = window.request_inner_size(PhysicalSize::new(new_w as u32, new_h as u32));
+}
+
+/// 计算缩放时用于保持锚点稳定的相对位置比例。
+///
+/// - 光标锚点：返回光标在旧窗口尺寸中的相对比例；
+/// - 中心锚点：返回 `(0.5, 0.5)`。
+pub(crate) fn zoom_anchor_ratio(
+    anchor: ZoomAnchor,
+    cursor: (f32, f32),
+    old_width: f32,
+    old_height: f32,
+) -> (f32, f32) {
+    match anchor {
+        ZoomAnchor::Cursor => (
+            (cursor.0 / old_width.max(1.0)).clamp(0.0, 1.0),
+            (cursor.1 / old_height.max(1.0)).clamp(0.0, 1.0),
+        ),
+        ZoomAnchor::Center => (0.5, 0.5),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_zoom_anchor_ratio() {
+        assert_eq!(
+            zoom_anchor_ratio(ZoomAnchor::Cursor, (100.0, 50.0), 400.0, 100.0),
+            (0.25, 0.5)
+        );
+        assert_eq!(
+            zoom_anchor_ratio(ZoomAnchor::Center, (100.0, 50.0), 400.0, 100.0),
+            (0.5, 0.5)
+        );
+        assert_eq!(
+            zoom_anchor_ratio(ZoomAnchor::Cursor, (900.0, 900.0), 400.0, 100.0),
+            (1.0, 1.0)
+        );
+    }
 }

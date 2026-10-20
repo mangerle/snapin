@@ -36,10 +36,6 @@ pub fn dispatch_menu_action(state: &mut PasterWindowState, action: MenuItemId, w
         MenuItemId::PasteFromClipboard => paste_from_clipboard_to_paster(state, window),
         MenuItemId::OpenInFolder => open_paster_in_folder(state),
         MenuItemId::Close => state.should_close = true,
-        MenuItemId::Destroy => {
-            state.should_destroy = true;
-            state.should_close = true;
-        }
     }
 }
 
