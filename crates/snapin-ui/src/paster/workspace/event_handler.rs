@@ -118,7 +118,12 @@ pub fn handle_workspace_window_event(
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                if handle_paster_cursor_move(&mut inst.state, (position.x, position.y)) {
+                let size = inst.window.inner_size();
+                if handle_paster_cursor_move(
+                    &mut inst.state,
+                    (position.x, position.y),
+                    (size.width as f32, size.height as f32),
+                ) {
                     inst.window.request_redraw();
                 }
             }

@@ -24,8 +24,11 @@ use winit::window::Window;
 
 /// 贴图窗口图形表面：优先透明 ARGB8888 共享内存，失败时回退无 alpha 的 softbuffer。
 pub enum PasterSurface {
-    /// 自建 ARGB8888 `wl_shm` 共享内存表面，支持真正的透明像素合成
-    Argb(ArgbShmSurface),
+    /// 自建 ARGB8888 `wl_shm` 共享内存表面，支持真正的透明像素合成。
+    ///
+    /// 装箱保存：该变体内部聚合了事件队列、连接与多个协议代理，直接内联会让整个枚举
+    /// 膨胀到数百字节；装箱后枚举本体与 softbuffer 回退通路相当，便于按值传递与匹配。
+    Argb(Box<ArgbShmSurface>),
     /// softbuffer 兼容回退通路（`Xrgb8888`，无 alpha），仅在 ARGB 初始化失败时启用
     Softbuffer {
         /// 软渲染上下文，供 `surface` 借用；必须与 `surface` 保持相同生命周期
@@ -44,7 +47,7 @@ impl PasterSurface {
     /// [`UiError::Softbuffer`]（含中文原因描述）。
     pub fn new(window: Arc<Window>) -> Result<Self, UiError> {
         match ArgbShmSurface::new(window.clone()) {
-            Ok(surface) => Ok(Self::Argb(surface)),
+            Ok(surface) => Ok(Self::Argb(Box::new(surface))),
             Err(e) => {
                 tracing::warn!(
                     "ARGB8888 共享内存表面初始化失败，已回退 softbuffer 无透明通路（阴影与窗口空白区域将呈现为不透明底色），原因: {e}"
@@ -97,6 +100,25 @@ impl PasterSurface {
             Self::Argb(surface) => surface.present(pixmap),
             Self::Softbuffer { surface, .. } => {
                 crate::surface::blit_pixmap_to_surface(surface, pixmap)
+            }
+        }
+    }
+
+    /// 声明窗口可交互区域，坐标为 surface-local 逻辑像素。
+    ///
+    /// 传空切片等价于“整窗不接受任何输入”。透明扩窗后必须由调用方把图像、
+    /// 工具条与菜单等可见面板的矩形传入，避免透明空白吞掉桌面点击。
+    ///
+    /// # Errors
+    ///
+    /// ARGB 通路下提交 `wl_region` 失败时返回 [`UiError::ShmSurface`]；
+    /// softbuffer 回退通路不涉及输入区域，恒返回 `Ok(())`。
+    pub fn set_input_rects(&mut self, rects: &[(i32, i32, i32, i32)]) -> Result<(), UiError> {
+        match self {
+            Self::Argb(surface) => surface.set_input_rects(rects),
+            Self::Softbuffer { .. } => {
+                // 无透明通路时窗口不参与透明合成，也不存在透明的可点击穿透区域，无需设置输入区域
+                Ok(())
             }
         }
     }

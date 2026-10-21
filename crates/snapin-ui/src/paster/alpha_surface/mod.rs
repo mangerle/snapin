@@ -27,7 +27,9 @@ use std::sync::Arc;
 use tiny_skia::Pixmap;
 use wayland_client::backend::{Backend, ObjectId};
 use wayland_client::globals::{registry_queue_init, GlobalListContents};
-use wayland_client::protocol::{wl_buffer, wl_registry, wl_shm, wl_shm_pool, wl_surface};
+use wayland_client::protocol::{
+    wl_buffer, wl_compositor, wl_region, wl_registry, wl_shm, wl_shm_pool, wl_surface,
+};
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle};
 use winit::window::Window;
 
@@ -74,6 +76,32 @@ impl Dispatch<wl_shm_pool::WlShmPool, ()> for ShmState {
         _qh: &QueueHandle<Self>,
     ) {
         // 当前协议版本的 wl_shm_pool 没有任何事件，此实现仅为满足 Dispatch 契约
+    }
+}
+
+impl Dispatch<wl_compositor::WlCompositor, ()> for ShmState {
+    fn event(
+        _state: &mut Self,
+        _proxy: &wl_compositor::WlCompositor,
+        _event: wl_compositor::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        // wl_compositor 没有事件，此实现仅为满足 Dispatch 契约
+    }
+}
+
+impl Dispatch<wl_region::WlRegion, ()> for ShmState {
+    fn event(
+        _state: &mut Self,
+        _proxy: &wl_region::WlRegion,
+        _event: wl_region::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        // wl_region 没有事件，此实现仅为满足 Dispatch 契约
     }
 }
 
@@ -142,6 +170,8 @@ pub struct ArgbShmSurface {
     surface: wl_surface::WlSurface,
     /// 初始化时绑定的 `wl_shm` 全局对象
     shm: wl_shm::WlShm,
+    /// 初始化时绑定的 `wl_compositor` 全局对象，用于创建输入区域
+    compositor: wl_compositor::WlCompositor,
     /// 本表面专属事件队列，仅承载缓冲区 release 等自有对象的事件
     event_queue: EventQueue<ShmState>,
     /// 事件队列句柄，创建内存池与缓冲区时用于指定事件归属
@@ -242,12 +272,18 @@ impl ArgbShmSurface {
             .map_err(|e| UiError::ShmSurface {
                 message: format!("绑定 wl_shm 全局对象失败: {e}"),
             })?;
+        let compositor = globals
+            .bind::<wl_compositor::WlCompositor, _, _>(&qh, 4..=6, ())
+            .map_err(|e| UiError::ShmSurface {
+                message: format!("绑定 wl_compositor 全局对象失败: {e}"),
+            })?;
         let surface = winit_surface_proxy(&window, &conn)?;
 
         Ok(Self {
             buffers: None,
             surface,
             shm,
+            compositor,
             event_queue,
             qh,
             conn,
@@ -271,6 +307,32 @@ impl ArgbShmSurface {
         checked_wayland_size(width, height)?;
         self.size = (width, height);
         Ok(())
+    }
+
+    /// 用 surface-local 逻辑坐标声明本窗口的可交互区域。
+    ///
+    /// 透明扩窗后若不做限制，Wayland 会把整块表面都当作可点击区域，透明空白
+    /// 会吞掉本应落到桌面的点击。传入空切片时设置一个空 `wl_region`，
+    /// 语义为“整窗不接受任何输入”；每次调用新建区域并在提交后立即销毁，
+    /// 避免长期持有可能过期的矩形集合。
+    ///
+    /// # Errors
+    ///
+    /// 冲刷连接失败时返回 [`UiError::ShmSurface`]；区域创建本身由协议代理完成，
+    /// 提交失败会在下一次派发事件或冲刷时体现。
+    pub fn set_input_rects(&mut self, rects: &[(i32, i32, i32, i32)]) -> Result<(), UiError> {
+        let region = self.compositor.create_region(&self.qh, ());
+        for &(x, y, width, height) in rects {
+            // 非正尺寸矩形对合成器没有意义，直接跳过避免发送无效请求
+            if width > 0 && height > 0 {
+                region.add(x, y, width, height);
+            }
+        }
+        self.surface.set_input_region(Some(&region));
+        region.destroy();
+        self.conn.flush().map_err(|e| UiError::ShmSurface {
+            message: format!("冲刷贴图输入区域请求失败: {e}"),
+        })
     }
 
     /// 将一帧预乘 RGBA 像素提交给合成器显示。

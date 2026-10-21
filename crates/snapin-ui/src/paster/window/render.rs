@@ -5,6 +5,9 @@ use crate::error::UiError;
 use crate::paster::context_menu::render::render_context_menu;
 use crate::paster::surface::PasterSurface;
 use crate::paster::window::annotation::{image_to_screen_point, refresh_toolbar_layout};
+use crate::paster::window::input_region::{
+    compute_input_rects, input_layout_from_state, physical_rects_to_surface,
+};
 use crate::snipper::toolbar::ToolbarItem;
 use crate::snipper::window::annotation_builder::{render_draft_preview, AnnotationDraftParams};
 use snapin_core::render::with_thread_local_text_renderer;
@@ -87,8 +90,8 @@ pub fn render_paster_to_surface(
     // 5. 绘制标注工具栏与右键上下文菜单 (统一复用线程局部高精度文本排版引擎)
     if state.show_toolbar || state.context_menu.is_open {
         if state.show_toolbar {
-            // 与命中测试同源：工具条锚定在缩放后的贴图内部，窗口被菜单撑大时不会飘到透明区域
-            refresh_toolbar_layout(state);
+            // 与命中测试同源：工具条锚定在缩放后的图像正下方，窗口扩容区域保持透明
+            refresh_toolbar_layout(state, width as f32, height as f32);
         }
         with_thread_local_text_renderer(|tr| {
             if state.show_toolbar {
@@ -107,7 +110,16 @@ pub fn render_paster_to_surface(
         });
     }
 
-    // 6. 提交渲染至共享内存表面呈现（ARGB 通路下未被内容覆盖的像素保持透明）
+    // 6. 透明扩窗后按当前布局声明可交互区域，避免空白区域吞掉本应落到桌面的点击。
+    //    布局与光标坐标均为窗口物理像素，提交前统一换算为 Wayland surface-local 逻辑坐标。
+    let input_layout = input_layout_from_state(state, width as f32, height as f32);
+    let physical_rects = compute_input_rects(&input_layout);
+    let surface_rects = physical_rects_to_surface(&physical_rects, state.ui_scale);
+    if let Err(e) = surface.set_input_rects(&surface_rects) {
+        tracing::warn!("更新贴图窗口输入区域失败，透明空白可能拦截桌面点击: {e}");
+    }
+
+    // 7. 提交渲染至共享内存表面呈现（ARGB 通路下未被内容覆盖的像素保持透明）
     surface.present(&target_pixmap)
 }
 

@@ -1,16 +1,17 @@
 //! 贴图标注工具栏配置、坐标映射与工具栏点击分发。
 //!
-//! 贴图窗口复用截图工具栏的布局与渲染实现，但主栏只保留绘制类工具与撤销/重做，
-//! 避免把截图专属的 OCR、翻译、保存、关闭等动作带进贴图场景。
+//! 贴图窗口复用截图工具栏的布局与渲染实现，主栏在绘制工具与撤销/重做之外，
+//! 还提供复制、保存、关闭等贴图动作；OCR 与翻译按钮暂时只占位，等待接入整图服务。
 
+use super::menu_actions::{copy_paster_to_clipboard, save_paster_to_disk};
 use super::state::PasterWindowState;
-use crate::snipper::selection::Rect;
 use crate::snipper::toolbar::{Toolbar, ToolbarItem};
 
-/// 贴图窗口主栏按钮序列：形状、序号、箭头、画笔、荧光笔、马赛克、撤销、重做。
+/// 贴图窗口主栏按钮序列：绘制工具、撤销/重做与贴图动作。
 ///
-/// 不包含文字工具（依赖 IME 输入，需单独实现）以及截图专属的 OCR、翻译、贴图、保存、复制、关闭。
-/// 分隔线由 `metrics::has_separator_before` 按按钮语义自动插入，因此撤销/重做前会有一条分隔线。
+/// 不包含文字工具（依赖 IME 输入，需单独实现）以及截图专属的贴图（ActionPin）按钮。
+/// 分隔线由 `metrics::has_separator_before` 按按钮语义自动插入，
+/// 因此撤销与关闭动作之前各会有一条分隔线。
 pub const PASTER_MAIN_ITEMS: &[ToolbarItem] = &[
     ToolbarItem::ToolRect,
     ToolbarItem::ToolBadge,
@@ -20,13 +21,42 @@ pub const PASTER_MAIN_ITEMS: &[ToolbarItem] = &[
     ToolbarItem::ToolMosaic,
     ToolbarItem::ActionUndo,
     ToolbarItem::ActionRedo,
+    ToolbarItem::ActionClose,
+    ToolbarItem::ActionSave,
+    ToolbarItem::ActionCopy,
 ];
+
+/// 几何工具属性栏的保守预留宽度（界面像素）。
+///
+/// 窗口扩容时按此宽度为二级属性栏留出横向空间；当前主栏 13 个按钮的总宽更大，
+/// 实际窗口宽度通常仍由主栏决定。抽成常量是为了以后增删属性控件时只需调整一处。
+const SUB_BAR_MAX_WIDTH: f32 = 400.0;
+
+/// 二级属性栏在工具条上方占用的高度（面板 36 + 与主栏间距 4，界面像素）。
+///
+/// 主栏必须下移这段距离，属性栏才能从主栏上方展开而不遮挡缩放后的图像。
+const SUB_BAR_RESERVE: f32 = 40.0;
 
 /// 创建贴图专用工具栏。
 pub(crate) fn create_paster_toolbar() -> Toolbar {
     let mut toolbar = Toolbar::default();
     toolbar.main_items = PASTER_MAIN_ITEMS;
     toolbar
+}
+
+/// 计算显示标注工具条时窗口需要的最小宽度与图像下方的额外高度。
+///
+/// 返回值中的宽度是窗口整体最小宽度（图像较窄时会据此扩宽窗口），
+/// 高度只是「图像底部以下」所需的增量，由调用方叠加到缩放后的图像高度上。
+/// 宽度需同时容纳主栏与二级属性栏，高度需覆盖属性栏预留区、主栏本身与上下边距。
+///
+/// 抽成纯函数既方便对多种界面倍率做单元测试，也避免布局与窗口扩容各自维护一套常量。
+pub(crate) fn toolbar_required_extent(ui_scale: f32, main_w: f32, main_h: f32) -> (f32, f32) {
+    let ui_scale = ui_scale.max(0.1);
+    let margin = 8.0 * ui_scale;
+    let width = (main_w + margin * 2.0).max(SUB_BAR_MAX_WIDTH * ui_scale + margin * 2.0);
+    let height = margin + SUB_BAR_RESERVE * ui_scale + main_h + margin;
+    (width, height)
 }
 
 /// 将窗口屏幕坐标换算为图像像素坐标，并夹取到图像范围内。
@@ -65,43 +95,43 @@ pub(crate) fn is_point_inside_image(pos: (f32, f32), scale: f32, width: u32, hei
 
 /// 按当前图像尺寸、缩放与界面倍率刷新工具栏布局。
 ///
-/// 工具栏锚定在「缩放后的图像」左下角内部：窗口可能因右键菜单被临时撑大，
-/// 若按窗口尺寸摆放，工具条会漂移到图像之外的透明区域。左侧与底部各留 8 个界面像素。
+/// 工具条锚定在「缩放后的图像」正下方：`x` 固定为左边距，`y` 为图像底边加上
+/// 二级属性栏预留高度。贴图窗口会按 [`toolbar_required_extent`] 扩宽并加高，
+/// 因此小贴图上的工具条不会再被窗口边缘裁掉；透明扩容区域不会渲染任何像素。
 ///
-/// 之所以选择左下而不是右下：二级属性栏固定从主栏左端向右展开，
-/// 而贴图主栏按钮比截图精简、总宽度小于二级栏，靠右摆放会让色板等控件溢出图像被裁掉；
-/// 靠左摆放能为向右展开的二级栏留出最大可用空间。
-pub(crate) fn refresh_toolbar_layout(state: &mut PasterWindowState) {
+/// 始终左对齐：二级属性栏从主栏左端向右展开，靠左摆放能为属性栏与下拉菜单
+/// 留出最大可用空间；窗口宽度不足时由窗口扩容兜底，而不是把工具条压缩或右移。
+pub(crate) fn refresh_toolbar_layout(
+    state: &mut PasterWindowState,
+    window_width: f32,
+    window_height: f32,
+) {
     let ui_scale = state.ui_scale.max(0.1);
     state.toolbar.ui_scale = ui_scale;
 
     let scale = state.item.transform.scale.max(f32::EPSILON);
-    let scaled_w = (state.item.pixmap.width() as f32 * scale).max(1.0);
     let scaled_h = (state.item.pixmap.height() as f32 * scale).max(1.0);
     let margin = 8.0 * ui_scale;
-    let bar_w = state.toolbar.main_width();
-    let bar_h = state.toolbar.main_height();
+    let bar_x = margin;
+    let bar_y = scaled_h + margin + SUB_BAR_RESERVE * ui_scale;
 
-    // selection 的右边界即主栏左边界 + 主栏宽度，因此把 selection.x 设为左边距即可实现左对齐；
-    // 底部则让主栏底边距图像底边 8 个界面像素。
-    let selection = Rect {
-        x: margin,
-        y: 0.0,
-        width: bar_w,
-        height: (scaled_h - margin * 2.0 - bar_h).max(0.0),
-    };
-    state.toolbar.update_layout(&selection, scaled_w, scaled_h);
+    // 先更新窗口边界，place_main_bar 内部的属性栏布局才能按正确的屏幕尺寸避让
+    state
+        .toolbar
+        .set_screen_bounds(window_width.max(1.0), window_height.max(1.0));
+    state.toolbar.place_main_bar(bar_x, bar_y);
 }
 
 /// 检测并处理贴图标注工具栏的点击，返回是否已消费本次点击。
 ///
-/// 命中范围包含主栏、二级属性栏与展开的下拉菜单；动作按钮目前只有撤销与重做，
-/// 其余绘制工具由工具栏内部自行切换激活状态。
-pub(crate) fn handle_toolbar_click(state: &mut PasterWindowState) -> bool {
+/// 命中范围包含主栏、二级属性栏与展开的下拉菜单；绘制工具由工具栏内部切换激活状态，
+/// 撤销/重做、复制、保存、关闭等动作在此分发。OCR 与翻译按钮本轮只占位，
+/// 点击时吞掉事件但不执行任何动作，避免误落到画布上。
+pub(crate) fn handle_toolbar_click(state: &mut PasterWindowState, window_size: (f32, f32)) -> bool {
     if !state.show_toolbar {
         return false;
     }
-    refresh_toolbar_layout(state);
+    refresh_toolbar_layout(state, window_size.0, window_size.1);
 
     let (cx, cy) = state.cursor_pos;
     if !state.toolbar.contains_point(cx, cy) {
@@ -116,6 +146,9 @@ pub(crate) fn handle_toolbar_click(state: &mut PasterWindowState) -> bool {
             ToolbarItem::ActionRedo => {
                 state.redo_annotation();
             }
+            ToolbarItem::ActionCopy => copy_paster_to_clipboard(&state.item),
+            ToolbarItem::ActionSave => save_paster_to_disk(state),
+            ToolbarItem::ActionClose => state.should_close = true,
             _ => {}
         }
     }
@@ -285,6 +318,108 @@ mod tests {
             state.item.pixmap.data(),
             two_stroke_pixels.as_slice(),
             "重做后图像应恢复两笔标注"
+        );
+    }
+
+    /// 贴图主栏必须包含复制、保存、关闭动作，且不得混入截图专属的文字与贴图按钮
+    #[test]
+    fn 贴图主栏包含动作按钮且排除截图专属项() {
+        let expected = [
+            ToolbarItem::ToolRect,
+            ToolbarItem::ToolBadge,
+            ToolbarItem::ToolArrow,
+            ToolbarItem::ToolPen,
+            ToolbarItem::ToolMarker,
+            ToolbarItem::ToolMosaic,
+            ToolbarItem::ActionUndo,
+            ToolbarItem::ActionRedo,
+            ToolbarItem::ActionClose,
+            ToolbarItem::ActionSave,
+            ToolbarItem::ActionCopy,
+        ];
+        assert_eq!(PASTER_MAIN_ITEMS, &expected);
+
+        for action in [
+            ToolbarItem::ActionClose,
+            ToolbarItem::ActionSave,
+            ToolbarItem::ActionCopy,
+        ] {
+            assert!(
+                PASTER_MAIN_ITEMS.contains(&action),
+                "主栏应包含动作按钮 {action:?}"
+            );
+        }
+        assert!(
+            !PASTER_MAIN_ITEMS.contains(&ToolbarItem::ActionPin),
+            "贴图窗口不应出现“贴图置顶”按钮"
+        );
+        assert!(
+            !PASTER_MAIN_ITEMS.contains(&ToolbarItem::ToolText),
+            "本轮主栏不应混入文字工具"
+        );
+    }
+
+    /// 工具条所需尺寸在 1.0 与 1.67 倍率下按界面像素等比缩放
+    #[test]
+    fn 工具条所需尺寸随界面倍率缩放() {
+        let mut toolbar = create_paster_toolbar();
+        let mut baseline: Option<(f32, f32)> = None;
+        for scale in [1.0f32, 1.67] {
+            toolbar.ui_scale = scale;
+            let main_w = toolbar.main_width();
+            let main_h = toolbar.main_height();
+            let (width, height) = toolbar_required_extent(scale, main_w, main_h);
+
+            assert!(width >= main_w, "扩窗宽度必须容纳主栏：{width} < {main_w}");
+            assert!(
+                height >= main_h,
+                "扩窗高度必须容纳主栏：{height} < {main_h}"
+            );
+
+            match baseline {
+                None => baseline = Some((width, height)),
+                Some((base_w, base_h)) => {
+                    let ratio = scale / 1.0;
+                    assert!(
+                        (width / base_w - ratio).abs() < 0.01,
+                        "宽度应按界面倍率线性缩放：{width} / {base_w} 不等于 {ratio}"
+                    );
+                    assert!(
+                        (height / base_h - ratio).abs() < 0.01,
+                        "高度应按界面倍率线性缩放：{height} / {base_h} 不等于 {ratio}"
+                    );
+                }
+            }
+        }
+
+        // 主栏较窄时窗口宽度由属性栏预留宽度兜底
+        assert_eq!(toolbar_required_extent(1.0, 100.0, 40.0), (416.0, 96.0));
+    }
+
+    /// 小贴图上工具条必须整体落在图像下方，属性栏位于主栏上方且不遮挡图像
+    #[test]
+    fn 工具条锚定在图像下方() {
+        let mut state = test_state(140, 80);
+        state.ui_scale = 1.0;
+        state.show_toolbar = true;
+        state.toolbar.active_tool = Some(ToolbarItem::ToolRect);
+
+        refresh_toolbar_layout(&mut state, 508.0, 180.0);
+
+        assert_eq!(state.toolbar.main_rect.x, 8.0);
+        assert_eq!(
+            state.toolbar.main_rect.y, 128.0,
+            "主栏应位于图像底边 8 像素与属性栏预留 40 像素之下"
+        );
+        let sub = state.toolbar.sub_rect.expect("矩形工具应展开属性栏");
+        assert!(
+            sub.y >= 80.0,
+            "属性栏不得覆盖缩放后的图像，实际 y: {}",
+            sub.y
+        );
+        assert!(
+            state.toolbar.main_rect.y + state.toolbar.main_rect.height <= 180.0 - 8.0,
+            "主栏底边应留出 8 像素下边距"
         );
     }
 }

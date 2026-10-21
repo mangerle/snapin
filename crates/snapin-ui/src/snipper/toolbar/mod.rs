@@ -112,6 +112,30 @@ impl Toolbar {
         self.update_sub_rect();
     }
 
+    /// 直接指定主栏面板左上角位置，不参与选区自适应避让。
+    ///
+    /// 截图工具栏由 [`Self::update_layout`] 根据选区与屏幕边界自动摆放；
+    /// 贴图窗口则需要把工具条精确锚定在缩放后图像的下方，位置完全由调用方计算。
+    /// 这里直接写入 `main_rect` 并复用 [`Self::update_sub_rect`] 重新定位二级属性栏，
+    /// 保证命中测试、渲染与下拉菜单避让共用同一份布局结果。
+    pub fn place_main_bar(&mut self, x: f32, y: f32) {
+        self.main_rect = Rect {
+            x,
+            y,
+            width: self.main_width(),
+            height: self.main_height(),
+        };
+        self.update_sub_rect();
+    }
+
+    /// 设置窗口（屏幕）可用宽高，供二级栏下拉菜单做边缘避让。
+    ///
+    /// 贴图窗口尺寸会随图像、工具条与右键菜单动态变化，必须在重新摆放主栏前更新；
+    /// 否则下拉菜单仍按上一帧的窗口边界翻转，可能被窗口边缘裁掉。
+    pub fn set_screen_bounds(&mut self, width: f32, height: f32) {
+        self.screen_size = (width, height);
+    }
+
     /// 主栏面板宽度（由当前 `main_items` 与界面缩放倍率共同决定）。
     ///
     /// 贴图窗口需要把工具栏锚定在图像内部，必须提前知道面板宽度才能摆放；
@@ -145,6 +169,14 @@ impl Toolbar {
     /// 当前二级栏布局（供渲染层读取控件热区）
     pub(crate) fn sub_layout(&self) -> Option<&SubLayout> {
         self.sub_layout.as_ref()
+    }
+
+    /// 当前展开下拉菜单的面板矩形（供窗口输入区域计算使用）。
+    pub(crate) fn dropdown_rect(&self) -> Option<Rect> {
+        self.sub_layout
+            .as_ref()
+            .and_then(|layout| layout.dropdown.as_ref())
+            .map(|dropdown| dropdown.rect)
     }
 
     /// 切换当前工具并收敛下拉菜单状态

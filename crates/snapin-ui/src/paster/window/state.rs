@@ -2,7 +2,9 @@
 
 use crate::paster::context_menu::ContextMenuState;
 use crate::paster::manager::PasterItem;
-use crate::paster::window::annotation::{create_paster_toolbar, screen_to_image_point};
+use crate::paster::window::annotation::{
+    create_paster_toolbar, screen_to_image_point, toolbar_required_extent,
+};
 use crate::snipper::toolbar::{Toolbar, ToolbarItem};
 use crate::snipper::window::annotation_builder::{build_shape, AnnotationDraftParams};
 use snapin_core::annotation::AnnotationHistory;
@@ -168,14 +170,18 @@ impl PasterWindowState {
         apply_window_scale_resize(self, window);
     }
 
-    /// 显示/隐藏标注工具栏；隐藏时退出绘制模式，避免用户在没有工具条提示时误画。
-    pub fn set_toolbar_visible(&mut self, visible: bool) {
+    /// 显示/隐藏标注工具栏，并让窗口尺寸跟随工具条扩缩。
+    ///
+    /// 显示时窗口需要在图像下方额外容纳属性栏与主栏；隐藏时恢复为贴近图像的尺寸。
+    /// 隐藏同时退出绘制模式，避免用户在没有工具条提示时误画。
+    pub fn set_toolbar_visible(&mut self, visible: bool, window: &Window) {
         self.show_toolbar = visible;
         if !visible {
             self.toolbar.active_tool = None;
             self.pending_stroke_points.clear();
             self.is_drawing = false;
         }
+        apply_window_scale_resize(self, window);
     }
 
     /// 判断屏幕坐标是否落在缩放后的图像内部（边框画在图像内部，不占布局，故直接用图像尺寸换算）。
@@ -308,13 +314,30 @@ impl PasterWindowState {
     }
 }
 
-/// 重新计算并应用根据缩放比例与右键菜单展开状态调整后的窗口尺寸
-pub(crate) fn apply_window_scale_resize(state: &PasterWindowState, window: &Window) {
+/// 重新计算并应用根据缩放比例、工具条与右键菜单展开状态调整后的窗口尺寸。
+///
+/// 工具条显示时窗口会在图像下方扩容：宽度需同时容纳主栏与属性栏，
+/// 高度叠加属性栏预留、主栏高度与上下边距。扩容区域在 ARGB8888 通路上是透明的，
+/// 因此不会影响贴图观感；右键菜单所需尺寸与之取最大值，两者互不覆盖。
+pub(crate) fn apply_window_scale_resize(state: &mut PasterWindowState, window: &Window) {
     let base_w = state.item.pixmap.width() as f32;
     let base_h = state.item.pixmap.height() as f32;
     let scale = state.item.transform.scale;
     let mut new_w = (base_w * scale).max(20.0);
     let mut new_h = (base_h * scale).max(20.0);
+
+    if state.show_toolbar {
+        // 工具条度量以 state.ui_scale 为准：首次在 HiDPI 屏上打开工具条时，
+        // toolbar.ui_scale 可能仍是初始的 1.0，先同步避免按过期倍率扩容不足。
+        state.toolbar.ui_scale = state.ui_scale.max(0.1);
+        let (req_w, req_h) = toolbar_required_extent(
+            state.ui_scale,
+            state.toolbar.main_width(),
+            state.toolbar.main_height(),
+        );
+        new_w = new_w.max(req_w);
+        new_h += req_h;
+    }
 
     // 若当前正在展示右键菜单，确保窗口物理尺寸足以容纳菜单而不被截断
     if state.context_menu.is_open {

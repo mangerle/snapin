@@ -2,6 +2,7 @@
 
 pub mod annotation;
 pub mod events;
+mod input_region;
 pub mod menu_actions;
 pub mod render;
 pub mod state;

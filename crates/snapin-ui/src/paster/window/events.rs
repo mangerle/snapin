@@ -60,7 +60,11 @@ pub fn handle_paster_key(
 }
 
 /// 处理鼠标移动事件：拖拽标注期间优先更新笔迹，否则处理工具栏悬停与右键菜单。
-pub fn handle_paster_cursor_move(state: &mut PasterWindowState, pos: (f64, f64)) -> bool {
+pub fn handle_paster_cursor_move(
+    state: &mut PasterWindowState,
+    pos: (f64, f64),
+    window_size: (f32, f32),
+) -> bool {
     state.cursor_pos = (pos.0 as f32, pos.1 as f32);
 
     if state.is_drawing {
@@ -68,7 +72,7 @@ pub fn handle_paster_cursor_move(state: &mut PasterWindowState, pos: (f64, f64))
     }
 
     let toolbar_hover_changed = if state.show_toolbar {
-        refresh_toolbar_layout(state);
+        refresh_toolbar_layout(state, window_size.0, window_size.1);
         state
             .toolbar
             .handle_mouse_move(state.cursor_pos.0, state.cursor_pos.1)
@@ -169,7 +173,8 @@ fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
     }
 
     // 工具条命中优先于标注起点，避免点击按钮时误落笔
-    if handle_toolbar_click(state) {
+    let win_size = window.inner_size();
+    if handle_toolbar_click(state, (win_size.width as f32, win_size.height as f32)) {
         return true;
     }
 
