@@ -56,25 +56,41 @@ fn probe_desktop_environment() -> (bool, String) {
     (is_wayland, desktop)
 }
 
-/// 快速轻量探测 GNOME Shell 扩展是否在 D-Bus 上导出服务并正常应答
+/// 快速轻量探测 GNOME Shell 扩展是否真正导出了 Snapin 特权接口。
+///
+/// 不能用 `Peer.Ping`：它只验证对象路径存在，扩展被停用后 shell 仍会在导出树里保留该节点，
+/// 于是探测报告"在线"而 `PlaceWindowByTitle` 实际返回 UnknownMethod，贴图静默失去定位能力。
+/// 改为请求接口自省并要求自省结果里出现本扩展的接口名，只有接口真的导出才算在线。
 async fn probe_gnome_extension() -> bool {
     let Ok(connection) = get_session_connection().await else {
         return false;
     };
 
-    let probe_fut = connection.call_method(
-        Some("org.gnome.Shell"),
-        "/org/gnome/Shell/Extensions/Snapin",
-        Some("org.freedesktop.DBus.Peer"),
-        "Ping",
-        &(),
-    );
+    let probe_fut = async {
+        let reply = connection
+            .call_method(
+                Some("org.gnome.Shell"),
+                "/org/gnome/Shell/Extensions/Snapin",
+                Some("org.freedesktop.DBus.Introspectable"),
+                "Introspect",
+                &(),
+            )
+            .await
+            .ok()?;
+        let (xml,): (String,) = reply.body().deserialize().ok()?;
+        Some(xml_declares_snapin_interface(&xml))
+    };
 
     // 限制在 300 毫秒内响应，避免 D-Bus 未就绪导致阻塞
     matches!(
         tokio::time::timeout(Duration::from_millis(300), probe_fut).await,
-        Ok(Ok(_))
+        Ok(Some(true))
     )
+}
+
+/// 判断接口自省 XML 中是否声明了 Snapin 特权接口
+fn xml_declares_snapin_interface(xml: &str) -> bool {
+    xml.contains("org.gnome.Shell.Extensions.Snapin")
 }
 
 static GLOBAL_CAPABILITIES: OnceLock<RwLock<Arc<PlatformCapabilities>>> = OnceLock::new();
@@ -131,6 +147,17 @@ mod tests {
         // 确认不会触发 panic 且返回了有效字符串
         assert!(!desktop.is_empty());
         let _ = is_wayland;
+    }
+
+    /// 空节点（扩展已停用但路径仍在）必须判为离线，接口已导出才判为在线
+    #[test]
+    fn test_interface_probe_rejects_empty_node() {
+        assert!(!xml_declares_snapin_interface(
+            "node /org/gnome/Shell/Extensions/Snapin {\n};"
+        ));
+        let exported = r#"<node><interface name="org.gnome.Shell.Extensions.Snapin">
+            <method name="PlaceWindowByTitle"/></interface></node>"#;
+        assert!(xml_declares_snapin_interface(exported));
     }
 
     #[test]
