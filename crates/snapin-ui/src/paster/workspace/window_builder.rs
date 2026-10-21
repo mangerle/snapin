@@ -4,6 +4,7 @@ use super::super::manager::{PasterItem, PasterManager};
 use super::super::window::events::PasterWindowState;
 use super::proxy::PasterAppEvent;
 use crate::error::UiError;
+use crate::paster::surface::PasterSurface;
 use snapin_core::config::Config;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,8 +17,7 @@ use winit::window::{Window, WindowBuilder, WindowId};
 pub struct PasterInstance {
     pub item_id: u64,
     pub window: Arc<Window>,
-    pub _context: softbuffer::Context<Arc<Window>>,
-    pub surface: softbuffer::Surface<Arc<Window>, Arc<Window>>,
+    pub surface: PasterSurface,
     pub state: PasterWindowState,
 }
 
@@ -50,14 +50,8 @@ pub fn create_new_paster_window(
             })?,
     );
 
-    let context = softbuffer::Context::new(window.clone()).map_err(|e| UiError::Softbuffer {
-        message: format!("初始化贴图软渲染上下文失败: {e}"),
-    })?;
-
-    let surface =
-        softbuffer::Surface::new(&context, window.clone()).map_err(|e| UiError::Softbuffer {
-            message: format!("创建贴图软渲染帧缓冲表面失败: {e}"),
-        })?;
+    // 图形表面优先走支持透明像素的 ARGB8888 共享内存通路，失败时内部回退 softbuffer
+    let surface = PasterSurface::new(window.clone())?;
 
     let scale_factor = window.scale_factor() as f32;
     let auto_scale = if scale_factor > 0.0 {
@@ -79,7 +73,6 @@ pub fn create_new_paster_window(
     let instance = PasterInstance {
         item_id,
         window,
-        _context: context,
         surface,
         state,
     };

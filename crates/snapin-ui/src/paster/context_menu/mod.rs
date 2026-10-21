@@ -51,8 +51,9 @@ impl ContextMenuState {
     /// 菜单完整展开所需的最小窗口尺寸（绝对占位，与光标位置无关）。
     ///
     /// 旧实现按"光标坐标 + 菜单宽高"返回，完全忽略了 `open_at` 会向左/上翻转避让，
-    /// 导致贴图明明比菜单大得多、只要在右下角右键就把窗口无谓撑大；而贴图窗口的
-    /// softbuffer 后端在 Wayland 下只支持 Xrgb8888（无 alpha），被撑出的空区域会直接显示黑色。
+    /// 导致贴图明明比菜单大得多、只要在右下角右键就把窗口无谓撑大；
+    /// 撑出的空区域既增加重绘与合成开销，也会拦截本应落到桌面的鼠标事件
+    /// （透明像素同样参与 Wayland 表面输入命中）。
     pub fn required_menu_extent(&self, main_items: &[MenuItem]) -> (f32, f32) {
         let s = self.ui_scale;
         let total_h = Self::items_total_height(main_items, self.item_height, s);

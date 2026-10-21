@@ -3,12 +3,9 @@
 use super::events::PasterWindowState;
 use crate::error::UiError;
 use crate::paster::context_menu::render::render_context_menu;
-use crate::surface::blit_pixmap_to_surface;
+use crate::paster::surface::PasterSurface;
 use snapin_core::render::{with_thread_local_text_renderer, TextRenderer};
-use std::num::NonZeroU32;
-use std::sync::Arc;
 use tiny_skia::{Color, FilterQuality, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform};
-use winit::window::Window;
 
 /// 创建开启抗锯齿的基础画笔
 fn make_paint(color: Color) -> Paint<'static> {
@@ -20,34 +17,41 @@ fn make_paint(color: Color) -> Paint<'static> {
     paint
 }
 
+/// 判定当前帧是否需要为被撑大的窗口空白区域铺设不透明底色。
+///
+/// 输入依次为：呈现通路是否支持透明合成、右键上下文菜单是否展开、窗口是否大于缩放后的贴图尺寸。
+/// 仅当三者同时成立（回退到无 alpha 的通路 + 菜单把窗口撑大）时返回 `true`：
+/// ARGB8888 通路下扩容区域本就是全透明像素，涂抹反而会遮掉透明效果；
+/// 无 alpha 的 softbuffer 通路下不涂抹则会让空白区域露出黑色。
+/// 抽成纯函数是为了脱离真实 Wayland 连接对四种组合做完整单元测试。
+fn needs_opaque_backdrop(transparent: bool, menu_open: bool, window_exceeds_image: bool) -> bool {
+    !transparent && menu_open && window_exceeds_image
+}
+
 /// 根据几何变换矩阵将贴图图元、精致边框、阴影及右键菜单光栅化到目标表面
 pub fn render_paster_to_surface(
     state: &mut PasterWindowState,
-    surface: &mut softbuffer::Surface<Arc<Window>, Arc<Window>>,
+    surface: &mut PasterSurface,
     width: u32,
     height: u32,
 ) -> Result<(), UiError> {
-    let w = NonZeroU32::new(width.max(1)).ok_or_else(|| UiError::Softbuffer {
-        message: "无效的贴图表面宽度".to_string(),
-    })?;
-    let h = NonZeroU32::new(height.max(1)).ok_or_else(|| UiError::Softbuffer {
-        message: "无效的贴图表面高度".to_string(),
-    })?;
-
-    surface.resize(w, h).map_err(|e| UiError::Softbuffer {
-        message: format!("调整贴图帧缓冲尺寸失败: {e}"),
-    })?;
+    surface.resize(width, height)?;
 
     let mut target_pixmap =
         Pixmap::new(width, height).ok_or(UiError::PixmapAlloc { width, height })?;
 
-    // 右键菜单放不下时窗口会被临时撑大。softbuffer 的 Wayland 后端只支持 Xrgb8888（无 alpha），
-    // 未被图像覆盖的区域若不涂抹就会呈现纯黑，因此这里先铺一层与菜单卡片一致的浅色底。
+    // 右键菜单放不下时窗口会被临时撑大：ARGB8888 通路下扩容区域本就是全透明像素，无需涂抹
+    // （涂抹反而会遮掉透明效果）；只有回退到无 alpha 的 softbuffer 通路（Xrgb8888）时，
+    // 未被内容覆盖的区域若不涂抹就会呈现纯黑，因此仅在回退通路上铺一层与菜单卡片一致的浅色底。
     let scale = state.item.transform.scale;
     let scaled_w = (state.item.pixmap.width() as f32 * scale).max(1.0);
     let scaled_h = (state.item.pixmap.height() as f32 * scale).max(1.0);
     let window_exceeds_image = (width as f32) > scaled_w + 0.5 || (height as f32) > scaled_h + 0.5;
-    if state.context_menu.is_open && window_exceeds_image {
+    if needs_opaque_backdrop(
+        surface.supports_transparency(),
+        state.context_menu.is_open,
+        window_exceeds_image,
+    ) {
         target_pixmap.fill(Color::from_rgba8(241, 245, 249, 255));
     }
 
@@ -102,8 +106,8 @@ pub fn render_paster_to_surface(
         });
     }
 
-    // 5. 提交渲染至 softbuffer 显存呈现
-    blit_pixmap_to_surface(surface, &target_pixmap)
+    // 5. 提交渲染至共享内存表面呈现（ARGB 通路下未被内容覆盖的像素保持透明）
+    surface.present(&target_pixmap)
 }
 
 /// 绘制贴图边缘微反光边框与立体阴影
@@ -238,4 +242,34 @@ fn render_paster_toolbar(
         font_size,
         Color::from_rgba8(240, 243, 250, 255),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::needs_opaque_backdrop;
+
+    /// 底色铺设判定必须在“无透明通路 + 菜单展开 + 窗口超出缩放后贴图”三者同时成立时为真
+    #[test]
+    fn 底色铺设判定四种组合() {
+        // 组合一：ARGB 通路支持透明合成，扩容区域保持全透明，不得涂抹
+        assert!(
+            !needs_opaque_backdrop(true, true, true),
+            "支持透明的通路下窗口被撑大时无需铺设底色"
+        );
+        // 组合二：softbuffer 回退通路且菜单把窗口撑大，不铺底会露黑，必须涂抹
+        assert!(
+            needs_opaque_backdrop(false, true, true),
+            "无 alpha 的回退通路下窗口被撑大时必须铺设不透明底色"
+        );
+        // 组合三：回退通路但菜单未展开，窗口与贴图尺寸一致，不存在扩容出来的空白区域
+        assert!(
+            !needs_opaque_backdrop(false, false, true),
+            "菜单未展开时不存在扩容区域，无需铺设底色"
+        );
+        // 组合四：回退通路且菜单已展开，但窗口未超出缩放后的贴图，没有空白区域
+        assert!(
+            !needs_opaque_backdrop(false, true, false),
+            "窗口未超出缩放后贴图尺寸时无需铺设底色"
+        );
+    }
 }

@@ -18,8 +18,15 @@ chrono.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 arboard.workspace = true
-rustix.workspace = true
+# rustix 追加 fs 能力：贴图 ARGB8888 通路需要 memfd_create 与 fcntl 密封共享内存
+rustix = { workspace = true, features = ["fs"] }
 thiserror.workspace = true
+
+# 贴图 ARGB8888 共享内存呈现通路（照 softbuffer 做法接入 winit 的 wl_display 与 wl_surface）
+wayland-client = "0.31"
+wayland-backend = { version = "0.3", features = ["client_system"] }
+raw-window-handle = "0.6"
+memmap2 = "0.9"
 
 [dev-dependencies]
 tempfile.workspace = true

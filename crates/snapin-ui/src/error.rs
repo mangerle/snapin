@@ -1,7 +1,7 @@
 //! Snapin UI 视图与窗口渲染层领域错误模型。
 //!
-//! 封装 Wayland 窗口生命周期、事件循环初始化、softbuffer 共享内存帧缓冲操作
-//! 以及像素内存缓冲分配异常。
+//! 封装 Wayland 窗口生命周期、事件循环初始化、softbuffer 共享内存帧缓冲操作、
+//! ARGB8888 共享内存表面（贴图透明通路）以及像素内存缓冲分配异常。
 
 use snapin_core::error::CoreError;
 use thiserror::Error;
@@ -16,6 +16,10 @@ pub enum UiError {
     /// 帧缓冲分配与渲染呈现异常
     #[error("softbuffer 共享内存帧缓冲操作失败，描述: {message}")]
     Softbuffer { message: String },
+
+    /// ARGB8888 共享内存表面异常（memfd 创建、共享内存映射、wl_shm 协议对象交互失败）
+    #[error("ARGB8888 共享内存表面操作失败，描述: {message}")]
+    ShmSurface { message: String },
 
     /// Pixmap 像素内存缓冲分配失败
     #[error("分配像素内存缓冲失败，宽度: {width}，高度: {height}")]

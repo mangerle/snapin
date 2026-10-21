@@ -63,7 +63,8 @@ fn test_text_renderer_draws_pixels() {
 /// 回归：菜单所需窗口尺寸必须是绝对占位，不得叠加光标坐标。
 ///
 /// 旧实现返回 `(光标x + 菜单宽, 光标y + 菜单高)`，只要在贴图右下角右键就会把窗口无谓撑大；
-/// 而贴图窗口的 softbuffer 后端在 Wayland 下只有 Xrgb8888（无 alpha），撑出的空区域会渲染成纯黑。
+/// 撑出的空区域既增加重绘与合成开销，也会拦截本应落到桌面的鼠标事件
+/// （透明像素同样参与 Wayland 表面输入命中）。
 #[test]
 fn test_required_menu_extent_is_cursor_independent() {
     let menu = ContextMenuState::default();
