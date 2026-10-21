@@ -136,10 +136,14 @@ pub fn extract_bounding_boxes(
             let mut y1 = (max_y + 1) as f32 * scale_y;
 
             // 近似 PaddleOCR 的 unclip 外扩，避免紧贴文字边缘裁切掉笔画。
+            //
+            // 概率图是训练时按字高比例收缩过的文本核，外扩距离必须随文本尺寸线性增长：
+            // 长条文本的面积/周长约为字高的一半，乘以 unclip_ratio 后即为每侧需要恢复的
+            // 缩放量。这里严禁给距离设置固定像素上限，否则大字号文本只有字心被扩回，
+            // 上下缘笔画仍留在框外，原位翻译的擦除矩形便盖不干净原文。
             let width = x1 - x0;
             let height = y1 - y0;
-            let distance =
-                (width * height * params.unclip_ratio / (2.0 * (width + height))).clamp(0.0, 16.0);
+            let distance = width * height * params.unclip_ratio / (2.0 * (width + height));
             x0 = (x0 - distance).max(0.0);
             y0 = (y0 - distance).max(0.0);
             x1 = (x1 + distance).min(orig_w as f32);
@@ -226,6 +230,44 @@ mod tests {
         assert!((bbox.2 - 40.0).abs() < 2.0);
         assert!((bbox.3 - 20.0).abs() < 2.0);
         assert!(boxes[0].score > 0.85);
+    }
+
+    /// 大字号文本的外扩距离必须随尺寸增长，不能被固定像素上限截断，
+    /// 否则原位翻译擦除矩形只覆盖字心，笔画边缘会残留在原图上。
+    #[test]
+    fn test_large_text_box_unclip_scales_with_text_size() {
+        let (map_w, map_h) = (300usize, 200usize);
+        let mut map = vec![0.0f32; map_w * map_h];
+        for y in 60..100 {
+            for x in 50..190 {
+                map[y * map_w + x] = 0.9;
+            }
+        }
+
+        let boxes = extract_bounding_boxes(&map, map_w, map_h, 300, 200, &Default::default());
+        assert_eq!(boxes.len(), 1);
+
+        // 收缩核为 140x40，理论外扩距离约 21.8px，明显超过旧实现的 16px 上限
+        let margin = 140.0 * 40.0 * DbPostProcessParams::default().unclip_ratio / (2.0 * 180.0);
+        let (x, y, w, h) = boxes[0].bbox;
+        assert!(
+            (x - (50.0 - margin)).abs() < 1.0,
+            "实际 x={x}，期望边距 {margin}"
+        );
+        assert!(
+            (y - (60.0 - margin)).abs() < 1.0,
+            "实际 y={y}，期望边距 {margin}"
+        );
+        assert!(
+            (w - (140.0 + 2.0 * margin)).abs() < 2.0,
+            "实际宽度 {w}，期望 {}",
+            140.0 + 2.0 * margin
+        );
+        assert!(
+            (h - (40.0 + 2.0 * margin)).abs() < 2.0,
+            "实际高度 {h}，期望 {}",
+            40.0 + 2.0 * margin
+        );
     }
 
     #[test]
