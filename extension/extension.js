@@ -170,11 +170,45 @@ export default class SnapinHelperExtension extends Extension {
      */
     _moveWindowByPhysical(metaWin, x, y) {
         if (typeof metaWin.move_frame !== 'function') return;
-        let scale = 1;
-        if (typeof metaWin.get_scale_factor === 'function') {
-            scale = metaWin.get_scale_factor() || 1;
-        }
+        let scale = this._windowScale(metaWin);
         metaWin.move_frame(true, Math.round(x / scale), Math.round(y / scale));
+    }
+
+    /**
+     * 取窗口所在显示器的实际缩放倍率（优先小数倍率）。
+     *
+     * get_scale_factor() 只返回整数倍率，在 166%/125% 这类分数缩放下会得到 1，
+     * 若据此把物理像素当逻辑坐标使用，落点会被整体放大（实测 166% 下偏移 1.667 倍）。
+     * @param {Meta.Window} metaWin 目标窗口
+     * @returns {number} 缩放倍率，恒大于 0
+     */
+    _windowScale(metaWin) {
+        // 1. 首选显示器的小数缩放比（GNOME 3.36+）
+        try {
+            let fractional = global.display.get_monitor_scale(metaWin.get_monitor());
+            if (fractional && fractional > 0) {
+                return fractional;
+            }
+        } catch (e) {
+            // 旧版本没有该接口，继续用后面的兜底
+        }
+
+        // 2. 用窗口自身的物理缓冲区与逻辑帧矩形之比反推真实倍率，不依赖任何版本接口
+        try {
+            let frame = metaWin.get_frame_rect();
+            let buffer = metaWin.get_buffer_rect();
+            if (frame.width > 0 && buffer.width > 0) {
+                return buffer.width / frame.width;
+            }
+        } catch (e) {
+            // 继续兜底
+        }
+
+        // 3. 最后退回整数倍率：分数缩放下会得到 1，仅保证不崩溃
+        if (typeof metaWin.get_scale_factor === 'function') {
+            return metaWin.get_scale_factor() || 1;
+        }
+        return 1;
     }
 
     /**
@@ -207,10 +241,7 @@ export default class SnapinHelperExtension extends Extension {
 
         let [mouseX, mouseY] = global.get_pointer();
         let rect = metaWin.get_frame_rect();
-        let scale = 1;
-        if (typeof metaWin.get_scale_factor === 'function') {
-            scale = metaWin.get_scale_factor() || 1;
-        }
+        let scale = this._windowScale(metaWin);
         let targetX = Math.max(10, mouseX - Math.floor(rect.width / scale / 2));
         let targetY = Math.max(30, mouseY - Math.floor(rect.height / scale / 2));
         if (typeof metaWin.move_frame === 'function') {
