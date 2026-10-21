@@ -3,12 +3,11 @@
 //! 本模块只负责界面属性与强类型配置结构之间的映射，不参与回调注册与窗口生命周期管理。
 
 use crate::mapping::{
-    accent_color_to_index, color_format_to_index, default_tool_to_index,
-    double_click_action_to_index, image_format_to_index, index_to_accent_color,
-    index_to_color_format, index_to_default_tool, index_to_double_click_action,
-    index_to_image_format, index_to_log_level, index_to_magnifier_scale, index_to_snip_color,
-    index_to_zoom_anchor, log_level_to_index, magnifier_scale_to_index, snip_color_to_index,
-    zoom_anchor_to_index, SettingEnum,
+    accent_color_to_index, color_format_to_index, double_click_action_to_index,
+    image_format_to_index, index_to_accent_color, index_to_color_format,
+    index_to_double_click_action, index_to_image_format, index_to_log_level,
+    index_to_magnifier_scale, index_to_snip_color, index_to_zoom_anchor, log_level_to_index,
+    magnifier_scale_to_index, snip_color_to_index, zoom_anchor_to_index, SettingEnum,
 };
 use crate::SettingsWindow;
 use slint::SharedString;
@@ -46,7 +45,6 @@ fn sync_interface_to_window(win: &SettingsWindow, i: &config::model::InterfaceCo
 /// 同步截图流程板块设置
 fn sync_snip_to_window(win: &SettingsWindow, s: &config::model::SnipConfig) {
     win.set_remember_last_selection(s.remember_last_selection);
-    win.set_default_tool_index(default_tool_to_index(s.default_tool));
     win.set_default_color_index(snip_color_to_index(&s.default_color));
     win.set_default_stroke_width(s.default_stroke_width);
     win.set_snip_font_size(s.default_font_size);
@@ -129,7 +127,6 @@ fn extract_interface_from_window(win: &SettingsWindow, i: &mut config::model::In
 /// 提取截图设置
 fn extract_snip_from_window(win: &SettingsWindow, s: &mut config::model::SnipConfig) {
     s.remember_last_selection = win.get_remember_last_selection();
-    s.default_tool = index_to_default_tool(win.get_default_tool_index());
     s.default_color = index_to_snip_color(win.get_default_color_index(), s.default_color);
     s.default_stroke_width = win.get_default_stroke_width();
     s.default_font_size = win.get_snip_font_size();
@@ -208,8 +205,8 @@ mod tests {
         DEFAULT_SNIP_COLORS, MAGNIFIER_SCALES,
     };
     use snapin_core::config::{
-        ColorFormat, CoverMode, DefaultTool, DoubleClickAction, HexColor, ImageFormat, LogLevel,
-        TargetLanguage, TranslateProvider, ZoomAnchor,
+        ColorFormat, CoverMode, DoubleClickAction, HexColor, ImageFormat, LogLevel, TargetLanguage,
+        TranslateProvider, ZoomAnchor,
     };
 
     /// 构造一份逐字段都不同于默认值的样本配置。
@@ -233,7 +230,6 @@ mod tests {
         cfg.interface.toolbar_scale = 1.25;
 
         cfg.snip.remember_last_selection = false;
-        cfg.snip.default_tool = DefaultTool::from_index(4);
         cfg.snip.default_color =
             HexColor::from_hex(DEFAULT_SNIP_COLORS[3]).expect("预设标注色必须可解析");
         cfg.snip.default_stroke_width = 3.5;

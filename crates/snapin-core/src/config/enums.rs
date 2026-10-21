@@ -109,34 +109,6 @@ fn rgb_to_hsl(r: u8, g: u8, b: u8) -> (u16, u8, u8) {
     )
 }
 
-/// 首次进入截图时激活的初始工具枚举
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum DefaultTool {
-    #[default]
-    None,
-    Rectangle,
-    Pen,
-    Marker,
-    Arrow,
-    Text,
-    Badge,
-}
-
-impl DefaultTool {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::Rectangle => "rectangle",
-            Self::Pen => "pen",
-            Self::Marker => "marker",
-            Self::Arrow => "arrow",
-            Self::Text => "text",
-            Self::Badge => "badge",
-        }
-    }
-}
-
 /// 贴图滚轮缩放时的几何锚点基准枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]

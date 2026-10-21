@@ -49,7 +49,7 @@ fn test_toolbar_hit_test() {
 }
 
 #[test]
-fn test_toolbar_rect_ellipse_switching() {
+fn test_toolbar_shape_button_toggles_without_cycling() {
     let mut tb = Toolbar::default();
     let selection = Rect {
         x: 100.0,
@@ -62,18 +62,27 @@ fn test_toolbar_rect_ellipse_switching() {
     let btn_x = tb.main_rect.x + 10.0;
     let btn_y = tb.main_rect.y + 10.0;
 
-    // 第一次点击主按钮：进入 ToolRect
+    // 第一次点击主形状按钮：进入矩形（默认形状），并展开二级属性栏
     assert_eq!(tb.handle_click(btn_x, btn_y), Some(ToolbarItem::ToolRect));
     assert_eq!(tb.active_tool, Some(ToolbarItem::ToolRect));
+    assert!(tb.sub_rect.is_some(), "形状工具激活后应展开二级属性栏");
 
-    // 第二次点击主按钮：轮转切换为 ToolEllipse
-    assert_eq!(
-        tb.handle_click(btn_x, btn_y),
-        Some(ToolbarItem::ToolEllipse)
-    );
+    // 再次点击主按钮：取消选择，绝不能切换到椭圆（旧实现的轮转语义已废弃）
+    assert_eq!(tb.handle_click(btn_x, btn_y), None);
+    assert_eq!(tb.active_tool, None);
+
+    // 第三次点击：重新进入矩形
+    assert_eq!(tb.handle_click(btn_x, btn_y), Some(ToolbarItem::ToolRect));
+
+    // 椭圆只能从二级属性栏显式点选：矩形按钮右侧的椭圆按钮
+    let sub = tb.sub_rect.expect("二级属性栏应可见");
+    let scale = tb.ui_scale;
+    let ellipse_x = sub.x + 42.0 * scale;
+    let ellipse_y = sub.y + sub.height / 2.0;
+    tb.handle_click(ellipse_x, ellipse_y);
     assert_eq!(tb.active_tool, Some(ToolbarItem::ToolEllipse));
 
-    // 第三次点击主按钮：取消选择
+    // 椭圆形态下再点主按钮：同样只做关闭
     assert_eq!(tb.handle_click(btn_x, btn_y), None);
     assert_eq!(tb.active_tool, None);
 }

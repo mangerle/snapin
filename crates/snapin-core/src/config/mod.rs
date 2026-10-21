@@ -9,9 +9,9 @@ pub mod types;
 
 use crate::error::CoreError;
 pub use model::{
-    ColorFormat, Config, CoverMode, DefaultTool, DoubleClickAction, GeneralConfig, HotkeyConfig,
-    ImageFormat, InterfaceConfig, LogLevel, OcrConfig, OutputConfig, PasterConfig, SnipConfig,
-    TargetLanguage, TranslateConfig, TranslateProvider, ZoomAnchor,
+    ColorFormat, Config, CoverMode, DoubleClickAction, GeneralConfig, HotkeyConfig, ImageFormat,
+    InterfaceConfig, LogLevel, OcrConfig, OutputConfig, PasterConfig, SnipConfig, TargetLanguage,
+    TranslateConfig, TranslateProvider, ZoomAnchor,
 };
 use std::fs;
 use std::path::{Path, PathBuf};

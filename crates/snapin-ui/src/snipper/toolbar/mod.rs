@@ -124,13 +124,18 @@ impl Toolbar {
         if let Some(item) = self.hit_test_main(px, py) {
             match item {
                 ToolbarItem::ToolRect => {
-                    if self.active_tool == Some(ToolbarItem::ToolRect) {
-                        self.active_tool = Some(ToolbarItem::ToolEllipse);
-                    } else if self.active_tool == Some(ToolbarItem::ToolEllipse) {
-                        self.active_tool = None;
+                    // 形状按钮只做开合：点击选中矩形（默认形状），再点取消。
+                    // 椭圆是同一个工具的第二形态，只能从二级属性栏显式选择——
+                    // 旧实现在此循环"矩形→椭圆→关闭"，导致用户想点开选项时反而被切成椭圆。
+                    let shape_active = matches!(
+                        self.active_tool,
+                        Some(ToolbarItem::ToolRect | ToolbarItem::ToolEllipse)
+                    );
+                    self.active_tool = if shape_active {
+                        None
                     } else {
-                        self.active_tool = Some(ToolbarItem::ToolRect);
-                    }
+                        Some(ToolbarItem::ToolRect)
+                    };
                     self.update_sub_rect();
                     return self.active_tool;
                 }

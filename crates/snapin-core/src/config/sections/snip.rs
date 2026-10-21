@@ -1,6 +1,5 @@
 //! 截图交互流程与标注工具默认设置模型定义。
 
-use crate::config::enums::DefaultTool;
 use crate::config::types::HexColor;
 use serde::{Deserialize, Serialize};
 
@@ -10,10 +9,6 @@ pub struct SnipConfig {
     /// 再次截图时是否默认记住并恢复上次选区
     #[serde(default = "default_true")]
     pub remember_last_selection: bool,
-
-    /// 首次进入截图时默认激活的标注工具
-    #[serde(default)]
-    pub default_tool: DefaultTool,
 
     /// 默认标注颜色（强类型 HEX）
     #[serde(default = "default_draw_color")]
@@ -32,7 +27,6 @@ impl Default for SnipConfig {
     fn default() -> Self {
         Self {
             remember_last_selection: true,
-            default_tool: DefaultTool::default(),
             default_color: default_draw_color(),
             default_stroke_width: default_stroke_width(),
             default_font_size: default_font_size(),

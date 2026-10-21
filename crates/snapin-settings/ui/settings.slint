@@ -45,7 +45,6 @@ export component SettingsWindow inherits Window {
 
     // 3. 截图流程
     in-out property <bool> remember_last_selection: true;
-    in-out property <int> default_tool_index: 0;
     in-out property <int> default_color_index: 0;
     in-out property <float> default_stroke_width: 3;
     in-out property <float> snip_font_size: 18;
@@ -251,7 +250,6 @@ export component SettingsWindow inherits Window {
 
                     if root.active_tab == 2: SnipTab {
                         remember_last_selection <=> root.remember_last_selection;
-                        default_tool_index <=> root.default_tool_index;
                         default_color_index <=> root.default_color_index;
                         default_stroke_width <=> root.default_stroke_width;
                         snip_font_size <=> root.snip_font_size;

@@ -5,9 +5,9 @@ use super::text_input::TextInputSession;
 use super::types::{SnipMode, SnipperOutcome};
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionHistory, SelectionState};
-use crate::snipper::toolbar::{Toolbar, ToolbarItem};
+use crate::snipper::toolbar::Toolbar;
 use snapin_core::annotation::AnnotationHistory;
-use snapin_core::config::{Config, DefaultTool, InterfaceConfig, SnipConfig};
+use snapin_core::config::{Config, InterfaceConfig, SnipConfig};
 use std::sync::Arc;
 use winit::keyboard::ModifiersState;
 
@@ -131,19 +131,6 @@ fn apply_snip_config(state: &mut SnipperState, snip: &SnipConfig, mode: SnipMode
             };
         }
     }
-}
-
-/// 在选区锁定后，若用户配置了默认标注工具，则激活对应的工具项
-pub fn activate_default_tool_if_configured(state: &mut SnipperState) {
-    state.toolbar.active_tool = match state.config.snip.default_tool {
-        DefaultTool::Rectangle => Some(ToolbarItem::ToolRect),
-        DefaultTool::Pen => Some(ToolbarItem::ToolPen),
-        DefaultTool::Marker => Some(ToolbarItem::ToolMarker),
-        DefaultTool::Arrow => Some(ToolbarItem::ToolArrow),
-        DefaultTool::Text => Some(ToolbarItem::ToolText),
-        DefaultTool::Badge => Some(ToolbarItem::ToolBadge),
-        DefaultTool::None => None,
-    };
 }
 
 /// 提交并关闭当前文本输入会话

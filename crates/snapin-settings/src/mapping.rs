@@ -5,8 +5,8 @@
 //! 防止用户手工配置的非预设值在打开设置并保存后被静默重置。
 
 use snapin_core::config::{
-    ColorFormat, CoverMode, DefaultTool, DoubleClickAction, HexColor, ImageFormat, LogLevel,
-    TargetLanguage, TranslateProvider, ZoomAnchor,
+    ColorFormat, CoverMode, DoubleClickAction, HexColor, ImageFormat, LogLevel, TargetLanguage,
+    TranslateProvider, ZoomAnchor,
 };
 
 /// 预设强调色表（顺序与 Slint interface_tab 中的 ComboBox 严格一一对应）
@@ -130,20 +130,6 @@ impl SettingEnum for ColorFormat {
     }
 }
 
-impl SettingEnum for DefaultTool {
-    fn all_variants() -> &'static [Self] {
-        &[
-            Self::None,
-            Self::Rectangle,
-            Self::Pen,
-            Self::Marker,
-            Self::Arrow,
-            Self::Text,
-            Self::Badge,
-        ]
-    }
-}
-
 impl SettingEnum for ZoomAnchor {
     fn all_variants() -> &'static [Self] {
         &[Self::Cursor, Self::Center]
@@ -211,14 +197,6 @@ pub fn index_to_color_format(index: i32) -> ColorFormat {
     SettingEnum::from_index(index)
 }
 
-pub fn default_tool_to_index(tool: DefaultTool) -> i32 {
-    tool.to_index()
-}
-
-pub fn index_to_default_tool(index: i32) -> DefaultTool {
-    SettingEnum::from_index(index)
-}
-
 pub fn zoom_anchor_to_index(anchor: ZoomAnchor) -> i32 {
     anchor.to_index()
 }
@@ -260,7 +238,6 @@ mod tests {
 
         check_roundtrip::<LogLevel>();
         check_roundtrip::<ColorFormat>();
-        check_roundtrip::<DefaultTool>();
         check_roundtrip::<ZoomAnchor>();
         check_roundtrip::<DoubleClickAction>();
         check_roundtrip::<ImageFormat>();

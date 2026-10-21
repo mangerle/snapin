@@ -195,7 +195,6 @@ fn handle_left_release(
                     rect,
                     active_drag: None,
                 };
-                super::events::activate_default_tool_if_configured(state);
                 if state.mode == super::types::SnipMode::AutoCopy {
                     super::actions::handle_action_copy(state, original_rgba);
                 }

@@ -7,7 +7,6 @@ export component SnipTab inherits VerticalLayout {
 
     in-out property <bool> remember_last_selection: true;
 
-    in-out property <int> default_tool_index: 0;   // 0: 无, 1: 矩形/椭圆, 2: 自由画笔, 3: 荧光笔, 4: 箭头, 5: 文字, 6: 序号
     in-out property <int> default_color_index: 0;  // 0: 赤红, 1: 湛蓝, 2: 翠绿, 3: 明黄, 4: 纯白, 5: 墨黑
     in-out property <float> default_stroke_width: 3; // 1 ~ 20 px
     in-out property <float> snip_font_size: 18;    // 12 ~ 48 px
@@ -24,24 +23,14 @@ export component SnipTab inherits VerticalLayout {
     }
 
     SettingCard {
-        title: "默认标注工具与样式";
-        subtitle: "配置选区确定后默认激活的标注形状与画笔基础属性";
+        title: "默认标注样式";
+        subtitle: "配置标注的默认笔触颜色、线宽与文字字号；标注工具需在截图工具栏中自行选择";
 
         VerticalLayout {
             spacing: 16px;
 
             HorizontalLayout {
                 spacing: 28px;
-
-                VerticalLayout {
-                    spacing: 6px;
-                    Text { text: "进入截图时默认激活工具:"; font-size: 13px; font-weight: 600; color: #334155; }
-                    ComboBox {
-                        model: ["纯选区 (不激活工具)", "矩形 / 椭圆选框", "自由画笔", "荧光笔标记", "指示箭头", "文字输入", "递增序号徽标"];
-                        current-index <=> root.default_tool_index;
-                        width: 220px;
-                    }
-                }
 
                 VerticalLayout {
                     spacing: 6px;

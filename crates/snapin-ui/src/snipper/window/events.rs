@@ -1,9 +1,7 @@
 //! 截图会话键盘事件响应与选区历史回溯。
 
 use super::actions::{handle_action_copy, handle_action_pin, handle_action_save};
-pub use super::state::{
-    activate_default_tool_if_configured, commit_active_text_input, SnipperState,
-};
+pub use super::state::{commit_active_text_input, SnipperState};
 use super::types::SnipperOutcome;
 use crate::snipper::selection::SelectionState;
 use image::RgbaImage;
