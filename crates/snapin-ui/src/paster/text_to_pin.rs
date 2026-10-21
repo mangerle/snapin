@@ -77,9 +77,9 @@ pub fn render_simple_text_card(lines: &[&str]) -> Option<Pixmap> {
 
     let mut pixmap = Pixmap::new(card_w as u32, card_h as u32)?;
 
-    // 1. 绘制暗黑现代便签卡片主体
+    // 1. 绘制浅色便签卡片主体，与设置中心、右键菜单的浅色系保持一致
     let mut bg_paint = Paint::default();
-    bg_paint.set_color_rgba8(30, 32, 42, 252);
+    bg_paint.set_color_rgba8(255, 255, 255, 252);
     let card_rect = Rect::from_xywh(0.0, 0.0, card_w, card_h)?;
     pixmap.fill_rect(card_rect, &bg_paint, Transform::identity(), None);
 
@@ -90,9 +90,9 @@ pub fn render_simple_text_card(lines: &[&str]) -> Option<Pixmap> {
         pixmap.fill_rect(bar_rect, &bar_paint, Transform::identity(), None);
     }
 
-    // 3. 绘制卡片微弱半透明描边
+    // 3. 绘制卡片描边（浅底上用深色细边，避免白卡与白色背景糊在一起）
     let mut border_paint = Paint::default();
-    border_paint.set_color_rgba8(255, 255, 255, 28);
+    border_paint.set_color_rgba8(15, 23, 42, 28);
     let stroke = Stroke {
         width: 1.0,
         ..Default::default()
@@ -104,7 +104,7 @@ pub fn render_simple_text_card(lines: &[&str]) -> Option<Pixmap> {
     }
 
     // 4. 逐行真实排版渲染文本内容 (统一复用线程局部排版渲染器)
-    let text_color = tiny_skia::Color::from_rgba8(240, 242, 248, 255);
+    let text_color = tiny_skia::Color::from_rgba8(15, 23, 42, 255);
     with_thread_local_text_renderer(|text_renderer| {
         let mut cur_y = padding_y + 4.0;
         for line in lines {
