@@ -1,4 +1,9 @@
-//! 免费微软必应/Edge 翻译适配器 (免 Key 开放接口)。
+//! 免费微软必应翻译适配器（免 Key 开放接口）。
+//!
+//! 必应接口不接受裸请求：直接 POST `ttranslatev3` 只会得到 `{"statusCode":400}`。
+//! 必须先访问翻译页面取得会话令牌（`IG`、`params_AbusePreventionHelper` 中的 key/token）
+//! 并带上该次访问下发的 Cookie，再发起翻译请求，因此客户端必须启用 Cookie 存储。
+//! 出口 IP 被必应风控时接口会返回 `ShowCaptcha`，此时如实上报为业务错误而不是空译文。
 
 use crate::error::ServiceError;
 use crate::translate::config::TranslateProvider;
@@ -13,10 +18,28 @@ use serde_json::Value;
 /// 必应免费翻译接口地址
 const BING_ENDPOINT: &str = "https://www.bing.com/ttranslatev3";
 
+/// 令牌所在页面
+const BING_PAGE: &str = "https://www.bing.com/translator";
+
+/// 接口要求的浏览器标识，缺失时会被直接拒绝
+const BING_USER_AGENT: &str =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+
+/// 页面内嵌的接口版本标识，与 IG 一同放入查询串
+const BING_IID: &str = "translator.5025";
+
+/// 单次会话令牌
+struct BingSession {
+    ig: String,
+    key: String,
+    token: String,
+}
+
 /// 免费微软必应翻译服务适配器
 pub struct BingFreeTranslator {
     client: Client,
     endpoint: String,
+    page: String,
 }
 
 impl Default for BingFreeTranslator {
@@ -28,20 +51,75 @@ impl Default for BingFreeTranslator {
 impl BingFreeTranslator {
     /// 构造新的必应翻译适配器实例（复用进程级 HTTP 连接池）
     pub fn new() -> Self {
-        Self::with_endpoint(BING_ENDPOINT)
+        Self::with_endpoint(BING_ENDPOINT, BING_PAGE)
     }
 
     /// 以指定端点构造适配器，供集成测试注入本地 Mock 服务校验响应契约。
-    pub(crate) fn with_endpoint(endpoint: impl Into<String>) -> Self {
+    pub(crate) fn with_endpoint(endpoint: impl Into<String>, page: impl Into<String>) -> Self {
         Self {
             client: shared_client(),
             endpoint: endpoint.into(),
+            page: page.into(),
         }
     }
 
+    /// 抓取页面并解析出本次会话所需的 IG 与防滥用令牌
+    async fn fetch_session(&self) -> Result<BingSession, ServiceError> {
+        let html = self
+            .client
+            .get(self.page.as_str())
+            .header(reqwest::header::USER_AGENT, BING_USER_AGENT)
+            .send()
+            .await
+            .map_err(|error| network_error("bing_free", error))?
+            .text()
+            .await
+            .map_err(|error| network_error("bing_free", error))?;
+
+        let ig = extract_between(&html, "IG:\"", '"').ok_or_else(|| ServiceError::ApiError {
+            provider: "bing_free".to_string(),
+            code: "TOKEN_UNAVAILABLE".to_string(),
+            message: "未能从必应翻译页面解析出 IG 令牌，页面结构可能已变更".to_string(),
+        })?;
+
+        let helper =
+            extract_between(&html, "params_AbusePreventionHelper = [", ']').ok_or_else(|| {
+                ServiceError::ApiError {
+                    provider: "bing_free".to_string(),
+                    code: "TOKEN_UNAVAILABLE".to_string(),
+                    message: "未能从必应翻译页面解析出防滥用令牌".to_string(),
+                }
+            })?;
+
+        let mut parts = helper.split(',');
+        let key = parts
+            .next()
+            .map(|value| value.trim().trim_matches('"').to_string())
+            .unwrap_or_default();
+        let token = parts
+            .next()
+            .map(|value| value.trim().trim_matches('"').to_string())
+            .unwrap_or_default();
+        if key.is_empty() || token.is_empty() {
+            return Err(ServiceError::ApiError {
+                provider: "bing_free".to_string(),
+                code: "TOKEN_UNAVAILABLE".to_string(),
+                message: "必应防滥用令牌格式异常".to_string(),
+            });
+        }
+
+        Ok(BingSession {
+            ig: ig.to_string(),
+            key,
+            token,
+        })
+    }
+
+    /// 翻译单条文本
     async fn translate_one(
         client: &Client,
         endpoint: &str,
+        session: &BingSession,
         text: &str,
         from_lang: Option<&str>,
         to_lang: &str,
@@ -51,15 +129,20 @@ impl BingFreeTranslator {
             return Ok(String::new());
         }
 
-        let url = endpoint;
-        let mut params = vec![("to", to_lang), ("text", trimmed)];
+        let url = format!("{endpoint}?isVertical=1&IG={}&IID={BING_IID}", session.ig);
+
+        let mut form: Vec<(&str, &str)> = vec![("to", to_lang), ("text", trimmed)];
         if let Some(from_lang) = from_lang {
-            params.push(("fromLang", from_lang));
+            form.push(("fromLang", from_lang));
         }
+        form.push(("token", session.token.as_str()));
+        form.push(("key", session.key.as_str()));
 
         let response = client
             .post(url)
-            .form(&params)
+            .header(reqwest::header::USER_AGENT, BING_USER_AGENT)
+            .header(reqwest::header::REFERER, BING_PAGE)
+            .form(&form)
             .send()
             .await
             .map_err(|error| network_error("bing_free", error))?;
@@ -77,17 +160,36 @@ impl BingFreeTranslator {
             .await
             .map_err(|error| network_error("bing_free", error))?;
 
-        let mut translated = String::new();
-        if let Some(item) = json.as_array().and_then(|array| array.first()) {
-            if let Some(translations) = item.get("translations").and_then(|value| value.as_array())
-            {
-                if let Some(first) = translations.first() {
-                    if let Some(text) = first.get("text").and_then(|value| value.as_str()) {
-                        translated = text.to_string();
-                    }
-                }
-            }
+        if let Some(status) = json.get("statusCode").and_then(Value::as_i64) {
+            return Err(ServiceError::ApiError {
+                provider: "bing_free".to_string(),
+                code: status.to_string(),
+                message: format!("必应翻译接口拒绝了本次请求（HTTP {status}），会话令牌可能已失效"),
+            });
         }
+        if json
+            .get("ShowCaptcha")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            return Err(ServiceError::ApiError {
+                provider: "bing_free".to_string(),
+                code: "SHOW_CAPTCHA".to_string(),
+                message: "必应接口触发人机校验：当前出口 IP 被风控，建议改用谷歌免费通道"
+                    .to_string(),
+            });
+        }
+
+        let translated = json
+            .as_array()
+            .and_then(|array| array.first())
+            .and_then(|item| item.get("translations"))
+            .and_then(Value::as_array)
+            .and_then(|translations| translations.first())
+            .and_then(|first| first.get("text"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
 
         if translated.is_empty() {
             return Err(ServiceError::ApiError {
@@ -99,6 +201,14 @@ impl BingFreeTranslator {
 
         Ok(translated)
     }
+}
+
+/// 从页面文本中截取两个标记之间的内容
+fn extract_between<'a>(haystack: &'a str, start_marker: &str, end_char: char) -> Option<&'a str> {
+    let start = haystack.find(start_marker)? + start_marker.len();
+    let rest = &haystack[start..];
+    let end = rest.find(end_char)?;
+    Some(&rest[..end])
 }
 
 #[async_trait]
@@ -124,16 +234,25 @@ impl Translator for BingFreeTranslator {
         };
         let to_lang = normalize_language(TranslateProvider::BingFree, to).to_string();
 
+        // 令牌按会话下发，整批翻译共用一次，避免逐条重复抓取页面
+        let session = self.fetch_session().await?;
+
         let results = stream::iter(texts.iter().cloned().enumerate())
             .map(|(index, text)| {
                 let client = self.client.clone();
                 let endpoint = self.endpoint.clone();
                 let from_lang = from_lang.clone();
                 let to_lang = to_lang.clone();
+                let session = BingSession {
+                    ig: session.ig.clone(),
+                    key: session.key.clone(),
+                    token: session.token.clone(),
+                };
                 async move {
                     let result = Self::translate_one(
                         &client,
                         &endpoint,
+                        &session,
                         &text,
                         from_lang.as_deref(),
                         &to_lang,

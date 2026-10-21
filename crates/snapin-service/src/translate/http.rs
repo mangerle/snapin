@@ -13,6 +13,8 @@ pub fn shared_client() -> Client {
         .get_or_init(|| {
             Client::builder()
                 .timeout(Duration::from_secs(5))
+                // 必应免费接口的令牌与 Cookie 绑定同一次页面访问，必须保留服务端下发的 Cookie
+                .cookie_store(true)
                 .build()
                 .unwrap_or_else(|error| {
                     tracing::warn!("构建共享 HTTP 客户端失败，降级为默认客户端: {error}");

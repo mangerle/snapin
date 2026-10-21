@@ -151,10 +151,10 @@ impl DoubleClickAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TranslateProvider {
-    /// 微软必应免费接口
-    #[default]
+    /// 微软必应免费接口（部分出口 IP 会被必应风控拦截）
     BingFree,
-    /// 谷歌翻译免费接口
+    /// 谷歌翻译免费接口（免配置，默认）
+    #[default]
     GoogleFree,
     /// 百度翻译开放平台
     Baidu,

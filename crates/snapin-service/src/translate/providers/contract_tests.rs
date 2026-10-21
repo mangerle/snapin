@@ -87,6 +87,9 @@ fn drain_request(stream: &mut TcpStream) -> std::io::Result<()> {
     Ok(())
 }
 
+/// 必应翻译页面片段：包含 IG 与防滥用令牌，供 Mock 服务作为首个响应
+const BING_PAGE_BODY: &str = r#"<html><script>var IG:"AA11BB22CC33",_G={};params_AbusePreventionHelper = [1792548490247,"tok123",3600000];</script></html>"#;
+
 /// 构造测试用文本列表
 fn texts(items: &[&str]) -> Vec<String> {
     items.iter().map(|item| item.to_string()).collect()
@@ -258,12 +261,16 @@ async fn test_aliyun_parses_nested_data_and_error_code() {
 
 #[tokio::test]
 async fn test_bing_free_preserves_order_under_concurrency() {
-    // 并发批量请求按文本逐条发出，Mock 依次应答；乱序完成也必须按请求下标回填
+    // 首个响应是令牌页面，其后为逐条翻译响应；乱序完成也必须按请求下标回填
     let mock = MockHttpServer::start(vec![
+        (200, BING_PAGE_BODY),
         (200, r#"[{"translations":[{"text":"苹果"}]}]"#),
         (200, r#"[{"translations":[{"text":"钢笔"}]}]"#),
     ]);
-    let translator = BingFreeTranslator::with_endpoint(mock.endpoint("/ttranslatev3"));
+    let translator = BingFreeTranslator::with_endpoint(
+        mock.endpoint("/ttranslatev3"),
+        mock.endpoint("/translator"),
+    );
 
     let result = translator
         .translate_batch(&texts(&["apple", "pen"]), "auto", "zh-CN")
@@ -272,10 +279,65 @@ async fn test_bing_free_preserves_order_under_concurrency() {
     assert_eq!(result, texts(&["苹果", "钢笔"]));
 }
 
+/// 出口 IP 被风控时接口返回 ShowCaptcha，必须如实上报而不是伪装成空译文
+#[tokio::test]
+async fn test_bing_free_reports_captcha_challenge() {
+    let mock = MockHttpServer::start(vec![
+        (200, BING_PAGE_BODY),
+        (200, r#"{"ShowCaptcha":true}"#),
+    ]);
+    let translator = BingFreeTranslator::with_endpoint(
+        mock.endpoint("/ttranslatev3"),
+        mock.endpoint("/translator"),
+    );
+
+    let error = translator
+        .translate_batch(&texts(&["apple"]), "auto", "zh-CN")
+        .await
+        .expect_err("风控响应必须转换为错误");
+    match error {
+        ServiceError::ApiError {
+            provider,
+            code,
+            message,
+        } => {
+            assert_eq!(provider, "bing_free");
+            assert_eq!(code, "SHOW_CAPTCHA");
+            assert!(
+                message.contains("风控"),
+                "错误信息应说明被风控，实际: {message}"
+            );
+        }
+        other => panic!("应返回服务商业务错误，实际: {other:?}"),
+    }
+}
+
+/// 页面结构变更导致取不到令牌时，错误应指向令牌解析失败而非笼统空结果
+#[tokio::test]
+async fn test_bing_free_reports_token_unavailable() {
+    let mock = MockHttpServer::start(vec![(200, "<html>no tokens here</html>")]);
+    let translator = BingFreeTranslator::with_endpoint(
+        mock.endpoint("/ttranslatev3"),
+        mock.endpoint("/translator"),
+    );
+
+    let error = translator
+        .translate_batch(&texts(&["apple"]), "auto", "zh-CN")
+        .await
+        .expect_err("缺少令牌必须报错");
+    match error {
+        ServiceError::ApiError { code, .. } => assert_eq!(code, "TOKEN_UNAVAILABLE"),
+        other => panic!("应返回服务商业务错误，实际: {other:?}"),
+    }
+}
+
 #[tokio::test]
 async fn test_bing_free_reports_http_status_when_blocked() {
-    let mock = MockHttpServer::start(vec![(429, "")]);
-    let translator = BingFreeTranslator::with_endpoint(mock.endpoint("/ttranslatev3"));
+    let mock = MockHttpServer::start(vec![(200, BING_PAGE_BODY), (429, "")]);
+    let translator = BingFreeTranslator::with_endpoint(
+        mock.endpoint("/ttranslatev3"),
+        mock.endpoint("/translator"),
+    );
 
     let error = translator
         .translate_batch(&texts(&["apple"]), "auto", "zh-CN")
@@ -294,24 +356,34 @@ async fn test_bing_free_reports_http_status_when_blocked() {
 }
 
 #[tokio::test]
-async fn test_google_free_concatenates_sentence_segments() {
-    let mock = MockHttpServer::start(vec![(
-        200,
-        r#"[[["苹果","apple",null,null,10]],null,"zh-CN"]"#,
-    )]);
-    let translator = GoogleFreeTranslator::with_endpoint(mock.endpoint("/translate_a/single"));
+async fn test_google_free_batches_in_one_request() {
+    let mock = MockHttpServer::start(vec![(200, r#"["苹果","钢笔"]"#)]);
+    let translator = GoogleFreeTranslator::with_endpoint(mock.endpoint("/translate_a/t"));
 
     let result = translator
-        .translate_batch(&texts(&["apple"]), "auto", "zh-CN")
+        .translate_batch(&texts(&["apple", "pen"]), "en", "zh-CN")
         .await
-        .expect("谷歌免费接口应拼接分句译文");
-    assert_eq!(result, texts(&["苹果"]));
+        .expect("谷歌免费接口应一次请求返回批量译文");
+    assert_eq!(result, texts(&["苹果", "钢笔"]));
+}
+
+/// 自动检测源语言时接口返回 [译文, 检测语言] 嵌套数组，必须与扁平形态同样解析
+#[tokio::test]
+async fn test_google_free_parses_auto_detect_nested_payload() {
+    let mock = MockHttpServer::start(vec![(200, r#"[["早上好","en"]]"#)]);
+    let translator = GoogleFreeTranslator::with_endpoint(mock.endpoint("/translate_a/t"));
+
+    let result = translator
+        .translate_batch(&texts(&["good morning"]), "auto", "zh-CN")
+        .await
+        .expect("自动检测模式应正确取到译文");
+    assert_eq!(result, texts(&["早上好"]));
 }
 
 #[tokio::test]
 async fn test_google_free_fails_on_empty_payload() {
-    let mock = MockHttpServer::start(vec![(200, "[[]]")]);
-    let translator = GoogleFreeTranslator::with_endpoint(mock.endpoint("/translate_a/single"));
+    let mock = MockHttpServer::start(vec![(200, r#"[""]"#)]);
+    let translator = GoogleFreeTranslator::with_endpoint(mock.endpoint("/translate_a/t"));
 
     let error = translator
         .translate_batch(&texts(&["apple"]), "auto", "zh-CN")
@@ -353,4 +425,20 @@ async fn test_all_providers_return_empty_batch_without_network() {
             .unwrap_or_else(|error| panic!("{name} 空批次不应访问网络，实际失败: {error}"));
         assert!(result.is_empty(), "{name} 空批次应返回空结果");
     }
+}
+
+/// 真实网络连通性验证（默认不参与 CI，需显式 `--ignored` 运行）。
+///
+/// 免费接口的可用性取决于出口网络策略，无法在离线 CI 中断言，故标记忽略；
+/// 本地排查"翻译用不了"时应先跑此用例确认是接口被拦截还是代码解析问题。
+#[tokio::test]
+#[ignore = "依赖真实外网，默认跳过"]
+async fn live_google_free_endpoint_reachable() {
+    let translator = GoogleFreeTranslator::new();
+    let result = translator
+        .translate_batch(&texts(&["hello world"]), "en", "zh-CN")
+        .await
+        .expect("谷歌免费接口应可用；若失败说明当前出口网络被拦截");
+    assert_eq!(result.len(), 1);
+    assert!(!result[0].is_empty());
 }

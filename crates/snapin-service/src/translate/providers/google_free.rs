@@ -1,4 +1,9 @@
-//! 免费谷歌翻译接口适配器 (基于 Google GTX 免 Key 开放通道)。
+//! 免费谷歌翻译适配器（免 Key 开放接口）。
+//!
+//! 端点为 `clients5.google.com/translate_a/t`（`client=dict-chrome-ex`）：
+//! 同为谷歌翻译后端，但对宿主机出口 IP 不返回拦截页，而 `translate.googleapis.com`
+//! 在国内网络下通常会被直接拒绝，故不采用后者。
+//! 接口支持一次请求携带多个 `q` 参数完成批量翻译，无需逐条并发发起请求。
 
 use crate::error::ServiceError;
 use crate::translate::config::TranslateProvider;
@@ -6,12 +11,14 @@ use crate::translate::engine::Translator;
 use crate::translate::http::{network_error, shared_client};
 use crate::translate::language::normalize_language;
 use async_trait::async_trait;
-use futures::stream::{self, StreamExt};
 use reqwest::Client;
 use serde_json::Value;
 
-/// 谷歌免费翻译接口地址
-const GOOGLE_ENDPOINT: &str = "https://translate.googleapis.com/translate_a/single";
+/// 免费谷歌翻译接口地址
+const GOOGLE_ENDPOINT: &str = "https://clients5.google.com/translate_a/t";
+
+/// 接口要求的客户端标识，缺失或更换会导致参数校验失败
+const GOOGLE_CLIENT: &str = "dict-chrome-ex";
 
 /// 免费谷歌翻译服务适配器
 pub struct GoogleFreeTranslator {
@@ -38,65 +45,6 @@ impl GoogleFreeTranslator {
             endpoint: endpoint.into(),
         }
     }
-
-    async fn translate_one(
-        client: &Client,
-        endpoint: &str,
-        text: &str,
-        source_lang: &str,
-        target_lang: &str,
-    ) -> Result<String, ServiceError> {
-        let trimmed = text.trim();
-        if trimmed.is_empty() {
-            return Ok(String::new());
-        }
-
-        let url = endpoint;
-        let response = client
-            .get(url)
-            .query(&[
-                ("client", "gtx"),
-                ("sl", source_lang),
-                ("tl", target_lang),
-                ("dt", "t"),
-                ("q", trimmed),
-            ])
-            .send()
-            .await
-            .map_err(|error| network_error("google_free", error))?;
-
-        if !response.status().is_success() {
-            return Err(ServiceError::ApiError {
-                provider: "google_free".to_string(),
-                code: response.status().to_string(),
-                message: "请求谷歌翻译接口被拦截或限流".to_string(),
-            });
-        }
-
-        let json: Value = response
-            .json()
-            .await
-            .map_err(|error| network_error("google_free", error))?;
-
-        let mut translated = String::new();
-        if let Some(sentences) = json.get(0).and_then(|value| value.as_array()) {
-            for sentence in sentences {
-                if let Some(part) = sentence.get(0).and_then(|value| value.as_str()) {
-                    translated.push_str(part);
-                }
-            }
-        }
-
-        if translated.is_empty() {
-            return Err(ServiceError::ApiError {
-                provider: "google_free".to_string(),
-                code: "EMPTY_RESULT".to_string(),
-                message: "谷歌翻译接口未返回译文".to_string(),
-            });
-        }
-
-        Ok(translated)
-    }
 }
 
 #[async_trait]
@@ -118,29 +66,78 @@ impl Translator for GoogleFreeTranslator {
         let source_lang = normalize_language(TranslateProvider::GoogleFree, from).to_string();
         let target_lang = normalize_language(TranslateProvider::GoogleFree, to).to_string();
 
-        let results = stream::iter(texts.iter().cloned().enumerate())
-            .map(|(index, text)| {
-                let client = self.client.clone();
-                let endpoint = self.endpoint.clone();
-                let source_lang = source_lang.clone();
-                let target_lang = target_lang.clone();
-                async move {
-                    let result =
-                        Self::translate_one(&client, &endpoint, &text, &source_lang, &target_lang)
-                            .await;
-                    (index, result)
-                }
-            })
-            .buffer_unordered(4)
-            .collect::<Vec<_>>()
-            .await;
-
-        let mut ordered = vec![String::new(); texts.len()];
-        for (index, result) in results {
-            if let Some(slot) = ordered.get_mut(index) {
-                *slot = result?;
-            }
+        let mut params: Vec<(&str, &str)> = vec![
+            ("client", GOOGLE_CLIENT),
+            ("sl", source_lang.as_str()),
+            ("tl", target_lang.as_str()),
+        ];
+        for text in texts {
+            params.push(("q", text.as_str()));
         }
-        Ok(ordered)
+
+        let response = self
+            .client
+            .get(self.endpoint.as_str())
+            .query(&params)
+            .send()
+            .await
+            .map_err(|error| network_error("google_free", error))?;
+
+        if !response.status().is_success() {
+            return Err(ServiceError::ApiError {
+                provider: "google_free".to_string(),
+                code: response.status().to_string(),
+                message: "请求谷歌免费翻译接口失败，可能被出口网络策略拦截".to_string(),
+            });
+        }
+
+        let payload: Value = response
+            .json()
+            .await
+            .map_err(|error| network_error("google_free", error))?;
+
+        let items = payload.as_array().ok_or_else(|| ServiceError::ApiError {
+            provider: "google_free".to_string(),
+            code: "EMPTY_RESULT".to_string(),
+            message: "谷歌翻译接口未返回译文列表".to_string(),
+        })?;
+
+        let results: Vec<String> = items.iter().map(extract_translation).collect();
+        if results.len() != texts.len() {
+            return Err(ServiceError::ApiError {
+                provider: "google_free".to_string(),
+                code: "RESULT_COUNT_MISMATCH".to_string(),
+                message: format!(
+                    "谷歌翻译返回 {} 条译文，与请求 {} 条不一致",
+                    results.len(),
+                    texts.len()
+                ),
+            });
+        }
+        if results.iter().all(|text| text.is_empty()) {
+            return Err(ServiceError::ApiError {
+                provider: "google_free".to_string(),
+                code: "EMPTY_RESULT".to_string(),
+                message: "谷歌翻译接口未返回译文".to_string(),
+            });
+        }
+
+        Ok(results)
+    }
+}
+
+/// 提取单条译文。
+///
+/// 指定源语言时元素为字符串；`sl=auto` 自动检测时元素为 `[译文, 检测到的语言]` 数组，
+/// 两种形态都要兼容，否则自动检测模式会被判成空结果。
+fn extract_translation(item: &Value) -> String {
+    match item {
+        Value::String(text) => text.clone(),
+        Value::Array(parts) => parts
+            .first()
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        _ => String::new(),
     }
 }
