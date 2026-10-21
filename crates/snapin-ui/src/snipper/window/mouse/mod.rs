@@ -235,6 +235,11 @@ fn handle_left_release(
                 };
                 if state.mode == super::types::SnipMode::AutoCopy {
                     super::actions::handle_action_copy(state, original_rgba);
+                } else if state.mode == super::types::SnipMode::Translate {
+                    // 自动翻译只对本次热键触发的首次框选生效：先复位模式，避免用户
+                    // 之后重新框选时再次触发整图翻译；翻译完成后保留工具栏继续交互。
+                    state.mode = super::types::SnipMode::Normal;
+                    super::actions::handle_action_translate(state, original_rgba);
                 }
             } else {
                 state.selection = SelectionState::Idle;

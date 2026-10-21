@@ -1,7 +1,7 @@
 //! GNOME 媒体快捷键自动注册与同步管理模块。
 //!
 //! 在 Ubuntu 26 GNOME 环境下，通过 gsettings 安全配置系统自定义快捷键列表，
-//! 将系统按键（如 F1/F3）直接路由至 `snapin snip` 与 `snapin paste` 命令行。
+//! 将系统按键直接路由至 `snapin snip`、`snapin snip --translate` 与 `snapin paste` 等命令行。
 
 use crate::error::PlatformError;
 use snapin_core::config::{Hotkey, HotkeyConfig};
@@ -13,11 +13,18 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError>
 
     let base_path = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
     let snip_path = format!("{base_path}/snapin-snip/");
+    let translate_path = format!("{base_path}/snapin-translate/");
     let paste_path = format!("{base_path}/snapin-paste/");
     let toggle_path = format!("{base_path}/snapin-toggle/");
     let switch_path = format!("{base_path}/snapin-switch-group/");
 
-    ensure_custom_keybindings_registered(&[&snip_path, &paste_path, &toggle_path, &switch_path])?;
+    ensure_custom_keybindings_registered(&[
+        &snip_path,
+        &translate_path,
+        &paste_path,
+        &toggle_path,
+        &switch_path,
+    ])?;
 
     let current_exe = get_snapin_executable_path();
 
@@ -25,6 +32,11 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError>
         format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{snip_path}");
     let snip_cmd = format!("{current_exe} snip");
     let snip_binding = hotkey_to_gnome_accelerator(&config.snip);
+
+    let translate_schema =
+        format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{translate_path}");
+    let translate_cmd = format!("{current_exe} snip --translate");
+    let translate_binding = hotkey_to_gnome_accelerator(&config.translate);
 
     let paste_schema =
         format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{paste_path}");
@@ -45,6 +57,13 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError>
         (snip_schema.as_str(), "name", "Snapin 区域截图"),
         (snip_schema.as_str(), "command", snip_cmd.as_str()),
         (snip_schema.as_str(), "binding", snip_binding.as_str()),
+        (translate_schema.as_str(), "name", "Snapin 截图翻译"),
+        (translate_schema.as_str(), "command", translate_cmd.as_str()),
+        (
+            translate_schema.as_str(),
+            "binding",
+            translate_binding.as_str(),
+        ),
         (paste_schema.as_str(), "name", "Snapin 贴图"),
         (paste_schema.as_str(), "command", paste_cmd.as_str()),
         (paste_schema.as_str(), "binding", paste_binding.as_str()),
@@ -68,6 +87,9 @@ pub fn suspend_hotkeys_for_settings() -> Result<(), PlatformError> {
     let schemas = [
         format!(
             "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-snip/"
+        ),
+        format!(
+            "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-translate/"
         ),
         format!(
             "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-paste/"

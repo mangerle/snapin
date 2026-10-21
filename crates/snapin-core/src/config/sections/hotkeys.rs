@@ -10,6 +10,10 @@ pub struct HotkeyConfig {
     #[serde(default = "default_snip_hotkey")]
     pub snip: Hotkey,
 
+    /// 截图后自动翻译快捷键
+    #[serde(default = "default_translate_hotkey")]
+    pub translate: Hotkey,
+
     /// 贴图快捷键
     #[serde(default = "default_paste_hotkey")]
     pub paste: Hotkey,
@@ -27,6 +31,7 @@ impl Default for HotkeyConfig {
     fn default() -> Self {
         Self {
             snip: default_snip_hotkey(),
+            translate: default_translate_hotkey(),
             paste: default_paste_hotkey(),
             toggle_pasters: default_toggle_hotkey(),
             switch_group: default_switch_group_hotkey(),
@@ -44,6 +49,10 @@ fn default_hotkey(binding: &str) -> Hotkey {
 
 fn default_snip_hotkey() -> Hotkey {
     default_hotkey("Ctrl+Alt+A")
+}
+
+fn default_translate_hotkey() -> Hotkey {
+    default_hotkey("Ctrl+Alt+D")
 }
 
 fn default_paste_hotkey() -> Hotkey {

@@ -1,5 +1,6 @@
 //! 鼠标交互单元测试用例。
 
+use super::super::types::SnipMode;
 use super::*;
 use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::RectAction;
@@ -184,5 +185,48 @@ fn test_shift_constraint_shapes_and_arrow() {
     assert_eq!(
         constrain_with_shift(ToolbarItem::ToolPen, (0.0, 0.0), (10.0, 30.0)),
         (10.0, 30.0)
+    );
+}
+
+/// 截图翻译模式：首次锁定选区后应立即派发翻译任务，并复位模式避免重复触发。
+///
+/// 测试环境未注入后台任务调度器，因此以「调度器不可用」提示作为翻译派发已发生的证据。
+#[test]
+fn test_translate_mode_triggers_translation_on_first_selection() {
+    let mut state = SnipperState::new();
+    state.mode = SnipMode::Translate;
+    state.selection = SelectionState::Creating {
+        start: (10.0, 10.0),
+        current: (110.0, 110.0),
+    };
+    let original = RgbaImage::new(200, 200);
+
+    assert!(handle_left_release(&mut state, 110.0, 110.0, &original));
+    assert!(
+        matches!(state.selection, SelectionState::Locked { .. }),
+        "有效拖拽后选区应锁定"
+    );
+    assert_eq!(state.mode, SnipMode::Normal, "自动翻译应复位为普通模式");
+    assert_eq!(
+        state.status_message.as_deref(),
+        Some("后台任务调度器不可用"),
+        "应进入翻译任务派发路径"
+    );
+}
+
+/// 普通模式框选后不得自动触发翻译，避免影响常规截图流程
+#[test]
+fn test_normal_mode_does_not_auto_translate() {
+    let mut state = SnipperState::new();
+    state.selection = SelectionState::Creating {
+        start: (10.0, 10.0),
+        current: (110.0, 110.0),
+    };
+    let original = RgbaImage::new(200, 200);
+
+    assert!(handle_left_release(&mut state, 110.0, 110.0, &original));
+    assert!(
+        state.status_message.is_none(),
+        "普通模式不应产生翻译派发提示"
     );
 }

@@ -20,7 +20,7 @@ pub struct Cli {
 /// 支持的子命令定义
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// 触发区域截图流水线 (默认绑定 F1)
+    /// 触发区域截图流水线 (默认绑定 Ctrl+Alt+A)
     Snip {
         /// 截图并自动复制到剪贴板
         #[arg(long)]
@@ -28,8 +28,11 @@ pub enum Commands {
         /// 自定义截图（加载历史选区）
         #[arg(long)]
         custom: bool,
+        /// 框选完成后自动对选区执行整图翻译（由截图翻译热键触发）
+        #[arg(long, conflicts_with_all = ["auto_copy", "custom"])]
+        translate: bool,
     },
-    /// 触发贴图（由剪贴板或选区生成，默认绑定 F3）
+    /// 触发贴图（由剪贴板或选区生成，默认绑定 F1）
     Paste,
     /// 批量显示/隐藏当前活动组所有贴图 (默认绑定 Ctrl+F3)
     Toggle,
@@ -95,6 +98,7 @@ mod tests {
             Commands::Snip {
                 auto_copy: false,
                 custom: false,
+                translate: false,
             },
             Commands::SyncHotkeys,
             Commands::Daemon,
@@ -124,7 +128,8 @@ mod tests {
         assert!(Commands::Prefs.needs_capabilities());
         assert!(Commands::Snip {
             auto_copy: true,
-            custom: false
+            custom: false,
+            translate: false,
         }
         .needs_capabilities());
         assert!(!Commands::Exit.needs_capabilities());
@@ -157,9 +162,24 @@ mod tests {
             cli.command,
             Commands::Snip {
                 auto_copy: false,
-                custom: true
+                custom: true,
+                translate: false,
             }
         ));
+
+        let cli = Cli::try_parse_from(["snapin", "snip", "--translate"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Commands::Snip {
+                translate: true,
+                ..
+            }
+        ));
+
+        assert!(
+            Cli::try_parse_from(["snapin", "snip", "--translate", "--custom"]).is_err(),
+            "自动翻译与自定义选区模式互斥，不能同时指定"
+        );
 
         let cli = Cli::try_parse_from(["snapin", "pin-file", "/tmp/a.raw", "10", "20"]).unwrap();
         assert!(matches!(

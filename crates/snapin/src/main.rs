@@ -74,9 +74,15 @@ async fn main() -> Result<()> {
     }
 
     match command {
-        Commands::Snip { auto_copy, custom } => {
+        Commands::Snip {
+            auto_copy,
+            custom,
+            translate,
+        } => {
             tracing::info!("正在启动区域截图流程...");
-            let mode = if auto_copy {
+            let mode = if translate {
+                SnipMode::Translate
+            } else if auto_copy {
                 SnipMode::AutoCopy
             } else if custom {
                 SnipMode::Custom

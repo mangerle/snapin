@@ -5,6 +5,7 @@ export component ShortcutsTab inherits VerticalLayout {
     padding-right: 8px;
 
     in-out property <string> snip_hotkey: "Ctrl+Alt+A";
+    in-out property <string> translate_hotkey: "Ctrl+Alt+D";
     in-out property <string> paste_hotkey: "F1";
     in-out property <string> toggle_hotkey: "Ctrl+F3";
     in-out property <string> switch_group_hotkey: "Shift+F3";
@@ -27,6 +28,22 @@ export component ShortcutsTab inherits VerticalLayout {
                 }
                 ShortcutRecorder {
                     shortcut <=> root.snip_hotkey;
+                }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                VerticalLayout {
+                    spacing: 2px;
+                    alignment: center;
+                    Text { text: "截图翻译 (Translate)"; font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: "框选完成后立即对选区执行整图 OCR 与翻译，并保留标注工具栏"; font-size: 12px; color: #64748b; }
+                }
+                ShortcutRecorder {
+                    shortcut <=> root.translate_hotkey;
                 }
             }
 

@@ -70,6 +70,7 @@ fn sync_output_to_window(win: &SettingsWindow, o: &config::model::OutputConfig) 
 /// 同步快捷键板块设置
 fn sync_hotkeys_to_window(win: &SettingsWindow, h: &config::model::HotkeyConfig) {
     win.set_snip_hotkey(SharedString::from(h.snip.to_display_string()));
+    win.set_translate_hotkey(SharedString::from(h.translate.to_display_string()));
     win.set_paste_hotkey(SharedString::from(h.paste.to_display_string()));
     win.set_toggle_hotkey(SharedString::from(h.toggle_pasters.to_display_string()));
     win.set_switch_group_hotkey(SharedString::from(h.switch_group.to_display_string()));
@@ -154,6 +155,11 @@ fn extract_output_from_window(win: &SettingsWindow, o: &mut config::model::Outpu
 /// 录入值非法时保留原有绑定并告警，避免一次误录（或界面拼接出的畸形字符串）把用户既有快捷键清空。
 fn extract_hotkeys_from_window(win: &SettingsWindow, h: &mut config::model::HotkeyConfig) {
     h.snip = parse_hotkey_or_keep("区域截图", win.get_snip_hotkey().as_str(), &h.snip);
+    h.translate = parse_hotkey_or_keep(
+        "截图翻译",
+        win.get_translate_hotkey().as_str(),
+        &h.translate,
+    );
     h.paste = parse_hotkey_or_keep("贴图", win.get_paste_hotkey().as_str(), &h.paste);
     h.toggle_pasters = parse_hotkey_or_keep(
         "贴图显隐",
@@ -261,6 +267,7 @@ mod tests {
         cfg.translate.api_keys.aliyun_access_key_secret = "ali-sk".to_string();
 
         cfg.hotkeys.snip = expect_hotkey("F2");
+        cfg.hotkeys.translate = expect_hotkey("Ctrl+Shift+T");
         cfg.hotkeys.paste = expect_hotkey("Ctrl+Alt+V");
         cfg.hotkeys.toggle_pasters = expect_hotkey("Super+F3");
         cfg.hotkeys.switch_group = expect_hotkey("Alt+PageUp");
@@ -335,11 +342,16 @@ mod tests {
         sync_config_to_window(&win, &hotkey_cfg);
         let before = hotkey_cfg.hotkeys.clone();
         win.set_snip_hotkey(SharedString::from("Hyper+B"));
+        win.set_translate_hotkey(SharedString::from("Ctrl+"));
         win.set_paste_hotkey(SharedString::from("Ctrl+"));
         extract_config_from_window(&win, &mut hotkey_cfg);
         assert_eq!(
             hotkey_cfg.hotkeys.snip, before.snip,
             "非法主键不应覆盖原截图热键"
+        );
+        assert_eq!(
+            hotkey_cfg.hotkeys.translate, before.translate,
+            "非法主键不应覆盖原截图翻译热键"
         );
         assert_eq!(
             hotkey_cfg.hotkeys.paste, before.paste,
