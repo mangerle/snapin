@@ -352,7 +352,14 @@ pub fn handle_job_outcome(state: &mut SnipperState, outcome: SnipperJobOutcome) 
                 return;
             }
             match write_text_to_clipboard(&text) {
-                Ok(()) => state.outcome = Some(SnipperOutcome::CopiedText(text)),
+                Ok(()) => {
+                    // 识别结果只写入剪贴板，不结束截图会话：用户常常要在同一张图上继续
+                    // 标注或再识别另一块区域，直接关闭会让人来不及确认结果。
+                    state.set_status_message(format!(
+                        "已复制识别文字（{} 字符）",
+                        text.chars().count()
+                    ));
+                }
                 Err(error) => {
                     tracing::warn!("复制 OCR 文本至系统剪贴板失败: {error}");
                     state.set_status_message(format!("复制识别文字失败: {error}"));
@@ -485,5 +492,31 @@ mod tests {
         assert_eq!(items[0].translated, "你好");
         assert_eq!(items[0].rect.0, 110.0);
         assert_eq!(items[0].rect.1, 60.0);
+    }
+}
+
+#[cfg(test)]
+mod ocr_outcome_tests {
+    use super::*;
+    use crate::snipper::window::state::SnipperState;
+    use snapin_service::ocr::OcrResult;
+
+    /// OCR 成功后应保留截图会话并给出结果提示，而不是立刻关闭窗口
+    #[test]
+    fn test_ocr_success_keeps_session_open() {
+        let mut state = SnipperState::new();
+        let result = OcrResult {
+            full_text: "识别出来的一段文字".to_string(),
+            ..Default::default()
+        };
+
+        handle_job_outcome(&mut state, SnipperJobOutcome::Ocr(result));
+
+        assert!(state.outcome.is_none(), "OCR 成功不得直接把会话置为结束态");
+        let message = state.status_message.as_deref().unwrap_or_default();
+        assert!(
+            message.contains("已复制识别文字"),
+            "应提示识别结果已复制，实际: {message}"
+        );
     }
 }

@@ -14,6 +14,7 @@ pub mod render;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use items::CORNER_RADIUS_PRESETS;
 pub use items::{preset_colors, StrokeWidthLevel, SubToolOptions, ToolbarItem};
 
 use crate::snipper::selection::Rect;
@@ -156,6 +157,11 @@ impl Toolbar {
                     self.sub_options.arrow_style = *style;
                 }
             }
+            Some(SubDropdown::Corner) => {
+                if let Some(radius) = CORNER_RADIUS_PRESETS.get(row) {
+                    self.sub_options.corner_radius = *radius;
+                }
+            }
             None => {}
         }
         self.open_dropdown = None;
@@ -276,8 +282,16 @@ impl Toolbar {
             Some(SubControl::FillToggle) => {
                 self.sub_options.filled = !self.sub_options.filled;
             }
-            // 圆角半径由滚轮连续调节，单击不做切换
-            Some(SubControl::CornerRadius) => {}
+            // 圆角半径：单击展开预设档位，悬停其上滚动滚轮可连续微调
+            Some(SubControl::CornerRadius) => {
+                self.open_dropdown = if self.open_dropdown == Some(SubDropdown::Corner) {
+                    None
+                } else {
+                    Some(SubDropdown::Corner)
+                };
+                self.dropdown_hover = None;
+                self.update_sub_rect();
+            }
             Some(SubControl::BadgeStyle) => {
                 self.open_dropdown = if self.open_dropdown == Some(SubDropdown::Badge) {
                     None

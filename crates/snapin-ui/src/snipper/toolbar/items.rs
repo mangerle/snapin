@@ -62,6 +62,9 @@ impl StrokeWidthLevel {
     }
 }
 
+/// 圆角半径预设档位（像素），顺序与圆角下拉菜单一致
+pub const CORNER_RADIUS_PRESETS: &[f32] = &[0.0, 6.0, 12.0, 20.0];
+
 /// 二级属性栏选项
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SubToolOptions {

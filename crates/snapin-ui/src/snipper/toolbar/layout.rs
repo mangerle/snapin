@@ -4,7 +4,9 @@
 //! 控件坐标只在此处计算一次，渲染与命中测试共用同一份结果，避免两处各写一套坐标而漂移。
 
 use crate::snipper::selection::Rect;
-use crate::snipper::toolbar::items::{preset_colors, StrokeWidthLevel, ToolbarItem};
+use crate::snipper::toolbar::items::{
+    preset_colors, StrokeWidthLevel, ToolbarItem, CORNER_RADIUS_PRESETS,
+};
 use crate::snipper::toolbar::metrics::{button_size, main_toolbar_width, padding};
 
 /// 二级栏下拉菜单种类
@@ -16,6 +18,8 @@ pub(crate) enum SubDropdown {
     Badge,
     /// 箭头形态样式（实线/虚线/锥形）
     Arrow,
+    /// 圆角半径预设
+    Corner,
 }
 
 /// 二级栏可交互控件
@@ -255,6 +259,7 @@ pub(crate) fn calculate_sub_layout(
             SubDropdown::Line => SubControl::LineStyle,
             SubDropdown::Badge => SubControl::BadgeStyle,
             SubDropdown::Arrow => SubControl::ArrowStyle,
+            SubDropdown::Corner => SubControl::CornerRadius,
         };
         let anchor_rect = entries
             .iter()
@@ -265,6 +270,7 @@ pub(crate) fn calculate_sub_layout(
             SubDropdown::Line => 3,
             SubDropdown::Badge => 2,
             SubDropdown::Arrow => 3,
+            SubDropdown::Corner => CORNER_RADIUS_PRESETS.len(),
         };
         let row_h = 28.0 * s;
         let panel_h = rows as f32 * row_h + 8.0 * s;

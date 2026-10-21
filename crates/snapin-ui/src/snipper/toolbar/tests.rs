@@ -301,3 +301,40 @@ fn test_arrow_style_dropdown_selects_style() {
     assert_eq!(tb.sub_options.arrow_style, ArrowStyle::Solid);
     assert!(tb.open_dropdown.is_none());
 }
+
+/// 圆角控件可点击：展开预设档位并写回半径
+#[test]
+fn test_corner_radius_dropdown_selects_preset() {
+    let mut tb = Toolbar::default();
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 600.0,
+        height: 400.0,
+    };
+    tb.update_layout(&selection, 1920.0, 1080.0);
+
+    let btn_x = tb.main_rect.x + 10.0;
+    let btn_y = tb.main_rect.y + 10.0;
+    tb.handle_click(btn_x, btn_y);
+
+    let corner = tb
+        .sub_layout()
+        .and_then(|layout| layout.rect_of(SubControl::CornerRadius))
+        .expect("矩形工具应提供圆角控件");
+    tb.handle_click(
+        corner.x + corner.width / 2.0,
+        corner.y + corner.height / 2.0,
+    );
+    let dropdown = tb
+        .sub_layout()
+        .and_then(|layout| layout.dropdown.clone())
+        .expect("点击圆角控件应展开预设下拉");
+    assert_eq!(dropdown.rows.len(), CORNER_RADIUS_PRESETS.len());
+
+    // 第二档预设（6px）
+    let row = dropdown.rows[1];
+    tb.handle_click(row.x + 4.0, row.y + row.height / 2.0);
+    assert_eq!(tb.sub_options.corner_radius, CORNER_RADIUS_PRESETS[1]);
+    assert!(tb.open_dropdown.is_none(), "选中后菜单应收起");
+}

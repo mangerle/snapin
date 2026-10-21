@@ -1,7 +1,7 @@
 //! 工具栏与二级属性栏的纯 tiny-skia 矢量光栅化绘制。
 
 use super::icons::{add_round_rect, make_paint, render_item_icon};
-use super::items::{preset_colors, StrokeWidthLevel, ToolbarItem};
+use super::items::{preset_colors, StrokeWidthLevel, ToolbarItem, CORNER_RADIUS_PRESETS};
 use super::layout::{DropdownLayout, SubControl, SubDropdown};
 use super::metrics::{button_size, divider_width, has_separator_before, padding, spacing};
 use super::Toolbar;
@@ -602,6 +602,15 @@ fn render_dropdown(pixmap: &mut PixmapMut, dropdown: &DropdownLayout, toolbar: &
                     DropdownPreview::Arrow(*style),
                 )
             }
+            SubDropdown::Corner => {
+                let Some(radius) = CORNER_RADIUS_PRESETS.get(index) else {
+                    continue;
+                };
+                (
+                    (toolbar.sub_options.corner_radius - *radius).abs() < 0.5,
+                    DropdownPreview::Corner(*radius),
+                )
+            }
         };
 
         if is_current {
@@ -644,6 +653,9 @@ fn render_dropdown(pixmap: &mut PixmapMut, dropdown: &DropdownLayout, toolbar: &
             DropdownPreview::Badge(style) => {
                 render_badge_style_icon(pixmap, row.x + 18.0 * s, center_y, s, style, ink)
             }
+            DropdownPreview::Corner(radius) => {
+                render_corner_radius_icon(pixmap, row.x + 18.0 * s, center_y, s, radius)
+            }
             DropdownPreview::Arrow(style) => render_arrow_preview(
                 pixmap,
                 row.x + 10.0 * s,
@@ -672,6 +684,7 @@ enum DropdownPreview {
     Line(LineStyle),
     Badge(BadgeStyle),
     Arrow(ArrowStyle),
+    Corner(f32),
 }
 
 /// 绘制迷你箭头预览，三种形态同尺寸对比
