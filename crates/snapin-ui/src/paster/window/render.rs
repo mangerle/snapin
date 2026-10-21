@@ -8,6 +8,7 @@ use crate::paster::window::annotation::{image_to_screen_point, refresh_toolbar_l
 use crate::paster::window::input_region::{
     compute_input_rects, input_layout_from_state, physical_rects_to_surface,
 };
+use crate::paster::window::text_session::render_text_session_preview;
 use crate::snipper::toolbar::ToolbarItem;
 use crate::snipper::window::annotation_builder::{render_draft_preview, AnnotationDraftParams};
 use snapin_core::render::with_thread_local_text_renderer;
@@ -82,8 +83,9 @@ pub fn render_paster_to_surface(
     // 2. 光栅化贴图图像本体
     target_pixmap.draw_pixmap(0, 0, state.item.pixmap.as_ref(), &paint, tf, None);
 
-    // 3. 绘制拖拽中的标注预览：位于图像之上、边框与工具栏之下
+    // 3. 绘制拖拽中的标注预览与文字输入框：位于图像之上、边框与工具栏之下
     render_pending_annotation_preview(state, &mut target_pixmap);
+    render_text_session_preview(state, &mut target_pixmap);
 
     // 4. 绘制贴图精致外边框与窗口阴影。
     //    必须按「缩放后的贴图尺寸」描边而不是窗口尺寸：右键菜单放不下时窗口会被临时撑大，

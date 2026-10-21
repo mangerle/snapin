@@ -88,8 +88,25 @@ impl TextInputSession {
 
     /// 在画布上渲染当前输入的文字以及尾随光标与黑色边界框
     pub fn render(&self, pixmap: &mut PixmapMut) {
-        let (x, y) = self.pos;
-        let font_size = self.font_size.max(8.0);
+        self.render_scaled(pixmap, 1.0, false);
+    }
+
+    /// 按给定缩放倍率渲染输入框、文字与光标，可选为预编辑文本绘制下划线。
+    ///
+    /// 截图窗口的会话坐标本身就是屏幕物理像素，因此 [`Self::render`] 以 1.0 倍率调用；
+    /// 贴图窗口的会话坐标是图像像素，渲染时必须乘以图像缩放倍率才能与屏幕对齐，
+    /// 字号、内边距与光标也按同一倍率放大，保证预览与最终烘焙结果一致。
+    /// `underline_preedit` 仅供贴图预览启用，避免改变截图侧既有的输入视觉效果。
+    pub(crate) fn render_scaled(
+        &self,
+        pixmap: &mut PixmapMut,
+        scale: f32,
+        underline_preedit: bool,
+    ) {
+        let scale = if scale > f32::EPSILON { scale } else { 1.0 };
+        let (x, y) = (self.pos.0 * scale, self.pos.1 * scale);
+        // 缩小贴图时字号必须同步缩小；仅放大或 1:1 时保留 8 像素可读性下限
+        let font_size = (self.font_size * scale).max(8.0 * scale.min(1.0));
         let line_height = font_size * 1.25;
 
         let display_text = if self.preedit.is_empty() {
@@ -99,47 +116,104 @@ impl TextInputSession {
         };
 
         let cursor_x = if display_text.is_empty() {
-            let min_w = (font_size * 3.0).max(64.0);
-            render_input_box(pixmap, x - 6.0, y - 4.0, min_w, line_height + 8.0);
+            let min_w = (font_size * 3.0).max(64.0 * scale);
+            render_input_box(
+                pixmap,
+                x - 6.0 * scale,
+                y - 4.0 * scale,
+                min_w,
+                line_height + 8.0 * scale,
+            );
             x
         } else {
-            self.draw_box_and_text(pixmap, x, y, font_size, line_height, &display_text)
+            let frame = InputFrame {
+                x,
+                y,
+                font_size,
+                line_height,
+                scale,
+                text: display_text.as_ref(),
+                underline_preedit,
+            };
+            self.draw_box_and_text(pixmap, &frame)
         };
 
         render_input_cursor(pixmap, cursor_x, y, font_size, self.color);
     }
 
     /// 测量输入框范围、绘制黑色外框底衬与文字像素，并返回末尾光标 X 坐标
-    fn draw_box_and_text(
-        &self,
-        pixmap: &mut PixmapMut,
-        x: f32,
-        y: f32,
-        font_size: f32,
-        line_height: f32,
-        text: &str,
-    ) -> f32 {
+    fn draw_box_and_text(&self, pixmap: &mut PixmapMut, frame: &InputFrame<'_>) -> f32 {
         with_thread_local_text_renderer(|renderer| {
+            let max_w = pixmap.width() as f32;
+            let max_h = pixmap.height() as f32;
             let (line_w, cursor_offset) = renderer.measure_text_input(
-                text,
-                font_size,
-                line_height,
-                pixmap.width() as f32,
-                pixmap.height() as f32,
+                frame.text,
+                frame.font_size,
+                frame.line_height,
+                max_w,
+                max_h,
             );
 
             // 1. 优先绘制黑色外框与底衬
-            let min_w = (font_size * 3.0).max(64.0);
-            let box_w = (line_w + 16.0).max(min_w);
-            let box_h = line_height + 8.0;
-            render_input_box(pixmap, x - 6.0, y - 4.0, box_w, box_h);
+            let min_w = (frame.font_size * 3.0).max(64.0 * frame.scale);
+            let box_w = (line_w + 16.0 * frame.scale).max(min_w);
+            let box_h = frame.line_height + 8.0 * frame.scale;
+            render_input_box(
+                pixmap,
+                frame.x - 6.0 * frame.scale,
+                frame.y - 4.0 * frame.scale,
+                box_w,
+                box_h,
+            );
 
             // 2. 绘制文字像素
-            renderer.draw_text_rgba(pixmap, text, x, y, font_size, self.color);
+            renderer.draw_text_rgba(
+                pixmap,
+                frame.text,
+                frame.x,
+                frame.y,
+                frame.font_size,
+                self.color,
+            );
 
-            x + cursor_offset
+            // 3. 预编辑文本以深色下划线标示，与已确认文本区分
+            if frame.underline_preedit && !self.preedit.is_empty() {
+                let (_, text_cursor) = renderer.measure_text_input(
+                    &self.text,
+                    frame.font_size,
+                    frame.line_height,
+                    max_w,
+                    max_h,
+                );
+                let start_x = if self.text.is_empty() {
+                    frame.x
+                } else {
+                    frame.x + text_cursor
+                };
+                let end_x = frame.x + cursor_offset;
+                render_preedit_underline(
+                    pixmap,
+                    start_x,
+                    end_x,
+                    frame.y + frame.font_size * 1.15,
+                    frame.scale,
+                );
+            }
+
+            frame.x + cursor_offset
         })
     }
+}
+
+/// 单帧输入框渲染参数，避免缩放渲染路径平铺过多入参。
+struct InputFrame<'a> {
+    x: f32,
+    y: f32,
+    font_size: f32,
+    line_height: f32,
+    scale: f32,
+    text: &'a str,
+    underline_preedit: bool,
 }
 
 /// 绘制文字输入过程中的黑色外边框与高对比度浅白背景衬底
@@ -188,6 +262,28 @@ fn render_input_box(pixmap: &mut PixmapMut, box_x: f32, box_y: f32, box_w: f32, 
             ..Default::default()
         };
         pixmap.stroke_path(&path, &border_paint, &stroke, Transform::identity(), None);
+    }
+}
+
+/// 绘制预编辑文本下划线，示意该段文字仍处于输入法候选状态。
+fn render_preedit_underline(pixmap: &mut PixmapMut, x0: f32, x1: f32, y: f32, scale: f32) {
+    if x1 <= x0 {
+        return;
+    }
+    let mut pb = PathBuilder::new();
+    pb.move_to(x0, y);
+    pb.line_to(x1, y);
+    if let Some(path) = pb.finish() {
+        let mut paint = Paint {
+            anti_alias: true,
+            ..Default::default()
+        };
+        paint.set_color_rgba8(15, 23, 42, 230);
+        let stroke = Stroke {
+            width: 1.5 * scale.max(0.1),
+            ..Default::default()
+        };
+        pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
     }
 }
 

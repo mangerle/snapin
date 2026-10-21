@@ -6,6 +6,7 @@ use super::annotation::{handle_toolbar_click, refresh_toolbar_layout};
 use super::menu_actions::{copy_paster_to_clipboard, dispatch_menu_action, save_paster_to_disk};
 use super::state::apply_window_scale_resize;
 use crate::paster::context_menu::ContextMenuState;
+use crate::snipper::toolbar::ToolbarItem;
 use snapin_core::config::DoubleClickAction;
 use std::time::Instant;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
@@ -21,6 +22,11 @@ pub fn handle_paster_key(
 ) -> bool {
     if key_state != ElementState::Pressed {
         return false;
+    }
+
+    // 文字会话激活时独占键盘：Esc 只取消会话，不得落到关闭贴图的分支
+    if state.has_active_text_session() {
+        return state.handle_text_session_key(key);
     }
 
     if state.context_menu.is_open {
@@ -125,7 +131,11 @@ pub fn handle_paster_mouse_button(
     button_state: ElementState,
     window: &Window,
 ) -> bool {
-    match (button, button_state) {
+    // 任何按下动作都意味着离开当前文字输入位置：先提交会话再分发
+    // 工具栏切换、右键菜单或图像外拖拽，保证已输入内容不会丢失。
+    let committed_text = button_state == ElementState::Pressed && state.commit_text_session();
+
+    let handled = match (button, button_state) {
         (MouseButton::Right, ElementState::Pressed) => {
             // 右键打开菜单前取消未完成的一笔，避免拖拽预览残留在图像上
             state.pending_stroke_points.clear();
@@ -150,7 +160,10 @@ pub fn handle_paster_mouse_button(
         (MouseButton::Left, ElementState::Pressed) => handle_left_press(state, window),
         (MouseButton::Left, ElementState::Released) => handle_left_release(state),
         _ => false,
-    }
+    };
+
+    // 即使只发生了文字提交（例如按下鼠标中键或点击图像外），也要重绘以清除输入框
+    handled || committed_text
 }
 
 /// 左键按下：优先处理菜单与工具栏，其次在激活标注工具时开始一笔，最后才拖动窗口。
@@ -176,6 +189,13 @@ fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
     let win_size = window.inner_size();
     if handle_toolbar_click(state, (win_size.width as f32, win_size.height as f32)) {
         return true;
+    }
+
+    // 文字工具在图像内按下时开启 IME 输入会话，而不是走拖拽笔迹路径
+    if state.toolbar.active_tool == Some(ToolbarItem::ToolText)
+        && state.screen_point_inside_image(state.cursor_pos)
+    {
+        return state.begin_text_session(state.cursor_pos);
     }
 
     // 有激活工具且按下点在贴图图像内：开始一笔，不触发窗口拖动与双击动作

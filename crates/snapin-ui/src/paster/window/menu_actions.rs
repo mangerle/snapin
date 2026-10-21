@@ -17,7 +17,13 @@ pub fn dispatch_menu_action(state: &mut PasterWindowState, action: MenuItemId, w
     match action {
         MenuItemId::CopyImage => copy_paster_to_clipboard(&state.item),
         MenuItemId::SaveImageAs => save_paster_to_disk(state),
-        MenuItemId::ToggleToolbar => state.set_toolbar_visible(!state.show_toolbar, window),
+        MenuItemId::ToggleToolbar => {
+            state.set_toolbar_visible(!state.show_toolbar, window);
+            // 隐藏工具条会结束文字会话，同步关闭 IME，避免输入法状态残留
+            if !state.show_toolbar {
+                window.set_ime_allowed(false);
+            }
+        }
         MenuItemId::ToggleShadow => state.has_shadow = !state.has_shadow,
         MenuItemId::Scale(s) => state.set_scale(s, window),
         MenuItemId::ToggleSmoothScaling => state.smooth_scaling = !state.smooth_scaling,

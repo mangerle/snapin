@@ -8,6 +8,7 @@ use crate::paster::window::annotation::{
 use crate::paster::window::jobs::PasterJobExecutor;
 use crate::snipper::toolbar::{Toolbar, ToolbarItem};
 use crate::snipper::window::annotation_builder::{build_shape, AnnotationDraftParams};
+use crate::snipper::window::text_input::TextInputSession;
 use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::{TranslationAction, TranslationShapeItem};
 use snapin_core::annotation::AnnotationHistory;
@@ -51,6 +52,8 @@ pub struct PasterWindowState {
     pub(crate) pending_stroke_points: Vec<(f32, f32)>,
     /// 左键是否正处于一笔标注的拖拽过程中
     pub(crate) is_drawing: bool,
+    /// 正在编辑的文字标注会话（坐标与字号均为图像像素），无会话时为 `None`
+    pub(crate) active_text_input: Option<TextInputSession>,
 }
 
 impl PasterWindowState {
@@ -76,6 +79,7 @@ impl PasterWindowState {
             last_click_time: None,
             pending_stroke_points: Vec::with_capacity(64),
             is_drawing: false,
+            active_text_input: None,
         }
     }
 
@@ -238,10 +242,11 @@ impl PasterWindowState {
     /// 显示/隐藏标注工具栏，并让窗口尺寸跟随工具条扩缩。
     ///
     /// 显示时窗口需要在图像下方额外容纳属性栏与主栏；隐藏时恢复为贴近图像的尺寸。
-    /// 隐藏同时退出绘制模式，避免用户在没有工具条提示时误画。
+    /// 隐藏同时提交进行中的文字会话并退出绘制模式，避免已输入内容丢失或 IME 状态残留。
     pub fn set_toolbar_visible(&mut self, visible: bool, window: &Window) {
         self.show_toolbar = visible;
         if !visible {
+            self.commit_text_session();
             self.toolbar.active_tool = None;
             self.pending_stroke_points.clear();
             self.is_drawing = false;
@@ -351,7 +356,7 @@ impl PasterWindowState {
     }
 
     /// 屏幕坐标转图像坐标（使用当前缩放并夹取边界）
-    fn image_point(&self, screen_pos: (f32, f32)) -> (f32, f32) {
+    pub(crate) fn image_point(&self, screen_pos: (f32, f32)) -> (f32, f32) {
         screen_to_image_point(
             screen_pos,
             self.item.transform.scale,
@@ -376,6 +381,8 @@ impl PasterWindowState {
         self.annotations.clear();
         self.pending_stroke_points.clear();
         self.is_drawing = false;
+        // 坐标系已失效，进行中的文字会话不能再落到新底图上
+        self.active_text_input = None;
     }
 }
 

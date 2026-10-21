@@ -5,6 +5,7 @@ use super::super::window::events::{
 };
 use super::super::window::render::render_paster_to_surface;
 use super::super::window::state::PasterWindowState;
+use super::super::window::text_session::{refresh_ime_cursor_area, sync_ime_state};
 use super::proxy::{PasterAppEvent, WorkspaceStatus};
 use super::window_builder::create_new_paster_window;
 use super::WorkspaceRuntime;
@@ -12,7 +13,7 @@ use snapin_core::annotation::shapes::TranslationShapeItem;
 use snapin_platform::write_text_to_clipboard;
 use std::sync::Arc;
 use std::time::Instant;
-use winit::event::WindowEvent;
+use winit::event::{Ime, WindowEvent};
 use winit::event_loop::EventLoopWindowTarget;
 use winit::window::WindowId;
 
@@ -80,6 +81,11 @@ pub(crate) fn handle_workspace_user_event(
         PasterAppEvent::OcrFinished(result) => handle_ocr_finished(result, runtime),
         PasterAppEvent::TranslateFinished(result) => handle_translate_finished(result, runtime),
         PasterAppEvent::Shutdown(responder) => {
+            // 工作区停机时逐个结束会话并关闭 IME，再统一释放窗口实例
+            for inst in runtime.instances.values_mut() {
+                inst.state.cancel_text_session();
+                inst.window.set_ime_allowed(false);
+            }
             runtime.instances.clear();
             if let Some(responder) = responder {
                 let _ = responder.send(());
@@ -106,6 +112,7 @@ pub(crate) fn handle_workspace_window_event(
             WindowEvent::KeyboardInput {
                 event: key_event, ..
             } => {
+                let text_active = inst.state.has_active_text_session();
                 if handle_paster_key(
                     &mut inst.state,
                     &key_event.logical_key,
@@ -114,6 +121,7 @@ pub(crate) fn handle_workspace_window_event(
                 ) {
                     inst.window.request_redraw();
                 }
+                sync_ime_state(&inst.state, &inst.window, text_active);
                 if inst.state.should_close {
                     should_close = true;
                 }
@@ -130,15 +138,30 @@ pub(crate) fn handle_workspace_window_event(
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 if handle_paster_scroll(&mut inst.state, delta, &inst.window) {
+                    // 缩放会改变文字会话的屏幕位置，同步刷新 IME 候选框锚点
+                    refresh_ime_cursor_area(&inst.state, &inst.window);
                     inst.window.request_redraw();
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                let text_active = inst.state.has_active_text_session();
                 if handle_paster_mouse_button(&mut inst.state, button, state, &inst.window) {
                     inst.window.request_redraw();
                 }
+                sync_ime_state(&inst.state, &inst.window, text_active);
                 if inst.state.should_close {
                     should_close = true;
+                }
+            }
+            WindowEvent::Ime(ime_event) => {
+                let need_redraw = match ime_event {
+                    Ime::Commit(text) => inst.state.apply_ime_commit(&text),
+                    Ime::Preedit(text, _cursor) => inst.state.apply_ime_preedit(&text),
+                    _ => false,
+                };
+                if need_redraw {
+                    refresh_ime_cursor_area(&inst.state, &inst.window);
+                    inst.window.request_redraw();
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
@@ -165,7 +188,10 @@ pub(crate) fn handle_workspace_window_event(
     }
 
     if should_close {
-        if let Some(removed) = runtime.instances.remove(&window_id) {
+        if let Some(mut removed) = runtime.instances.remove(&window_id) {
+            // 关闭前结束文字会话并显式关闭 IME，避免输入法候选框残留在桌面上
+            removed.state.cancel_text_session();
+            removed.window.set_ime_allowed(false);
             runtime.manager.remove_paster(removed.item_id);
             tracing::info!(
                 "贴图已安全关闭: {}，工作区剩余活动贴图: {}",

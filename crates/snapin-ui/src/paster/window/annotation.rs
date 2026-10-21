@@ -10,9 +10,12 @@ use crate::snipper::toolbar::{Toolbar, ToolbarItem};
 
 /// 贴图窗口主栏按钮序列：绘制工具、撤销/重做、整图识别/翻译与贴图动作。
 ///
-/// 不包含文字工具（依赖 IME 输入，需单独实现）以及截图专属的贴图（ActionPin）按钮。
+/// 文字工具通过窗口 IME 会话输入，与截图侧共用同一套 [`TextInputSession`]；
+/// 不包含截图专属的贴图（ActionPin）按钮。
 /// 分隔线由 `metrics::has_separator_before` 按按钮语义自动插入，
 /// 因此撤销与关闭动作之前各会有一条分隔线。
+///
+/// [`TextInputSession`]: crate::snipper::window::text_input::TextInputSession
 pub const PASTER_MAIN_ITEMS: &[ToolbarItem] = &[
     ToolbarItem::ToolRect,
     ToolbarItem::ToolBadge,
@@ -20,6 +23,7 @@ pub const PASTER_MAIN_ITEMS: &[ToolbarItem] = &[
     ToolbarItem::ToolPen,
     ToolbarItem::ToolMarker,
     ToolbarItem::ToolMosaic,
+    ToolbarItem::ToolText,
     ToolbarItem::ActionUndo,
     ToolbarItem::ActionRedo,
     ToolbarItem::ActionOcr,
@@ -398,6 +402,7 @@ mod tests {
             ToolbarItem::ToolPen,
             ToolbarItem::ToolMarker,
             ToolbarItem::ToolMosaic,
+            ToolbarItem::ToolText,
             ToolbarItem::ActionUndo,
             ToolbarItem::ActionRedo,
             ToolbarItem::ActionOcr,
@@ -407,6 +412,18 @@ mod tests {
             ToolbarItem::ActionCopy,
         ];
         assert_eq!(PASTER_MAIN_ITEMS, &expected);
+        assert!(
+            PASTER_MAIN_ITEMS
+                .windows(2)
+                .any(|pair| { pair == [ToolbarItem::ToolMosaic, ToolbarItem::ToolText] }),
+            "文字工具必须紧跟马赛克按钮"
+        );
+        assert!(
+            PASTER_MAIN_ITEMS
+                .windows(2)
+                .any(|pair| { pair == [ToolbarItem::ToolText, ToolbarItem::ActionUndo] }),
+            "文字工具必须位于撤销按钮之前"
+        );
         assert!(
             PASTER_MAIN_ITEMS
                 .windows(2)
@@ -437,8 +454,8 @@ mod tests {
             "贴图窗口不应出现“贴图置顶”按钮"
         );
         assert!(
-            !PASTER_MAIN_ITEMS.contains(&ToolbarItem::ToolText),
-            "本轮主栏不应混入文字工具"
+            PASTER_MAIN_ITEMS.contains(&ToolbarItem::ToolText),
+            "贴图主栏必须提供文字标注工具"
         );
     }
 

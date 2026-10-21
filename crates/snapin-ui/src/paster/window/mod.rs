@@ -7,6 +7,7 @@ pub(crate) mod jobs;
 pub mod menu_actions;
 pub mod render;
 pub mod state;
+pub(crate) mod text_session;
 
 pub use render::render_paster_to_surface;
 pub use state::PasterWindowState;
