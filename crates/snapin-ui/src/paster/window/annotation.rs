@@ -35,7 +35,10 @@ const SUB_BAR_MAX_WIDTH: f32 = 400.0;
 /// 二级属性栏在工具条上方占用的高度（面板 36 + 与主栏间距 4，界面像素）。
 ///
 /// 主栏必须下移这段距离，属性栏才能从主栏上方展开而不遮挡缩放后的图像。
-const SUB_BAR_RESERVE: f32 = 40.0;
+const SUB_BAR_HEIGHT: f32 = 36.0;
+
+/// 二级属性栏与主栏之间的间距（界面像素）
+const SUB_BAR_GAP: f32 = 4.0;
 
 /// 创建贴图专用工具栏。
 pub(crate) fn create_paster_toolbar() -> Toolbar {
@@ -55,7 +58,9 @@ pub(crate) fn toolbar_required_extent(ui_scale: f32, main_w: f32, main_h: f32) -
     let ui_scale = ui_scale.max(0.1);
     let margin = 8.0 * ui_scale;
     let width = (main_w + margin * 2.0).max(SUB_BAR_MAX_WIDTH * ui_scale + margin * 2.0);
-    let height = margin + SUB_BAR_RESERVE * ui_scale + main_h + margin;
+    // 高度在工具条下方预留二级栏空间：主栏紧贴图像（间距仅一个 margin），
+    // 属性栏需要时浮在主栏上方（与截图一致），不会把工具条整体推远。
+    let height = margin + main_h + SUB_BAR_GAP * ui_scale + SUB_BAR_HEIGHT * ui_scale + margin;
     (width, height)
 }
 
@@ -113,7 +118,8 @@ pub(crate) fn refresh_toolbar_layout(
     let scaled_h = (state.item.pixmap.height() as f32 * scale).max(1.0);
     let margin = 8.0 * ui_scale;
     let bar_x = margin;
-    let bar_y = scaled_h + margin + SUB_BAR_RESERVE * ui_scale;
+    // 工具条紧贴图像下边缘，只留一个 margin；二级栏需要时浮在主栏上方
+    let bar_y = scaled_h + margin;
 
     // 先更新窗口边界，place_main_bar 内部的属性栏布局才能按正确的屏幕尺寸避让
     state
@@ -396,7 +402,7 @@ mod tests {
         assert_eq!(toolbar_required_extent(1.0, 100.0, 40.0), (416.0, 96.0));
     }
 
-    /// 小贴图上工具条必须整体落在图像下方，属性栏位于主栏上方且不遮挡图像
+    /// 小贴图上工具条紧贴图像下方（仅 8 像素间距），属性栏浮在主栏上方
     #[test]
     fn 工具条锚定在图像下方() {
         let mut state = test_state(140, 80);
@@ -408,15 +414,17 @@ mod tests {
 
         assert_eq!(state.toolbar.main_rect.x, 8.0);
         assert_eq!(
-            state.toolbar.main_rect.y, 128.0,
-            "主栏应位于图像底边 8 像素与属性栏预留 40 像素之下"
+            state.toolbar.main_rect.y, 88.0,
+            "主栏应紧贴图像底边下方 8 像素"
         );
         let sub = state.toolbar.sub_rect.expect("矩形工具应展开属性栏");
         assert!(
-            sub.y >= 80.0,
-            "属性栏不得覆盖缩放后的图像，实际 y: {}",
-            sub.y
+            sub.y + sub.height <= state.toolbar.main_rect.y + 0.01,
+            "属性栏应位于主栏上方，实际 y: {} 高: {}",
+            sub.y,
+            sub.height
         );
+        assert!(sub.y >= 0.0, "属性栏不得超出窗口顶部，实际 y: {}", sub.y);
         assert!(
             state.toolbar.main_rect.y + state.toolbar.main_rect.height <= 180.0 - 8.0,
             "主栏底边应留出 8 像素下边距"
