@@ -1,10 +1,10 @@
 //! 贴图浮动置顶窗口定义与单窗口兼容启动封装。
 
+pub mod annotation;
 pub mod events;
 pub mod menu_actions;
 pub mod render;
 pub mod state;
-pub mod toolbar_handler;
 
 pub use render::render_paster_to_surface;
 pub use state::PasterWindowState;

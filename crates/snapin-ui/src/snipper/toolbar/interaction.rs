@@ -28,7 +28,7 @@ pub(crate) fn hit_test_main_items(
     let mut cur_x = main_rect.x + padding;
 
     for (idx, &item) in items.iter().enumerate() {
-        if has_separator_before(idx) {
+        if has_separator_before(items, idx) {
             cur_x += divider_width(s);
         }
 

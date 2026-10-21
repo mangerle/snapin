@@ -4,7 +4,10 @@ use super::events::PasterWindowState;
 use crate::error::UiError;
 use crate::paster::context_menu::render::render_context_menu;
 use crate::paster::surface::PasterSurface;
-use snapin_core::render::{with_thread_local_text_renderer, TextRenderer};
+use crate::paster::window::annotation::{image_to_screen_point, refresh_toolbar_layout};
+use crate::snipper::toolbar::ToolbarItem;
+use crate::snipper::window::annotation_builder::{render_draft_preview, AnnotationDraftParams};
+use snapin_core::render::with_thread_local_text_renderer;
 use tiny_skia::{Color, FilterQuality, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform};
 
 /// 创建开启抗锯齿的基础画笔
@@ -73,17 +76,23 @@ pub fn render_paster_to_surface(
     // 2. 光栅化贴图图像本体
     target_pixmap.draw_pixmap(0, 0, state.item.pixmap.as_ref(), &paint, tf, None);
 
-    // 3. 绘制贴图精致外边框与窗口阴影。
+    // 3. 绘制拖拽中的标注预览：位于图像之上、边框与工具栏之下
+    render_pending_annotation_preview(state, &mut target_pixmap);
+
+    // 4. 绘制贴图精致外边框与窗口阴影。
     //    必须按「缩放后的贴图尺寸」描边而不是窗口尺寸：右键菜单放不下时窗口会被临时撑大，
     //    若跟着窗口描边，边框会一并扩大，用户一眼就能看出贴图被撑过——透明像素挡不住这个观感。
     render_paster_border_and_shadow(&mut target_pixmap, scaled_w, scaled_h, state.has_shadow);
 
-    // 4. 绘制现代化胶囊快捷工具条与右键上下文菜单 (统一复用线程局部高精度文本排版引擎)
+    // 5. 绘制标注工具栏与右键上下文菜单 (统一复用线程局部高精度文本排版引擎)
     if state.show_toolbar || state.context_menu.is_open {
+        if state.show_toolbar {
+            // 与命中测试同源：工具条锚定在缩放后的贴图内部，窗口被菜单撑大时不会飘到透明区域
+            refresh_toolbar_layout(state);
+        }
         with_thread_local_text_renderer(|tr| {
             if state.show_toolbar {
-                // 与命中测试同源：工具条锚定在贴图底部，窗口被菜单撑大时不会飘到透明区域
-                render_paster_toolbar(&mut target_pixmap, tr, scaled_w, scaled_h, state.ui_scale);
+                state.toolbar.render(&mut target_pixmap.as_mut());
             }
             if state.context_menu.is_open {
                 render_context_menu(
@@ -98,8 +107,46 @@ pub fn render_paster_to_surface(
         });
     }
 
-    // 5. 提交渲染至共享内存表面呈现（ARGB 通路下未被内容覆盖的像素保持透明）
+    // 6. 提交渲染至共享内存表面呈现（ARGB 通路下未被内容覆盖的像素保持透明）
     surface.present(&target_pixmap)
+}
+
+/// 将当前拖拽中的笔迹按屏幕坐标绘制到目标画布上。
+///
+/// 待提交点集保存的是图像像素坐标，预览必须乘以当前缩放才能与图像对齐；
+/// 线宽同样随缩放放大。序号半径在工厂内部以 `stroke_width * ui_scale` 推导，
+/// 因此这里改为放大 `ui_scale` 而不是先放大线宽，避免半径夹取区间随预览偏移。
+fn render_pending_annotation_preview(state: &PasterWindowState, target: &mut Pixmap) {
+    if !state.is_drawing {
+        return;
+    }
+    let Some(tool) = state.toolbar.active_tool else {
+        return;
+    };
+    if state.pending_stroke_points.is_empty() {
+        return;
+    }
+
+    let scale = state.item.transform.scale.max(f32::EPSILON);
+    let mut scaled_points = Vec::with_capacity(state.pending_stroke_points.len());
+    for &point in &state.pending_stroke_points {
+        scaled_points.push(image_to_screen_point(point, scale));
+    }
+
+    let Some(mut params) = AnnotationDraftParams::from_toolbar_and_points(
+        &state.toolbar,
+        tool,
+        &scaled_points,
+        state.annotations.next_badge_number(),
+    ) else {
+        return;
+    };
+    if tool == ToolbarItem::ToolBadge {
+        params.ui_scale *= scale;
+    } else {
+        params.stroke_width *= scale;
+    }
+    render_draft_preview(&params, &mut target.as_mut());
 }
 
 /// 绘制贴图边缘微反光边框与立体阴影
@@ -167,73 +214,6 @@ fn render_paster_border_and_shadow(pixmap: &mut Pixmap, w: f32, h: f32, has_shad
             pixmap.stroke_path(&in_path, &ip, &in_stroke, Transform::identity(), None);
         }
     }
-}
-
-/// 绘制贴图底部现代胶囊快捷工具条
-fn render_paster_toolbar(
-    pixmap: &mut Pixmap,
-    text_renderer: &mut TextRenderer,
-    w: f32,
-    h: f32,
-    ui_scale: f32,
-) {
-    let s = ui_scale;
-    let bar_w = (230.0 * s).min(w - 16.0);
-    let bar_h = 28.0 * s;
-    if bar_w < 100.0 || h < bar_h + 16.0 {
-        return;
-    }
-
-    let bar_x = (w - bar_w) / 2.0;
-    let bar_y = h - bar_h - 8.0 * s;
-
-    // 绘制现代胶囊底板
-    let mut pb = PathBuilder::new();
-    let r = bar_h / 2.0;
-    pb.move_to(bar_x + r, bar_y);
-    pb.line_to(bar_x + bar_w - r, bar_y);
-    pb.quad_to(bar_x + bar_w, bar_y, bar_x + bar_w, bar_y + r);
-    pb.quad_to(
-        bar_x + bar_w,
-        bar_y + bar_h,
-        bar_x + bar_w - r,
-        bar_y + bar_h,
-    );
-    pb.line_to(bar_x + r, bar_y + bar_h);
-    pb.quad_to(bar_x, bar_y + bar_h, bar_x, bar_y + r);
-    pb.quad_to(bar_x, bar_y, bar_x + r, bar_y);
-    pb.close();
-
-    if let Some(path) = pb.finish() {
-        let bg = make_paint(Color::from_rgba8(18, 20, 28, 235));
-        pixmap.fill_path(
-            &path,
-            &bg,
-            tiny_skia::FillRule::Winding,
-            Transform::identity(),
-            None,
-        );
-        let border = make_paint(Color::from_rgba8(255, 255, 255, 40));
-        let stroke = Stroke {
-            width: 1.0 * s,
-            ..Default::default()
-        };
-        pixmap.stroke_path(&path, &border, &stroke, Transform::identity(), None);
-    }
-
-    // 绘制工具快捷文字标签
-    let label = "复制(C) | 保存(S) | 旋转(3) | 翻转(H)";
-    let font_size = 11.5 * s;
-    let text_x = bar_x + 12.0 * s;
-    let text_y = bar_y + (bar_h - font_size * 1.25) / 2.0;
-    text_renderer.draw_text(
-        &mut pixmap.as_mut(),
-        label,
-        text_x,
-        text_y,
-        font_size,
-        Color::from_rgba8(240, 243, 250, 255),
-    );
 }
 
 #[cfg(test)]

@@ -2,8 +2,7 @@
 //!
 //! 布局计算、命中测试与光栅化渲染共用同一组常量，避免三处硬编码漂移。
 
-/// 主工具栏中需要前置分隔线的按钮下标
-pub(crate) const SEPARATOR_BEFORE_INDICES: &[usize] = &[7, 11];
+use super::items::ToolbarItem;
 
 /// 按钮边长
 pub(crate) fn button_size(scale: f32) -> f32 {
@@ -25,17 +24,35 @@ pub(crate) fn divider_width(scale: f32) -> f32 {
     8.0 * scale
 }
 
-/// 指定按钮下标前是否需要绘制分隔线
-pub(crate) fn has_separator_before(index: usize) -> bool {
-    SEPARATOR_BEFORE_INDICES.contains(&index)
+/// 指定按钮前是否需要绘制分隔线。
+///
+/// 分隔位置直接由按钮语义决定（撤销/重做组与关闭动作之前），
+/// 这样截图的完整按钮集与贴图的精简按钮集都能得到正确分隔，
+/// 无需再维护一份与按钮序列强耦合的下标表。
+pub(crate) fn has_separator_before(items: &[ToolbarItem], index: usize) -> bool {
+    index > 0
+        && matches!(
+            items.get(index),
+            Some(ToolbarItem::ActionUndo | ToolbarItem::ActionClose)
+        )
+}
+
+/// 统计实际生效的分隔线数量（下标 0 之前不绘制分隔线）
+fn separator_count(items: &[ToolbarItem]) -> usize {
+    items
+        .iter()
+        .enumerate()
+        .filter(|(index, item)| {
+            *index > 0 && matches!(item, ToolbarItem::ActionUndo | ToolbarItem::ActionClose)
+        })
+        .count()
 }
 
 /// 计算主工具栏总宽度
-pub(crate) fn main_toolbar_width(item_count: usize, scale: f32) -> f32 {
-    let items = item_count as f32;
-    let separators = SEPARATOR_BEFORE_INDICES.len() as f32;
+pub(crate) fn main_toolbar_width(items: &[ToolbarItem], scale: f32) -> f32 {
+    let count = items.len() as f32;
     padding(scale) * 2.0
-        + items * button_size(scale)
-        + (items - 1.0).max(0.0) * spacing(scale)
-        + separators * divider_width(scale)
+        + count * button_size(scale)
+        + (count - 1.0).max(0.0) * spacing(scale)
+        + separator_count(items) as f32 * divider_width(scale)
 }

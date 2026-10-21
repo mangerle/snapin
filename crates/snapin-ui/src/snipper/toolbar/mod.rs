@@ -30,6 +30,12 @@ use tiny_skia::PixmapMut;
 pub struct Toolbar {
     /// 界面缩放倍率 (HiDPI 缩放因子)
     pub ui_scale: f32,
+    /// 主栏按钮序列。
+    ///
+    /// 默认使用截图工具栏的完整按钮集；贴图窗口可注入自身的精简列表，
+    /// 从而在不复制布局、命中与渲染代码的前提下复用同一套工具栏实现。
+    /// 使用 `&'static` 切片是为了让工具栏保持轻量可克隆，且按钮序列在运行期恒定不变。
+    pub main_items: &'static [ToolbarItem],
     /// 当前处于激活状态的标注工具 (None 表示未进入标注模式)
     pub active_tool: Option<ToolbarItem>,
     /// 当前鼠标悬停的项目
@@ -54,6 +60,7 @@ impl Default for Toolbar {
     fn default() -> Self {
         Self {
             ui_scale: 1.0,
+            main_items: Self::MAIN_ITEMS,
             active_tool: None,
             hovered_item: None,
             sub_options: SubToolOptions::default(),
@@ -100,9 +107,22 @@ impl Toolbar {
             screen_w,
             screen_h,
             self.ui_scale,
-            Self::MAIN_ITEMS.len(),
+            self.main_items,
         );
         self.update_sub_rect();
+    }
+
+    /// 主栏面板宽度（由当前 `main_items` 与界面缩放倍率共同决定）。
+    ///
+    /// 贴图窗口需要把工具栏锚定在图像内部，必须提前知道面板宽度才能摆放；
+    /// 与命中测试、渲染共用同一份度量函数，避免三处坐标漂移。
+    pub(crate) fn main_width(&self) -> f32 {
+        metrics::main_toolbar_width(self.main_items, self.ui_scale)
+    }
+
+    /// 主栏面板高度（含上下内边距）。
+    pub(crate) fn main_height(&self) -> f32 {
+        metrics::padding(self.ui_scale) * 2.0 + metrics::button_size(self.ui_scale)
     }
 
     /// 根据当前主工具栏位置重新定位二级属性栏 (自适应 HiDPI 缩放)
@@ -183,7 +203,7 @@ impl Toolbar {
 
     /// 主栏命中测试 (自适应 HiDPI 缩放)
     pub fn hit_test_main(&self, px: f32, py: f32) -> Option<ToolbarItem> {
-        hit_test_main_items(&self.main_rect, Self::MAIN_ITEMS, self.ui_scale, px, py)
+        hit_test_main_items(&self.main_rect, self.main_items, self.ui_scale, px, py)
     }
 
     /// 检查指定坐标是否落在主栏、二级栏或展开的下拉菜单内（防止事件穿透到画布）

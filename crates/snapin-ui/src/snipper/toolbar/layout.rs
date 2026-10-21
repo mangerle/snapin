@@ -99,10 +99,10 @@ pub(crate) fn calculate_main_layout(
     screen_w: f32,
     screen_h: f32,
     ui_scale: f32,
-    total_items: usize,
+    items: &[ToolbarItem],
 ) -> Rect {
     let s = ui_scale;
-    let width = main_toolbar_width(total_items, s);
+    let width = main_toolbar_width(items, s);
     let height = padding(s) * 2.0 + button_size(s);
 
     let mut x = (selection.x + selection.width) - width;

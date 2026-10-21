@@ -17,7 +17,7 @@ pub fn dispatch_menu_action(state: &mut PasterWindowState, action: MenuItemId, w
     match action {
         MenuItemId::CopyImage => copy_paster_to_clipboard(&state.item),
         MenuItemId::SaveImageAs => save_paster_to_disk(state),
-        MenuItemId::ToggleToolbar => state.show_toolbar = !state.show_toolbar,
+        MenuItemId::ToggleToolbar => state.set_toolbar_visible(!state.show_toolbar),
         MenuItemId::ToggleShadow => state.has_shadow = !state.has_shadow,
         MenuItemId::Scale(s) => state.set_scale(s, window),
         MenuItemId::ToggleSmoothScaling => state.smooth_scaling = !state.smooth_scaling,

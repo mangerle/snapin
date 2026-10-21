@@ -173,7 +173,8 @@ fn test_fill_toggle_and_badge_style() {
     assert!(!tb.sub_options.filled, "再次点击应恢复仅描边");
 
     // 切换到序号工具：应出现底板样式控件，且不再有填充/圆角
-    let badge_index = Toolbar::MAIN_ITEMS
+    let badge_index = tb
+        .main_items
         .iter()
         .position(|item| *item == ToolbarItem::ToolBadge)
         .expect("主栏应包含序号工具");
@@ -230,7 +231,8 @@ fn test_dropdown_closes_when_clicking_other_tool() {
     assert!(tb.open_dropdown.is_some());
 
     // 点击画笔工具
-    let pen_index = Toolbar::MAIN_ITEMS
+    let pen_index = tb
+        .main_items
         .iter()
         .position(|item| *item == ToolbarItem::ToolPen)
         .expect("主栏应包含画笔");
@@ -262,7 +264,8 @@ fn test_arrow_style_dropdown_selects_style() {
     tb.update_layout(&selection, 1920.0, 1080.0);
 
     // 激活箭头工具
-    let arrow_index = Toolbar::MAIN_ITEMS
+    let arrow_index = tb
+        .main_items
         .iter()
         .position(|item| *item == ToolbarItem::ToolArrow)
         .expect("主栏应包含箭头");

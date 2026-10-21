@@ -82,8 +82,8 @@ fn render_main_buttons(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
     let spacing = spacing(s);
     let mut cur_x = toolbar.main_rect.x + padding;
 
-    for (idx, &item) in Toolbar::MAIN_ITEMS.iter().enumerate() {
-        if has_separator_before(idx) {
+    for (idx, &item) in toolbar.main_items.iter().enumerate() {
+        if has_separator_before(toolbar.main_items, idx) {
             render_divider(pixmap, cur_x + 3.0 * s, toolbar.main_rect.y + padding, s);
             cur_x += divider_width(s);
         }
