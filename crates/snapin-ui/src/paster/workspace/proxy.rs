@@ -2,6 +2,7 @@
 
 use super::super::manager::PasterItem;
 use crate::error::UiError;
+use snapin_core::annotation::shapes::TranslationShapeItem;
 use snapin_core::config::Config;
 use tokio::sync::oneshot;
 use winit::event_loop::EventLoopProxy;
@@ -25,6 +26,10 @@ pub enum PasterAppEvent {
     SwitchGroup(Option<usize>),
     /// 查询当前工作区运行状态
     GetStatus(oneshot::Sender<WorkspaceStatus>),
+    /// 整图文字识别完成（成功为识别全文，失败为中文错误描述）
+    OcrFinished(Result<String, String>),
+    /// 整图翻译完成（成功为待注入的翻译图元，失败为中文错误描述）
+    TranslateFinished(Result<Vec<TranslationShapeItem>, String>),
     /// 请求工作区平滑停机，并在事件循环即将退出时回传确认
     Shutdown(Option<oneshot::Sender<()>>),
 }

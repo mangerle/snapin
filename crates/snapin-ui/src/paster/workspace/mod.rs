@@ -12,14 +12,31 @@ pub use proxy::{PasterAppEvent, PasterWorkspaceProxy, WorkspaceStatus};
 pub use window_builder::PasterInstance;
 
 use super::manager::PasterManager;
+use super::window::jobs::PasterJobExecutor;
 use crate::error::UiError;
-use event_handler::{handle_workspace_user_event, handle_workspace_window_event};
+use event_handler::{
+    handle_workspace_about_to_wait, handle_workspace_user_event, handle_workspace_window_event,
+};
+use snapin_core::config::Config;
 use std::collections::HashMap;
 use std::sync::Arc;
 use winit::event::Event;
 use winit::event_loop::{ControlFlow, EventLoop, EventLoopBuilder};
 use winit::platform::wayland::EventLoopBuilderExtWayland;
 use winit::window::WindowId;
+
+/// 贴图工作区事件循环持有的全部长生命周期资源。
+///
+/// 集中封装窗口实例、分组管理器、全局配置与后台任务执行器，
+/// 既减少事件处理函数的平铺参数，也明确执行器的唯一归属方。
+pub(crate) struct WorkspaceRuntime {
+    pub instances: HashMap<WindowId, PasterInstance>,
+    pub manager: PasterManager,
+    pub cfg: Arc<Config>,
+    pub jobs: Arc<PasterJobExecutor>,
+    /// 单次会话模式下最后一个贴图关闭后是否退出事件循环
+    pub exit_on_all_closed: bool,
+}
 
 /// 创建集中多窗口贴图工作区事件循环与配套代理
 pub fn create_paster_workspace(
@@ -72,46 +89,54 @@ pub fn run_paster_workspace_loop(
     event_loop: EventLoop<PasterAppEvent>,
     exit_on_all_closed: bool,
 ) -> Result<(), UiError> {
-    let mut instances: HashMap<WindowId, PasterInstance> = HashMap::new();
     let mut manager = PasterManager::default();
-    let mut cfg = Arc::new(snapin_core::config::load_or_create_config(None).unwrap_or_default());
+    let cfg = Arc::new(snapin_core::config::load_or_create_config(None).unwrap_or_default());
     let initial_group = cfg
         .paster
         .active_group_id
         .min(event_handler::TOTAL_PIN_GROUPS.saturating_sub(1));
     manager.switch_group(initial_group);
 
-    event_loop
-        .run(move |event, elwt| {
-            elwt.set_control_flow(ControlFlow::Wait);
+    // 后台执行器由工作区独占持有：线程句柄不可丢弃，事件循环退出后必须 join。
+    let jobs = Arc::new(PasterJobExecutor::try_new(
+        event_loop.create_proxy(),
+        cfg.clone(),
+    )?);
+    let mut runtime = WorkspaceRuntime {
+        instances: HashMap::new(),
+        manager,
+        cfg,
+        jobs: jobs.clone(),
+        exit_on_all_closed,
+    };
 
-            match event {
-                Event::UserEvent(app_event) => {
-                    handle_workspace_user_event(
-                        app_event,
-                        &mut instances,
-                        &mut manager,
-                        &mut cfg,
-                        elwt,
-                    );
-                }
-                Event::WindowEvent { window_id, event } => {
-                    handle_workspace_window_event(
-                        window_id,
-                        event,
-                        &mut instances,
-                        &mut manager,
-                        exit_on_all_closed,
-                        elwt,
-                    );
-                }
-                Event::LoopExiting => {
-                    tracing::info!("集中多窗口贴图工作区事件循环退出");
-                }
-                _ => {}
+    let run_result = event_loop.run(move |event, elwt| {
+        elwt.set_control_flow(ControlFlow::Wait);
+
+        match event {
+            Event::UserEvent(app_event) => {
+                handle_workspace_user_event(app_event, &mut runtime, elwt);
             }
-        })
-        .map_err(|e| UiError::Window {
-            message: format!("运行集中贴图工作区事件主循环失败: {e}"),
-        })
+            Event::WindowEvent { window_id, event } => {
+                handle_workspace_window_event(window_id, event, &mut runtime, elwt);
+            }
+            Event::AboutToWait => {
+                let deadline = handle_workspace_about_to_wait(&mut runtime);
+                elwt.set_control_flow(match deadline {
+                    Some(deadline) => ControlFlow::WaitUntil(deadline),
+                    None => ControlFlow::Wait,
+                });
+            }
+            Event::LoopExiting => {
+                tracing::info!("集中多窗口贴图工作区事件循环退出");
+            }
+            _ => {}
+        }
+    });
+
+    // 无论事件循环正常退出还是异常返回，都必须停止并回收后台任务线程。
+    jobs.shutdown();
+    run_result.map_err(|e| UiError::Window {
+        message: format!("运行集中贴图工作区事件主循环失败: {e}"),
+    })
 }

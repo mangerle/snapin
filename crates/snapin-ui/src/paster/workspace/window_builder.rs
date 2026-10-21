@@ -1,17 +1,16 @@
 //! 贴图窗口物理实例与图形表面构建。
 
-use super::super::manager::{PasterItem, PasterManager};
+use super::super::manager::PasterItem;
 use super::super::window::events::PasterWindowState;
 use super::proxy::PasterAppEvent;
+use super::WorkspaceRuntime;
 use crate::error::UiError;
 use crate::paster::surface::PasterSurface;
-use snapin_core::config::Config;
-use std::collections::HashMap;
 use std::sync::Arc;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::EventLoopWindowTarget;
 use winit::platform::wayland::WindowBuilderExtWayland;
-use winit::window::{Window, WindowBuilder, WindowId};
+use winit::window::{Window, WindowBuilder};
 
 /// 单个受管贴图窗口的运行时物理实例
 pub struct PasterInstance {
@@ -22,15 +21,13 @@ pub struct PasterInstance {
 }
 
 /// 在当前集中事件循环中动态创建并注入一个新贴图子窗口
-pub fn create_new_paster_window(
+pub(crate) fn create_new_paster_window(
     mut item: PasterItem,
-    instances: &mut HashMap<WindowId, PasterInstance>,
-    manager: &mut PasterManager,
-    cfg: &Arc<Config>,
+    runtime: &mut WorkspaceRuntime,
     elwt: &EventLoopWindowTarget<PasterAppEvent>,
 ) -> Result<(), UiError> {
     // 新贴图始终归属当前活动分组，避免分组切换后出现“管理器隐藏但窗口仍显示”的分裂状态。
-    item.group_id = manager.active_group();
+    item.group_id = runtime.manager.active_group();
     let title = item.title.clone();
     let initial_w = item.pixmap.width();
     let initial_h = item.pixmap.height();
@@ -62,12 +59,14 @@ pub fn create_new_paster_window(
 
     let item_id = item.id;
     let group_id = item.group_id;
-    let mut state = PasterWindowState::from_config(item, cfg.clone());
+    let mut state = PasterWindowState::from_config(item, runtime.cfg.clone());
     state.ui_scale = auto_scale;
     state.context_menu.set_ui_scale(auto_scale);
+    // 工作区级执行器注入窗口状态后，工具栏动作才能把整图任务投递到后台线程
+    state.job_executor = Some(runtime.jobs.clone());
 
     let win_id = window.id();
-    manager.add_entry(item_id, group_id);
+    runtime.manager.add_entry(item_id, group_id);
     window.request_redraw();
 
     let instance = PasterInstance {
@@ -77,10 +76,10 @@ pub fn create_new_paster_window(
         state,
     };
 
-    instances.insert(win_id, instance);
+    runtime.instances.insert(win_id, instance);
     tracing::info!(
         "已成功在集中工作区创建贴图: {title} ({initial_w}x{initial_h})，工作区活跃窗口数: {}",
-        instances.len()
+        runtime.instances.len()
     );
 
     Ok(())

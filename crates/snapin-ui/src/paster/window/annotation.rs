@@ -1,13 +1,14 @@
 //! 贴图标注工具栏配置、坐标映射与工具栏点击分发。
 //!
 //! 贴图窗口复用截图工具栏的布局与渲染实现，主栏在绘制工具与撤销/重做之外，
-//! 还提供复制、保存、关闭等贴图动作；OCR 与翻译按钮暂时只占位，等待接入整图服务。
+//! 还提供整图 OCR、整图翻译以及复制、保存、关闭等贴图动作。
 
+use super::jobs::pixmap_to_rgba_image;
 use super::menu_actions::{copy_paster_to_clipboard, save_paster_to_disk};
 use super::state::PasterWindowState;
 use crate::snipper::toolbar::{Toolbar, ToolbarItem};
 
-/// 贴图窗口主栏按钮序列：绘制工具、撤销/重做与贴图动作。
+/// 贴图窗口主栏按钮序列：绘制工具、撤销/重做、整图识别/翻译与贴图动作。
 ///
 /// 不包含文字工具（依赖 IME 输入，需单独实现）以及截图专属的贴图（ActionPin）按钮。
 /// 分隔线由 `metrics::has_separator_before` 按按钮语义自动插入，
@@ -21,6 +22,8 @@ pub const PASTER_MAIN_ITEMS: &[ToolbarItem] = &[
     ToolbarItem::ToolMosaic,
     ToolbarItem::ActionUndo,
     ToolbarItem::ActionRedo,
+    ToolbarItem::ActionOcr,
+    ToolbarItem::ActionTranslate,
     ToolbarItem::ActionClose,
     ToolbarItem::ActionSave,
     ToolbarItem::ActionCopy,
@@ -131,8 +134,8 @@ pub(crate) fn refresh_toolbar_layout(
 /// 检测并处理贴图标注工具栏的点击，返回是否已消费本次点击。
 ///
 /// 命中范围包含主栏、二级属性栏与展开的下拉菜单；绘制工具由工具栏内部切换激活状态，
-/// 撤销/重做、复制、保存、关闭等动作在此分发。OCR 与翻译按钮本轮只占位，
-/// 点击时吞掉事件但不执行任何动作，避免误落到画布上。
+/// 撤销/重做、整图识别/翻译、复制、保存、关闭等动作在此分发。
+/// 识别与翻译任务异步执行，提交成功后立即返回，结果由工作区事件循环回填。
 pub(crate) fn handle_toolbar_click(state: &mut PasterWindowState, window_size: (f32, f32)) -> bool {
     if !state.show_toolbar {
         return false;
@@ -152,6 +155,8 @@ pub(crate) fn handle_toolbar_click(state: &mut PasterWindowState, window_size: (
             ToolbarItem::ActionRedo => {
                 state.redo_annotation();
             }
+            ToolbarItem::ActionOcr => submit_paster_ocr(state),
+            ToolbarItem::ActionTranslate => submit_paster_translate(state),
             ToolbarItem::ActionCopy => copy_paster_to_clipboard(&state.item),
             ToolbarItem::ActionSave => save_paster_to_disk(state),
             ToolbarItem::ActionClose => state.should_close = true,
@@ -161,11 +166,67 @@ pub(crate) fn handle_toolbar_click(state: &mut PasterWindowState, window_size: (
     true
 }
 
+/// 提交整图文字识别任务；已有任务或执行器不可用时只更新顶部提示。
+fn submit_paster_ocr(state: &mut PasterWindowState) {
+    if state.job_pending {
+        state.set_status_message("请等待当前任务完成");
+        return;
+    }
+    let Some(executor) = state.job_executor.clone() else {
+        state.set_status_message("后台任务执行器不可用");
+        return;
+    };
+    let image = match pixmap_to_rgba_image(&state.item.pixmap) {
+        Ok(image) => image,
+        Err(message) => {
+            state.set_status_message(format!("读取贴图像素失败: {message}"));
+            return;
+        }
+    };
+
+    match executor.submit_ocr(image) {
+        Ok(()) => {
+            state.job_pending = true;
+            state.set_status_message("正在识别文字...");
+        }
+        Err(message) => state.set_status_message(format!("提交文字识别任务失败: {message}")),
+    }
+}
+
+/// 提交整图翻译任务；目标语言与背景覆盖模式取自当前配置。
+fn submit_paster_translate(state: &mut PasterWindowState) {
+    if state.job_pending {
+        state.set_status_message("请等待当前任务完成");
+        return;
+    }
+    let Some(executor) = state.job_executor.clone() else {
+        state.set_status_message("后台任务执行器不可用");
+        return;
+    };
+    let image = match pixmap_to_rgba_image(&state.item.pixmap) {
+        Ok(image) => image,
+        Err(message) => {
+            state.set_status_message(format!("读取贴图像素失败: {message}"));
+            return;
+        }
+    };
+
+    match executor.submit_translate(image, state.config.clone()) {
+        Ok(()) => {
+            state.job_pending = true;
+            state.set_status_message("正在翻译文字...");
+        }
+        Err(message) => state.set_status_message(format!("提交翻译任务失败: {message}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::paster::manager::PasterItem;
+    use snapin_core::annotation::shapes::TranslationShapeItem;
     use snapin_core::annotation::AnnotationShape;
+    use snapin_core::config::CoverMode;
     use tiny_skia::{Color, Pixmap};
 
     /// 构造一张指定尺寸、内容全透明的测试贴图状态
@@ -327,7 +388,7 @@ mod tests {
         );
     }
 
-    /// 贴图主栏必须包含复制、保存、关闭动作，且不得混入截图专属的文字与贴图按钮
+    /// 贴图主栏必须包含复制、保存、关闭与整图识别/翻译动作，且不得混入截图专属按钮
     #[test]
     fn 贴图主栏包含动作按钮且排除截图专属项() {
         let expected = [
@@ -339,13 +400,29 @@ mod tests {
             ToolbarItem::ToolMosaic,
             ToolbarItem::ActionUndo,
             ToolbarItem::ActionRedo,
+            ToolbarItem::ActionOcr,
+            ToolbarItem::ActionTranslate,
             ToolbarItem::ActionClose,
             ToolbarItem::ActionSave,
             ToolbarItem::ActionCopy,
         ];
         assert_eq!(PASTER_MAIN_ITEMS, &expected);
+        assert!(
+            PASTER_MAIN_ITEMS
+                .windows(2)
+                .any(|pair| { pair == [ToolbarItem::ActionRedo, ToolbarItem::ActionOcr] }),
+            "文字识别按钮必须紧跟重做按钮"
+        );
+        assert!(
+            PASTER_MAIN_ITEMS
+                .windows(2)
+                .any(|pair| { pair == [ToolbarItem::ActionOcr, ToolbarItem::ActionTranslate] }),
+            "翻译按钮必须紧跟文字识别按钮"
+        );
 
         for action in [
+            ToolbarItem::ActionOcr,
+            ToolbarItem::ActionTranslate,
             ToolbarItem::ActionClose,
             ToolbarItem::ActionSave,
             ToolbarItem::ActionCopy,
@@ -362,6 +439,60 @@ mod tests {
         assert!(
             !PASTER_MAIN_ITEMS.contains(&ToolbarItem::ToolText),
             "本轮主栏不应混入文字工具"
+        );
+    }
+
+    /// 注入翻译图元后历史长度增加、展示图像被修改，撤销后恢复为原始底图
+    #[test]
+    fn 翻译结果注入可从底图撤销() {
+        let mut state = test_state(120, 80);
+        let base_pixels = state.base_pixmap.data().to_vec();
+        let original_item_pixels = state.item.pixmap.data().to_vec();
+        assert_eq!(
+            original_item_pixels, base_pixels,
+            "创建贴图时展示图像应与底图一致"
+        );
+
+        let items = vec![
+            TranslationShapeItem {
+                rect: (10.0, 10.0, 60.0, 24.0),
+                original: "Hello".to_string(),
+                translated: "你好".to_string(),
+                bg_color: (255, 0, 0, 255),
+                text_color: (0, 0, 0, 255),
+                font_size: 14.0,
+                cover_mode: CoverMode::SolidColor,
+            },
+            TranslationShapeItem {
+                rect: (10.0, 44.0, 80.0, 24.0),
+                original: "World".to_string(),
+                translated: "世界".to_string(),
+                bg_color: (0, 80, 255, 255),
+                text_color: (255, 255, 255, 255),
+                font_size: 14.0,
+                cover_mode: CoverMode::SolidColor,
+            },
+        ];
+
+        let injected = state.apply_translation_items(items);
+        assert_eq!(injected, 2, "应报告注入了两段翻译");
+        assert_eq!(
+            state.annotations.undo_stack().len(),
+            1,
+            "整图翻译应作为一条复合标注进入历史"
+        );
+        assert_ne!(
+            state.item.pixmap.data(),
+            base_pixels.as_slice(),
+            "翻译注入后展示图像必须与底图不同"
+        );
+
+        assert!(state.undo_annotation(), "翻译标注应支持撤销");
+        assert_eq!(state.annotations.undo_stack().len(), 0);
+        assert_eq!(
+            state.item.pixmap.data(),
+            base_pixels.as_slice(),
+            "撤销翻译后必须精确恢复底图"
         );
     }
 

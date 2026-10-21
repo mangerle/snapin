@@ -3,6 +3,7 @@
 pub mod annotation;
 pub mod events;
 mod input_region;
+pub(crate) mod jobs;
 pub mod menu_actions;
 pub mod render;
 pub mod state;

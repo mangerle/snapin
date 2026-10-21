@@ -5,16 +5,22 @@ use crate::paster::manager::PasterItem;
 use crate::paster::window::annotation::{
     create_paster_toolbar, screen_to_image_point, toolbar_required_extent,
 };
+use crate::paster::window::jobs::PasterJobExecutor;
 use crate::snipper::toolbar::{Toolbar, ToolbarItem};
 use crate::snipper::window::annotation_builder::{build_shape, AnnotationDraftParams};
+use snapin_core::annotation::action::AnnotationShape;
+use snapin_core::annotation::shapes::{TranslationAction, TranslationShapeItem};
 use snapin_core::annotation::AnnotationHistory;
 use snapin_core::config::{Config, ZoomAnchor};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tiny_skia::Pixmap;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::window::Window;
+
+/// 贴图窗口状态提示的展示有效期
+pub(crate) const STATUS_MESSAGE_TTL: Duration = Duration::from_secs(3);
 
 /// 贴图窗口运行时状态
 pub struct PasterWindowState {
@@ -34,6 +40,12 @@ pub struct PasterWindowState {
     pub cursor_pos: (f32, f32),
     pub ui_scale: f32,
     pub config: Arc<Config>,
+    /// 后台 OCR / 翻译任务执行器，工作区创建窗口时注入；测试环境中可为空
+    pub(crate) job_executor: Option<Arc<PasterJobExecutor>>,
+    /// 是否有整图 OCR / 翻译任务正在后台执行，用于阻止重复提交
+    pub(crate) job_pending: bool,
+    /// 图像顶部状态提示及其产生时刻，超过 [`STATUS_MESSAGE_TTL`] 后自动失效
+    pub(crate) status_message: Option<(String, Instant)>,
     pub(crate) last_click_time: Option<Instant>,
     /// 当前一笔尚待提交的标注轨迹（图像像素坐标）
     pub(crate) pending_stroke_points: Vec<(f32, f32)>,
@@ -58,6 +70,9 @@ impl PasterWindowState {
             cursor_pos: (0.0, 0.0),
             ui_scale: 1.0,
             config: Arc::new(Config::default()),
+            job_executor: None,
+            job_pending: false,
+            status_message: None,
             last_click_time: None,
             pending_stroke_points: Vec::with_capacity(64),
             is_drawing: false,
@@ -160,6 +175,56 @@ impl PasterWindowState {
     /// 微调不透明度
     pub fn adjust_opacity(&mut self, delta: f32) {
         self.item.transform.adjust_opacity(delta);
+    }
+
+    /// 设置图像顶部状态提示，有效期从当前时刻开始计算。
+    pub fn set_status_message(&mut self, message: impl Into<String>) {
+        self.set_status_message_at(message, Instant::now());
+    }
+
+    /// 以指定时刻设置状态提示，便于对过期判定做确定性单元测试。
+    pub(crate) fn set_status_message_at(&mut self, message: impl Into<String>, now: Instant) {
+        self.status_message = Some((message.into(), now));
+    }
+
+    /// 判断状态提示在给定时刻是否已过期；没有提示时视为已过期。
+    pub(crate) fn is_status_expired(&self, now: Instant) -> bool {
+        match &self.status_message {
+            Some((_, created)) => now.saturating_duration_since(*created) >= STATUS_MESSAGE_TTL,
+            None => true,
+        }
+    }
+
+    /// 清除已过期的状态提示，返回是否发生了清除。
+    pub(crate) fn clear_expired_status(&mut self, now: Instant) -> bool {
+        if self.status_message.is_some() && self.is_status_expired(now) {
+            self.status_message = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 当前状态提示的失效时刻，供事件循环设置定时唤醒。
+    pub(crate) fn status_deadline(&self) -> Option<Instant> {
+        self.status_message
+            .as_ref()
+            .and_then(|(_, created)| created.checked_add(STATUS_MESSAGE_TTL))
+    }
+
+    /// 将整图翻译结果作为一个复合标注压入历史，并从底图重建展示图像。
+    ///
+    /// 返回实际注入的翻译段数。翻译图元坐标与底图处于同一图像像素坐标系，
+    /// 因此必须走撤销/重做同源的重建路径，保证后续撤销可以精确恢复底图。
+    pub fn apply_translation_items(&mut self, items: Vec<TranslationShapeItem>) -> usize {
+        if items.is_empty() {
+            return 0;
+        }
+        let count = items.len();
+        self.annotations
+            .push(AnnotationShape::Translation(TranslationAction::new(items)));
+        self.rebuild_item_pixmap();
+        count
     }
 
     /// 更新贴图像素内容并同步调整物理窗口尺寸
@@ -372,6 +437,54 @@ pub(crate) fn zoom_anchor_ratio(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 构造一张最小的测试贴图状态
+    fn test_state() -> PasterWindowState {
+        let pixmap = Pixmap::new(8, 8).expect("创建测试位图失败");
+        let item = PasterItem::new(1, "测试贴图".to_string(), pixmap, (0, 0));
+        PasterWindowState::new(item)
+    }
+
+    /// 状态提示在 3 秒有效期内可见，到达期限后自动过期并可被清除
+    #[test]
+    fn 状态提示按有效期过期() {
+        let mut state = test_state();
+        let now = Instant::now();
+        assert!(state.is_status_expired(now), "没有提示时应视为已过期");
+
+        state.set_status_message_at("已复制识别文字（4 字符）", now);
+        assert!(!state.is_status_expired(now));
+        assert!(
+            !state.is_status_expired(now + Duration::from_millis(2_999)),
+            "未满 3 秒时提示必须保持有效"
+        );
+        assert!(
+            state.is_status_expired(now + STATUS_MESSAGE_TTL),
+            "到达 3 秒后提示必须过期"
+        );
+
+        assert!(!state.clear_expired_status(now + Duration::from_millis(1)));
+        assert!(
+            state.clear_expired_status(now + STATUS_MESSAGE_TTL),
+            "过期提示应被成功清除"
+        );
+        assert!(state.status_message.is_none());
+        assert!(
+            !state.clear_expired_status(now + STATUS_MESSAGE_TTL),
+            "重复清除不应报告发生了清除"
+        );
+    }
+
+    /// 状态提示的失效时刻应严格等于设置时刻加上有效期
+    #[test]
+    fn 状态提示失效时刻可计算() {
+        let mut state = test_state();
+        let now = Instant::now();
+        assert!(state.status_deadline().is_none());
+
+        state.set_status_message_at("翻译完成", now);
+        assert_eq!(state.status_deadline(), Some(now + STATUS_MESSAGE_TTL));
+    }
 
     #[test]
     fn test_zoom_anchor_ratio() {

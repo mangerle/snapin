@@ -111,7 +111,11 @@ impl AppServices {
 }
 
 /// 将应用配置映射为服务层独立的翻译器参数。
-fn translator_options(config: &snapin_core::config::TranslateConfig) -> TranslatorOptions {
+///
+/// 贴图工作区的整图翻译复用同一映射，避免两处配置解释出现分叉。
+pub(crate) fn translator_options(
+    config: &snapin_core::config::TranslateConfig,
+) -> TranslatorOptions {
     let provider = match config.provider {
         snapin_core::config::TranslateProvider::BingFree => ServiceTranslateProvider::BingFree,
         snapin_core::config::TranslateProvider::GoogleFree => ServiceTranslateProvider::GoogleFree,
@@ -299,7 +303,9 @@ fn save_with_fallback(
 }
 
 /// 根据识别块与译文构建原位翻译图元，过滤空译文与原文相同的项。
-fn build_translation_items(
+///
+/// 贴图窗口的整图翻译同样复用该函数，仅将图元原点固定为 `(0, 0)`。
+pub(crate) fn build_translation_items(
     image: &image::RgbaImage,
     blocks: &[OcrTextBlock],
     translated: &[String],

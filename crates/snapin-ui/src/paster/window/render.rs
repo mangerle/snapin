@@ -11,7 +11,10 @@ use crate::paster::window::input_region::{
 use crate::snipper::toolbar::ToolbarItem;
 use crate::snipper::window::annotation_builder::{render_draft_preview, AnnotationDraftParams};
 use snapin_core::render::with_thread_local_text_renderer;
-use tiny_skia::{Color, FilterQuality, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform};
+use std::time::Instant;
+use tiny_skia::{
+    Color, FillRule, FilterQuality, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform,
+};
 
 /// 创建开启抗锯齿的基础画笔
 fn make_paint(color: Color) -> Paint<'static> {
@@ -87,7 +90,10 @@ pub fn render_paster_to_surface(
     //    若跟着窗口描边，边框会一并扩大，用户一眼就能看出贴图被撑过——透明像素挡不住这个观感。
     render_paster_border_and_shadow(&mut target_pixmap, scaled_w, scaled_h, state.has_shadow);
 
-    // 5. 绘制标注工具栏与右键上下文菜单 (统一复用线程局部高精度文本排版引擎)
+    // 5. 在图像顶部居中绘制状态提示（OCR / 翻译进度与结果），随后再叠加工具栏与菜单
+    render_status_message(state, &mut target_pixmap, scaled_w);
+
+    // 6. 绘制标注工具栏与右键上下文菜单 (统一复用线程局部高精度文本排版引擎)
     if state.show_toolbar || state.context_menu.is_open {
         if state.show_toolbar {
             // 与命中测试同源：工具条锚定在缩放后的图像正下方，窗口扩容区域保持透明
@@ -110,7 +116,7 @@ pub fn render_paster_to_surface(
         });
     }
 
-    // 6. 透明扩窗后按当前布局声明可交互区域，避免空白区域吞掉本应落到桌面的点击。
+    // 7. 透明扩窗后按当前布局声明可交互区域，避免空白区域吞掉本应落到桌面的点击。
     //    布局与光标坐标均为窗口物理像素，提交前统一换算为 Wayland surface-local 逻辑坐标。
     let input_layout = input_layout_from_state(state, width as f32, height as f32);
     let physical_rects = compute_input_rects(&input_layout);
@@ -119,7 +125,7 @@ pub fn render_paster_to_surface(
         tracing::warn!("更新贴图窗口输入区域失败，透明空白可能拦截桌面点击: {e}");
     }
 
-    // 7. 提交渲染至共享内存表面呈现（ARGB 通路下未被内容覆盖的像素保持透明）
+    // 8. 提交渲染至共享内存表面呈现（ARGB 通路下未被内容覆盖的像素保持透明）
     surface.present(&target_pixmap)
 }
 
@@ -159,6 +165,92 @@ fn render_pending_annotation_preview(state: &PasterWindowState, target: &mut Pix
         params.stroke_width *= scale;
     }
     render_draft_preview(&params, &mut target.as_mut());
+}
+
+/// 在图像顶部居中绘制半透明深色胶囊与白色状态文字。
+///
+/// 贴图没有独立状态栏，OCR / 翻译的进度与结果必须直接覆盖在图像上。
+/// 胶囊宽度按字符粗略估算并夹取在图像宽度内，保证窄贴图不会被提示撑出窗口；
+/// 过期提示由事件循环负责清除，这里额外做一次判定以避免最后一帧闪出旧提示。
+fn render_status_message(state: &PasterWindowState, target: &mut Pixmap, image_w: f32) {
+    let Some((message, _)) = state.status_message.as_ref() else {
+        return;
+    };
+    if message.is_empty() || state.is_status_expired(Instant::now()) {
+        return;
+    }
+
+    let scale = state.ui_scale.max(0.1);
+    let font_size = 13.0 * scale;
+    let padding_x = 12.0 * scale;
+    let padding_y = 7.0 * scale;
+    let estimated_width = message
+        .chars()
+        .map(|ch| if ch.is_ascii() { 7.0 } else { 13.0 })
+        .sum::<f32>()
+        * scale;
+
+    // 提示条始终位于图像内部，图像矩形本身已参与输入区域声明，无需额外扩张命中范围。
+    let available_width = (image_w - 16.0 * scale).max(1.0);
+    let box_width = (estimated_width + padding_x * 2.0).min(available_width);
+    let box_height = font_size * 1.4 + padding_y * 2.0;
+    let box_x = ((image_w - box_width) / 2.0).max(0.0);
+    let box_y = 12.0 * scale;
+
+    let radius = 6.0 * scale;
+    let mut path = PathBuilder::new();
+    path.move_to(box_x + radius, box_y);
+    path.line_to(box_x + box_width - radius, box_y);
+    path.quad_to(box_x + box_width, box_y, box_x + box_width, box_y + radius);
+    path.line_to(box_x + box_width, box_y + box_height - radius);
+    path.quad_to(
+        box_x + box_width,
+        box_y + box_height,
+        box_x + box_width - radius,
+        box_y + box_height,
+    );
+    path.line_to(box_x + radius, box_y + box_height);
+    path.quad_to(
+        box_x,
+        box_y + box_height,
+        box_x,
+        box_y + box_height - radius,
+    );
+    path.line_to(box_x, box_y + radius);
+    path.quad_to(box_x, box_y, box_x + radius, box_y);
+    path.close();
+
+    if let Some(path) = path.finish() {
+        let mut paint = Paint::default();
+        paint.set_color_rgba8(20, 22, 28, 210);
+        target.fill_path(
+            &path,
+            &paint,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+
+        let mut border = Paint::default();
+        border.set_color_rgba8(255, 255, 255, 36);
+        let stroke = Stroke {
+            width: scale,
+            ..Default::default()
+        };
+        target.stroke_path(&path, &border, &stroke, Transform::identity(), None);
+    }
+
+    with_thread_local_text_renderer(|renderer| {
+        let mut target_mut = target.as_mut();
+        renderer.draw_text_rgba(
+            &mut target_mut,
+            message,
+            box_x + padding_x,
+            box_y + padding_y,
+            font_size,
+            (240, 243, 250, 255),
+        );
+    });
 }
 
 /// 绘制贴图边缘微反光边框与立体阴影

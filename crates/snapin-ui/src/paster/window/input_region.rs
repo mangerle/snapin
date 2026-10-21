@@ -42,6 +42,8 @@ pub(crate) struct InputRegionLayout {
 /// 而失去命中；完全落在窗口外的矩形被丢弃，重复矩形只保留一份。
 pub(crate) fn compute_input_rects(layout: &InputRegionLayout) -> Vec<(i32, i32, i32, i32)> {
     let mut rects = Vec::with_capacity(6);
+    // 状态提示（toast）绘制在图像顶部内部，已被图像矩形完整覆盖；
+    // 它本身不可交互，因此无需在此额外声明命中区域。
     let image = Rect {
         x: 0.0,
         y: 0.0,
