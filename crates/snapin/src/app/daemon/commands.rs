@@ -20,6 +20,12 @@ const STATUS_QUERY_TIMEOUT: Duration = Duration::from_secs(2);
 /// 该超时仅用于兜底会话总线偶发挂起，避免拖慢 IPC 响应。
 const PLACEMENT_TIMEOUT: Duration = Duration::from_millis(400);
 
+/// 窗口投递后等待其可被定位并完成放置的总时限
+const PLACEMENT_CONFIRM_WINDOW: Duration = Duration::from_millis(800);
+
+/// 窗口投递后的放置确认轮询间隔
+const PLACEMENT_CONFIRM_INTERVAL: Duration = Duration::from_millis(40);
+
 /// 向配套 GNOME 扩展登记贴图窗口的精确放置坐标。
 ///
 /// 设计原理：Wayland 的 xdg-shell 协议禁止客户端自行决定窗口位置，`WindowBuilder::with_position`
@@ -37,6 +43,46 @@ async fn register_paster_placement(title: &str, x: i32, y: i32) {
         Ok(Ok(_)) => tracing::debug!("已向扩展登记贴图放置请求: {title}，坐标: ({x}, {y})"),
         Ok(Err(error)) => tracing::warn!("请求 GNOME 扩展登记贴图放置失败: {error}"),
         Err(_) => tracing::warn!("请求 GNOME 扩展登记贴图放置超时，窗口将由扩展回退定位"),
+    }
+}
+
+/// 在窗口投递之后确认放置已真正生效。
+///
+/// 扩展在 window-created 时按登记坐标移动，但那次移动发生在窗口映射之前，会被 Mutter 的初始摆放
+/// 覆盖（实测窗口仍停在左上角）。窗口投递到工作区后这里持续轮询：一旦扩展报告命中窗口
+/// （返回 true），说明移动已下发到已存在的窗口；超过时限仍无命中只告警，不阻塞指令响应。
+async fn confirm_paster_placement(title: &str, x: i32, y: i32) {
+    let deadline = tokio::time::Instant::now() + PLACEMENT_CONFIRM_WINDOW;
+    loop {
+        match timeout(
+            PLACEMENT_TIMEOUT,
+            snapin_platform::place_paster_window(title, x, y),
+        )
+        .await
+        {
+            Ok(Ok(true)) => {
+                tracing::debug!("贴图窗口已完成精确放置: {title}，坐标: ({x}, {y})");
+                return;
+            }
+            Ok(Ok(false)) => {}
+            Ok(Err(error)) => {
+                tracing::warn!("确认贴图放置时调用扩展失败: {error}");
+                return;
+            }
+            Err(_) => {
+                tracing::warn!("确认贴图放置时调用扩展超时");
+                return;
+            }
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            tracing::warn!(
+                "贴图窗口在 {}ms 内仍未能被扩展定位，已回退到合成器默认位置: {title}",
+                PLACEMENT_CONFIRM_WINDOW.as_millis()
+            );
+            return;
+        }
+        tokio::time::sleep(PLACEMENT_CONFIRM_INTERVAL).await;
     }
 }
 
@@ -191,9 +237,13 @@ async fn create_paster(
 
     let uid = AppPaths::generate_unique_id();
     register_paster_placement(&title, x, y).await;
-    let item = PasterItem::new(uid, title, pixmap, (x, y));
+    let item = PasterItem::new(uid, title.clone(), pixmap, (x, y));
     match workspace.open_paster(item) {
-        Ok(()) => DaemonResponse::Ok,
+        Ok(()) => {
+            // 窗口已投递到工作区线程，此时再轮询确认放置，顺序不能提前
+            confirm_paster_placement(&title, x, y).await;
+            DaemonResponse::Ok
+        }
         Err(error) => {
             tracing::error!("在集中工作区中打开贴图失败: {error}");
             DaemonResponse::Error(format!("打开贴图失败: {error}"))
