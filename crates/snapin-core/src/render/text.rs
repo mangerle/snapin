@@ -218,7 +218,7 @@ impl TextRenderer {
         );
     }
 
-    /// 在气泡中心高精排版绘制加粗现代无衬线数字并实现光学绝对居中
+    /// 在气泡中心高精排版绘制白色加粗数字（实心徽标默认配色）
     pub fn draw_badge_digit(
         &mut self,
         pixmap: &mut PixmapMut,
@@ -226,6 +226,19 @@ impl TextRenderer {
         cy: f32,
         num: usize,
         r: f32,
+    ) {
+        self.draw_badge_digit_rgba(pixmap, cx, cy, num, r, (255, 255, 255, 255));
+    }
+
+    /// 以指定颜色在气泡中心绘制加粗数字，供空心描边徽标与实心徽标共用
+    pub fn draw_badge_digit_rgba(
+        &mut self,
+        pixmap: &mut PixmapMut,
+        cx: f32,
+        cy: f32,
+        num: usize,
+        r: f32,
+        rgba: (u8, u8, u8, u8),
     ) {
         let text = num.to_string();
         let font_size = if num < 10 {
@@ -257,7 +270,7 @@ impl TextRenderer {
         buffer.draw(
             &mut self.font_system,
             &mut self.swash_cache,
-            CosmicColor::rgba(255, 255, 255, 255),
+            CosmicColor::rgba(rgba.0, rgba.1, rgba.2, rgba.3),
             |gx, gy, w, h, _c| {
                 if w > 0 && h > 0 {
                     has_glyphs = true;
@@ -283,7 +296,7 @@ impl TextRenderer {
         buffer.draw(
             &mut self.font_system,
             &mut self.swash_cache,
-            CosmicColor::rgba(255, 255, 255, 255),
+            CosmicColor::rgba(rgba.0, rgba.1, rgba.2, rgba.3),
             |gx, gy, _w, _h, c| {
                 let px = offset_x as i32 + gx;
                 let py = offset_y as i32 + gy;

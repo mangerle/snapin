@@ -201,6 +201,7 @@ impl From<TranslationAction> for AnnotationShape {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::annotation::style::{BadgeStyle, LineStyle};
 
     #[test]
     fn test_undo_redo_stack() {
@@ -213,6 +214,8 @@ mod tests {
             color: (255, 0, 0, 255),
             stroke_width: 1.0,
             is_filled: false,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
         });
 
         history.push(rect_shape);
@@ -240,12 +243,14 @@ mod tests {
             radius: 12.0,
             number: 1,
             color: (255, 0, 0, 255),
+            style: BadgeStyle::Filled,
         }));
         history.push(AnnotationShape::Badge(BadgeAction {
             center: (30.0, 10.0),
             radius: 12.0,
             number: 2,
             color: (255, 0, 0, 255),
+            style: BadgeStyle::Filled,
         }));
         assert_eq!(history.next_badge_number(), 3);
 
@@ -299,6 +304,7 @@ mod tests {
             color: (255, 0, 0, 255),
             stroke_width: 2.0,
             is_filled: false,
+            line_style: LineStyle::Solid,
         };
         ellipse.draw(&mut mut_pix);
 
@@ -307,6 +313,7 @@ mod tests {
             radius: 15.0,
             number: 1,
             color: (0, 128, 255, 255),
+            style: BadgeStyle::Filled,
         };
         badge.draw(&mut mut_pix);
 
@@ -332,6 +339,8 @@ mod tests {
             color: (255, 0, 0, 255),
             stroke_width: 2.0,
             is_filled: false,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
         }));
 
         let toml_str = toml::to_string(&history).expect("序列化 AnnotationHistory 成功");
@@ -349,6 +358,8 @@ mod tests {
             color: (0, 255, 0, 255),
             stroke_width: 1.0,
             is_filled: true,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
         }));
 
         let mut pixmap = Pixmap::new(50, 50).unwrap();

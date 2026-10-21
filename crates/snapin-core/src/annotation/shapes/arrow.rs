@@ -45,10 +45,14 @@ impl AnnotationAction for ArrowAction {
         let base_x = x2 - ux * head_len;
         let base_y = y2 - uy * head_len;
 
+        // 锥形箭杆：尾部收窄、向箭头方向线性加粗，形成毛笔式指向感。
+        // 收窄比例固定在 32%，拖动距离越长锥度越明显，但不会细到亚像素丢失。
+        let tail_half_w = (half_stroke * 0.32).max(0.8);
+
         // 7 顶点一体化多边形：保证尖端绝对锐利，彻底根除线头突出的几何畸变
         let mut pb = PathBuilder::new();
         // 1. 箭尾左侧
-        pb.move_to(x1 + vx * half_stroke, y1 + vy * half_stroke);
+        pb.move_to(x1 + vx * tail_half_w, y1 + vy * tail_half_w);
         // 2. 箭身与头部交界左侧
         pb.line_to(base_x + vx * half_stroke, base_y + vy * half_stroke);
         // 3. 箭头左翼展端点
@@ -60,7 +64,7 @@ impl AnnotationAction for ArrowAction {
         // 6. 箭身与头部交界右侧
         pb.line_to(base_x - vx * half_stroke, base_y - vy * half_stroke);
         // 7. 箭尾右侧
-        pb.line_to(x1 - vx * half_stroke, y1 - vy * half_stroke);
+        pb.line_to(x1 - vx * tail_half_w, y1 - vy * tail_half_w);
         pb.close();
 
         if let Some(path) = pb.finish() {
@@ -107,5 +111,32 @@ mod tests {
         arrow.adjust_size(24.0, 0.0);
         assert_eq!(arrow.stroke_width, 24.0);
         arrow.draw(&mut pixmap.as_mut());
+    }
+
+    /// 锥形箭杆：同一支箭头在尾部应明显窄于箭身中段（尾细头粗）
+    #[test]
+    fn test_arrow_shaft_tapers_toward_tail() {
+        let mut pixmap = Pixmap::new(220, 80).expect("分配 Pixmap 成功");
+        let arrow = ArrowAction {
+            start: (20.0, 40.0),
+            end: (200.0, 40.0),
+            color: (255, 0, 0, 255),
+            stroke_width: 12.0,
+        };
+        arrow.draw(&mut pixmap.as_mut());
+
+        let column_height = |x: u32| {
+            (0..80)
+                .filter(|y| pixmap.pixel(x, *y).map(|p| p.alpha()) == Some(255))
+                .count()
+        };
+
+        let tail = column_height(28);
+        let middle = column_height(120);
+        assert!(tail > 0, "箭尾应被着色，实际列高 {tail}");
+        assert!(
+            tail < middle,
+            "尾部应窄于箭身中段，实际 尾={tail} 中={middle}"
+        );
     }
 }

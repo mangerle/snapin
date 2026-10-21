@@ -1,8 +1,9 @@
 //! 椭圆与圆形标注图元绘制实现。
 
 use crate::annotation::action::AnnotationAction;
+use crate::annotation::style::LineStyle;
 use serde::{Deserialize, Serialize};
-use tiny_skia::{Paint, PathBuilder, PixmapMut, Rect as SkiaRect, Stroke, Transform};
+use tiny_skia::{Paint, PathBuilder, PixmapMut, Rect as SkiaRect, Transform};
 
 /// 椭圆与圆形绘制动作
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -11,6 +12,9 @@ pub struct EllipseAction {
     pub color: (u8, u8, u8, u8),
     pub stroke_width: f32,
     pub is_filled: bool,
+    /// 描边线型，仅在非填充模式生效
+    #[serde(default)]
+    pub line_style: LineStyle,
 }
 
 impl AnnotationAction for EllipseAction {
@@ -32,11 +36,8 @@ impl AnnotationAction for EllipseAction {
                         None,
                     );
                 } else {
-                    let stroke = Stroke {
-                        width: self.stroke_width,
-                        ..Default::default()
-                    };
-                    pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+                    self.line_style
+                        .stroke_path(pixmap, &path, &paint, self.stroke_width);
                 }
             }
         }

@@ -3,6 +3,7 @@
 use super::*;
 use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::RectAction;
+use snapin_core::annotation::LineStyle;
 
 #[test]
 fn test_mouse_wheel_continuous_stroke_width_and_retroactive_adjust() {
@@ -16,6 +17,8 @@ fn test_mouse_wheel_continuous_stroke_width_and_retroactive_adjust() {
         color: (255, 0, 0, 255),
         stroke_width: 4.0,
         is_filled: false,
+        corner_radius: 0.0,
+        line_style: LineStyle::Solid,
     }));
 
     // 滚轮向上滚动：4.0 -> 5.0

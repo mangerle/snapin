@@ -216,6 +216,7 @@ mod tests {
     use image::Rgba;
     use snapin_core::annotation::action::AnnotationShape;
     use snapin_core::annotation::shapes::RectAction;
+    use snapin_core::annotation::LineStyle;
 
     #[test]
     fn test_crop_without_selection() {
@@ -262,6 +263,8 @@ mod tests {
             color: (255, 0, 0, 255),
             stroke_width: 1.0,
             is_filled: true,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
         }));
 
         let original = RgbaImage::from_pixel(100, 100, Rgba([255, 255, 255, 255]));

@@ -7,6 +7,7 @@ use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::{
     ArrowAction, BadgeAction, EllipseAction, MarkerAction, MosaicAction, PenAction, RectAction,
 };
+use snapin_core::annotation::{BadgeStyle, LineStyle};
 use tiny_skia::PixmapMut;
 
 /// 即时预览与提交时的几何与样式上下文参数
@@ -137,6 +138,8 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
                 color: params.color_rgba,
                 stroke_width: params.stroke_width,
                 is_filled: false,
+                corner_radius: 0.0,
+                line_style: LineStyle::Solid,
             }))
         }
         ToolbarItem::ToolEllipse => {
@@ -146,6 +149,7 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
                 color: params.color_rgba,
                 stroke_width: params.stroke_width,
                 is_filled: false,
+                line_style: LineStyle::Solid,
             }))
         }
         ToolbarItem::ToolArrow => Some(AnnotationShape::Arrow(ArrowAction {
@@ -183,6 +187,7 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
                 radius,
                 number: params.badge_number as usize,
                 color: params.color_rgba,
+                style: BadgeStyle::Filled,
             }))
         }
         _ => None,
