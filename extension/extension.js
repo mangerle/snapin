@@ -146,7 +146,10 @@ export default class SnapinHelperExtension extends Extension {
 
     /** 从顶栏移除托盘指示器，但保留 D-Bus 服务与窗口特权（供"退出应用"使用） */
     _hideIndicator() {
-        this._hideIndicator();
+        if (this._indicator) {
+            this._indicator.destroy();
+            this._indicator = null;
+        }
     }
 
     /**
