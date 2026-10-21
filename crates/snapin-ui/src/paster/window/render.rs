@@ -41,8 +41,17 @@ pub fn render_paster_to_surface(
     let mut target_pixmap =
         Pixmap::new(width, height).ok_or(UiError::PixmapAlloc { width, height })?;
 
-    // 1. 构建几何变换矩阵 (缩放)
+    // 右键菜单放不下时窗口会被临时撑大。softbuffer 的 Wayland 后端只支持 Xrgb8888（无 alpha），
+    // 未被图像覆盖的区域若不涂抹就会呈现纯黑，因此这里先铺一层与菜单卡片一致的浅色底。
     let scale = state.item.transform.scale;
+    let scaled_w = (state.item.pixmap.width() as f32 * scale).max(1.0);
+    let scaled_h = (state.item.pixmap.height() as f32 * scale).max(1.0);
+    let window_exceeds_image = (width as f32) > scaled_w + 0.5 || (height as f32) > scaled_h + 0.5;
+    if state.context_menu.is_open && window_exceeds_image {
+        target_pixmap.fill(Color::from_rgba8(241, 245, 249, 255));
+    }
+
+    // 1. 构建几何变换矩阵 (缩放)
     let tf = Transform::from_scale(scale, scale);
 
     let quality = if state.smooth_scaling {

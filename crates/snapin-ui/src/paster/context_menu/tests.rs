@@ -59,3 +59,27 @@ fn test_text_renderer_draws_pixels() {
     let changed = before.iter().zip(after.iter()).any(|(a, b)| a != b);
     assert!(changed, "draw_text 应该绘制出了像素！");
 }
+
+/// 回归：菜单所需窗口尺寸必须是绝对占位，不得叠加光标坐标。
+///
+/// 旧实现返回 `(光标x + 菜单宽, 光标y + 菜单高)`，只要在贴图右下角右键就会把窗口无谓撑大；
+/// 而贴图窗口的 softbuffer 后端在 Wayland 下只有 Xrgb8888（无 alpha），撑出的空区域会渲染成纯黑。
+#[test]
+fn test_required_menu_extent_is_cursor_independent() {
+    let menu = ContextMenuState::default();
+    let items = ContextMenuState::build_main_items(true, true);
+    let (extent_w, extent_h) = menu.required_menu_extent(&items);
+
+    let scale = menu.ui_scale;
+    let expected_h =
+        ContextMenuState::items_total_height(&items, menu.item_height, scale) + 20.0 * scale;
+    assert!(
+        (extent_h - expected_h).abs() < 0.01,
+        "高度应只等于菜单自身占位，实际 {extent_h}，期望 {expected_h}"
+    );
+    assert!(
+        extent_w >= (170.0 + 160.0) * scale,
+        "宽度需容纳主菜单与二级子菜单，实际 {extent_w}"
+    );
+    // 尺寸与光标无关：签名已不含坐标参数，任何位置右键都得到同一占位，不会因右下角点击而膨胀
+}

@@ -153,11 +153,7 @@ pub(crate) fn apply_window_scale_resize(state: &PasterWindowState, window: &Wind
     // 若当前正在展示右键菜单，确保窗口物理尺寸足以容纳菜单而不被截断
     if state.context_menu.is_open {
         let main_items = ContextMenuState::build_main_items(state.show_toolbar, state.has_shadow);
-        let (req_w, req_h) = state.context_menu.required_menu_extent(
-            state.cursor_pos.0,
-            state.cursor_pos.1,
-            &main_items,
-        );
+        let (req_w, req_h) = state.context_menu.required_menu_extent(&main_items);
         new_w = new_w.max(req_w);
         new_h = new_h.max(req_h);
     }

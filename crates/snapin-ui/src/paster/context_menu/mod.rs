@@ -48,15 +48,18 @@ impl ContextMenuState {
     }
 
     /// 计算完全展开上下文菜单（含可能的二级子菜单）所需的最小安全包围尺寸
-    pub fn required_menu_extent(&self, x: f32, y: f32, main_items: &[MenuItem]) -> (f32, f32) {
+    /// 菜单完整展开所需的最小窗口尺寸（绝对占位，与光标位置无关）。
+    ///
+    /// 旧实现按"光标坐标 + 菜单宽高"返回，完全忽略了 `open_at` 会向左/上翻转避让，
+    /// 导致贴图明明比菜单大得多、只要在右下角右键就把窗口无谓撑大；而贴图窗口的
+    /// softbuffer 后端在 Wayland 下只支持 Xrgb8888（无 alpha），被撑出的空区域会直接显示黑色。
+    pub fn required_menu_extent(&self, main_items: &[MenuItem]) -> (f32, f32) {
         let s = self.ui_scale;
         let total_h = Self::items_total_height(main_items, self.item_height, s);
 
-        // 包含主菜单与二级子菜单宽度的总预估（主菜单 170*s + 二级菜单 160*s）
-        let max_w = (170.0 + 160.0) * s;
-        let req_w = x + max_w + 10.0 * s;
-        let req_h = y + total_h + 10.0 * s;
-        (req_w, req_h)
+        // 主菜单 170*s + 二级子菜单 160*s，两侧各留 10*s 投影余量
+        let max_w = (170.0 + 160.0) * s + 20.0 * s;
+        (max_w, total_h + 20.0 * s)
     }
 
     /// 在指定坐标弹出上下文菜单，并自适应窗口物理边界进行上下左右智能避让
