@@ -22,6 +22,9 @@ pub trait AnnotationAction: Send + Sync {
 
     /// 动态调节标注尺寸 (粗细或字体大小)
     fn adjust_size(&mut self, _stroke_w: f32, _font_sz: f32) {}
+
+    /// 动态调节矩形圆角半径；非矩形图元默认忽略
+    fn adjust_corner_radius(&mut self, _radius: f32) {}
 }
 
 /// 所有支持的闭合矢量标注图元枚举 (代数数据类型，天然支持无堆分配存储、值拷贝与 Serde 序列化)
@@ -57,6 +60,13 @@ impl AnnotationShape {
     /// 执行绘制（偏置量默认为 0.0）
     pub fn draw(&self, pixmap: &mut PixmapMut) {
         self.draw_offset(pixmap, 0.0, 0.0);
+    }
+
+    /// 动态调节矩形圆角半径，仅矩形图元生效
+    pub fn adjust_corner_radius(&mut self, radius: f32) {
+        if let AnnotationShape::Rect(action) = self {
+            action.adjust_corner_radius(radius);
+        }
     }
 
     /// 动态调节图元尺寸 (粗细或字体大小)
@@ -106,6 +116,18 @@ impl AnnotationHistory {
             }
             _ => false,
         }
+    }
+
+    /// 动态调节最近绘制矩形的圆角半径；最近图元不是矩形时不做任何修改。
+    pub fn adjust_last_corner_radius(&mut self, radius: f32) -> bool {
+        let Some(last) = self.undo_stack.last_mut() else {
+            return false;
+        };
+        if !matches!(last, AnnotationShape::Rect(_)) {
+            return false;
+        }
+        last.adjust_corner_radius(radius);
+        true
     }
 
     /// 动态调节最近绘制的文本/译文图元字号；最近图元不是文本类时不做任何修改。

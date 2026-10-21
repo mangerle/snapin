@@ -4,9 +4,7 @@
 //! 二级属性栏颜色与线宽调整，以及滚轮快捷阶梯切换线宽。
 
 use crate::snipper::selection::Rect;
-use crate::snipper::toolbar::items::{
-    preset_colors, StrokeWidthLevel, SubToolOptions, ToolbarItem,
-};
+use crate::snipper::toolbar::items::ToolbarItem;
 use crate::snipper::toolbar::metrics::{
     button_size, divider_width, has_separator_before, padding, spacing,
 };
@@ -49,82 +47,4 @@ pub(crate) fn hit_test_main_items(
     }
 
     None
-}
-
-/// 处理二级属性栏内的几何形状、粗细与颜色点击
-pub(crate) fn handle_sub_click(
-    sub_rect: Rect,
-    active_tool: &mut Option<ToolbarItem>,
-    sub_options: &mut SubToolOptions,
-    ui_scale: f32,
-    px: f32,
-    py: f32,
-) {
-    let s = ui_scale;
-    let padding = 8.0 * s;
-    let mut cur_x = sub_rect.x + padding;
-    let center_y = sub_rect.y + sub_rect.height / 2.0;
-
-    let is_geo = *active_tool == Some(ToolbarItem::ToolRect)
-        || *active_tool == Some(ToolbarItem::ToolEllipse);
-    if is_geo {
-        let rect_btn = Rect {
-            x: cur_x - 4.0 * s,
-            y: center_y - 12.0 * s,
-            width: 24.0 * s,
-            height: 24.0 * s,
-        };
-        if rect_btn.contains(px, py) {
-            *active_tool = Some(ToolbarItem::ToolRect);
-            return;
-        }
-        cur_x += 26.0 * s;
-
-        let ellipse_btn = Rect {
-            x: cur_x - 4.0 * s,
-            y: center_y - 12.0 * s,
-            width: 24.0 * s,
-            height: 24.0 * s,
-        };
-        if ellipse_btn.contains(px, py) {
-            *active_tool = Some(ToolbarItem::ToolEllipse);
-            return;
-        }
-        cur_x += 26.0 * s + 16.0 * s;
-    }
-
-    for level in [
-        StrokeWidthLevel::Thin,
-        StrokeWidthLevel::Medium,
-        StrokeWidthLevel::Thick,
-    ] {
-        let hit_box = Rect {
-            x: cur_x - 6.0 * s,
-            y: center_y - 12.0 * s,
-            width: 24.0 * s,
-            height: 24.0 * s,
-        };
-        if hit_box.contains(px, py) {
-            sub_options.stroke_width = level;
-            sub_options.custom_stroke_width = level.to_pixel();
-            return;
-        }
-        cur_x += 24.0 * s;
-    }
-
-    cur_x += 16.0 * s;
-
-    for color in preset_colors() {
-        let hit_box = Rect {
-            x: cur_x - 4.0 * s,
-            y: center_y - 12.0 * s,
-            width: 24.0 * s,
-            height: 24.0 * s,
-        };
-        if hit_box.contains(px, py) {
-            sub_options.color = color;
-            return;
-        }
-        cur_x += 26.0 * s;
-    }
 }

@@ -52,6 +52,10 @@ impl AnnotationAction for RectAction {
     fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
         self.stroke_width = stroke_w;
     }
+
+    fn adjust_corner_radius(&mut self, radius: f32) {
+        self.corner_radius = radius.clamp(0.0, 30.0);
+    }
 }
 
 /// 构造圆角矩形路径。

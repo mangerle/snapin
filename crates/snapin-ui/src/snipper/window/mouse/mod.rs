@@ -5,7 +5,7 @@ pub mod toolbar_action;
 use super::annotation_builder::commit_annotation;
 use super::events::{commit_active_text_input, handle_escape, SnipperState};
 use crate::snipper::selection::{DragMode, Rect, SelectionState};
-use crate::snipper::toolbar::{StrokeWidthLevel, ToolbarItem};
+use crate::snipper::toolbar::{StrokeWidthLevel, SubControl, ToolbarItem};
 use image::RgbaImage;
 use toolbar_action::{dispatch_toolbar_action, handle_text_tool_click};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
@@ -39,15 +39,23 @@ pub fn handle_cursor_move(
             {
                 let px = cx.clamp(rect.x, rect.x + rect.width);
                 let py = cy.clamp(rect.y, rect.y + rect.height);
-                match state.toolbar.active_tool {
+                let tool = state.toolbar.active_tool;
+                match tool {
                     Some(ToolbarItem::ToolPen) | Some(ToolbarItem::ToolMarker) => {
                         state.pending_stroke_points.push((px, py));
                     }
                     _ => {
+                        let endpoint = match (state.modifiers.shift_key(), tool) {
+                            (true, Some(active)) => {
+                                let start = state.pending_stroke_points[0];
+                                constrain_with_shift(active, start, (px, py))
+                            }
+                            _ => (px, py),
+                        };
                         if state.pending_stroke_points.len() > 1 {
-                            state.pending_stroke_points[1] = (px, py);
+                            state.pending_stroke_points[1] = endpoint;
                         } else {
-                            state.pending_stroke_points.push((px, py));
+                            state.pending_stroke_points.push(endpoint);
                         }
                     }
                 }
@@ -57,6 +65,36 @@ pub fn handle_cursor_move(
             }
         }
     }
+}
+
+/// 按住 Shift 时的等比约束：矩形/椭圆取正方形，箭头吸附到 45° 的整数倍方向。
+///
+/// 起点保持不变，终点随约束移动；矩形取两次位移中较大的边长，保证拖拽方向与用户意图一致。
+fn constrain_with_shift(tool: ToolbarItem, start: (f32, f32), current: (f32, f32)) -> (f32, f32) {
+    let (x0, y0) = start;
+    let (mut x, mut y) = current;
+    let dx = x - x0;
+    let dy = y - y0;
+
+    match tool {
+        ToolbarItem::ToolRect | ToolbarItem::ToolEllipse => {
+            let side = dx.abs().max(dy.abs());
+            x = x0 + side * dx.signum();
+            y = y0 + side * dy.signum();
+        }
+        ToolbarItem::ToolArrow => {
+            let length = (dx * dx + dy * dy).sqrt();
+            if length > 0.5 {
+                let step = std::f32::consts::FRAC_PI_4;
+                let angle = (dy.atan2(dx) / step).round() * step;
+                x = x0 + angle.cos() * length;
+                y = y0 + angle.sin() * length;
+            }
+        }
+        _ => {}
+    }
+
+    (x, y)
 }
 
 /// 鼠标按键点击事件处理
@@ -240,6 +278,23 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
 
     if delta_y.abs() < 0.1 {
         return false;
+    }
+
+    // 矩形工具下，光标悬停在圆角控件上时，滚轮改为连续调节圆角半径
+    let over_corner_radius = state.toolbar.active_tool == Some(ToolbarItem::ToolRect)
+        && state
+            .toolbar
+            .sub_layout()
+            .and_then(|layout| layout.rect_of(SubControl::CornerRadius))
+            .is_some_and(|rect| {
+                rect.contains(state.cursor_pos.0 as f32, state.cursor_pos.1 as f32)
+            });
+    if over_corner_radius {
+        let step = if delta_y > 0.0 { 2.0 } else { -2.0 };
+        let new_radius = (state.toolbar.sub_options.corner_radius + step).clamp(0.0, 30.0);
+        state.toolbar.sub_options.corner_radius = new_radius;
+        state.annotations.adjust_last_corner_radius(new_radius);
+        return true;
     }
 
     let is_text_mode = state.toolbar.active_tool == Some(ToolbarItem::ToolText)

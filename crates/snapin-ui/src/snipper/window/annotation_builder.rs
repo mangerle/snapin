@@ -18,6 +18,10 @@ pub struct AnnotationDraftParams<'a> {
     pub color_rgba: (u8, u8, u8, u8),
     pub ui_scale: f32,
     pub badge_number: u32,
+    pub line_style: LineStyle,
+    pub filled: bool,
+    pub corner_radius: f32,
+    pub badge_style: BadgeStyle,
 }
 
 impl<'a> AnnotationDraftParams<'a> {
@@ -48,6 +52,10 @@ impl<'a> AnnotationDraftParams<'a> {
             color_rgba: rgba,
             ui_scale: state.toolbar.ui_scale,
             badge_number: state.annotations.next_badge_number(),
+            line_style: state.toolbar.sub_options.line_style,
+            filled: state.toolbar.sub_options.filled,
+            corner_radius: state.toolbar.sub_options.corner_radius,
+            badge_style: state.toolbar.sub_options.badge_style,
         })
     }
 
@@ -81,6 +89,10 @@ impl<'a> AnnotationDraftParams<'a> {
             color_rgba: rgba,
             ui_scale: toolbar.ui_scale,
             badge_number,
+            line_style: toolbar.sub_options.line_style,
+            filled: toolbar.sub_options.filled,
+            corner_radius: toolbar.sub_options.corner_radius,
+            badge_style: toolbar.sub_options.badge_style,
         })
     }
 }
@@ -137,9 +149,9 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
                 rect: (rect.x, rect.y, rect.width, rect.height),
                 color: params.color_rgba,
                 stroke_width: params.stroke_width,
-                is_filled: false,
-                corner_radius: 0.0,
-                line_style: LineStyle::Solid,
+                is_filled: params.filled,
+                corner_radius: params.corner_radius,
+                line_style: params.line_style,
             }))
         }
         ToolbarItem::ToolEllipse => {
@@ -148,8 +160,8 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
                 rect: (rect.x, rect.y, rect.width, rect.height),
                 color: params.color_rgba,
                 stroke_width: params.stroke_width,
-                is_filled: false,
-                line_style: LineStyle::Solid,
+                is_filled: params.filled,
+                line_style: params.line_style,
             }))
         }
         ToolbarItem::ToolArrow => Some(AnnotationShape::Arrow(ArrowAction {
@@ -187,7 +199,7 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
                 radius,
                 number: params.badge_number as usize,
                 color: params.color_rgba,
-                style: BadgeStyle::Filled,
+                style: params.badge_style,
             }))
         }
         _ => None,

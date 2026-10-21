@@ -1,5 +1,6 @@
 //! 工具栏按钮动作、笔触粗细与颜色选项数据契约。
 
+use snapin_core::annotation::{BadgeStyle, LineStyle};
 use tiny_skia::Color;
 
 /// 工具栏主按钮动作与工具定义
@@ -72,6 +73,14 @@ pub struct SubToolOptions {
     pub color: Color,
     /// 字体大小 (用于文本标注，受鼠标滚轮连续动态微调，范围 12.0 ~ 72.0)
     pub font_size: f32,
+    /// 矩形/椭圆的描边线型
+    pub line_style: LineStyle,
+    /// 矩形/椭圆是否填充当前颜色（否则只描边）
+    pub filled: bool,
+    /// 矩形圆角半径（像素），在二级栏圆角控件上滚动鼠标滚轮连续调节
+    pub corner_radius: f32,
+    /// 序号底板样式
+    pub badge_style: BadgeStyle,
 }
 
 impl Default for SubToolOptions {
@@ -81,6 +90,10 @@ impl Default for SubToolOptions {
             custom_stroke_width: 4.0,
             color: Color::from_rgba8(239, 68, 68, 255), // 默认红色
             font_size: 20.0,
+            line_style: LineStyle::Solid,
+            filled: false,
+            corner_radius: 0.0,
+            badge_style: BadgeStyle::Filled,
         }
     }
 }

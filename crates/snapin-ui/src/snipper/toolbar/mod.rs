@@ -17,9 +17,11 @@ mod tests;
 pub use items::{preset_colors, StrokeWidthLevel, SubToolOptions, ToolbarItem};
 
 use crate::snipper::selection::Rect;
-use interaction::{handle_sub_click, hit_test_main_items};
-use layout::{calculate_main_layout, calculate_sub_layout};
+use interaction::hit_test_main_items;
+pub(crate) use layout::SubControl;
+use layout::{calculate_main_layout, calculate_sub_layout, SubDropdown, SubLayout};
 use render::render_toolbar;
+use snapin_core::annotation::{BadgeStyle, LineStyle};
 use tiny_skia::PixmapMut;
 
 /// 工具栏整体状态与布局管理器
@@ -37,6 +39,14 @@ pub struct Toolbar {
     pub main_rect: Rect,
     /// 二级属性栏当前在屏幕上的包围盒 (若激活)
     pub sub_rect: Option<Rect>,
+    /// 二级栏完整布局：控件热区与下拉菜单，渲染与命中共用
+    sub_layout: Option<SubLayout>,
+    /// 当前展开的下拉菜单
+    pub(crate) open_dropdown: Option<SubDropdown>,
+    /// 下拉菜单当前悬停行
+    pub(crate) dropdown_hover: Option<usize>,
+    /// 屏幕物理尺寸，用于下拉菜单避让
+    screen_size: (f32, f32),
 }
 
 impl Default for Toolbar {
@@ -53,6 +63,10 @@ impl Default for Toolbar {
                 height: 0.0,
             },
             sub_rect: None,
+            sub_layout: None,
+            open_dropdown: None,
+            dropdown_hover: None,
+            screen_size: (0.0, 0.0),
         }
     }
 }
@@ -79,6 +93,7 @@ impl Toolbar {
 
     /// 根据选区与屏幕宽高重新计算工具栏自适应摆放位置 (自适应 HiDPI 缩放)
     pub fn update_layout(&mut self, selection: &Rect, screen_w: f32, screen_h: f32) {
+        self.screen_size = (screen_w, screen_h);
         self.main_rect = calculate_main_layout(
             selection,
             screen_w,
@@ -91,14 +106,68 @@ impl Toolbar {
 
     /// 根据当前主工具栏位置重新定位二级属性栏 (自适应 HiDPI 缩放)
     fn update_sub_rect(&mut self) {
-        self.sub_rect = calculate_sub_layout(&self.main_rect, self.active_tool, self.ui_scale);
+        self.sub_layout = calculate_sub_layout(
+            &self.main_rect,
+            self.active_tool,
+            self.open_dropdown,
+            self.screen_size.0,
+            self.screen_size.1,
+            self.ui_scale,
+        );
+        self.sub_rect = self.sub_layout.as_ref().map(|layout| layout.rect);
+        if self.sub_layout.is_none() {
+            self.open_dropdown = None;
+            self.dropdown_hover = None;
+        }
     }
 
-    /// 鼠标移动命中检测
+    /// 当前二级栏布局（供渲染层读取控件热区）
+    pub(crate) fn sub_layout(&self) -> Option<&SubLayout> {
+        self.sub_layout.as_ref()
+    }
+
+    /// 切换当前工具并收敛下拉菜单状态
+    fn set_active_tool(&mut self, tool: Option<ToolbarItem>) {
+        if self.active_tool != tool {
+            self.open_dropdown = None;
+            self.dropdown_hover = None;
+        }
+        self.active_tool = tool;
+        self.update_sub_rect();
+    }
+
+    /// 应用下拉菜单中选中的行
+    pub fn apply_dropdown_row(&mut self, row: usize) {
+        match self.open_dropdown {
+            Some(SubDropdown::LineStyle) => {
+                if let Some(style) = LineStyle::ALL.get(row) {
+                    self.sub_options.line_style = *style;
+                }
+            }
+            Some(SubDropdown::BadgeStyle) => {
+                if row == 0 {
+                    self.sub_options.badge_style = BadgeStyle::Filled;
+                } else if row == 1 {
+                    self.sub_options.badge_style = BadgeStyle::Outline;
+                }
+            }
+            None => {}
+        }
+        self.open_dropdown = None;
+        self.dropdown_hover = None;
+        self.update_sub_rect();
+    }
+
+    /// 鼠标移动命中检测（主栏按钮与下拉菜单行）
     pub fn handle_mouse_move(&mut self, px: f32, py: f32) -> bool {
-        let prev = self.hovered_item;
+        let prev_item = self.hovered_item;
+        let prev_row = self.dropdown_hover;
         self.hovered_item = self.hit_test_main(px, py);
-        prev != self.hovered_item
+        self.dropdown_hover = self
+            .sub_layout
+            .as_ref()
+            .and_then(|layout| layout.dropdown_row_hit(px, py));
+        prev_item != self.hovered_item || prev_row != self.dropdown_hover
     }
 
     /// 主栏命中测试 (自适应 HiDPI 缩放)
@@ -106,21 +175,42 @@ impl Toolbar {
         hit_test_main_items(&self.main_rect, Self::MAIN_ITEMS, self.ui_scale, px, py)
     }
 
-    /// 检查指定坐标是否落在主工具栏或二级属性栏范围内 (防止事件穿透到画布)
+    /// 检查指定坐标是否落在主栏、二级栏或展开的下拉菜单内（防止事件穿透到画布）
     pub fn contains_point(&self, px: f32, py: f32) -> bool {
         if self.main_rect.contains(px, py) {
             return true;
         }
-        if let Some(sub) = self.sub_rect {
-            if sub.contains(px, py) {
-                return true;
-            }
+        match &self.sub_layout {
+            Some(layout) => layout.rect.contains(px, py) || layout.dropdown_contains(px, py),
+            None => false,
         }
-        false
     }
 
-    /// 点击项目切换工具或触发动作
+    /// 点击项目切换工具、调整样式或触发动作
     pub fn handle_click(&mut self, px: f32, py: f32) -> Option<ToolbarItem> {
+        // 1. 下拉菜单优先：命中选项行直接应用；点在面板空白处吞掉；点在面板外则先收起再继续
+        let dropdown_row = self
+            .sub_layout
+            .as_ref()
+            .and_then(|layout| layout.dropdown_row_hit(px, py));
+        if let Some(row) = dropdown_row {
+            self.apply_dropdown_row(row);
+            return None;
+        }
+        if self
+            .sub_layout
+            .as_ref()
+            .is_some_and(|layout| layout.dropdown_contains(px, py))
+        {
+            return None;
+        }
+        if self.open_dropdown.is_some() {
+            self.open_dropdown = None;
+            self.dropdown_hover = None;
+            self.update_sub_rect();
+        }
+
+        // 2. 主栏按钮
         if let Some(item) = self.hit_test_main(px, py) {
             match item {
                 ToolbarItem::ToolRect => {
@@ -131,12 +221,11 @@ impl Toolbar {
                         self.active_tool,
                         Some(ToolbarItem::ToolRect | ToolbarItem::ToolEllipse)
                     );
-                    self.active_tool = if shape_active {
+                    self.set_active_tool(if shape_active {
                         None
                     } else {
                         Some(ToolbarItem::ToolRect)
-                    };
-                    self.update_sub_rect();
+                    });
                     return self.active_tool;
                 }
                 ToolbarItem::ToolEllipse
@@ -146,29 +235,59 @@ impl Toolbar {
                 | ToolbarItem::ToolText
                 | ToolbarItem::ToolBadge
                 | ToolbarItem::ToolMosaic => {
-                    if self.active_tool == Some(item) {
-                        self.active_tool = None;
+                    let next = if self.active_tool == Some(item) {
+                        None
                     } else {
-                        self.active_tool = Some(item);
-                    }
-                    self.update_sub_rect();
-                    return Some(item);
+                        Some(item)
+                    };
+                    self.set_active_tool(next);
+                    return self.active_tool;
                 }
                 action => return Some(action),
             }
         }
 
-        if let Some(sub_rect) = self.sub_rect {
-            if sub_rect.contains(px, py) {
-                handle_sub_click(
-                    sub_rect,
-                    &mut self.active_tool,
-                    &mut self.sub_options,
-                    self.ui_scale,
-                    px,
-                    py,
-                );
+        // 3. 二级栏控件
+        let control = self
+            .sub_layout
+            .as_ref()
+            .and_then(|layout| layout.hit(px, py));
+        match control {
+            Some(SubControl::ShapeRect) => self.set_active_tool(Some(ToolbarItem::ToolRect)),
+            Some(SubControl::ShapeEllipse) => self.set_active_tool(Some(ToolbarItem::ToolEllipse)),
+            Some(SubControl::Stroke(level)) => {
+                self.sub_options.stroke_width = level;
+                self.sub_options.custom_stroke_width = level.to_pixel();
             }
+            Some(SubControl::LineStyle) => {
+                self.open_dropdown = if self.open_dropdown == Some(SubDropdown::LineStyle) {
+                    None
+                } else {
+                    Some(SubDropdown::LineStyle)
+                };
+                self.dropdown_hover = None;
+                self.update_sub_rect();
+            }
+            Some(SubControl::FillToggle) => {
+                self.sub_options.filled = !self.sub_options.filled;
+            }
+            // 圆角半径由滚轮连续调节，单击不做切换
+            Some(SubControl::CornerRadius) => {}
+            Some(SubControl::BadgeStyle) => {
+                self.open_dropdown = if self.open_dropdown == Some(SubDropdown::BadgeStyle) {
+                    None
+                } else {
+                    Some(SubDropdown::BadgeStyle)
+                };
+                self.dropdown_hover = None;
+                self.update_sub_rect();
+            }
+            Some(SubControl::Color(index)) => {
+                if let Some(color) = preset_colors().get(index) {
+                    self.sub_options.color = *color;
+                }
+            }
+            None => {}
         }
 
         None
