@@ -10,9 +10,12 @@ pub fn check_and_handle_toolbar_click(state: &mut PasterWindowState, window: &Wi
         return false;
     }
 
-    let win_size = window.inner_size();
-    let w = win_size.width as f32;
-    let h = win_size.height as f32;
+    // 尺寸来源必须与渲染保持一致：工具条锚定在「缩放后的贴图」底部而不是窗口底部。
+    // 右键菜单放不下时窗口会被临时撑大，此时两者不同；若这里继续用窗口尺寸，
+    // 命中区会落在贴图下方那片透明区域，用户看到的按钮点不动。
+    let scale = state.item.transform.scale;
+    let w = (state.item.pixmap.width() as f32 * scale).max(1.0);
+    let h = (state.item.pixmap.height() as f32 * scale).max(1.0);
     let s = state.ui_scale;
 
     let bar_w = (230.0 * s).min(w - 16.0);

@@ -73,25 +73,17 @@ pub fn render_paster_to_surface(
     // 2. 光栅化贴图图像本体
     target_pixmap.draw_pixmap(0, 0, state.item.pixmap.as_ref(), &paint, tf, None);
 
-    // 3. 绘制贴图精致外边框与窗口阴影
-    render_paster_border_and_shadow(
-        &mut target_pixmap,
-        width as f32,
-        height as f32,
-        state.has_shadow,
-    );
+    // 3. 绘制贴图精致外边框与窗口阴影。
+    //    必须按「缩放后的贴图尺寸」描边而不是窗口尺寸：右键菜单放不下时窗口会被临时撑大，
+    //    若跟着窗口描边，边框会一并扩大，用户一眼就能看出贴图被撑过——透明像素挡不住这个观感。
+    render_paster_border_and_shadow(&mut target_pixmap, scaled_w, scaled_h, state.has_shadow);
 
     // 4. 绘制现代化胶囊快捷工具条与右键上下文菜单 (统一复用线程局部高精度文本排版引擎)
     if state.show_toolbar || state.context_menu.is_open {
         with_thread_local_text_renderer(|tr| {
             if state.show_toolbar {
-                render_paster_toolbar(
-                    &mut target_pixmap,
-                    tr,
-                    width as f32,
-                    height as f32,
-                    state.ui_scale,
-                );
+                // 与命中测试同源：工具条锚定在贴图底部，窗口被菜单撑大时不会飘到透明区域
+                render_paster_toolbar(&mut target_pixmap, tr, scaled_w, scaled_h, state.ui_scale);
             }
             if state.context_menu.is_open {
                 render_context_menu(
