@@ -85,7 +85,7 @@ pub fn render_icon_arrow(
     }
 }
 
-/// 图标 3: 45度涂鸦画笔 + 笔尖波浪涂鸦轨迹
+/// 图标 3: 斜置铅笔 (圆角笔身 + 尾端束线，笔尖指向左下)
 pub fn render_icon_pen(
     pixmap: &mut PixmapMut,
     cx: f32,
@@ -94,23 +94,30 @@ pub fn render_icon_pen(
     paint: &Paint,
     stroke: &Stroke,
 ) {
+    let length = 15.5 * s;
+    let width = 3.4 * s;
     let mut pb = PathBuilder::new();
-    // 笔身与金属箍
-    pb.move_to(cx - 1.5 * s, cy + 1.5 * s);
-    pb.line_to(cx + 4.5 * s, cy - 4.5 * s);
-    pb.line_to(cx + 6.5 * s, cy - 2.5 * s);
-    pb.line_to(cx + 0.5 * s, cy + 3.5 * s);
-    pb.close();
-    // 聚拢笔尖
-    pb.move_to(cx - 1.5 * s, cy + 1.5 * s);
-    pb.line_to(cx - 4.0 * s, cy + 4.0 * s);
-    pb.line_to(cx + 0.5 * s, cy + 3.5 * s);
-    // 笔尖下方涂鸦轨迹线条
-    pb.move_to(cx - 6.5 * s, cy + 6.5 * s);
-    pb.quad_to(cx - 3.5 * s, cy + 4.5 * s, cx - 1.5 * s, cy + 7.0 * s);
-    pb.quad_to(cx + 0.5 * s, cy + 9.0 * s, cx + 3.5 * s, cy + 6.5 * s);
+    add_round_rect(
+        &mut pb,
+        cx - length / 2.0,
+        cy - width / 2.0,
+        length,
+        width,
+        width / 2.0,
+    );
+    // 尾端束线：分隔笔尾与笔身，两端圆头恰好收在笔身轮廓内
+    let band_x = cx + length / 2.0 - 2.5 * s;
+    pb.move_to(band_x, cy - width / 2.0);
+    pb.line_to(band_x, cy + width / 2.0);
     if let Some(path) = pb.finish() {
-        pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
+        // 水平笔身绕按钮中心旋转 -45 度，得到从左下指向右上的斜置造型
+        pixmap.stroke_path(
+            &path,
+            paint,
+            stroke,
+            Transform::from_rotate_at(-45.0, cx, cy),
+            None,
+        );
     }
 }
 
@@ -186,7 +193,7 @@ pub fn render_icon_mosaic(
     }
 }
 
-/// 图标 6: 现代无衬线粗体大写 T
+/// 图标 6: 圆角方框内衬无衬线大写 T
 pub fn render_icon_text(
     pixmap: &mut PixmapMut,
     cx: f32,
@@ -195,11 +202,22 @@ pub fn render_icon_text(
     paint: &Paint,
     stroke: &Stroke,
 ) {
+    let half = 6.8 * s;
+    let bar_y = cy - 2.1 * s;
     let mut pb = PathBuilder::new();
-    pb.move_to(cx - 6.5 * s, cy - 6.0 * s);
-    pb.line_to(cx + 6.5 * s, cy - 6.0 * s);
-    pb.move_to(cx, cy - 6.0 * s);
-    pb.line_to(cx, cy + 6.5 * s);
+    add_round_rect(
+        &mut pb,
+        cx - half,
+        cy - half,
+        half * 2.0,
+        half * 2.0,
+        1.4 * s,
+    );
+    // 字符 T 略偏框体上部，与参考图一致
+    pb.move_to(cx - 3.0 * s, bar_y);
+    pb.line_to(cx + 3.0 * s, bar_y);
+    pb.move_to(cx, bar_y);
+    pb.line_to(cx, cy + 4.3 * s);
     if let Some(path) = pb.finish() {
         pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
     }
