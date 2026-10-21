@@ -28,8 +28,8 @@ pub use hotkey_manager::{
     hotkey_to_gnome_accelerator, suspend_hotkeys_for_settings, sync_hotkeys_to_gnome,
 };
 pub use lifecycle::{
-    disable_gnome_extension, enable_gnome_extension, open_path_in_file_manager,
-    spawn_detached_system_command, stop_systemd_service,
+    enable_gnome_extension, open_path_in_file_manager, spawn_detached_system_command,
+    stop_systemd_service,
 };
 pub use notification::send_desktop_notification;
 pub use portal::capture_fullscreen_portal;

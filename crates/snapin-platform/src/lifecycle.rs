@@ -11,13 +11,6 @@ pub fn stop_systemd_service() {
         .output();
 }
 
-/// 禁用 GNOME 扩展以彻底收起顶栏托盘图标
-pub fn disable_gnome_extension() {
-    let _ = Command::new("gnome-extensions")
-        .args(["disable", "snapin@wangle.local"])
-        .output();
-}
-
 /// 启用配套 GNOME Shell 扩展并自动收割子进程状态，杜绝僵尸进程
 pub fn enable_gnome_extension() {
     spawn_detached_system_command("gnome-extensions", &["enable", "snapin@wangle.local"]);

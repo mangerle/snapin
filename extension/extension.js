@@ -49,7 +49,7 @@ const TRAY_MENU = [
         label: '重新启动',
         command: 'bash -c "systemctl --user restart snapin 2>/dev/null || (snapin exit 2>/dev/null; sleep 0.5; snapin daemon &)"',
     },
-    { label: '退出', command: 'snapin exit' },
+    { label: '停止后台服务（保留托盘）', command: 'snapin exit' },
 ];
 
 // 延迟放置请求的最长有效期：贴图标题含唯一 ID 不会复用，超时仅用于兜底回收异常未映射的请求
