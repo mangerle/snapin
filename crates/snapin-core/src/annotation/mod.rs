@@ -9,4 +9,4 @@ pub use shapes::{
     ArrowAction, BadgeAction, EllipseAction, MarkerAction, MosaicAction, PenAction, RectAction,
     TextAction, TranslationAction, TranslationShapeItem,
 };
-pub use style::{BadgeStyle, LineStyle};
+pub use style::{ArrowStyle, BadgeStyle, LineStyle};

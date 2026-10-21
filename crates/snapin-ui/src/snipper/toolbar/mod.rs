@@ -21,7 +21,7 @@ use interaction::hit_test_main_items;
 pub(crate) use layout::SubControl;
 use layout::{calculate_main_layout, calculate_sub_layout, SubDropdown, SubLayout};
 use render::render_toolbar;
-use snapin_core::annotation::{BadgeStyle, LineStyle};
+use snapin_core::annotation::{ArrowStyle, BadgeStyle, LineStyle};
 use tiny_skia::PixmapMut;
 
 /// 工具栏整体状态与布局管理器
@@ -139,16 +139,21 @@ impl Toolbar {
     /// 应用下拉菜单中选中的行
     pub fn apply_dropdown_row(&mut self, row: usize) {
         match self.open_dropdown {
-            Some(SubDropdown::LineStyle) => {
+            Some(SubDropdown::Line) => {
                 if let Some(style) = LineStyle::ALL.get(row) {
                     self.sub_options.line_style = *style;
                 }
             }
-            Some(SubDropdown::BadgeStyle) => {
+            Some(SubDropdown::Badge) => {
                 if row == 0 {
                     self.sub_options.badge_style = BadgeStyle::Filled;
                 } else if row == 1 {
                     self.sub_options.badge_style = BadgeStyle::Outline;
+                }
+            }
+            Some(SubDropdown::Arrow) => {
+                if let Some(style) = ArrowStyle::ALL.get(row) {
+                    self.sub_options.arrow_style = *style;
                 }
             }
             None => {}
@@ -260,10 +265,10 @@ impl Toolbar {
                 self.sub_options.custom_stroke_width = level.to_pixel();
             }
             Some(SubControl::LineStyle) => {
-                self.open_dropdown = if self.open_dropdown == Some(SubDropdown::LineStyle) {
+                self.open_dropdown = if self.open_dropdown == Some(SubDropdown::Line) {
                     None
                 } else {
-                    Some(SubDropdown::LineStyle)
+                    Some(SubDropdown::Line)
                 };
                 self.dropdown_hover = None;
                 self.update_sub_rect();
@@ -274,10 +279,19 @@ impl Toolbar {
             // 圆角半径由滚轮连续调节，单击不做切换
             Some(SubControl::CornerRadius) => {}
             Some(SubControl::BadgeStyle) => {
-                self.open_dropdown = if self.open_dropdown == Some(SubDropdown::BadgeStyle) {
+                self.open_dropdown = if self.open_dropdown == Some(SubDropdown::Badge) {
                     None
                 } else {
-                    Some(SubDropdown::BadgeStyle)
+                    Some(SubDropdown::Badge)
+                };
+                self.dropdown_hover = None;
+                self.update_sub_rect();
+            }
+            Some(SubControl::ArrowStyle) => {
+                self.open_dropdown = if self.open_dropdown == Some(SubDropdown::Arrow) {
+                    None
+                } else {
+                    Some(SubDropdown::Arrow)
                 };
                 self.dropdown_hover = None;
                 self.update_sub_rect();

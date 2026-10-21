@@ -246,3 +246,58 @@ fn test_dropdown_closes_when_clicking_other_tool() {
     assert!(tb.open_dropdown.is_none(), "切换工具后下拉菜单应收起");
     assert_eq!(tb.active_tool, Some(ToolbarItem::ToolPen));
 }
+
+/// 箭头样式下拉：实线/虚线/锥形三选一，选中后写回并收起菜单
+#[test]
+fn test_arrow_style_dropdown_selects_style() {
+    use snapin_core::annotation::ArrowStyle;
+
+    let mut tb = Toolbar::default();
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 600.0,
+        height: 400.0,
+    };
+    tb.update_layout(&selection, 1920.0, 1080.0);
+
+    // 激活箭头工具
+    let arrow_index = Toolbar::MAIN_ITEMS
+        .iter()
+        .position(|item| *item == ToolbarItem::ToolArrow)
+        .expect("主栏应包含箭头");
+    let arrow_x = tb.main_rect.x
+        + super::metrics::padding(tb.ui_scale)
+        + arrow_index as f32
+            * (super::metrics::button_size(tb.ui_scale) + super::metrics::spacing(tb.ui_scale));
+    tb.handle_click(
+        arrow_x + 2.0,
+        tb.main_rect.y + super::metrics::padding(tb.ui_scale) + 2.0,
+    );
+    assert_eq!(tb.active_tool, Some(ToolbarItem::ToolArrow));
+    assert_eq!(
+        tb.sub_options.arrow_style,
+        ArrowStyle::Tapered,
+        "箭头默认应为锥形"
+    );
+
+    let style_btn = tb
+        .sub_layout()
+        .and_then(|layout| layout.rect_of(SubControl::ArrowStyle))
+        .expect("箭头工具应提供样式控件");
+    tb.handle_click(
+        style_btn.x + style_btn.width / 2.0,
+        style_btn.y + style_btn.height / 2.0,
+    );
+    let dropdown = tb
+        .sub_layout()
+        .and_then(|layout| layout.dropdown.clone())
+        .expect("应生成箭头样式下拉菜单");
+    assert_eq!(dropdown.rows.len(), ArrowStyle::ALL.len());
+
+    // 第一行为实线箭头
+    let row = dropdown.rows[0];
+    tb.handle_click(row.x + 4.0, row.y + row.height / 2.0);
+    assert_eq!(tb.sub_options.arrow_style, ArrowStyle::Solid);
+    assert!(tb.open_dropdown.is_none());
+}

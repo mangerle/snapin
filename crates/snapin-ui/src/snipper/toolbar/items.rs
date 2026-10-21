@@ -1,6 +1,6 @@
 //! 工具栏按钮动作、笔触粗细与颜色选项数据契约。
 
-use snapin_core::annotation::{BadgeStyle, LineStyle};
+use snapin_core::annotation::{ArrowStyle, BadgeStyle, LineStyle};
 use tiny_skia::Color;
 
 /// 工具栏主按钮动作与工具定义
@@ -81,6 +81,8 @@ pub struct SubToolOptions {
     pub corner_radius: f32,
     /// 序号底板样式
     pub badge_style: BadgeStyle,
+    /// 箭头形态样式
+    pub arrow_style: ArrowStyle,
 }
 
 impl Default for SubToolOptions {
@@ -94,6 +96,7 @@ impl Default for SubToolOptions {
             filled: false,
             corner_radius: 0.0,
             badge_style: BadgeStyle::Filled,
+            arrow_style: ArrowStyle::Tapered,
         }
     }
 }

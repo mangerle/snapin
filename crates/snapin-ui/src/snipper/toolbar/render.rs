@@ -6,7 +6,7 @@ use super::layout::{DropdownLayout, SubControl, SubDropdown};
 use super::metrics::{button_size, divider_width, has_separator_before, padding, spacing};
 use super::Toolbar;
 use crate::snipper::selection::Rect;
-use snapin_core::annotation::{BadgeStyle, LineStyle};
+use snapin_core::annotation::{ArrowStyle, BadgeStyle, LineStyle};
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 渲染整个工具栏界面 (包含主工具栏与二级属性栏)
@@ -232,7 +232,7 @@ fn render_sub_options(toolbar: &Toolbar, pixmap: &mut PixmapMut, rect: &Rect) {
                 fill_circle(pixmap, entry.rect.x + 8.0 * s, center_y, radius, paint);
             }
             Some(SubControl::LineStyle) => {
-                let open = toolbar.open_dropdown == Some(SubDropdown::LineStyle);
+                let open = toolbar.open_dropdown == Some(SubDropdown::Line);
                 if open {
                     fill_button_highlight(pixmap, &entry.rect, highlight, s);
                 }
@@ -272,7 +272,7 @@ fn render_sub_options(toolbar: &Toolbar, pixmap: &mut PixmapMut, rect: &Rect) {
                 );
             }
             Some(SubControl::BadgeStyle) => {
-                let open = toolbar.open_dropdown == Some(SubDropdown::BadgeStyle);
+                let open = toolbar.open_dropdown == Some(SubDropdown::Badge);
                 if open {
                     fill_button_highlight(pixmap, &entry.rect, highlight, s);
                 }
@@ -283,6 +283,27 @@ fn render_sub_options(toolbar: &Toolbar, pixmap: &mut PixmapMut, rect: &Rect) {
                     s,
                     toolbar.sub_options.badge_style,
                     color,
+                );
+                render_caret(
+                    pixmap,
+                    entry.rect.x + entry.rect.width - 8.0 * s,
+                    center_y,
+                    s,
+                );
+            }
+            Some(SubControl::ArrowStyle) => {
+                let open = toolbar.open_dropdown == Some(SubDropdown::Arrow);
+                if open {
+                    fill_button_highlight(pixmap, &entry.rect, highlight, s);
+                }
+                render_arrow_preview(
+                    pixmap,
+                    entry.rect.x + 8.0 * s,
+                    entry.rect.x + entry.rect.width - 14.0 * s,
+                    center_y,
+                    s,
+                    toolbar.sub_options.arrow_style,
+                    Color::from_rgba8(45, 48, 56, 255),
                 );
                 render_caret(
                     pixmap,
@@ -552,7 +573,7 @@ fn render_dropdown(pixmap: &mut PixmapMut, dropdown: &DropdownLayout, toolbar: &
     let ink = Color::from_rgba8(45, 48, 56, 255);
     for (index, row) in dropdown.rows.iter().enumerate() {
         let (is_current, preview) = match dropdown.kind {
-            SubDropdown::LineStyle => {
+            SubDropdown::Line => {
                 let Some(style) = LineStyle::ALL.get(index) else {
                     continue;
                 };
@@ -561,7 +582,7 @@ fn render_dropdown(pixmap: &mut PixmapMut, dropdown: &DropdownLayout, toolbar: &
                     DropdownPreview::Line(*style),
                 )
             }
-            SubDropdown::BadgeStyle => {
+            SubDropdown::Badge => {
                 let style = if index == 0 {
                     BadgeStyle::Filled
                 } else {
@@ -570,6 +591,15 @@ fn render_dropdown(pixmap: &mut PixmapMut, dropdown: &DropdownLayout, toolbar: &
                 (
                     toolbar.sub_options.badge_style == style,
                     DropdownPreview::Badge(style),
+                )
+            }
+            SubDropdown::Arrow => {
+                let Some(style) = ArrowStyle::ALL.get(index) else {
+                    continue;
+                };
+                (
+                    toolbar.sub_options.arrow_style == *style,
+                    DropdownPreview::Arrow(*style),
                 )
             }
         };
@@ -614,6 +644,15 @@ fn render_dropdown(pixmap: &mut PixmapMut, dropdown: &DropdownLayout, toolbar: &
             DropdownPreview::Badge(style) => {
                 render_badge_style_icon(pixmap, row.x + 18.0 * s, center_y, s, style, ink)
             }
+            DropdownPreview::Arrow(style) => render_arrow_preview(
+                pixmap,
+                row.x + 10.0 * s,
+                row.x + row.width - 24.0 * s,
+                center_y,
+                s,
+                style,
+                ink,
+            ),
         }
 
         if is_current {
@@ -632,6 +671,66 @@ fn render_dropdown(pixmap: &mut PixmapMut, dropdown: &DropdownLayout, toolbar: &
 enum DropdownPreview {
     Line(LineStyle),
     Badge(BadgeStyle),
+    Arrow(ArrowStyle),
+}
+
+/// 绘制迷你箭头预览，三种形态同尺寸对比
+fn render_arrow_preview(
+    pixmap: &mut PixmapMut,
+    x0: f32,
+    x1: f32,
+    cy: f32,
+    s: f32,
+    style: ArrowStyle,
+    color: Color,
+) {
+    let head_len = 8.0 * s;
+    let head_half = 4.0 * s;
+    let shaft_half = 1.2 * s;
+    let base_x = x1 - head_len;
+
+    match style.shaft_line_style() {
+        Some(line_style) => {
+            stroke_sample(pixmap, x0, base_x, cy, 2.0 * s, line_style, color);
+        }
+        None => {
+            let tail_half = shaft_half * 0.32;
+            let mut pb = PathBuilder::new();
+            pb.move_to(x0, cy - tail_half);
+            pb.line_to(base_x, cy - shaft_half);
+            pb.line_to(base_x, cy - head_half);
+            pb.line_to(x1, cy);
+            pb.line_to(base_x, cy + head_half);
+            pb.line_to(base_x, cy + shaft_half);
+            pb.line_to(x0, cy + tail_half);
+            pb.close();
+            if let Some(path) = pb.finish() {
+                pixmap.fill_path(
+                    &path,
+                    &make_paint(color),
+                    tiny_skia::FillRule::Winding,
+                    Transform::identity(),
+                    None,
+                );
+            }
+            return;
+        }
+    }
+
+    let mut head = PathBuilder::new();
+    head.move_to(x1, cy);
+    head.line_to(base_x, cy - head_half);
+    head.line_to(base_x, cy + head_half);
+    head.close();
+    if let Some(path) = head.finish() {
+        pixmap.fill_path(
+            &path,
+            &make_paint(color),
+            tiny_skia::FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+    }
 }
 
 /// 绘制二级属性栏中的微型矩形形状图标

@@ -66,3 +66,39 @@ pub enum BadgeStyle {
     /// 空心描边圆环 + 彩色数字，压在复杂底图上时不遮挡内容
     Outline,
 }
+
+/// 箭头形态样式（三选一，不是可叠加的线型属性）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ArrowStyle {
+    /// 实线箭杆 + 实心头，粗细均匀
+    Solid,
+    /// 虚线箭杆 + 实心头
+    Dashed,
+    /// 锥形箭杆：尾细头粗，整体填充
+    #[default]
+    Tapered,
+}
+
+impl ArrowStyle {
+    /// 全部样式，顺序与下拉菜单一致
+    pub const ALL: &'static [ArrowStyle] = &[Self::Solid, Self::Dashed, Self::Tapered];
+
+    /// 中文展示名
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Solid => "实线箭头",
+            Self::Dashed => "虚线箭头",
+            Self::Tapered => "锥形箭头",
+        }
+    }
+
+    /// 描边箭杆对应的线型；锥形是填充多边形，不使用描边
+    pub fn shaft_line_style(self) -> Option<LineStyle> {
+        match self {
+            Self::Solid => Some(LineStyle::Solid),
+            Self::Dashed => Some(LineStyle::Dashed),
+            Self::Tapered => None,
+        }
+    }
+}

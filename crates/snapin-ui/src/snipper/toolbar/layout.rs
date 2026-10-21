@@ -11,9 +11,11 @@ use crate::snipper::toolbar::metrics::{button_size, main_toolbar_width, padding}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SubDropdown {
     /// 描边线型（实线/虚线/点线）
-    LineStyle,
+    Line,
     /// 序号底板样式（实心/空心）
-    BadgeStyle,
+    Badge,
+    /// 箭头形态样式（实线/虚线/锥形）
+    Arrow,
 }
 
 /// 二级栏可交互控件
@@ -26,6 +28,7 @@ pub(crate) enum SubControl {
     FillToggle,
     CornerRadius,
     BadgeStyle,
+    ArrowStyle,
     /// 预设颜色，参数为调色板下标
     Color(usize),
 }
@@ -199,6 +202,11 @@ fn build_entries(
         cursor.push(Some(SubControl::BadgeStyle), 44.0 * s);
     }
 
+    if active_tool == ToolbarItem::ToolArrow {
+        cursor.push(None, 16.0 * s);
+        cursor.push(Some(SubControl::ArrowStyle), 52.0 * s);
+    }
+
     cursor.push(None, 16.0 * s);
     for (index, _) in preset_colors().iter().enumerate() {
         cursor.push(Some(SubControl::Color(index)), 26.0 * s);
@@ -244,8 +252,9 @@ pub(crate) fn calculate_sub_layout(
 
     let dropdown = open_dropdown.and_then(|kind| {
         let anchor = match kind {
-            SubDropdown::LineStyle => SubControl::LineStyle,
-            SubDropdown::BadgeStyle => SubControl::BadgeStyle,
+            SubDropdown::Line => SubControl::LineStyle,
+            SubDropdown::Badge => SubControl::BadgeStyle,
+            SubDropdown::Arrow => SubControl::ArrowStyle,
         };
         let anchor_rect = entries
             .iter()
@@ -253,8 +262,9 @@ pub(crate) fn calculate_sub_layout(
             .rect;
 
         let rows = match kind {
-            SubDropdown::LineStyle => 3,
-            SubDropdown::BadgeStyle => 2,
+            SubDropdown::Line => 3,
+            SubDropdown::Badge => 2,
+            SubDropdown::Arrow => 3,
         };
         let row_h = 28.0 * s;
         let panel_h = rows as f32 * row_h + 8.0 * s;
@@ -412,7 +422,7 @@ mod tests {
         let layout = calculate_sub_layout(
             &main_rect(),
             Some(ToolbarItem::ToolRect),
-            Some(SubDropdown::LineStyle),
+            Some(SubDropdown::Line),
             1920.0,
             1080.0,
             1.0,

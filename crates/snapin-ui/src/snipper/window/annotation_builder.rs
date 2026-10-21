@@ -7,7 +7,7 @@ use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::{
     ArrowAction, BadgeAction, EllipseAction, MarkerAction, MosaicAction, PenAction, RectAction,
 };
-use snapin_core::annotation::{BadgeStyle, LineStyle};
+use snapin_core::annotation::{ArrowStyle, BadgeStyle, LineStyle};
 use tiny_skia::PixmapMut;
 
 /// 即时预览与提交时的几何与样式上下文参数
@@ -22,6 +22,7 @@ pub struct AnnotationDraftParams<'a> {
     pub filled: bool,
     pub corner_radius: f32,
     pub badge_style: BadgeStyle,
+    pub arrow_style: ArrowStyle,
 }
 
 impl<'a> AnnotationDraftParams<'a> {
@@ -56,6 +57,7 @@ impl<'a> AnnotationDraftParams<'a> {
             filled: state.toolbar.sub_options.filled,
             corner_radius: state.toolbar.sub_options.corner_radius,
             badge_style: state.toolbar.sub_options.badge_style,
+            arrow_style: state.toolbar.sub_options.arrow_style,
         })
     }
 
@@ -93,6 +95,7 @@ impl<'a> AnnotationDraftParams<'a> {
             filled: toolbar.sub_options.filled,
             corner_radius: toolbar.sub_options.corner_radius,
             badge_style: toolbar.sub_options.badge_style,
+            arrow_style: toolbar.sub_options.arrow_style,
         })
     }
 }
@@ -169,6 +172,7 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
             end: pts[pts.len() - 1],
             color: params.color_rgba,
             stroke_width: params.stroke_width,
+            style: params.arrow_style,
         })),
         ToolbarItem::ToolPen => Some(AnnotationShape::Pen(PenAction {
             points: pts.to_vec(),
