@@ -312,6 +312,34 @@ async fn test_bing_free_reports_captcha_challenge() {
     }
 }
 
+/// 风控页返回 HTML 时必须给出可操作的中文错误，而不是底层 JSON 解码失败
+#[tokio::test]
+async fn test_bing_free_reports_non_json_response() {
+    let mock = MockHttpServer::start(vec![
+        (200, BING_PAGE_BODY),
+        (200, "<html>captcha challenge</html>"),
+    ]);
+    let translator = BingFreeTranslator::with_endpoint(
+        mock.endpoint("/ttranslatev3"),
+        mock.endpoint("/translator"),
+    );
+
+    let error = translator
+        .translate_batch(&texts(&["apple"]), "auto", "zh-CN")
+        .await
+        .expect_err("非 JSON 风控页必须转换为业务错误");
+    match error {
+        ServiceError::ApiError { code, message, .. } => {
+            assert_eq!(code, "NON_JSON_RESPONSE");
+            assert!(
+                message.contains("谷歌"),
+                "错误信息应给出可用替代通道，实际: {message}"
+            );
+        }
+        other => panic!("应返回服务商业务错误，实际: {other:?}"),
+    }
+}
+
 /// 页面结构变更导致取不到令牌时，错误应指向令牌解析失败而非笼统空结果
 #[tokio::test]
 async fn test_bing_free_reports_token_unavailable() {
@@ -393,6 +421,23 @@ async fn test_google_free_fails_on_empty_payload() {
         ServiceError::ApiError { code, .. } => assert_eq!(code, "EMPTY_RESULT"),
         other => panic!("应返回服务商业务错误，实际: {other:?}"),
     }
+}
+
+/// 主端点被出口网络拦截时必须自动切换到备用端点，而不是直接失败
+#[tokio::test]
+async fn test_google_free_falls_back_to_second_endpoint() {
+    let primary = MockHttpServer::start(vec![(500, "blocked")]);
+    let backup = MockHttpServer::start(vec![(200, r#"["苹果"]"#)]);
+    let translator = GoogleFreeTranslator::with_endpoints(vec![
+        primary.endpoint("/translate_a/t"),
+        backup.endpoint("/translate_a/t"),
+    ]);
+
+    let result = translator
+        .translate_batch(&texts(&["apple"]), "en", "zh-CN")
+        .await
+        .expect("主端点失败后应使用备用端点");
+    assert_eq!(result, texts(&["苹果"]));
 }
 
 #[tokio::test]

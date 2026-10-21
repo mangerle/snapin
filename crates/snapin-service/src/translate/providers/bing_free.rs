@@ -3,7 +3,11 @@
 //! 必应接口不接受裸请求：直接 POST `ttranslatev3` 只会得到 `{"statusCode":400}`。
 //! 必须先访问翻译页面取得会话令牌（`IG`、`params_AbusePreventionHelper` 中的 key/token）
 //! 并带上该次访问下发的 Cookie，再发起翻译请求，因此客户端必须启用 Cookie 存储。
-//! 出口 IP 被必应风控时接口会返回 `ShowCaptcha`，此时如实上报为业务错误而不是空译文。
+//!
+//! 翻译请求必须发往令牌页面最终落地的同一区域域名：`www.bing.com` 会按出口地区
+//! 302 到 `cn.bing.com` 等镜像，若仍向 `www` 发 POST，重定向会把请求改写成 GET
+//! 并返回 HTML，表现为解码失败。出口 IP 被风控时接口会返回 `ShowCaptcha` 或
+//! 非 JSON 的风控页，此时如实上报为业务错误而不是空译文。
 
 use crate::error::ServiceError;
 use crate::translate::config::TranslateProvider;
@@ -28,8 +32,12 @@ const BING_USER_AGENT: &str =
 /// 页面内嵌的接口版本标识，与 IG 一同放入查询串
 const BING_IID: &str = "translator.5025";
 
-/// 单次会话令牌
+/// 单次翻译会话：复用页面访问建立的连接、区域端点与防滥用令牌
+#[derive(Clone)]
 struct BingSession {
+    client: Client,
+    endpoint: String,
+    referer: String,
     ig: String,
     key: String,
     token: String,
@@ -65,13 +73,17 @@ impl BingFreeTranslator {
 
     /// 抓取页面并解析出本次会话所需的 IG 与防滥用令牌
     async fn fetch_session(&self) -> Result<BingSession, ServiceError> {
-        let html = self
+        let response = self
             .client
             .get(self.page.as_str())
             .header(reqwest::header::USER_AGENT, BING_USER_AGENT)
             .send()
             .await
-            .map_err(|error| network_error("bing_free", error))?
+            .map_err(|error| network_error("bing_free", error))?;
+        // 页面可能按出口地区重定向（如 www → cn），翻译请求必须跟随到同一区域域名
+        let endpoint = regional_endpoint(response.url(), &self.endpoint);
+        let referer = response.url().to_string();
+        let html = response
             .text()
             .await
             .map_err(|error| network_error("bing_free", error))?;
@@ -109,6 +121,9 @@ impl BingFreeTranslator {
         }
 
         Ok(BingSession {
+            client: self.client.clone(),
+            endpoint,
+            referer,
             ig: ig.to_string(),
             key,
             token,
@@ -117,8 +132,6 @@ impl BingFreeTranslator {
 
     /// 翻译单条文本
     async fn translate_one(
-        client: &Client,
-        endpoint: &str,
         session: &BingSession,
         text: &str,
         from_lang: Option<&str>,
@@ -129,7 +142,10 @@ impl BingFreeTranslator {
             return Ok(String::new());
         }
 
-        let url = format!("{endpoint}?isVertical=1&IG={}&IID={BING_IID}", session.ig);
+        let url = format!(
+            "{}?isVertical=1&IG={}&IID={BING_IID}",
+            session.endpoint, session.ig
+        );
 
         let mut form: Vec<(&str, &str)> = vec![("to", to_lang), ("text", trimmed)];
         if let Some(from_lang) = from_lang {
@@ -138,10 +154,11 @@ impl BingFreeTranslator {
         form.push(("token", session.token.as_str()));
         form.push(("key", session.key.as_str()));
 
-        let response = client
+        let response = session
+            .client
             .post(url)
             .header(reqwest::header::USER_AGENT, BING_USER_AGENT)
-            .header(reqwest::header::REFERER, BING_PAGE)
+            .header(reqwest::header::REFERER, session.referer.as_str())
             .form(&form)
             .send()
             .await
@@ -155,16 +172,23 @@ impl BingFreeTranslator {
             });
         }
 
-        let json: Value = response
-            .json()
+        let body = response
+            .text()
             .await
             .map_err(|error| network_error("bing_free", error))?;
+        let json: Value = serde_json::from_str(&body).map_err(|_| ServiceError::ApiError {
+            provider: "bing_free".to_string(),
+            code: "NON_JSON_RESPONSE".to_string(),
+            message: "必应翻译接口返回了非 JSON 响应（常见于浏览器风控页），当前网络无法使用必应免费通道，建议改用谷歌免费通道".to_string(),
+        })?;
 
         if let Some(status) = json.get("statusCode").and_then(Value::as_i64) {
             return Err(ServiceError::ApiError {
                 provider: "bing_free".to_string(),
                 code: status.to_string(),
-                message: format!("必应翻译接口拒绝了本次请求（HTTP {status}），会话令牌可能已失效"),
+                message: format!(
+                    "必应翻译接口拒绝了本次请求（HTTP {status}），会话令牌失效或非浏览器客户端被风控，建议改用谷歌免费通道"
+                ),
             });
         }
         if json
@@ -200,6 +224,25 @@ impl BingFreeTranslator {
         }
 
         Ok(translated)
+    }
+}
+
+/// 将翻译端点切换到页面最终落地的区域域名，保留协议、端口与路径。
+///
+/// 必应会把 `www.bing.com` 按出口地区重定向到 `cn.bing.com` 等镜像；令牌与 Cookie
+/// 都属于该次区域会话，继续向原域名发 POST 会被 302 改写为 GET 并返回 HTML。
+fn regional_endpoint(page_url: &reqwest::Url, endpoint: &str) -> String {
+    let Ok(mut target) = reqwest::Url::parse(endpoint) else {
+        return endpoint.to_string();
+    };
+    let switched = page_url
+        .host_str()
+        .map(|host| target.set_host(Some(host)).is_ok())
+        .unwrap_or(false);
+    if switched {
+        target.to_string()
+    } else {
+        endpoint.to_string()
     }
 }
 
@@ -239,25 +282,12 @@ impl Translator for BingFreeTranslator {
 
         let results = stream::iter(texts.iter().cloned().enumerate())
             .map(|(index, text)| {
-                let client = self.client.clone();
-                let endpoint = self.endpoint.clone();
+                let session = session.clone();
                 let from_lang = from_lang.clone();
                 let to_lang = to_lang.clone();
-                let session = BingSession {
-                    ig: session.ig.clone(),
-                    key: session.key.clone(),
-                    token: session.token.clone(),
-                };
                 async move {
-                    let result = Self::translate_one(
-                        &client,
-                        &endpoint,
-                        &session,
-                        &text,
-                        from_lang.as_deref(),
-                        &to_lang,
-                    )
-                    .await;
+                    let result =
+                        Self::translate_one(&session, &text, from_lang.as_deref(), &to_lang).await;
                     (index, result)
                 }
             })
@@ -272,5 +302,27 @@ impl Translator for BingFreeTranslator {
             }
         }
         Ok(ordered)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 翻译端点必须跟随令牌页面的区域域名，同时保留端口与路径
+    #[test]
+    fn test_regional_endpoint_follows_page_host() {
+        let page =
+            reqwest::Url::parse("http://127.0.0.1:45678/translator").expect("页面地址解析失败");
+        assert_eq!(
+            regional_endpoint(&page, "http://127.0.0.1:45678/ttranslatev3"),
+            "http://127.0.0.1:45678/ttranslatev3"
+        );
+
+        let cn = reqwest::Url::parse("https://cn.bing.com/translator").expect("页面地址解析失败");
+        assert_eq!(
+            regional_endpoint(&cn, BING_ENDPOINT),
+            "https://cn.bing.com/ttranslatev3"
+        );
     }
 }
