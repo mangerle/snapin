@@ -30,6 +30,10 @@ const IFACE_XML = `
       <arg type="s" direction="in" name="targetPath"/>
       <arg type="b" direction="out" name="success"/>
     </method>
+    <method name="SetTrayVisible">
+      <arg type="b" direction="in" name="visible"/>
+      <arg type="b" direction="out" name="applied"/>
+    </method>
   </interface>
 </node>`;
 
@@ -49,7 +53,7 @@ const TRAY_MENU = [
         label: '重新启动',
         command: 'bash -c "systemctl --user restart snapin 2>/dev/null || (snapin exit 2>/dev/null; sleep 0.5; snapin daemon &)"',
     },
-    { label: '停止后台服务（保留托盘）', command: 'snapin exit' },
+    { label: '退出', command: 'snapin exit' },
 ];
 
 // 延迟放置请求的最长有效期：贴图标题含唯一 ID 不会复用，超时仅用于兜底回收异常未映射的请求
@@ -69,10 +73,38 @@ export default class SnapinHelperExtension extends Extension {
         // 已连接的窗口标题监听器，disable 时统一断开，防止扩展重载后闭包泄漏
         this._titleWatchers = new Set();
 
-        // 2. 创建 GNOME 顶栏原生托盘指示器与菜单（0.5 对齐使菜单在托盘正下方居中弹出）
-        this._indicator = new PanelMenu.Button(0.5, 'Snapin Indicator', false);
-        this._indicator.menu.setSourceAlignment(0.5);
-        this._indicator.set_style('-natural-hpadding: 6px; -minimum-hpadding: 4px; margin: 0; padding: 0;');
+        // 2. 创建 GNOME 顶栏原生托盘指示器与菜单
+        this._showIndicator();
+
+        // 3. 监听全局窗口创建事件：贴图窗口一诞生立即强制置顶，并设为 UTILITY 类型从 Dock 隐藏
+        this._windowCreatedId = global.display.connect('window-created', (_display, metaWin) => {
+            this._applyPinAttributes(metaWin);
+            if (!metaWin) return;
+            // 部分窗口在 map 之后才写入标题，补挂一次性监听确保属性最终生效
+            const watcher = { window: metaWin, id: 0 };
+            watcher.id = metaWin.connect('notify::title', () => {
+                this._applyPinAttributes(metaWin);
+                metaWin.disconnect(watcher.id);
+                this._titleWatchers.delete(watcher);
+            });
+            this._titleWatchers.add(watcher);
+        });
+    }
+
+    /**
+     * 在顶栏创建并挂载托盘指示器（幂等：已存在时直接返回）。
+     *
+     * 之所以把创建逻辑抽出来，是因为"退出应用"只隐藏托盘、不停用扩展：
+     * 扩展一旦被停用，GNOME 45+ 在本会话内无法重新加载，贴图定位与原生截屏会一起失效。
+     */
+    _showIndicator() {
+        if (this._indicator) {
+            return;
+        }
+
+        let indicator = new PanelMenu.Button(0.5, 'Snapin Indicator', false);
+        indicator.menu.setSourceAlignment(0.5);
+        indicator.set_style('-natural-hpadding: 6px; -minimum-hpadding: 4px; margin: 0; padding: 0;');
 
         let box = new St.BoxLayout({
             style_class: 'panel-status-indicators-box',
@@ -93,7 +125,7 @@ export default class SnapinHelperExtension extends Extension {
             });
         }
         box.add_child(icon);
-        this._indicator.add_child(box);
+        indicator.add_child(box);
 
         for (let entry of TRAY_MENU) {
             let item;
@@ -105,25 +137,33 @@ export default class SnapinHelperExtension extends Extension {
                     GLib.spawn_command_line_async(entry.command);
                 });
             }
-            this._indicator.menu.addMenuItem(item);
+            indicator.menu.addMenuItem(item);
         }
 
-        // 将托盘添加到顶栏右侧状态栏区域
-        Main.panel.addToStatusArea('snapin-indicator', this._indicator, 1, 'right');
+        Main.panel.addToStatusArea('snapin-indicator', indicator, 1, 'right');
+        this._indicator = indicator;
+    }
 
-        // 3. 监听全局窗口创建事件：贴图窗口一诞生立即强制置顶，并设为 UTILITY 类型从 Dock 隐藏
-        this._windowCreatedId = global.display.connect('window-created', (_display, metaWin) => {
-            this._applyPinAttributes(metaWin);
-            if (!metaWin) return;
-            // 部分窗口在 map 之后才写入标题，补挂一次性监听确保属性最终生效
-            const watcher = { window: metaWin, id: 0 };
-            watcher.id = metaWin.connect('notify::title', () => {
-                this._applyPinAttributes(metaWin);
-                metaWin.disconnect(watcher.id);
-                this._titleWatchers.delete(watcher);
-            });
-            this._titleWatchers.add(watcher);
-        });
+    /** 从顶栏移除托盘指示器，但保留 D-Bus 服务与窗口特权（供"退出应用"使用） */
+    _hideIndicator() {
+        this._hideIndicator();
+    }
+
+    /**
+     * 显示或隐藏顶栏托盘。
+     *
+     * 退出 Snapin 时只隐藏托盘而不停用扩展：扩展被停用后本会话内无法重新加载，
+     * 会导致贴图定位与零白闪截屏一并失效直到注销重登；守护进程启动时会再次调用本方法把托盘加回来。
+     * @param {boolean} visible 是否显示托盘
+     * @returns {boolean} 固定返回 true，表示请求已受理
+     */
+    SetTrayVisible(visible) {
+        if (visible) {
+            this._showIndicator();
+        } else {
+            this._hideIndicator();
+        }
+        return true;
     }
 
     disable() {
@@ -139,10 +179,7 @@ export default class SnapinHelperExtension extends Extension {
 
         this._pendingPlacements = new Map();
 
-        if (this._indicator) {
-            this._indicator.destroy();
-            this._indicator = null;
-        }
+        this._hideIndicator();
 
         if (this._dbusImpl) {
             this._dbusImpl.unexport();

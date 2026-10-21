@@ -23,7 +23,9 @@ pub use clipboard::{
     write_raw_image_to_clipboard, write_text_to_clipboard,
 };
 pub use error::PlatformError;
-pub use extension_client::{capture_fullscreen_extension, place_paster_window};
+pub use extension_client::{
+    capture_fullscreen_extension, place_paster_window, set_extension_tray_visible,
+};
 pub use hotkey_manager::{
     hotkey_to_gnome_accelerator, suspend_hotkeys_for_settings, sync_hotkeys_to_gnome,
 };

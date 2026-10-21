@@ -70,6 +70,29 @@ pub async fn place_paster_window(title: &str, x: i32, y: i32) -> Result<bool, Pl
     Ok(placed)
 }
 
+/// 请求扩展显示或隐藏顶栏托盘。
+///
+/// 退出 Snapin 时只隐藏托盘、不停用扩展：扩展被停用后 GNOME 45+ 在本会话内无法重新加载，
+/// 贴图定位与原生截屏会一并失效直到注销重登。守护进程重新启动时会再次调用本方法恢复托盘。
+///
+/// # Errors
+///
+/// 会话总线不可用、扩展未部署、方法调用超时或返回值解析失败时返回 [`PlatformError::DBus`]。
+pub async fn set_extension_tray_visible(visible: bool) -> Result<(), PlatformError> {
+    tracing::debug!(
+        "正在请求 GNOME 扩展{}顶栏托盘",
+        if visible { "显示" } else { "隐藏" }
+    );
+    let (applied,): (bool,) = call_extension("SetTrayVisible", &(visible)).await?;
+    if !applied {
+        tracing::warn!(
+            "GNOME 扩展未确认{}顶栏托盘，扩展版本可能过旧",
+            if visible { "显示" } else { "隐藏" }
+        );
+    }
+    Ok(())
+}
+
 /// 请求配套 GNOME Shell 扩展执行毫秒级原生无白闪全屏截屏，结果写入 `target_path` 指向的 PNG。
 ///
 /// # Errors

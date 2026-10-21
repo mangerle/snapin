@@ -6,11 +6,34 @@ use anyhow::Context;
 use commands::handle_command;
 use snapin_core::config::Config;
 use snapin_daemon::{send_command_to_daemon, DaemonRequest, IpcListener};
-use snapin_platform::{enable_gnome_extension, send_desktop_notification, sync_hotkeys_to_gnome};
+use snapin_platform::{
+    enable_gnome_extension, send_desktop_notification, set_extension_tray_visible,
+    sync_hotkeys_to_gnome,
+};
 use snapin_ui::paster::spawn_paster_workspace_thread;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
+
+/// 把顶栏托盘恢复显示。
+///
+/// 退出 Snapin 时托盘被隐藏但扩展保持加载；守护进程再次启动（systemd 拉起、托盘菜单"重新启动"）
+/// 时需要显式恢复。扩展可能刚被 enable 拉起、接口尚未就绪，这里在约 1 秒内重试若干次；
+/// 仍失败只记录告警——下次登录时扩展加载会自动显示托盘。
+async fn restore_extension_tray() {
+    for attempt in 0..4u32 {
+        match set_extension_tray_visible(true).await {
+            Ok(()) => {
+                tracing::debug!("已请求扩展恢复顶栏托盘（第 {} 次尝试）", attempt + 1);
+                return;
+            }
+            Err(error) if attempt == 3 => {
+                tracing::warn!("恢复顶栏托盘失败，扩展接口可能尚未就绪: {error}");
+            }
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(250)).await,
+        }
+    }
+}
 
 /// 运行后台守护服务
 pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
@@ -31,8 +54,8 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
         Err(error) => tracing::warn!("快捷键注册任务异常: {error}"),
     }
     enable_gnome_extension();
-
-    // 2. 启动贴图集中工作区（常驻单一 GUI 事件循环独立线程）
+    // 上次退出时只隐藏了托盘，这里把它恢复出来
+    restore_extension_tray().await;
     let workspace_proxy =
         spawn_paster_workspace_thread(false).context("初始化并启动集中贴图工作区失败")?;
 
