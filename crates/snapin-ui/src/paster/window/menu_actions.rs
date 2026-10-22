@@ -81,21 +81,26 @@ pub fn copy_paster_to_clipboard(state: &mut PasterWindowState) -> bool {
 pub fn save_paster_to_disk(state: &mut PasterWindowState) {
     let w = state.item.pixmap.width();
     let h = state.item.pixmap.height();
-    if let Some(rgba) = RgbaImage::from_raw(w, h, state.item.pixmap.data().to_vec()) {
-        let out_res = save_image_with_config(&rgba, &state.config.output).or_else(|_| {
-            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-            let pic_dir = PathBuf::from(home).join("Pictures");
-            let _ = std::fs::create_dir_all(&pic_dir);
-            let fallback_path = pic_dir.join(format!("{}.png", state.item.title));
-            rgba.save(&fallback_path)
-                .map(|_| fallback_path)
-                .map_err(|e| snapin_platform::PlatformError::Io {
-                    path: "Pictures".to_string(),
-                    source: std::io::Error::other(e.to_string()),
-                })
-        });
+    let Some(rgba) = RgbaImage::from_raw(w, h, state.item.pixmap.data().to_vec()) else {
+        state.set_status_message("读取贴图像素失败，无法保存");
+        return;
+    };
 
-        if let Ok(out) = out_res {
+    let out_res = save_image_with_config(&rgba, &state.config.output).or_else(|_| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let pic_dir = PathBuf::from(home).join("Pictures");
+        let _ = std::fs::create_dir_all(&pic_dir);
+        let fallback_path = pic_dir.join(format!("{}.png", state.item.title));
+        rgba.save(&fallback_path)
+            .map(|_| fallback_path)
+            .map_err(|e| snapin_platform::PlatformError::Io {
+                path: "Pictures".to_string(),
+                source: std::io::Error::other(e.to_string()),
+            })
+    });
+
+    match out_res {
+        Ok(out) => {
             state.file_path = Some(out.clone());
             if state.config.output.notify_on_save {
                 let msg = format!("贴图图像已保存至: {}", out.display());
@@ -105,6 +110,10 @@ pub fn save_paster_to_disk(state: &mut PasterWindowState) {
                     });
                 }
             }
+        }
+        Err(error) => {
+            tracing::warn!("贴图快捷保存失败: {error}");
+            state.set_status_message(format!("保存图像失败: {error}"));
         }
     }
 }
