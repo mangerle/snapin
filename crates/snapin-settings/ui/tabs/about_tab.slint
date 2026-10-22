@@ -1,3 +1,4 @@
+import { AboutSlint } from "std-widgets.slint";
 import { SettingCard } from "../common.slint";
 
 export component AboutTab inherits VerticalLayout {
@@ -53,14 +54,45 @@ export component AboutTab inherits VerticalLayout {
 
             HorizontalLayout {
                 spacing: 12px;
-                Text { text: "开源协议:"; width: 90px; color: #64748b; }
+                Text { text: "源码协议:"; width: 90px; color: #64748b; }
                 Text { text: "Apache License 2.0"; color: #1e293b; }
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+                Text { text: "设置界面:"; width: 90px; color: #64748b; }
+                Text { text: "Slint Royalty-free 2.0"; color: #1e293b; }
             }
 
             HorizontalLayout {
                 spacing: 12px;
                 Text { text: "代码仓库:"; width: 90px; color: #64748b; }
                 Text { text: "https://github.com/mangerle/snapin"; color: #2563eb; }
+            }
+        }
+    }
+
+    SettingCard {
+        title: "设置界面框架";
+        subtitle: "本设置中心基于 Slint 构建，依据 Slint Royalty-free 2.0 许可使用";
+
+        VerticalLayout {
+            spacing: 10px;
+            alignment: start;
+
+            HorizontalLayout {
+                alignment: center;
+                AboutSlint {
+                    width: 300px;
+                    height: 150px;
+                }
+            }
+
+            Text {
+                text: "Slint 版权归 SixtyFPS GmbH 所有。完整许可文本见 LICENSES/LicenseRef-Slint-Royalty-free-2.0.md，第三方组件声明见 THIRD_PARTY_NOTICES.md。";
+                font-size: 12px;
+                color: #64748b;
+                wrap: word-wrap;
             }
         }
     }
