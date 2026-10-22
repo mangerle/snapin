@@ -48,6 +48,9 @@ pub fn render_item_icon(
         ToolbarItem::ActionTranslate => {
             actions::render_icon_translate(pixmap, cx, cy, s, &paint, &stroke)
         }
+        ToolbarItem::ActionMouseThrough => {
+            actions::render_icon_mouse_through(pixmap, cx, cy, s, &paint, &stroke)
+        }
         ToolbarItem::ToolEllipse => tools::render_icon_ellipse(pixmap, cx, cy, s, &paint, &stroke),
     }
 }

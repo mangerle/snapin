@@ -188,7 +188,11 @@ fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
 
     // 工具条命中优先于标注起点，避免点击按钮时误落笔
     let win_size = window.inner_size();
-    if handle_toolbar_click(state, (win_size.width as f32, win_size.height as f32)) {
+    if handle_toolbar_click(
+        state,
+        (win_size.width as f32, win_size.height as f32),
+        window,
+    ) {
         return true;
     }
 

@@ -7,6 +7,7 @@ use super::jobs::pixmap_to_rgba_image;
 use super::menu_actions::{copy_paster_to_clipboard, save_paster_to_disk};
 use super::state::PasterWindowState;
 use crate::snipper::toolbar::{Toolbar, ToolbarItem};
+use winit::window::Window;
 
 /// 贴图窗口主栏按钮序列：绘制工具、撤销/重做、整图识别/翻译与贴图动作。
 ///
@@ -28,6 +29,7 @@ pub const PASTER_MAIN_ITEMS: &[ToolbarItem] = &[
     ToolbarItem::ActionRedo,
     ToolbarItem::ActionOcr,
     ToolbarItem::ActionTranslate,
+    ToolbarItem::ActionMouseThrough,
     ToolbarItem::ActionClose,
     ToolbarItem::ActionSave,
     ToolbarItem::ActionCopy,
@@ -140,7 +142,11 @@ pub(crate) fn refresh_toolbar_layout(
 /// 命中范围包含主栏、二级属性栏与展开的下拉菜单；绘制工具由工具栏内部切换激活状态，
 /// 撤销/重做、整图识别/翻译、复制、保存、关闭等动作在此分发。
 /// 识别与翻译任务异步执行，提交成功后立即返回，结果由工作区事件循环回填。
-pub(crate) fn handle_toolbar_click(state: &mut PasterWindowState, window_size: (f32, f32)) -> bool {
+pub(crate) fn handle_toolbar_click(
+    state: &mut PasterWindowState,
+    window_size: (f32, f32),
+    window: &Window,
+) -> bool {
     if !state.show_toolbar {
         return false;
     }
@@ -161,6 +167,9 @@ pub(crate) fn handle_toolbar_click(state: &mut PasterWindowState, window_size: (
             }
             ToolbarItem::ActionOcr => submit_paster_ocr(state),
             ToolbarItem::ActionTranslate => submit_paster_translate(state),
+            ToolbarItem::ActionMouseThrough => {
+                state.set_mouse_through(!state.mouse_through, window);
+            }
             ToolbarItem::ActionCopy => {
                 copy_paster_to_clipboard(state);
             }
@@ -409,6 +418,7 @@ mod tests {
             ToolbarItem::ActionRedo,
             ToolbarItem::ActionOcr,
             ToolbarItem::ActionTranslate,
+            ToolbarItem::ActionMouseThrough,
             ToolbarItem::ActionClose,
             ToolbarItem::ActionSave,
             ToolbarItem::ActionCopy,
@@ -442,6 +452,7 @@ mod tests {
         for action in [
             ToolbarItem::ActionOcr,
             ToolbarItem::ActionTranslate,
+            ToolbarItem::ActionMouseThrough,
             ToolbarItem::ActionClose,
             ToolbarItem::ActionSave,
             ToolbarItem::ActionCopy,

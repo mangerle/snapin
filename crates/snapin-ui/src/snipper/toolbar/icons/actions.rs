@@ -76,6 +76,33 @@ pub fn render_icon_close(
     }
 }
 
+/// 图标 12: 鼠标指针加斜杠 (贴图鼠标穿透开关)
+pub fn render_icon_mouse_through(
+    pixmap: &mut PixmapMut,
+    cx: f32,
+    cy: f32,
+    s: f32,
+    paint: &Paint,
+    stroke: &Stroke,
+) {
+    let mut pb = PathBuilder::new();
+    // 指针轮廓
+    pb.move_to(cx - 4.5 * s, cy - 7.0 * s);
+    pb.line_to(cx - 4.5 * s, cy + 3.0 * s);
+    pb.line_to(cx - 1.2 * s, cy + 0.5 * s);
+    pb.line_to(cx + 1.2 * s, cy + 6.0 * s);
+    pb.line_to(cx + 3.8 * s, cy + 4.8 * s);
+    pb.line_to(cx + 1.4 * s, cy - 0.6 * s);
+    pb.line_to(cx + 5.0 * s, cy - 1.2 * s);
+    pb.close();
+    // 穿透斜杠
+    pb.move_to(cx - 7.0 * s, cy + 7.0 * s);
+    pb.line_to(cx + 7.0 * s, cy - 7.0 * s);
+    if let Some(path) = pb.finish() {
+        pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
+    }
+}
+
 /// 图标 11: 经典大头工字图钉 (贴图置顶)
 pub fn render_icon_pin(
     pixmap: &mut PixmapMut,

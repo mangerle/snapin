@@ -23,6 +23,8 @@ pub(crate) struct InputRegionLayout {
     pub image_w: f32,
     /// 缩放后的图像高度
     pub image_h: f32,
+    /// 鼠标穿透开启时图像不参与输入命中
+    pub mouse_through: bool,
     /// 工具条主栏面板（工具条显示时存在）
     pub toolbar_main: Option<Rect>,
     /// 工具条二级属性栏面板（已展开时存在）
@@ -44,13 +46,15 @@ pub(crate) fn compute_input_rects(layout: &InputRegionLayout) -> Vec<(i32, i32, 
     let mut rects = Vec::with_capacity(6);
     // 状态提示（toast）绘制在图像顶部内部，已被图像矩形完整覆盖；
     // 它本身不可交互，因此无需在此额外声明命中区域。
-    let image = Rect {
-        x: 0.0,
-        y: 0.0,
-        width: layout.image_w,
-        height: layout.image_h,
-    };
-    push_clamped(&mut rects, image, layout.window_w, layout.window_h);
+    if !layout.mouse_through {
+        let image = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: layout.image_w,
+            height: layout.image_h,
+        };
+        push_clamped(&mut rects, image, layout.window_w, layout.window_h);
+    }
 
     let sources = [
         layout.toolbar_main,
@@ -144,6 +148,7 @@ pub(crate) fn input_layout_from_state(
         window_h,
         image_w: state.item.pixmap.width() as f32 * scale,
         image_h: state.item.pixmap.height() as f32 * scale,
+        mouse_through: state.mouse_through,
         toolbar_main,
         toolbar_sub,
         toolbar_dropdown,
@@ -219,6 +224,28 @@ mod tests {
             compute_input_rects(&layout),
             vec![(0, 0, 140, 80), (8, 128, 492, 44)]
         );
+    }
+
+    /// 鼠标穿透时图像不参与输入命中，只保留工具条作为恢复手柄
+    #[test]
+    fn 鼠标穿透时输入区域只保留工具条() {
+        let mut layout = base_layout();
+        layout.mouse_through = true;
+        layout.toolbar_main = Some(Rect {
+            x: 8.0,
+            y: 128.0,
+            width: 492.0,
+            height: 44.0,
+        });
+        assert_eq!(compute_input_rects(&layout), vec![(8, 128, 492, 44)]);
+    }
+
+    /// 穿透且工具条隐藏时不得声明任何输入区域，避免窗口吞掉桌面点击
+    #[test]
+    fn 鼠标穿透且工具条隐藏时无输入区域() {
+        let mut layout = base_layout();
+        layout.mouse_through = true;
+        assert!(compute_input_rects(&layout).is_empty());
     }
 
     /// 展开属性栏后，其面板也必须参与输入命中

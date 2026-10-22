@@ -36,6 +36,8 @@ pub struct PasterWindowState {
     pub should_close: bool,
     pub has_shadow: bool,
     pub show_toolbar: bool,
+    /// 鼠标穿透开启时图像区域不参与输入命中，仅保留工具条作为恢复手柄
+    pub mouse_through: bool,
     pub smooth_scaling: bool,
     pub file_path: Option<PathBuf>,
     pub context_menu: ContextMenuState,
@@ -70,6 +72,7 @@ impl PasterWindowState {
             should_close: false,
             has_shadow: true,
             show_toolbar: false,
+            mouse_through: false,
             smooth_scaling: true,
             file_path: None,
             context_menu: ContextMenuState::default(),
@@ -256,6 +259,30 @@ impl PasterWindowState {
             self.is_drawing = false;
         }
         apply_window_scale_resize(self, window);
+    }
+
+    /// 切换贴图鼠标穿透。
+    ///
+    /// 开启时强制显示工具条并关闭右键菜单：图像区域将不再参与输入命中，
+    /// 用户只能通过工具条上的穿透按钮恢复交互，因此工具条必须始终可见。
+    pub fn set_mouse_through(&mut self, enabled: bool, window: &Window) {
+        self.mouse_through = enabled;
+        if enabled {
+            if !self.show_toolbar {
+                self.set_toolbar_visible(true, window);
+            }
+            self.cancel_text_session();
+            window.set_ime_allowed(false);
+            self.pending_stroke_points.clear();
+            self.is_drawing = false;
+            self.context_menu.close();
+            self.set_status_message("鼠标穿透已开启，点击工具条上的穿透按钮恢复");
+        } else {
+            self.set_status_message("鼠标穿透已关闭");
+        }
+
+        apply_window_scale_resize(self, window);
+        window.request_redraw();
     }
 
     /// 判断屏幕坐标是否落在缩放后的图像内部（边框画在图像内部，不占布局，故直接用图像尺寸换算）。

@@ -30,6 +30,8 @@ pub enum ToolbarItem {
     ActionOcr,
     /// 截图原位翻译
     ActionTranslate,
+    /// 切换贴图鼠标穿透（仅贴图工具栏使用）
+    ActionMouseThrough,
     /// 贴图置顶到屏幕 (F3)
     ActionPin,
     /// 复制到剪贴板并退出
