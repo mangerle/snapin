@@ -9,7 +9,7 @@ use snapin_platform::{
     send_desktop_notification,
 };
 use snapin_ui::snipper::{run_snipper_session, SnipMode, SnipperOutcome};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// 获取屏幕快照（优先扩展零白闪通道，未命中则优雅降级 XDG Desktop Portal）。
 ///
@@ -77,7 +77,19 @@ async fn capture_via_extension(t_start: Instant) -> Result<RgbaImage> {
 }
 
 /// 执行单次截图流程
-pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode) -> Result<()> {
+///
+/// `delay_seconds` 大于 0 时，先发送桌面通知并等待指定秒数再捕获屏幕，
+/// 便于截取菜单、悬浮提示等需要先操作的界面。
+pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode, delay_seconds: u32) -> Result<()> {
+    if delay_seconds > 0 {
+        let message = format!("将在 {delay_seconds} 秒后截图");
+        if let Err(error) = send_desktop_notification("Snapin 截图", &message).await {
+            tracing::debug!("发送延时截图通知失败或系统通知不可用: {error}");
+        }
+        tracing::info!("截图延时等待中: {delay_seconds} 秒");
+        tokio::time::sleep(Duration::from_secs(u64::from(delay_seconds))).await;
+    }
+
     let t0 = Instant::now();
     let img = acquire_screen_snapshot().await?;
     let t1 = Instant::now();

@@ -41,6 +41,7 @@ const IFACE_XML = `
 const TRAY_MENU = [
     { label: '截屏', command: 'snapin snip' },
     { label: '全屏截图', command: 'snapin snip --fullscreen' },
+    { label: '延时 3 秒截图', command: 'snapin snip --delay 3' },
     { label: '截屏并自动复制', command: 'snapin snip --auto-copy' },
     { label: '自定义截屏', command: 'snapin snip --custom' },
     { label: '贴图', command: 'snapin paste' },

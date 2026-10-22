@@ -34,6 +34,9 @@ pub enum Commands {
         /// 进入会话即锁定整屏选区，可直接标注或复制/保存/贴图
         #[arg(long, conflicts_with_all = ["auto_copy", "custom", "translate"])]
         fullscreen: bool,
+        /// 截图前等待的秒数（0 表示立即截图，最大 60 秒）
+        #[arg(long, value_name = "SECONDS", default_value_t = 0, value_parser = parse_delay_seconds)]
+        delay: u32,
     },
     /// 触发贴图（由剪贴板或选区生成，默认绑定 F1）
     Paste,
@@ -69,9 +72,19 @@ pub enum Commands {
     SyncHotkeys,
 }
 
+/// 解析截图延时秒数，限制在 0..=60，避免误输入导致长时间无响应。
+fn parse_delay_seconds(raw: &str) -> Result<u32, String> {
+    let seconds = raw
+        .parse::<u32>()
+        .map_err(|error| format!("截图延时必须是 0 到 60 的整数，原因: {error}"))?;
+    if seconds > 60 {
+        return Err("截图延时不能超过 60 秒".to_string());
+    }
+    Ok(seconds)
+}
+
 impl Commands {
-    /// 该子命令是否强依赖用户配置文件。
-    ///
+    /// 该子命令是否强依赖用户配置文件。    ///
     /// 只有真正读取偏好字段的命令才需要读盘结果：截图依赖热键之外的全部设置，
     /// 快捷键同步依赖热键表，守护进程依赖贴图与输出设置。
     pub fn needs_config(&self) -> bool {
@@ -103,6 +116,7 @@ mod tests {
                 custom: false,
                 translate: false,
                 fullscreen: false,
+                delay: 0,
             },
             Commands::SyncHotkeys,
             Commands::Daemon,
@@ -135,6 +149,7 @@ mod tests {
             custom: false,
             translate: false,
             fullscreen: false,
+            delay: 0,
         }
         .needs_capabilities());
         assert!(!Commands::Exit.needs_capabilities());
@@ -170,6 +185,7 @@ mod tests {
                 custom: true,
                 translate: false,
                 fullscreen: false,
+                delay: 0,
             }
         ));
 
@@ -190,6 +206,17 @@ mod tests {
                 ..
             }
         ));
+
+        let cli = Cli::try_parse_from(["snapin", "snip", "--delay", "3"]).unwrap();
+        assert!(matches!(cli.command, Commands::Snip { delay: 3, .. }));
+        assert!(
+            Cli::try_parse_from(["snapin", "snip", "--delay", "61"]).is_err(),
+            "截图延时超过 60 秒必须被拒绝"
+        );
+        assert!(
+            Cli::try_parse_from(["snapin", "snip", "--delay", "abc"]).is_err(),
+            "非整数延时必须被拒绝"
+        );
 
         assert!(
             Cli::try_parse_from(["snapin", "snip", "--translate", "--custom"]).is_err(),

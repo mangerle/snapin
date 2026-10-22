@@ -79,6 +79,7 @@ async fn main() -> Result<()> {
             custom,
             translate,
             fullscreen,
+            delay,
         } => {
             tracing::info!("正在启动区域截图流程...");
             let mode = if fullscreen {
@@ -93,7 +94,7 @@ async fn main() -> Result<()> {
                 SnipMode::Normal
             };
             let cfg = config.context("区域截图流程缺少用户配置")?;
-            run_oneshot_snip(cfg, mode).await?;
+            run_oneshot_snip(cfg, mode, delay).await?;
         }
         Commands::Paste => {
             tracing::info!("正在检查剪贴板生成贴图...");
