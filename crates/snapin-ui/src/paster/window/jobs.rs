@@ -7,9 +7,8 @@
 //! 设计权衡：
 //! - 队列使用容量固定的同步通道，天然形成背压；提交方采用快速失败策略，
 //!   避免 UI 线程因等待空闲槽位而卡顿；
-//! - OCR 引擎与翻译器在首次使用时惰性初始化并常驻线程，避免每次任务重复
-//!   加载模型与建立连接池；代价是修改模型目录或翻译服务商后需要重启贴图
-//!   工作区才能完全生效；
+//! - OCR 引擎与翻译器在首次使用时惰性初始化并复用，避免每次任务重复加载模型
+//!   与建立连接池；配置热重载时主动失效缓存，使模型目录与服务商修改立即生效；
 //! - 工作线程由执行器持有并在 `shutdown` 时 join，杜绝脱缰线程。
 
 use crate::error::UiError;
@@ -23,7 +22,7 @@ use snapin_service::{create_translator, Translator};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 use tiny_skia::Pixmap;
 use winit::event_loop::EventLoopProxy;
@@ -87,43 +86,79 @@ enum PasterJob {
 
 /// 工作线程内复用的 OCR 引擎与翻译器缓存。
 ///
-/// 两个缓存都只初始化一次：模型加载与翻译客户端构造成本高，且贴图任务通常
-/// 连续执行；若配置文件发生变更，已初始化的实例不会热替换（见模块文档）。
+/// 缓存由执行器与工作线程共享，配置热重载时由 [`PasterJobExecutor::update_config`]
+/// 统一清空；正在执行的任务已持有旧实例，会自然完成，后续任务再按新配置重建。
 struct JobServices {
-    ocr_engine: OnceLock<Result<Arc<LocalPpOcrEngine>, String>>,
-    translator: OnceLock<Arc<dyn Translator>>,
+    ocr_engine: RwLock<Option<Result<Arc<LocalPpOcrEngine>, String>>>,
+    translator: RwLock<Option<Arc<dyn Translator>>>,
 }
 
 impl JobServices {
     fn new() -> Self {
         Self {
-            ocr_engine: OnceLock::new(),
-            translator: OnceLock::new(),
+            ocr_engine: RwLock::new(None),
+            translator: RwLock::new(None),
         }
     }
 
-    /// 按配置惰性初始化本地 OCR 引擎；初始化失败会被缓存以便后续任务快速失败。
+    /// 按配置惰性初始化本地 OCR 引擎；初始化失败同样缓存，避免后续任务反复加载。
     fn ocr_engine(&self, config: &Config) -> Result<Arc<LocalPpOcrEngine>, String> {
-        self.ocr_engine
-            .get_or_init(|| {
-                let model_dir = config.ocr.local.model_dir.trim();
-                let custom_dir = if model_dir.is_empty() {
-                    None
-                } else {
-                    Some(Path::new(model_dir))
-                };
-                LocalPpOcrEngine::new(custom_dir)
-                    .map(Arc::new)
-                    .map_err(|error| error.to_string())
-            })
-            .clone()
+        if let Some(cached) = self
+            .ocr_engine
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+        {
+            return cached.clone();
+        }
+
+        let initialized = {
+            let model_dir = config.ocr.local.model_dir.trim();
+            let custom_dir = if model_dir.is_empty() {
+                None
+            } else {
+                Some(Path::new(model_dir))
+            };
+            LocalPpOcrEngine::new(custom_dir)
+                .map(Arc::new)
+                .map_err(|error| error.to_string())
+        };
+        *self
+            .ocr_engine
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(initialized.clone());
+        initialized
     }
 
     /// 按配置惰性创建翻译器，复用底层 HTTP 连接池。
     fn translator(&self, config: &Config) -> Arc<dyn Translator> {
-        self.translator
-            .get_or_init(|| create_translator(&translator_options(&config.translate)))
-            .clone()
+        if let Some(cached) = self
+            .translator
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+        {
+            return cached.clone();
+        }
+
+        let translator = create_translator(&translator_options(&config.translate));
+        *self
+            .translator
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(translator.clone());
+        translator
+    }
+
+    /// 清空所有缓存，使下一次任务按最新配置重新初始化服务。
+    fn invalidate(&self) {
+        *self
+            .ocr_engine
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        *self
+            .translator
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
     }
 }
 
@@ -140,6 +175,8 @@ pub(crate) struct PasterJobExecutor {
     stopping: Arc<AtomicBool>,
     /// 供 OCR 任务读取的最新配置快照
     config: RwLock<Arc<Config>>,
+    /// 与工作线程共享的 OCR/翻译服务缓存，配置热重载时可主动失效
+    services: Arc<JobServices>,
 }
 
 impl PasterJobExecutor {
@@ -160,9 +197,11 @@ impl PasterJobExecutor {
         let (sender, receiver) = sync_channel(JOB_QUEUE_CAPACITY);
         let stopping = Arc::new(AtomicBool::new(false));
         let worker_stopping = stopping.clone();
+        let services = Arc::new(JobServices::new());
+        let worker_services = services.clone();
         let worker = thread::Builder::new()
             .name("snapin-paster-job".to_string())
-            .spawn(move || worker_loop(receiver, sink, worker_stopping))
+            .spawn(move || worker_loop(receiver, sink, worker_stopping, worker_services))
             .map_err(|error| UiError::Window {
                 message: format!("派生贴图后台任务线程失败: {error}"),
             })?;
@@ -173,6 +212,7 @@ impl PasterJobExecutor {
             busy: AtomicBool::new(false),
             stopping,
             config: RwLock::new(config),
+            services,
         })
     }
 
@@ -199,14 +239,17 @@ impl PasterJobExecutor {
         self.submit(PasterJob::Translate { image, config })
     }
 
-    /// 更新后续 OCR 任务使用的配置快照。
+    /// 更新后续任务的配置快照，并失效已缓存的 OCR 引擎与翻译器。
     ///
-    /// 已初始化的引擎与翻译器保持原配置，避免在任务执行中途重建服务。
+    /// 正在执行的任务持有旧实例会自然完成；下一次任务将按新配置重新初始化，
+    /// 使设置页修改模型目录或翻译服务商后无需重启守护进程即可生效。
     pub(crate) fn update_config(&self, config: Arc<Config>) {
         *self
             .config
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = config;
+        self.services.invalidate();
+        tracing::debug!("贴图后台 OCR 与翻译服务缓存已失效，将在下次任务时按新配置重建");
     }
 
     /// 标记当前任务已回传结果，允许提交下一个任务。
@@ -297,8 +340,8 @@ fn worker_loop(
     receiver: Receiver<PasterJob>,
     sink: Box<dyn PasterJobSink>,
     stopping: Arc<AtomicBool>,
+    services: Arc<JobServices>,
 ) {
-    let services = JobServices::new();
     // 截图侧复用守护进程运行时；贴图工作区可能运行在没有 Tokio 上下文的
     // 独立线程上，因此自建一个最小 current-thread 运行时承载翻译 HTTP 请求。
     let async_runtime = tokio::runtime::Builder::new_current_thread()
@@ -436,6 +479,34 @@ mod tests {
         assert!(
             error.contains("长度不匹配"),
             "错误信息应说明长度不匹配，实际: {error}"
+        );
+    }
+
+    /// 服务缓存失效后应清空旧配置的缓存条目，后续任务按新配置重建
+    #[test]
+    fn 失效服务缓存后条目被清空() {
+        let services = JobServices::new();
+        *services.ocr_engine.write().expect("获取 OCR 缓存写锁失败") =
+            Some(Err("旧配置初始化失败".to_string()));
+        *services.translator.write().expect("获取翻译器缓存写锁失败") = None;
+
+        services.invalidate();
+
+        assert!(
+            services
+                .ocr_engine
+                .read()
+                .expect("获取 OCR 缓存读锁失败")
+                .is_none(),
+            "失效后 OCR 缓存必须为空"
+        );
+        assert!(
+            services
+                .translator
+                .read()
+                .expect("获取翻译器缓存读锁失败")
+                .is_none(),
+            "失效后翻译器缓存必须为空"
         );
     }
 
