@@ -22,6 +22,7 @@ pub fn handle_cursor_move(
     screen_h: f32,
 ) -> bool {
     state.cursor_pos = pos;
+    state.cursor_ready = true;
     let (cx, cy) = (pos.0 as f32, pos.1 as f32);
 
     match &mut state.selection {

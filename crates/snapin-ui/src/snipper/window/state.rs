@@ -26,6 +26,8 @@ pub struct SnipperState {
     pub toolbar: Toolbar,
     pub annotations: AnnotationHistory,
     pub cursor_pos: (f64, f64),
+    /// 是否已收到首个光标位置；未就绪时不绘制跟随放大镜，避免左上角出现 (0,0) 占位框
+    pub cursor_ready: bool,
     pub modifiers: ModifiersState,
     pub pending_stroke_points: Vec<(f32, f32)>,
     pub active_text_input: Option<TextInputSession>,
@@ -54,6 +56,7 @@ impl SnipperState {
             toolbar: Toolbar::default(),
             annotations: AnnotationHistory::default(),
             cursor_pos: (0.0, 0.0),
+            cursor_ready: false,
             modifiers: ModifiersState::default(),
             pending_stroke_points: Vec::with_capacity(64),
             active_text_input: None,
@@ -200,6 +203,12 @@ mod tests {
         assert!(!should_restore_last_selection(SnipMode::Translate));
         assert!(!should_restore_last_selection(SnipMode::Fullscreen));
         assert!(!should_restore_last_selection(SnipMode::PickColor));
+    }
+
+    /// 初始状态不得把 (0,0) 当成真实光标位置
+    #[test]
+    fn test_cursor_not_ready_until_first_move() {
+        assert!(!SnipperState::new().cursor_ready);
     }
 
     /// 窗口矩形应夹取到截图范围，完全越界的窗口被丢弃

@@ -21,6 +21,8 @@ pub struct SnipperCanvas<'a> {
     pub original_rgba: &'a RgbaImage,
     pub selection: &'a SelectionState,
     pub cursor_pos: (f64, f64),
+    /// 是否已收到首个光标位置；未就绪时隐藏放大镜，避免在左上角绘制占位框
+    pub cursor_ready: bool,
     /// 未拉框时鼠标悬停的窗口矩形，用于窗口截图预览
     pub hovered_window: Option<Rect>,
     pub magnifier: &'a Magnifier,
@@ -83,17 +85,20 @@ impl<'a> SnipperCanvas<'a> {
                 }
             }
         } else {
-            // 未拉框时优先高亮光标下的窗口，随后绘制像素放大镜。
-            if let Some(hover) = self.hovered_window {
-                self.fast_cutout_restore(pixmap, &hover, screen_w, screen_h);
-                self.render_window_hover_border(pixmap, &hover);
+            // 未收到首个光标位置前不绘制放大镜：winit 刚映射窗口时没有光标坐标，
+            // 若直接用 (0,0) 会在左上角留下一个误导性的像素框。
+            if self.cursor_ready {
+                if let Some(hover) = self.hovered_window {
+                    self.fast_cutout_restore(pixmap, &hover, screen_w, screen_h);
+                    self.render_window_hover_border(pixmap, &hover);
+                }
+                self.magnifier.render(
+                    pixmap,
+                    self.original_rgba,
+                    self.cursor_pos.0 as i32,
+                    self.cursor_pos.1 as i32,
+                );
             }
-            self.magnifier.render(
-                pixmap,
-                self.original_rgba,
-                self.cursor_pos.0 as i32,
-                self.cursor_pos.1 as i32,
-            );
         }
 
         self.render_status_message(pixmap);
