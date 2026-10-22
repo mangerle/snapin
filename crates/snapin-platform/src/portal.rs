@@ -4,9 +4,11 @@
 //! 请求系统特权合成器交付完整屏幕帧缓冲区。
 
 use crate::error::PlatformError;
+use ashpd::desktop::file_chooser::{FileFilter, SelectedFiles};
 use ashpd::desktop::screenshot::Screenshot;
 use image::RgbaImage;
 use std::fs;
+use std::path::{Path, PathBuf};
 
 /// 请求 XDG Desktop Portal 执行静默全屏截屏（非交互模式）。
 ///
@@ -75,4 +77,56 @@ pub async fn capture_fullscreen_portal() -> Result<RgbaImage, PlatformError> {
         rgba_img.height()
     );
     Ok(rgba_img)
+}
+
+/// 打开 XDG Desktop Portal 保存对话框，让用户选择目标文件路径。
+///
+/// 返回 `Ok(None)` 表示用户主动取消；Wayland 下客户端无法自行弹出原生保存
+/// 对话框，必须经由 Portal 获取用户授权后的路径。
+///
+/// # Errors
+///
+/// Portal 服务不可用、D-Bus 调用失败或返回的 URI 无法转换为本地路径时返回
+/// [`PlatformError::Portal`]。
+pub async fn pick_save_path(
+    suggested_name: &str,
+    current_folder: Option<&Path>,
+) -> Result<Option<PathBuf>, PlatformError> {
+    let request = SelectedFiles::save_file()
+        .title("图像另存为")
+        .accept_label("保存")
+        .current_name(suggested_name)
+        .modal(true)
+        .filter(FileFilter::new("PNG 图像").glob("*.png"))
+        .filter(FileFilter::new("JPEG 图像").glob("*.jpg").glob("*.jpeg"))
+        .filter(FileFilter::new("WebP 图像").glob("*.webp"));
+
+    let request = match current_folder {
+        Some(folder) => request
+            .current_folder::<PathBuf>(Some(folder.to_path_buf()))
+            .map_err(|error| PlatformError::Portal {
+                message: format!("设置保存对话框初始目录失败: {error}"),
+            })?,
+        None => request,
+    };
+
+    let files = request
+        .send()
+        .await
+        .map_err(|error| PlatformError::Portal {
+            message: format!("请求系统保存对话框失败: {error}"),
+        })?
+        .response()
+        .map_err(|error| PlatformError::Portal {
+            message: format!("等待保存对话框结果失败: {error}"),
+        })?;
+
+    let Some(uri) = files.uris().first() else {
+        return Ok(None);
+    };
+    uri.to_file_path()
+        .map(Some)
+        .map_err(|_| PlatformError::Portal {
+            message: format!("保存对话框返回的 URI 无法转换为本地路径: {uri}"),
+        })
 }

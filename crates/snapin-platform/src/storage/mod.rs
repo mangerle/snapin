@@ -8,4 +8,4 @@ pub mod writer;
 pub use raw_image::{checked_rgba_byte_len, MAX_RAW_PIXELS};
 pub use selection_cache::{clear_selection_cache, load_last_selection, save_last_selection};
 pub use template::{expand_home_dir, format_template};
-pub use writer::{resolve_save_path, save_image_with_config};
+pub use writer::{resolve_save_path, save_image_to_path, save_image_with_config};

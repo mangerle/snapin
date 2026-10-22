@@ -34,6 +34,8 @@ pub(crate) struct WorkspaceRuntime {
     pub manager: PasterManager,
     pub cfg: Arc<Config>,
     pub jobs: Arc<PasterJobExecutor>,
+    /// 工作区事件循环的线程安全代理，供异步另存为等任务回传结果
+    pub proxy: PasterWorkspaceProxy,
     /// 单次会话模式下最后一个贴图关闭后是否退出事件循环
     pub exit_on_all_closed: bool,
 }
@@ -102,11 +104,13 @@ pub fn run_paster_workspace_loop(
         event_loop.create_proxy(),
         cfg.clone(),
     )?);
+    let proxy = PasterWorkspaceProxy::new(event_loop.create_proxy());
     let mut runtime = WorkspaceRuntime {
         instances: HashMap::new(),
         manager,
         cfg,
         jobs: jobs.clone(),
+        proxy,
         exit_on_all_closed,
     };
 

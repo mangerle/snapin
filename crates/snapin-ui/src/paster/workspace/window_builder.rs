@@ -64,6 +64,7 @@ pub(crate) fn create_new_paster_window(
     state.context_menu.set_ui_scale(auto_scale);
     // 工作区级执行器注入窗口状态后，工具栏动作才能把整图任务投递到后台线程
     state.job_executor = Some(runtime.jobs.clone());
+    state.workspace_proxy = Some(runtime.proxy.clone());
 
     let win_id = window.id();
     runtime.manager.add_entry(item_id, group_id);

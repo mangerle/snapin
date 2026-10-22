@@ -2,12 +2,15 @@
 
 use super::state::PasterWindowState;
 use crate::paster::context_menu::MenuItemId;
+use crate::paster::workspace::proxy::PasterWorkspaceProxy;
 use image::RgbaImage;
+use snapin_core::config::OutputConfig;
 use snapin_platform::{
-    open_path_in_file_manager, read_clipboard_image, read_clipboard_text, save_image_with_config,
-    send_desktop_notification, write_raw_image_to_clipboard,
+    open_path_in_file_manager, pick_save_path, read_clipboard_image, read_clipboard_text,
+    resolve_save_path, save_image_to_path, save_image_with_config, send_desktop_notification,
+    write_raw_image_to_clipboard,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tiny_skia::Pixmap;
 use winit::window::Window;
 
@@ -17,7 +20,7 @@ pub fn dispatch_menu_action(state: &mut PasterWindowState, action: MenuItemId, w
         MenuItemId::CopyImage => {
             copy_paster_to_clipboard(state);
         }
-        MenuItemId::SaveImageAs => save_paster_to_disk(state),
+        MenuItemId::SaveImageAs => save_paster_as(state),
         MenuItemId::ToggleToolbar => {
             state.set_toolbar_visible(!state.show_toolbar, window);
             // 隐藏工具条会结束文字会话，同步关闭 IME，避免输入法状态残留
@@ -103,6 +106,97 @@ pub fn save_paster_to_disk(state: &mut PasterWindowState) {
                 }
             }
         }
+    }
+}
+
+/// 弹出 XDG Portal 保存对话框，将当前贴图另存到用户选择的位置。
+///
+/// 对话框与文件编码都在后台执行，完成后通过工作区事件回填 `file_path`、状态提示
+/// 与保存通知，避免阻塞 winit 事件循环。
+pub fn save_paster_as(state: &mut PasterWindowState) {
+    let Some(proxy) = state.workspace_proxy.clone() else {
+        state.set_status_message("另存为不可用：工作区通道未就绪");
+        return;
+    };
+
+    let (width, height) = (state.item.pixmap.width(), state.item.pixmap.height());
+    let Some(image) = RgbaImage::from_raw(width, height, state.item.pixmap.data().to_vec()) else {
+        state.set_status_message("读取贴图像素失败，无法另存为");
+        return;
+    };
+
+    let suggested = resolve_save_path(&state.config.output);
+    let suggested_name = suggested
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("snapin.png")
+        .to_string();
+    let current_folder = suggested
+        .parent()
+        .filter(|folder| folder.is_absolute())
+        .map(Path::to_path_buf);
+    let output = state.config.output.clone();
+    let paster_id = state.item.id;
+
+    state.set_status_message("正在选择保存位置...");
+    spawn_save_as_task(
+        proxy,
+        paster_id,
+        image,
+        suggested_name,
+        current_folder,
+        output,
+    );
+}
+
+/// 在后台运行 Portal 对话框与编码任务。
+///
+/// 工作区线程通常已进入守护进程的 Tokio 运行时，可直接 spawn；若调用方没有
+/// Tokio 上下文（若干独立贴图场景），回退到自带 current-thread 运行时的短线程。
+fn spawn_save_as_task(
+    proxy: PasterWorkspaceProxy,
+    paster_id: u64,
+    image: RgbaImage,
+    suggested_name: String,
+    current_folder: Option<PathBuf>,
+    output: OutputConfig,
+) {
+    let task = async move {
+        let result = match pick_save_path(&suggested_name, current_folder.as_deref()).await {
+            Ok(Some(path)) => {
+                tokio::task::spawn_blocking(move || save_image_to_path(&image, &path, &output))
+                    .await
+                    .map_err(|error| format!("另存为任务调度失败: {error}"))
+                    .and_then(|result| result.map_err(|error| error.to_string()))
+                    .map(Some)
+            }
+            Ok(None) => Ok(None),
+            Err(error) => Err(format!("打开保存对话框失败: {error}")),
+        };
+
+        if let Err(error) = proxy.save_as_finished(paster_id, result) {
+            tracing::warn!("另存为结果回传工作区失败: {error}");
+        }
+    };
+
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(task);
+        return;
+    }
+
+    let spawn_result = std::thread::Builder::new()
+        .name("snapin-save-as".to_string())
+        .spawn(move || {
+            match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(runtime) => runtime.block_on(task),
+                Err(error) => tracing::warn!("创建另存为异步运行时失败: {error}"),
+            }
+        });
+    if let Err(error) = spawn_result {
+        tracing::warn!("派生另存为后台线程失败: {error}");
     }
 }
 

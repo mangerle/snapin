@@ -4,6 +4,7 @@ use super::super::manager::PasterItem;
 use crate::error::UiError;
 use snapin_core::annotation::shapes::TranslationShapeItem;
 use snapin_core::config::Config;
+use std::path::PathBuf;
 use tokio::sync::oneshot;
 use winit::event_loop::EventLoopProxy;
 
@@ -30,6 +31,11 @@ pub enum PasterAppEvent {
     OcrFinished(Result<String, String>),
     /// 整图翻译完成（成功为待注入的翻译图元，失败为中文错误描述）
     TranslateFinished(Result<Vec<TranslationShapeItem>, String>),
+    /// “另存为”对话框完成：成功且用户选择路径时返回目标文件，取消时返回 `None`
+    SaveAsFinished {
+        paster_id: u64,
+        result: Result<Option<PathBuf>, String>,
+    },
     /// 请求工作区平滑停机，并在事件循环即将退出时回传确认
     Shutdown(Option<oneshot::Sender<()>>),
 }
@@ -61,6 +67,19 @@ impl PasterWorkspaceProxy {
             .send_event(PasterAppEvent::OpenPaster(item))
             .map_err(|e| UiError::Window {
                 message: format!("向贴图工作区投递打开窗口指令失败: {e}"),
+            })
+    }
+
+    /// 回传“另存为”结果，供工作区更新对应贴图的文件路径与状态提示。
+    pub fn save_as_finished(
+        &self,
+        paster_id: u64,
+        result: Result<Option<PathBuf>, String>,
+    ) -> Result<(), UiError> {
+        self.proxy
+            .send_event(PasterAppEvent::SaveAsFinished { paster_id, result })
+            .map_err(|e| UiError::Window {
+                message: format!("向贴图工作区回传另存为结果失败: {e}"),
             })
     }
 

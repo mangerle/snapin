@@ -34,8 +34,8 @@ pub use lifecycle::{
     stop_systemd_service,
 };
 pub use notification::send_desktop_notification;
-pub use portal::capture_fullscreen_portal;
+pub use portal::{capture_fullscreen_portal, pick_save_path};
 pub use storage::{
     checked_rgba_byte_len, clear_selection_cache, load_last_selection, resolve_save_path,
-    save_image_with_config, save_last_selection, MAX_RAW_PIXELS,
+    save_image_to_path, save_image_with_config, save_last_selection, MAX_RAW_PIXELS,
 };

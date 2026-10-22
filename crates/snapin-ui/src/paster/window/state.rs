@@ -6,6 +6,7 @@ use crate::paster::window::annotation::{
     create_paster_toolbar, screen_to_image_point, toolbar_required_extent,
 };
 use crate::paster::window::jobs::PasterJobExecutor;
+use crate::paster::workspace::proxy::PasterWorkspaceProxy;
 use crate::snipper::toolbar::{Toolbar, ToolbarItem};
 use crate::snipper::window::annotation_builder::{build_shape, AnnotationDraftParams};
 use crate::snipper::window::text_input::TextInputSession;
@@ -43,6 +44,8 @@ pub struct PasterWindowState {
     pub config: Arc<Config>,
     /// 后台 OCR / 翻译任务执行器，工作区创建窗口时注入；测试环境中可为空
     pub(crate) job_executor: Option<Arc<PasterJobExecutor>>,
+    /// 工作区异步事件代理，供另存为对话框完成后回传结果
+    pub(crate) workspace_proxy: Option<PasterWorkspaceProxy>,
     /// 是否有整图 OCR / 翻译任务正在后台执行，用于阻止重复提交
     pub(crate) job_pending: bool,
     /// 图像顶部状态提示及其产生时刻，超过 [`STATUS_MESSAGE_TTL`] 后自动失效
@@ -74,6 +77,7 @@ impl PasterWindowState {
             ui_scale: 1.0,
             config: Arc::new(Config::default()),
             job_executor: None,
+            workspace_proxy: None,
             job_pending: false,
             status_message: None,
             last_click_time: None,
