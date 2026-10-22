@@ -1,0 +1,69 @@
+name: 功能建议
+description: 提出新的功能或改进方向
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢建议。请先搜索现有 Issue，确认没有相同需求。
+        本项目优先解决真实的 Wayland 与 GNOME 使用问题，建议说明具体使用场景。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 使用场景与问题
+      description: 当前遇到了什么限制？在什么操作流程中产生？
+      placeholder: "例如：在双屏环境下，我希望..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: 期望的方案
+      description: 你希望 Snapin 如何表现？
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 替代方案
+      description: 你是否尝试过其他操作方式或工具？
+    validations:
+      required: false
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: 主要涉及模块
+      options:
+        - 截图与选区
+        - 标注与编辑
+        - 贴图窗口
+        - OCR 与翻译
+        - 设置中心
+        - GNOME Shell 扩展
+        - 打包与安装
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 补充信息
+      description: 可附上参考截图、类似工具的行为或技术约束
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索过现有 Issue，未发现相同建议
+          required: true
+        - label: 该建议不涉及安全漏洞的公开披露
+          required: true

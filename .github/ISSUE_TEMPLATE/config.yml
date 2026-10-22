@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全问题私密报告
+    url: https://github.com/mangerle/snapin/security/advisories/new
+    about: 请勿通过公开 Issue 披露安全漏洞，使用 GitHub 私密报告渠道。
+  - name: 使用与排障文档
+    url: https://github.com/mangerle/snapin/blob/master/README.md#常见问题
+    about: 安装、快捷键、OCR、翻译与卸载问题的排查说明。
