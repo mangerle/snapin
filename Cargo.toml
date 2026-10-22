@@ -15,7 +15,7 @@ version = "1.1.0"
 edition = "2021"
 authors = ["wangle"]
 license = "Apache-2.0"
-repository = "https://github.com/wangle/snapin"
+repository = "https://github.com/mangerle/snapin"
 
 [workspace.dependencies]
 # 内部子包依赖

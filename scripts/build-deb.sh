@@ -91,7 +91,7 @@ mkdir -p "${STAGE_DIR}/usr/lib/systemd/user"
 cat << 'EOF' > "${STAGE_DIR}/usr/lib/systemd/user/snapin.service"
 [Unit]
 Description=Snapin 截图与贴图守护进程
-Documentation=https://github.com/wangle/snapin
+Documentation=https://github.com/mangerle/snapin
 PartOf=graphical-session.target
 After=graphical-session.target
 
