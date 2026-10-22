@@ -78,9 +78,12 @@ async fn main() -> Result<()> {
             auto_copy,
             custom,
             translate,
+            fullscreen,
         } => {
             tracing::info!("正在启动区域截图流程...");
-            let mode = if translate {
+            let mode = if fullscreen {
+                SnipMode::Fullscreen
+            } else if translate {
                 SnipMode::Translate
             } else if auto_copy {
                 SnipMode::AutoCopy

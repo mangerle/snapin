@@ -40,6 +40,7 @@ const IFACE_XML = `
 // 托盘菜单条目：以数据表驱动构建，避免重复的 connect 样板并防止同一命令被多处重复注册
 const TRAY_MENU = [
     { label: '截屏', command: 'snapin snip' },
+    { label: '全屏截图', command: 'snapin snip --fullscreen' },
     { label: '截屏并自动复制', command: 'snapin snip --auto-copy' },
     { label: '自定义截屏', command: 'snapin snip --custom' },
     { label: '贴图', command: 'snapin paste' },

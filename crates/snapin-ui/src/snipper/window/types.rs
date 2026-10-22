@@ -30,4 +30,6 @@ pub enum SnipMode {
     Translate,
     /// 自定义截屏（优先复用上次历史选区）
     Custom,
+    /// 全屏截图（进入会话即锁定整屏选区，工具栏可继续标注或复制/保存/贴图）
+    Fullscreen,
 }

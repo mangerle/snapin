@@ -6,6 +6,7 @@ use super::jobs::{handle_job_outcome, SnipperJobDispatcher, SnipperUserEvent};
 use super::presenter::SnipperPresenter;
 use super::types::{SnipMode, SnipperOutcome};
 use crate::error::UiError;
+use crate::snipper::selection::{Rect, SelectionState};
 use image::RgbaImage;
 use snapin_core::config::Config;
 use std::sync::{Arc, Mutex};
@@ -62,6 +63,17 @@ impl SnipperSession {
 
         let config = Arc::new(self.config);
         let mut state = SnipperState::from_config((*config).clone(), self.mode);
+        if self.mode == SnipMode::Fullscreen {
+            state.selection = SelectionState::Locked {
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: screen_w as f32,
+                    height: screen_h as f32,
+                },
+                active_drag: None,
+            };
+        }
         state.job_dispatcher = Some(Arc::new(SnipperJobDispatcher::new(
             proxy,
             Arc::clone(&config),

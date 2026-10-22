@@ -13,6 +13,7 @@ Snapin 是专为 Linux Wayland（Ubuntu 26 GNOME）打造的纯 Rust 截图与�
 - 描边线型、填充、圆角、箭头样式、序号样式与调色板。
 - 撤销 / 重做、复制、快捷保存、贴图置顶、OCR、原位翻译。
 - `snip --auto-copy` 框选后自动复制；`snip --translate` 框选后自动翻译。
+- `snip --fullscreen` 直接锁定整屏选区，保留标注工具栏，可继续复制、保存、贴图、OCR 或翻译。
 
 ### 贴图
 
@@ -119,7 +120,7 @@ snapin install-extension
 ## 命令行
 
 ```text
-snapin snip [--auto-copy] [--custom] [--translate]
+snapin snip [--auto-copy] [--custom] [--translate] [--fullscreen]
 snapin paste
 snapin toggle
 snapin switch-group [ID]

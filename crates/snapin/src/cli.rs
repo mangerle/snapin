@@ -31,6 +31,9 @@ pub enum Commands {
         /// 框选完成后自动对选区执行整图翻译（由截图翻译热键触发）
         #[arg(long, conflicts_with_all = ["auto_copy", "custom"])]
         translate: bool,
+        /// 进入会话即锁定整屏选区，可直接标注或复制/保存/贴图
+        #[arg(long, conflicts_with_all = ["auto_copy", "custom", "translate"])]
+        fullscreen: bool,
     },
     /// 触发贴图（由剪贴板或选区生成，默认绑定 F1）
     Paste,
@@ -99,6 +102,7 @@ mod tests {
                 auto_copy: false,
                 custom: false,
                 translate: false,
+                fullscreen: false,
             },
             Commands::SyncHotkeys,
             Commands::Daemon,
@@ -130,6 +134,7 @@ mod tests {
             auto_copy: true,
             custom: false,
             translate: false,
+            fullscreen: false,
         }
         .needs_capabilities());
         assert!(!Commands::Exit.needs_capabilities());
@@ -164,6 +169,7 @@ mod tests {
                 auto_copy: false,
                 custom: true,
                 translate: false,
+                fullscreen: false,
             }
         ));
 
@@ -176,9 +182,26 @@ mod tests {
             }
         ));
 
+        let cli = Cli::try_parse_from(["snapin", "snip", "--fullscreen"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Commands::Snip {
+                fullscreen: true,
+                ..
+            }
+        ));
+
         assert!(
             Cli::try_parse_from(["snapin", "snip", "--translate", "--custom"]).is_err(),
             "自动翻译与自定义选区模式互斥，不能同时指定"
+        );
+        assert!(
+            Cli::try_parse_from(["snapin", "snip", "--fullscreen", "--auto-copy"]).is_err(),
+            "全屏模式与自动复制模式互斥，避免自动复制标志被静默忽略"
+        );
+        assert!(
+            Cli::try_parse_from(["snapin", "snip", "--fullscreen", "--translate"]).is_err(),
+            "全屏模式与自动翻译模式互斥"
         );
 
         let cli = Cli::try_parse_from(["snapin", "pin-file", "/tmp/a.raw", "10", "20"]).unwrap();

@@ -327,6 +327,25 @@ mod tests {
         }
     }
 
+    /// 全屏选区的工具条必须回落到屏幕内，不能停到屏幕底边之外
+    #[test]
+    fn test_fullscreen_selection_toolbar_inside_screen() {
+        use crate::snipper::toolbar::Toolbar;
+
+        let selection = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let layout = calculate_main_layout(&selection, 1920.0, 1080.0, 1.0, Toolbar::MAIN_ITEMS);
+
+        assert!(layout.x >= 8.0);
+        assert!(layout.y >= 8.0);
+        assert!(layout.x + layout.width <= 1920.0 - 8.0 + 0.01);
+        assert!(layout.y + layout.height <= 1080.0 - 8.0 + 0.01);
+    }
+
     /// 每种工具只暴露相关控件：矩形有圆角、椭圆没有，序号有底板样式
     #[test]
     fn test_sub_controls_follow_active_tool() {
