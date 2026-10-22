@@ -1,0 +1,11 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.onnx binary
+*.deb binary
+
+Cargo.lock linguist-generated=true
+assets/models/** linguist-vendored=true
