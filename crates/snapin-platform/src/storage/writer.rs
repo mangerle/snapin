@@ -46,20 +46,37 @@ pub fn save_image_with_config(
 
 /// 将图像保存到用户在“另存为”对话框中选择的路径。
 ///
-/// 格式优先按目标扩展名推断；扩展名缺失或不受支持时回退到全局默认格式并补齐
-/// 扩展名，避免出现 `.txt` 里写入 PNG 字节这类内容与后缀不一致的文件。
+/// 格式优先按目标扩展名推断。无扩展名时补齐全局默认格式的扩展名，但若补齐后的
+/// 文件已存在则拒绝写入，因为 Portal 的覆盖确认针对的是用户最初选择的路径；
+/// 不支持的扩展名直接报错，避免静默把文件改写成另一种格式。
 pub fn save_image_to_path(
     img: &RgbaImage,
     path: &Path,
     cfg: &OutputConfig,
 ) -> Result<PathBuf, PlatformError> {
-    let selected_format = image_format_from_path(path);
-    let format = selected_format.unwrap_or(cfg.default_format);
-    let out_path = if selected_format.is_some() {
+    let has_extension = path.extension().is_some();
+    let format = match image_format_from_path(path) {
+        Some(format) => format,
+        None if !has_extension => cfg.default_format,
+        None => {
+            return Err(PlatformError::InvalidSavePath {
+                path: path.display().to_string(),
+                message: "仅支持 .png、.jpg、.jpeg 或 .webp 扩展名".to_string(),
+            });
+        }
+    };
+
+    let out_path = if has_extension {
         path.to_path_buf()
     } else {
         path.with_extension(format.extension())
     };
+    if !has_extension && out_path.exists() {
+        return Err(PlatformError::InvalidSavePath {
+            path: out_path.display().to_string(),
+            message: "自动补齐扩展名后的目标文件已存在，请重新选择文件名".to_string(),
+        });
+    }
 
     encode_image_to_path(img, &out_path, format, cfg.jpeg_quality)?;
     Ok(out_path)
@@ -165,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn test_save_image_to_path_infers_format_and_appends_extension() {
+    fn test_save_image_to_path_supports_formats_and_guards_overwrite() {
         let unique_id = snapin_core::AppPaths::generate_unique_id();
         let temp_dir = std::env::temp_dir().join(format!("snapin_save_as_{unique_id}"));
         std::fs::create_dir_all(&temp_dir).expect("创建测试目录失败");
@@ -185,15 +202,34 @@ mod tests {
         assert_eq!(saved, jpeg_path);
         assert!(saved.exists());
 
-        let no_extension = temp_dir.join("chosen");
+        let no_extension = temp_dir.join("extensionless");
         let saved = save_image_to_path(&img, &no_extension, &cfg).expect("保存无扩展名路径失败");
-        assert_eq!(saved, temp_dir.join("chosen.png"));
+        assert_eq!(saved, temp_dir.join("extensionless.png"));
         assert!(saved.exists());
 
-        let unsupported = temp_dir.join("chosen.txt");
-        let saved = save_image_to_path(&img, &unsupported, &cfg).expect("保存未知扩展名路径失败");
-        assert_eq!(saved, temp_dir.join("chosen.png"));
-        assert!(saved.exists());
+        // 不支持的扩展名必须报错，且不得改写同名的默认格式文件
+        let unsupported_fallback = temp_dir.join("unsupported.png");
+        std::fs::write(&unsupported_fallback, b"keep").expect("写入占位文件失败");
+        let unsupported = temp_dir.join("unsupported.txt");
+        let error =
+            save_image_to_path(&img, &unsupported, &cfg).expect_err("不支持的扩展名必须拒绝写入");
+        assert!(error.to_string().contains("仅支持"));
+        assert_eq!(
+            std::fs::read(&unsupported_fallback).expect("读取占位文件失败"),
+            b"keep"
+        );
+
+        // 无扩展名补齐后若目标已存在，同样必须拒绝而不是静默覆盖
+        let collision_base = temp_dir.join("collision");
+        let collision_target = temp_dir.join("collision.png");
+        std::fs::write(&collision_target, b"keep").expect("写入冲突占位文件失败");
+        let error = save_image_to_path(&img, &collision_base, &cfg)
+            .expect_err("补齐扩展名后的目标已存在必须拒绝");
+        assert!(error.to_string().contains("已存在"));
+        assert_eq!(
+            std::fs::read(&collision_target).expect("读取冲突文件失败"),
+            b"keep"
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

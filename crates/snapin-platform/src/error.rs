@@ -28,6 +28,10 @@ pub enum PlatformError {
         source: std::io::Error,
     },
 
+    /// 图像保存目标路径或扩展名不符合要求
+    #[error("图像保存路径不合法，路径: {path}，原因: {message}")]
+    InvalidSavePath { path: String, message: String },
+
     /// systemd 用户服务自启动管理失败
     #[error("systemd 用户服务自启动{action}失败，服务: {service}，原因: {message}")]
     Systemd {
