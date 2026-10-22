@@ -30,6 +30,9 @@ const IFACE_XML = `
       <arg type="s" direction="in" name="targetPath"/>
       <arg type="b" direction="out" name="success"/>
     </method>
+    <method name="ListWindows">
+      <arg type="s" direction="out" name="windowsJson"/>
+    </method>
     <method name="SetTrayVisible">
       <arg type="b" direction="in" name="visible"/>
       <arg type="b" direction="out" name="applied"/>
@@ -374,6 +377,61 @@ export default class SnapinHelperExtension extends Extension {
         } catch (e) {
             console.error('Snapin 原生截屏失败:', e);
             return false;
+        }
+    }
+
+    /**
+     * 枚举当前活动工作区可见窗口的几何矩形。
+     *
+     * 坐标使用逻辑像素并附带所在显示器缩放比，由 Rust 侧换算为物理像素；
+     * 返回 JSON 字符串而不是复杂 GJS 数组，避免跨 D-Bus 边界编解码风险。
+     * 顺序为窗口堆叠顺序（底层到顶层），调用方反向查找顶层窗口。
+     * @returns {string} 窗口 JSON 数组
+     */
+    ListWindows() {
+        try {
+            const activeWorkspace = global.workspace_manager.get_active_workspace();
+            const allowedTypes = new Set([
+                Meta.WindowType.NORMAL,
+                Meta.WindowType.DIALOG,
+                Meta.WindowType.MODAL_DIALOG,
+                Meta.WindowType.UTILITY,
+            ]);
+            const windows = [];
+            for (const actor of global.get_window_actors()) {
+                const win = actor.meta_window;
+                if (!win || win.minimized) {
+                    continue;
+                }
+                if (!allowedTypes.has(win.get_window_type())) {
+                    continue;
+                }
+                if (!win.located_on_workspace(activeWorkspace) && !win.is_on_all_workspaces()) {
+                    continue;
+                }
+                const title = win.get_title() || '';
+                const wmClass = (win.get_wm_class() || '').toLowerCase();
+                if (title === 'Snapin' || wmClass.includes('snapin')) {
+                    continue;
+                }
+                const rect = win.get_frame_rect();
+                if (!rect || rect.width <= 0 || rect.height <= 0) {
+                    continue;
+                }
+                const monitor = win.get_monitor();
+                const scale = monitor >= 0 ? global.display.get_monitor_scale(monitor) : 1;
+                windows.push({
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                    scale,
+                });
+            }
+            return JSON.stringify(windows);
+        } catch (e) {
+            console.error('Snapin 枚举窗口失败:', e);
+            return '[]';
         }
     }
 }

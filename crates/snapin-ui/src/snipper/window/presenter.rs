@@ -123,6 +123,7 @@ impl SnipperPresenter {
             original_rgba: bg_image,
             selection: &state.selection,
             cursor_pos: state.cursor_pos,
+            hovered_window: state.hovered_window,
             magnifier: &state.magnifier,
             toolbar: Some(&state.toolbar),
             annotations: Some(&state.annotations),

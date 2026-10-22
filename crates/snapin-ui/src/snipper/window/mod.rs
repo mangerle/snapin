@@ -22,12 +22,14 @@ pub use types::{SnipMode, SnipperOutcome};
 use crate::error::UiError;
 use image::RgbaImage;
 use snapin_core::config::Config;
+use snapin_platform::WindowRect;
 
 /// 启动全屏截图交互会话，进入事件循环直至用户确认或取消
 pub fn run_snipper_session(
     bg_image: RgbaImage,
     cfg: Config,
     mode: SnipMode,
+    windows: Vec<WindowRect>,
 ) -> Result<Option<SnipperOutcome>, UiError> {
-    SnipperSession::new(bg_image, cfg, mode).run()
+    SnipperSession::new(bg_image, cfg, mode, windows).run()
 }

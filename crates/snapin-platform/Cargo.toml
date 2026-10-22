@@ -17,5 +17,6 @@ tracing.workspace = true
 image.workspace = true
 chrono.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 toml.workspace = true
 thiserror.workspace = true

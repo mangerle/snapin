@@ -21,6 +21,8 @@ pub struct SnipperCanvas<'a> {
     pub original_rgba: &'a RgbaImage,
     pub selection: &'a SelectionState,
     pub cursor_pos: (f64, f64),
+    /// 未拉框时鼠标悬停的窗口矩形，用于窗口截图预览
+    pub hovered_window: Option<Rect>,
     pub magnifier: &'a Magnifier,
     pub toolbar: Option<&'a Toolbar>,
     pub annotations: Option<&'a AnnotationHistory>,
@@ -81,7 +83,11 @@ impl<'a> SnipperCanvas<'a> {
                 }
             }
         } else {
-            // 未拉框状态下，跟随光标渲染像素放大镜
+            // 未拉框时优先高亮光标下的窗口，随后绘制像素放大镜。
+            if let Some(hover) = self.hovered_window {
+                self.fast_cutout_restore(pixmap, &hover, screen_w, screen_h);
+                self.render_window_hover_border(pixmap, &hover);
+            }
             self.magnifier.render(
                 pixmap,
                 self.original_rgba,
@@ -195,6 +201,26 @@ impl<'a> SnipperCanvas<'a> {
             let end_offset = start_offset + row_bytes;
             dest_data[start_offset..end_offset]
                 .copy_from_slice(&orig_data[start_offset..end_offset]);
+        }
+    }
+
+    /// 绘制窗口截图悬停高亮：只画主题色边框，不显示缩放锚点
+    fn render_window_hover_border(&self, pixmap: &mut PixmapMut, rect: &Rect) {
+        let Some(skia_rect) = SkiaRect::from_xywh(rect.x, rect.y, rect.width, rect.height) else {
+            return;
+        };
+        let s = self.ui_scale;
+        let (ar, ag, ab) = self.accent_color;
+        let mut paint = Paint::default();
+        paint.set_color_rgba8(ar, ag, ab, 255);
+        let stroke = Stroke {
+            width: 2.0 * s,
+            ..Default::default()
+        };
+        let mut pb = PathBuilder::new();
+        pb.push_rect(skia_rect);
+        if let Some(path) = pb.finish() {
+            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
         }
     }
 

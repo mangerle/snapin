@@ -4,6 +4,7 @@ pub mod toolbar_action;
 
 use super::annotation_builder::commit_annotation;
 use super::events::{commit_active_text_input, handle_escape, SnipperState};
+use super::state::window_at;
 use super::types::SnipMode;
 use crate::snipper::selection::{DragMode, Rect, SelectionState};
 use crate::snipper::toolbar::{StrokeWidthLevel, SubControl, ToolbarItem};
@@ -24,7 +25,12 @@ pub fn handle_cursor_move(
     let (cx, cy) = (pos.0 as f32, pos.1 as f32);
 
     match &mut state.selection {
-        SelectionState::Idle => true,
+        SelectionState::Idle => {
+            let hovered = window_at((cx, cy), &state.window_rects);
+            let changed = hovered != state.hovered_window;
+            state.hovered_window = hovered;
+            changed
+        }
         SelectionState::Creating { current, .. } => {
             *current = (cx, cy);
             true
@@ -144,6 +150,7 @@ fn handle_left_press(
     }
 
     if matches!(state.selection, SelectionState::Idle) {
+        state.press_window = state.hovered_window;
         state.selection = SelectionState::Creating {
             start: (cx, cy),
             current: (cx, cy),
@@ -231,9 +238,39 @@ fn handle_left_release(
     let screen_w = original_rgba.width() as f32;
     let screen_h = original_rgba.height() as f32;
     let remember_selection = state.config.snip.remember_last_selection;
+    let pressed_window = state.press_window.take();
 
     match &mut state.selection {
         SelectionState::Creating { start, current } => {
+            // 短按未拖动且按下时命中了窗口：直接吸附到该窗口；拖动则仍走自由框选。
+            let drag_x = (current.0 - start.0).abs();
+            let drag_y = (current.1 - start.1).abs();
+            if drag_x <= 3.0 && drag_y <= 3.0 {
+                if let Some(window_rect) = pressed_window {
+                    if window_rect.width > 4.0 && window_rect.height > 4.0 {
+                        if remember_selection {
+                            snapin_platform::save_last_selection((
+                                window_rect.x,
+                                window_rect.y,
+                                window_rect.width,
+                                window_rect.height,
+                            ));
+                        }
+                        state.history.push(window_rect);
+                        state
+                            .toolbar
+                            .update_layout(&window_rect, screen_w, screen_h);
+                        state.selection = SelectionState::Locked {
+                            rect: window_rect,
+                            active_drag: None,
+                        };
+                        state.hovered_window = None;
+                        apply_auto_mode(state, original_rgba);
+                        return true;
+                    }
+                }
+            }
+
             let rect = Rect::from_points(*start, *current);
             if rect.width > 4.0 && rect.height > 4.0 {
                 if remember_selection {
@@ -245,14 +282,7 @@ fn handle_left_release(
                     rect,
                     active_drag: None,
                 };
-                if state.mode == super::types::SnipMode::AutoCopy {
-                    super::actions::handle_action_copy(state, original_rgba);
-                } else if state.mode == super::types::SnipMode::Translate {
-                    // 自动翻译只对本次热键触发的首次框选生效：先复位模式，避免用户
-                    // 之后重新框选时再次触发整图翻译；翻译完成后保留工具栏继续交互。
-                    state.mode = super::types::SnipMode::Normal;
-                    super::actions::handle_action_translate(state, original_rgba);
-                }
+                apply_auto_mode(state, original_rgba);
             } else {
                 state.selection = SelectionState::Idle;
             }
@@ -283,6 +313,19 @@ fn handle_left_release(
             }
         }
         _ => false,
+    }
+}
+
+/// 选区锁定后执行一次性自动复制或自动翻译。
+///
+/// 自动翻译只对本次热键触发的首次框选生效：先复位模式，避免用户之后重新框选时
+/// 再次触发整图翻译；翻译完成后保留工具栏继续交互。
+fn apply_auto_mode(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    if state.mode == SnipMode::AutoCopy {
+        super::actions::handle_action_copy(state, original_rgba);
+    } else if state.mode == SnipMode::Translate {
+        state.mode = SnipMode::Normal;
+        super::actions::handle_action_translate(state, original_rgba);
     }
 }
 

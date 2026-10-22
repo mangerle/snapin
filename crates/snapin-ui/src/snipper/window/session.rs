@@ -4,11 +4,13 @@ use super::event_dispatcher::SnipperEventDispatcher;
 use super::events::SnipperState;
 use super::jobs::{handle_job_outcome, SnipperJobDispatcher, SnipperUserEvent};
 use super::presenter::SnipperPresenter;
+use super::state::clamp_window_rect;
 use super::types::{SnipMode, SnipperOutcome};
 use crate::error::UiError;
 use crate::snipper::selection::{Rect, SelectionState};
 use image::RgbaImage;
 use snapin_core::config::Config;
+use snapin_platform::WindowRect;
 use std::sync::{Arc, Mutex};
 use winit::dpi::PhysicalSize;
 use winit::event::Event;
@@ -21,15 +23,23 @@ pub struct SnipperSession {
     bg_image: RgbaImage,
     config: Config,
     mode: SnipMode,
+    /// 窗口截图候选矩形（物理像素，底层到顶层）
+    windows: Vec<WindowRect>,
 }
 
 impl SnipperSession {
     /// 构建新的截图会话实例
-    pub fn new(bg_image: RgbaImage, config: Config, mode: SnipMode) -> Self {
+    pub fn new(
+        bg_image: RgbaImage,
+        config: Config,
+        mode: SnipMode,
+        windows: Vec<WindowRect>,
+    ) -> Self {
         Self {
             bg_image,
             config,
             mode,
+            windows,
         }
     }
 
@@ -68,6 +78,11 @@ impl SnipperSession {
 
         let config = Arc::new(self.config);
         let mut state = SnipperState::from_config((*config).clone(), self.mode);
+        state.window_rects = self
+            .windows
+            .iter()
+            .filter_map(|window| clamp_window_rect(*window, screen_w as f32, screen_h as f32))
+            .collect();
         if self.mode == SnipMode::Fullscreen {
             state.selection = SelectionState::Locked {
                 rect: Rect {

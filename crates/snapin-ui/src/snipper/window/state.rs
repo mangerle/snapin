@@ -8,6 +8,7 @@ use crate::snipper::selection::{Rect, SelectionHistory, SelectionState};
 use crate::snipper::toolbar::Toolbar;
 use snapin_core::annotation::AnnotationHistory;
 use snapin_core::config::{Config, InterfaceConfig, SnipConfig};
+use snapin_platform::WindowRect;
 use std::sync::Arc;
 use winit::keyboard::ModifiersState;
 
@@ -15,6 +16,12 @@ use winit::keyboard::ModifiersState;
 pub struct SnipperState {
     pub selection: SelectionState,
     pub history: SelectionHistory,
+    /// 窗口截图候选矩形（物理像素，按堆叠顺序从底到顶）
+    pub window_rects: Vec<Rect>,
+    /// 光标当前悬停的窗口矩形
+    pub hovered_window: Option<Rect>,
+    /// 本次按下时悬停的窗口；短按未拖动时吸附到该窗口
+    pub press_window: Option<Rect>,
     pub magnifier: Magnifier,
     pub toolbar: Toolbar,
     pub annotations: AnnotationHistory,
@@ -40,6 +47,9 @@ impl SnipperState {
         Self {
             selection: SelectionState::Idle,
             history: SelectionHistory::default(),
+            window_rects: Vec::new(),
+            hovered_window: None,
+            press_window: None,
             magnifier: Magnifier::default(),
             toolbar: Toolbar::default(),
             annotations: AnnotationHistory::default(),
@@ -139,6 +149,35 @@ fn should_restore_last_selection(mode: SnipMode) -> bool {
     matches!(mode, SnipMode::Normal | SnipMode::Custom)
 }
 
+/// 将扩展返回的窗口矩形夹取到截图图像范围内。
+pub(crate) fn clamp_window_rect(win: WindowRect, screen_w: f32, screen_h: f32) -> Option<Rect> {
+    let left = (win.x as f32).max(0.0).min(screen_w);
+    let top = (win.y as f32).max(0.0).min(screen_h);
+    let right = (win.x as f32 + win.width as f32).max(0.0).min(screen_w);
+    let bottom = (win.y as f32 + win.height as f32).max(0.0).min(screen_h);
+    let width = (right - left).max(0.0);
+    let height = (bottom - top).max(0.0);
+    if width > 1.0 && height > 1.0 {
+        Some(Rect {
+            x: left,
+            y: top,
+            width,
+            height,
+        })
+    } else {
+        None
+    }
+}
+
+/// 查找光标位置命中的顶层窗口；窗口列表按从底到顶排列。
+pub(crate) fn window_at(pos: (f32, f32), windows: &[Rect]) -> Option<Rect> {
+    windows
+        .iter()
+        .rev()
+        .find(|rect| rect.contains(pos.0, pos.1))
+        .copied()
+}
+
 /// 提交并关闭当前文本输入会话
 pub fn commit_active_text_input(state: &mut SnipperState) {
     if let Some(session) = state.active_text_input.take() {
@@ -161,5 +200,65 @@ mod tests {
         assert!(!should_restore_last_selection(SnipMode::Translate));
         assert!(!should_restore_last_selection(SnipMode::Fullscreen));
         assert!(!should_restore_last_selection(SnipMode::PickColor));
+    }
+
+    /// 窗口矩形应夹取到截图范围，完全越界的窗口被丢弃
+    #[test]
+    fn test_clamp_window_rect_clips_to_screen() {
+        let rect = clamp_window_rect(
+            WindowRect {
+                x: -10,
+                y: 20,
+                width: 200,
+                height: 100,
+            },
+            100.0,
+            80.0,
+        )
+        .expect("部分可见窗口应保留");
+        assert_eq!(
+            rect,
+            Rect {
+                x: 0.0,
+                y: 20.0,
+                width: 100.0,
+                height: 60.0,
+            }
+        );
+
+        assert!(
+            clamp_window_rect(
+                WindowRect {
+                    x: 200,
+                    y: 200,
+                    width: 10,
+                    height: 10,
+                },
+                100.0,
+                80.0,
+            )
+            .is_none(),
+            "完全越界窗口必须丢弃"
+        );
+    }
+
+    /// 悬停命中应优先选择堆叠列表中更靠上的窗口
+    #[test]
+    fn test_window_at_prefers_topmost() {
+        let bottom = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+        };
+        let top = Rect {
+            x: 20.0,
+            y: 20.0,
+            width: 50.0,
+            height: 50.0,
+        };
+        assert_eq!(window_at((30.0, 30.0), &[bottom, top]), Some(top));
+        assert_eq!(window_at((5.0, 5.0), &[bottom, top]), Some(bottom));
+        assert_eq!(window_at((200.0, 200.0), &[bottom, top]), None);
     }
 }

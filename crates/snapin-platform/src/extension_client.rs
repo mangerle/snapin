@@ -11,7 +11,7 @@
 use crate::dbus_session::get_session_connection;
 use crate::error::PlatformError;
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time::timeout;
 use zbus::zvariant::Type;
@@ -20,6 +20,30 @@ const EXT_BUS_NAME: &str = "org.gnome.Shell";
 const EXT_OBJECT_PATH: &str = "/org/gnome/Shell/Extensions/Snapin";
 const EXT_INTERFACE: &str = "org.gnome.Shell.Extensions.Snapin";
 const EXT_DBUS_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// 扩展返回的窗口矩形（物理像素，已按各窗口所在显示器的缩放比换算）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// 扩展返回的原始窗口几何：逻辑坐标 + 所在显示器缩放比。
+#[derive(Debug, Deserialize)]
+struct RawWindowRect {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    #[serde(default = "default_window_scale")]
+    scale: f64,
+}
+
+fn default_window_scale() -> f64 {
+    1.0
+}
 
 /// 统一调用扩展 D-Bus 方法并反序列化返回值。
 async fn call_extension<A, R>(method: &str, arguments: &A) -> Result<R, PlatformError>
@@ -104,8 +128,59 @@ pub async fn capture_fullscreen_extension(target_path: &str) -> Result<bool, Pla
     Ok(success)
 }
 
+/// 请求扩展枚举当前活动工作区可见窗口的物理像素矩形。
+///
+/// 返回顺序为窗口堆叠顺序（底层到顶层），调用方应反向遍历以优先命中顶层窗口。
+/// 扩展不可用、会话总线异常或返回 JSON 无法解析时返回错误，由截图流程降级为
+/// 普通区域截图。
+///
+/// # Errors
+///
+/// 扩展未部署、D-Bus 调用超时或窗口 JSON 解析失败时返回 [`PlatformError::DBus`]。
+pub async fn list_windows() -> Result<Vec<WindowRect>, PlatformError> {
+    let (json,): (String,) = call_extension("ListWindows", &()).await?;
+    parse_windows_json(&json)
+}
+
+/// 解析扩展返回的窗口 JSON，并把逻辑坐标换算为物理像素。
+fn parse_windows_json(json: &str) -> Result<Vec<WindowRect>, PlatformError> {
+    let raw: Vec<RawWindowRect> =
+        serde_json::from_str(json).map_err(|error| PlatformError::DBus {
+            service: EXT_BUS_NAME.to_string(),
+            message: format!("解析 GNOME 扩展窗口列表 JSON 失败: {error}"),
+        })?;
+
+    let mut rects = Vec::with_capacity(raw.len());
+    for window in raw {
+        let scale = if window.scale.is_finite() && window.scale > 0.0 {
+            window.scale
+        } else {
+            1.0
+        };
+        let x = window.x * scale;
+        let y = window.y * scale;
+        let width = window.width * scale;
+        let height = window.height * scale;
+        if !x.is_finite() || !y.is_finite() || !width.is_finite() || !height.is_finite() {
+            continue;
+        }
+        if width <= 1.0 || height <= 1.0 {
+            continue;
+        }
+        rects.push(WindowRect {
+            x: x.round() as i32,
+            y: y.round() as i32,
+            width: width.round().min(u32::MAX as f64) as u32,
+            height: height.round().min(u32::MAX as f64) as u32,
+        });
+    }
+    Ok(rects)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     /// 提取本文件中实际调用的扩展 D-Bus 方法名。
     ///
     /// 直接扫描源码而非手写清单，使测试随客户端代码单向收敛，新增方法无需同步维护断言列表。
@@ -116,6 +191,26 @@ mod tests {
             .skip(1)
             .filter_map(|segment| segment.split('"').next().map(str::to_owned))
             .collect()
+    }
+
+    /// 窗口 JSON 解析应将逻辑坐标按显示器缩放比换算，并过滤空尺寸窗口
+    #[test]
+    fn test_parse_windows_json_scales_and_filters() {
+        let json = r#"[
+            {"x": 100.0, "y": 50.0, "width": 200.0, "height": 100.0, "scale": 2.0},
+            {"x": 0.0, "y": 0.0, "width": 0.0, "height": 100.0, "scale": 1.0}
+        ]"#;
+        let rects = parse_windows_json(json).expect("窗口 JSON 应解析成功");
+        assert_eq!(rects.len(), 1);
+        assert_eq!(
+            rects[0],
+            WindowRect {
+                x: 200,
+                y: 100,
+                width: 400,
+                height: 200,
+            }
+        );
     }
 
     /// 校验 Rust 侧调用的每个 D-Bus 方法都在配套扩展里既声明了接口又实现了方法体。

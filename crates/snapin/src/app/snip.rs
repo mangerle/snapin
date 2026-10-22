@@ -6,7 +6,7 @@ use snapin_core::config::Config;
 use snapin_core::AppPaths;
 use snapin_platform::{
     capture_fullscreen_extension, capture_fullscreen_portal, get_platform_capabilities,
-    send_desktop_notification,
+    list_windows, send_desktop_notification,
 };
 use snapin_ui::snipper::{run_snipper_session, SnipMode, SnipperOutcome};
 use std::time::{Duration, Instant};
@@ -101,10 +101,30 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode, delay_seconds: u32) -
     );
 
     let cfg_clone = cfg.clone();
-    let outcome = tokio::task::spawn_blocking(move || run_snipper_session(img, cfg_clone, mode))
-        .await
-        .context("截图任务调度异常")?
-        .context("截图交互会话运行失败")?;
+    let windows = if get_platform_capabilities().gnome_extension_active
+        && matches!(
+            mode,
+            SnipMode::Normal | SnipMode::AutoCopy | SnipMode::Translate
+        ) {
+        match tokio::time::timeout(Duration::from_millis(500), list_windows()).await {
+            Ok(Ok(windows)) => windows,
+            Ok(Err(error)) => {
+                tracing::debug!("获取窗口截图候选列表失败，继续使用普通区域截图: {error}");
+                Vec::new()
+            }
+            Err(_) => {
+                tracing::debug!("获取窗口截图候选列表超时，继续使用普通区域截图");
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+    let outcome =
+        tokio::task::spawn_blocking(move || run_snipper_session(img, cfg_clone, mode, windows))
+            .await
+            .context("截图任务调度异常")?
+            .context("截图交互会话运行失败")?;
 
     if let Some(outcome) = outcome {
         match outcome {
