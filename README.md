@@ -135,10 +135,9 @@ snapin pin-file <PATH> [X] [Y]
 ## 配置与数据目录
 
 - 配置：`~/.config/snapin/config.toml`（权限 0600，包含翻译 API 凭证）。
-- 数据：`~/.local/share/snapin/`。
 - 缓存：`~/.cache/snapin/`。
 - 运行时套接字与临时快照：`$XDG_RUNTIME_DIR/snapin/`。
-- OCR 模型：`/usr/share/snapin/models/ppocrv6`，用户可通过设置页或 `ocr.local.model_dir` 覆盖。
+- OCR 模型：系统只读路径为 `/usr/share/snapin/models/ppocrv6`；用户可将覆盖模型放到 `~/.local/share/snapin/models/ppocrv6`，或在设置页 / `ocr.local.model_dir` 指定目录。
 
 ## 服务与日志
 
