@@ -29,9 +29,10 @@ const SYSTEMD_SERVICE: &str = "snapin";
 ///
 /// # Errors
 ///
-/// systemd 命令执行失败、非零退出或桌面项文件读写失败时返回对应平台错误。
+/// systemd enable/disable 命令非零退出或桌面项文件读写失败时返回对应平台错误；
+/// `systemctl` 本身不存在时按无 systemd 环境处理，回退 XDG 而不报错。
 pub fn sync_autostart(enabled: bool) -> Result<(), PlatformError> {
-    if systemd_unit_loaded()? {
+    if systemd_unit_loaded() {
         sync_systemd_service(enabled)?;
         remove_desktop_file()?;
         return Ok(());
@@ -42,10 +43,10 @@ pub fn sync_autostart(enabled: bool) -> Result<(), PlatformError> {
 
 /// 探测当前用户是否存在名为 snapin 的 systemd 单元。
 ///
-/// `systemctl show` 在单元不存在或无用户级 systemd 会话时可能返回非零退出码，
-/// 这类情况统一视为“无 systemd 单元”，由 XDG autostart 兜底而不是让设置保存失败。
-fn systemd_unit_loaded() -> Result<bool, PlatformError> {
-    let output = Command::new("systemctl")
+/// `systemctl` 不存在、`show` 返回非零退出码或无用户级 systemd 会话时，
+/// 统一视为“无 systemd 单元”，由 XDG autostart 兜底而不是让设置保存失败。
+fn systemd_unit_loaded() -> bool {
+    let output = match Command::new("systemctl")
         .args([
             "--user",
             "show",
@@ -55,17 +56,19 @@ fn systemd_unit_loaded() -> Result<bool, PlatformError> {
             SYSTEMD_SERVICE,
         ])
         .output()
-        .map_err(|error| PlatformError::Systemd {
-            action: "探测".to_string(),
-            service: SYSTEMD_SERVICE.to_string(),
-            message: error.to_string(),
-        })?;
+    {
+        Ok(output) => output,
+        Err(error) => {
+            tracing::debug!("无法执行 systemctl 探测 systemd 单元，回退 XDG autostart: {error}");
+            return false;
+        }
+    };
 
     if !output.status.success() {
-        return Ok(false);
+        return false;
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).trim() == "loaded")
+    String::from_utf8_lossy(&output.stdout).trim() == "loaded"
 }
 
 /// 启用或停用 systemd 用户服务的开机自启动。
