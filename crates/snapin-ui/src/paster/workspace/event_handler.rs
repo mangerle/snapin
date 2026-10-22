@@ -10,6 +10,7 @@ use super::proxy::{PasterAppEvent, WorkspaceStatus};
 use super::window_builder::create_new_paster_window;
 use super::WorkspaceRuntime;
 use snapin_core::annotation::shapes::TranslationShapeItem;
+use snapin_core::config::{self, Config};
 use snapin_platform::write_text_to_clipboard;
 use std::sync::Arc;
 use std::time::Instant;
@@ -69,6 +70,7 @@ pub(crate) fn handle_workspace_user_event(
                 inst.state.item.is_visible = visible;
                 inst.window.set_visible(visible);
             }
+            persist_active_group(runtime, next_group);
             tracing::info!("已切换活动贴图分组至: {next_group}");
         }
         PasterAppEvent::GetStatus(responder) => {
@@ -93,6 +95,37 @@ pub(crate) fn handle_workspace_user_event(
             elwt.exit();
         }
     }
+}
+
+/// 将活动分组写回配置文件，保证守护进程重启后恢复到上次分组。
+///
+/// 设计取舍：配置文件仅数 KB，切换分组是低频用户动作，这里同步写盘以省去
+/// 额外的异步通道与停机落盘逻辑；写失败只告警，不影响本次分组切换结果。
+fn persist_active_group(runtime: &mut WorkspaceRuntime, group: usize) {
+    let config = config_with_active_group(&runtime.cfg, group);
+    let updated = Arc::new(config.clone());
+    runtime.cfg = updated.clone();
+    for inst in runtime.instances.values_mut() {
+        inst.state.config = updated.clone();
+    }
+
+    let path = match config::get_default_config_path() {
+        Ok(path) => path,
+        Err(error) => {
+            tracing::warn!("定位配置文件路径失败，无法持久化贴图活动分组: {error}");
+            return;
+        }
+    };
+    if let Err(error) = config::save_config(&config, &path) {
+        tracing::warn!("持久化贴图活动分组失败: {error}");
+    }
+}
+
+/// 生成一份仅更新活动分组字段的配置副本。
+fn config_with_active_group(config: &Config, group: usize) -> Config {
+    let mut updated = config.clone();
+    updated.paster.active_group_id = group;
+    updated
 }
 
 /// 处理特定窗口触发的 Winit 窗口事件
@@ -308,5 +341,24 @@ fn apply_translate_result(
             tracing::warn!("贴图整图翻译失败: {message}");
             state.set_status_message(format!("翻译失败: {message}"));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 更新活动分组时不得改动其它配置字段，也不得反向污染原配置
+    #[test]
+    fn test_config_with_active_group_preserves_other_fields() {
+        let mut config = Config::default();
+        config.paster.initial_opacity = 0.5;
+        config.paster.active_group_id = 0;
+
+        let updated = config_with_active_group(&config, 2);
+
+        assert_eq!(updated.paster.active_group_id, 2);
+        assert_eq!(updated.paster.initial_opacity, 0.5);
+        assert_eq!(config.paster.active_group_id, 0);
     }
 }
