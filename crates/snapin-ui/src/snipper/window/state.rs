@@ -116,8 +116,9 @@ fn apply_snip_config(state: &mut SnipperState, snip: &SnipConfig, mode: SnipMode
     // 初始进入截图时，未完成选区前不激活标注工具，确保左键优先用于选区拉框
     state.toolbar.active_tool = None;
 
-    // 仅在“自定义截屏”模式且用户开启记忆时恢复上次选区，常规截图始终从空白选区开始
-    if mode == SnipMode::Custom && snip.remember_last_selection {
+    // 常规与自定义截图在开启记忆时恢复上次选区；自动复制/自动翻译属于一次性动作，
+    // 仍从空白选区开始，避免旧选区在框选完成前被误当成本次目标。
+    if snip.remember_last_selection && should_restore_last_selection(mode) {
         if let Some((lx, ly, lw, lh)) = snapin_platform::load_last_selection() {
             let rect = crate::snipper::selection::Rect {
                 x: lx,
@@ -133,11 +134,30 @@ fn apply_snip_config(state: &mut SnipperState, snip: &SnipConfig, mode: SnipMode
     }
 }
 
+/// 判断当前触发模式是否允许恢复历史选区。
+fn should_restore_last_selection(mode: SnipMode) -> bool {
+    matches!(mode, SnipMode::Normal | SnipMode::Custom)
+}
+
 /// 提交并关闭当前文本输入会话
 pub fn commit_active_text_input(state: &mut SnipperState) {
     if let Some(session) = state.active_text_input.take() {
         if let Some(action) = session.commit() {
             state.annotations.push(action);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 常规与自定义截图恢复历史选区，自动模式保持空白起步
+    #[test]
+    fn test_should_restore_last_selection_by_mode() {
+        assert!(should_restore_last_selection(SnipMode::Normal));
+        assert!(should_restore_last_selection(SnipMode::Custom));
+        assert!(!should_restore_last_selection(SnipMode::AutoCopy));
+        assert!(!should_restore_last_selection(SnipMode::Translate));
     }
 }

@@ -17,7 +17,7 @@ export component SnipTab inherits VerticalLayout {
 
         AppSwitch {
             title: "记忆并恢复上次截图选区";
-            subtitle: "按下截图热键时自动高亮上一次的截取矩形范围，方便连续定格";
+            subtitle: "常规截图与自定义截图会恢复上次选区；自动复制/自动翻译仍从空白选区开始";
             checked <=> root.remember_last_selection;
         }
     }
