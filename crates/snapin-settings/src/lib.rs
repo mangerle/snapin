@@ -16,7 +16,7 @@ use snapin_core::error::CoreError;
 use snapin_daemon::notify_daemon_reload_config;
 use snapin_platform::{
     get_platform_capabilities, open_path_in_file_manager, suspend_hotkeys_for_settings,
-    sync_autostart_desktop_file, sync_hotkeys_to_gnome, PlatformError,
+    sync_autostart, sync_hotkeys_to_gnome, PlatformError,
 };
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
@@ -139,7 +139,10 @@ fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
             tracing::warn!("保存配置后同步系统快捷键失败: {error}");
             warnings.push(format!("系统快捷键同步失败 ({error})"));
         }
-        sync_autostart_desktop_file(config_guard.general.autostart);
+        if let Err(error) = sync_autostart(config_guard.general.autostart) {
+            tracing::warn!("保存配置后同步开机自启动失败: {error}");
+            warnings.push(format!("开机自启动同步失败 ({error})"));
+        }
         notify_daemon_reload_config();
 
         if warnings.is_empty() {

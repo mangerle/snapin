@@ -28,6 +28,14 @@ pub enum PlatformError {
         source: std::io::Error,
     },
 
+    /// systemd 用户服务自启动管理失败
+    #[error("systemd 用户服务自启动{action}失败，服务: {service}，原因: {message}")]
+    Systemd {
+        action: String,
+        service: String,
+        message: String,
+    },
+
     /// 截屏结果图像解码失败。
     ///
     /// 编解码库的错误在跨界处即转换为本领域变体，避免 `image` 这类大型依赖的错误枚举

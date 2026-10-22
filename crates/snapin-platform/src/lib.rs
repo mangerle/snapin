@@ -13,7 +13,7 @@ pub mod storage;
 
 pub(crate) mod dbus_session;
 
-pub use autostart::sync_autostart_desktop_file;
+pub use autostart::sync_autostart;
 pub use capabilities::{
     get_platform_capabilities, init_platform_capabilities, refresh_platform_capabilities,
     PlatformCapabilities,
