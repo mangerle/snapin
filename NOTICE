@@ -1,0 +1,11 @@
+Snapin
+Copyright 2026 wangle
+
+本产品包含由 SixtyFPS GmbH 开发的 Slint（https://slint.dev），
+依据 Slint Royalty-free Desktop, Mobile, and Web Applications License 2.0 使用。
+
+Slint 的版权声明与许可全文见：
+- LICENSES/LicenseRef-Slint-Royalty-free-2.0.md
+- THIRD_PARTY_NOTICES.md
+
+本产品的自有源代码以 Apache License 2.0 许可发布，详见 LICENSE。
