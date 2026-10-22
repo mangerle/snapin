@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// 截图流程设置板块
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SnipConfig {
-    /// 再次截图时是否默认记住并恢复上次选区
+    /// 自定义截屏时是否记住并恢复上次选区；常规截图始终从空白选区开始
     #[serde(default = "default_true")]
     pub remember_last_selection: bool,
 
