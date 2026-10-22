@@ -116,6 +116,14 @@ async fn main() -> Result<()> {
             }
         }
         Commands::SwitchGroup { id } => {
+            if let Some(group) = id {
+                if !snapin_ui::paster::is_valid_group_id(group) {
+                    anyhow::bail!(
+                        "贴图分组 ID 越界: {group}，有效范围: 0..={}",
+                        snapin_ui::paster::TOTAL_PIN_GROUPS.saturating_sub(1)
+                    );
+                }
+            }
             if let Ok(true) = send_command_to_daemon(&DaemonRequest::SwitchGroup(id)).await {
                 tracing::info!("已通过 IPC 请求守护进程切换贴图分组至: {id:?}");
             } else {

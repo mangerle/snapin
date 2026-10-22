@@ -8,6 +8,7 @@ pub mod event_handler;
 pub mod proxy;
 pub mod window_builder;
 
+pub use event_handler::{is_valid_group_id, TOTAL_PIN_GROUPS};
 pub use proxy::{PasterAppEvent, PasterWorkspaceProxy, WorkspaceStatus};
 pub use window_builder::PasterInstance;
 

@@ -8,7 +8,7 @@ use snapin_core::config;
 use snapin_core::AppPaths;
 use snapin_daemon::{DaemonRequest, DaemonResponse};
 use snapin_platform::send_desktop_notification;
-use snapin_ui::paster::{PasterItem, PasterWorkspaceProxy};
+use snapin_ui::paster::{is_valid_group_id, PasterItem, PasterWorkspaceProxy, TOTAL_PIN_GROUPS};
 use std::path::PathBuf;
 use std::time::Duration;
 use tiny_skia::Pixmap;
@@ -117,10 +117,40 @@ pub async fn handle_command(
             }
         }
         DaemonRequest::SwitchGroup(target_id) => {
+            if let Some(id) = target_id {
+                if !is_valid_group_id(id) {
+                    return DaemonResponse::Error(format!(
+                        "非法贴图分组 ID: {id}，有效范围: 0..={}",
+                        TOTAL_PIN_GROUPS.saturating_sub(1)
+                    ));
+                }
+            }
             if let Err(error) = workspace.switch_group(target_id) {
                 return DaemonResponse::Error(format!("切换贴图分组失败: {error}"));
             }
-            let _ = send_desktop_notification("Snapin 贴图组", "已切换贴图活动分组").await;
+            // 与 SwitchGroup 走同一个事件队列，GetStatus 会在切换完成后执行，
+            // 因此通知里可以带上真正生效的组号而不是客户端传入的目标值。
+            let active_group = match timeout(STATUS_QUERY_TIMEOUT, workspace.get_status()).await {
+                Ok(Ok(status)) => Some(status.active_group),
+                Ok(Err(error)) => {
+                    tracing::warn!("查询切换后的贴图分组失败: {error}");
+                    None
+                }
+                Err(_) => {
+                    tracing::warn!("查询切换后的贴图分组超时");
+                    None
+                }
+            };
+            let notification = match active_group {
+                Some(group) => format!(
+                    "已切换至贴图组 {}/{}（ID {}）",
+                    group.saturating_add(1),
+                    TOTAL_PIN_GROUPS,
+                    group
+                ),
+                None => "已切换贴图活动分组".to_string(),
+            };
+            let _ = send_desktop_notification("Snapin 贴图组", &notification).await;
             DaemonResponse::Ok
         }
         DaemonRequest::Shutdown => DaemonResponse::Ok,

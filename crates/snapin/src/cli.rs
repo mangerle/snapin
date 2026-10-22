@@ -38,7 +38,7 @@ pub enum Commands {
     Toggle,
     /// 切换贴图活动分组（未指定 ID 时循环轮转至下一个分组）
     SwitchGroup {
-        /// 目标分组 ID（可选）
+        /// 目标分组 ID（省略时循环切换；越界 ID 会被拒绝）
         id: Option<usize>,
     },
     /// 清空截屏与临时缓存历史

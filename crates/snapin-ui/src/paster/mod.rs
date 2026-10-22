@@ -16,6 +16,7 @@ pub use text_to_pin::{render_color_swatch_card, render_simple_text_card, try_par
 pub use transform::PasterTransform;
 pub use window::spawn_paster_window;
 pub use workspace::{
-    create_paster_workspace, run_paster_workspace_loop, spawn_paster_workspace_thread,
-    PasterAppEvent, PasterWorkspaceProxy, WorkspaceStatus,
+    create_paster_workspace, is_valid_group_id, run_paster_workspace_loop,
+    spawn_paster_workspace_thread, PasterAppEvent, PasterWorkspaceProxy, WorkspaceStatus,
+    TOTAL_PIN_GROUPS,
 };

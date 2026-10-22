@@ -22,6 +22,11 @@ use winit::window::WindowId;
 /// 支持的循环轮转贴图最大分组数量
 pub const TOTAL_PIN_GROUPS: usize = 4;
 
+/// 判断贴图分组 ID 是否落在有效范围内。
+pub fn is_valid_group_id(id: usize) -> bool {
+    id < TOTAL_PIN_GROUPS
+}
+
 /// 处理工作区收到的自定义指令
 pub(crate) fn handle_workspace_user_event(
     event: PasterAppEvent,
@@ -62,14 +67,30 @@ pub(crate) fn handle_workspace_user_event(
         }
         PasterAppEvent::SwitchGroup(target) => {
             let next_group = match target {
-                Some(id) => id,
+                Some(id) if is_valid_group_id(id) => id,
+                Some(id) => {
+                    tracing::warn!(
+                        "忽略非法贴图分组 ID: {id}，有效范围: 0..={}",
+                        TOTAL_PIN_GROUPS.saturating_sub(1)
+                    );
+                    return;
+                }
                 None => (runtime.manager.active_group() + 1) % TOTAL_PIN_GROUPS,
             };
             runtime.manager.switch_group(next_group);
+            let group_label = format!(
+                "当前贴图组: {}/{}（ID {next_group}）",
+                next_group.saturating_add(1),
+                TOTAL_PIN_GROUPS
+            );
             for inst in runtime.instances.values_mut() {
                 let visible = inst.state.item.group_id == next_group;
                 inst.state.item.is_visible = visible;
                 inst.window.set_visible(visible);
+                if visible {
+                    inst.state.set_status_message(group_label.clone());
+                    inst.window.request_redraw();
+                }
             }
             persist_active_group(runtime, next_group);
             tracing::info!("已切换活动贴图分组至: {next_group}");
@@ -404,5 +425,14 @@ mod tests {
         assert_eq!(updated.paster.active_group_id, 2);
         assert_eq!(updated.paster.initial_opacity, 0.5);
         assert_eq!(config.paster.active_group_id, 0);
+    }
+
+    /// 分组 ID 必须落在 0..TOTAL_PIN_GROUPS，边界值不可越界
+    #[test]
+    fn test_group_id_validation() {
+        assert!(is_valid_group_id(0));
+        assert!(is_valid_group_id(TOTAL_PIN_GROUPS - 1));
+        assert!(!is_valid_group_id(TOTAL_PIN_GROUPS));
+        assert!(!is_valid_group_id(usize::MAX));
     }
 }
