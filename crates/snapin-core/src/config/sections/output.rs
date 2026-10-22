@@ -18,7 +18,7 @@ pub struct OutputConfig {
     #[serde(default)]
     pub default_format: ImageFormat,
 
-    /// JPEG/WebP 编码质量 (1 ~ 100)
+    /// JPEG 编码质量 (1 ~ 100)；WebP 当前使用无损编码，不受此项影响
     #[serde(default = "default_jpeg_quality")]
     pub jpeg_quality: u8,
 

@@ -60,7 +60,7 @@ export component OutputTab inherits VerticalLayout {
                     spacing: 6px;
                     Text { text: "默认输出图片格式:"; font-size: 13px; font-weight: 600; color: #334155; }
                     ComboBox {
-                        model: ["PNG (无损压缩 - 推荐)", "JPEG (适合大图与照片)", "WebP (现代高压缩率)"];
+                        model: ["PNG (无损压缩 - 推荐)", "JPEG (适合大图与照片)", "WebP (无损高压缩率)"];
                         current-index <=> root.format_index;
                         width: 220px;
                     }
@@ -69,7 +69,7 @@ export component OutputTab inherits VerticalLayout {
                 VerticalLayout {
                     horizontal-stretch: 1;
                     AppSlider {
-                        title: "有损编码质量 (JPEG / WebP)";
+                        title: "JPEG 有损编码质量";
                         unit: "%";
                         minimum: 50;
                         maximum: 100;
