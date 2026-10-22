@@ -51,6 +51,7 @@ pub fn handle_paster_key(
             true
         }
         Key::Character(c) if c == "3" => state.rotate_cw(window),
+        Key::Character(c) if c == "4" => state.rotate_ccw(window),
         Key::Character(c) if c.eq_ignore_ascii_case("h") => state.flip_horizontal(),
         Key::Character(c) if c.eq_ignore_ascii_case("v") => state.flip_vertical(),
         Key::Character(c) if c.eq_ignore_ascii_case("c") => {
