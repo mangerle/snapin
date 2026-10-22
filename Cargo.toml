@@ -11,7 +11,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 authors = ["wangle"]
 license = "Apache-2.0"
@@ -19,12 +19,12 @@ repository = "https://github.com/wangle/snapin"
 
 [workspace.dependencies]
 # 内部子包依赖
-snapin-core = { path = "crates/snapin-core", version = "1.0.0" }
-snapin-daemon = { path = "crates/snapin-daemon", version = "1.0.0" }
-snapin-platform = { path = "crates/snapin-platform", version = "1.0.0" }
-snapin-ui = { path = "crates/snapin-ui", version = "1.0.0" }
-snapin-service = { path = "crates/snapin-service", version = "1.0.0" }
-snapin-settings = { path = "crates/snapin-settings", version = "1.0.0" }
+snapin-core = { path = "crates/snapin-core", version = "1.1.0" }
+snapin-daemon = { path = "crates/snapin-daemon", version = "1.1.0" }
+snapin-platform = { path = "crates/snapin-platform", version = "1.1.0" }
+snapin-ui = { path = "crates/snapin-ui", version = "1.1.0" }
+snapin-service = { path = "crates/snapin-service", version = "1.1.0" }
+snapin-settings = { path = "crates/snapin-settings", version = "1.1.0" }
 
 # 窗口事件循环与原生 Wayland 支持
 winit = { version = "0.29", default-features = false, features = ["wayland", "rwh_06"] }
