@@ -17,7 +17,7 @@ pub type PendingStroke<'a> = (&'a ToolbarItem, &'a [(f32, f32)], u32);
 
 /// 全屏选区画布渲染上下文
 pub struct SnipperCanvas<'a> {
-    pub dimmed_bg: &'a Pixmap,
+    pub base_bg: &'a Pixmap,
     pub original_rgba: &'a RgbaImage,
     pub selection: &'a SelectionState,
     pub cursor_pos: (f64, f64),
@@ -34,8 +34,8 @@ pub struct SnipperCanvas<'a> {
 impl<'a> SnipperCanvas<'a> {
     /// 执行完整帧的高性能复合渲染并写入输出 pixmap
     pub fn render(&self, pixmap: &mut PixmapMut) {
-        // 1. 高速整块恢复已预计算好的暗色底图 (内存瞬时拷贝，避免重复混合计算)
-        pixmap.data_mut().copy_from_slice(self.dimmed_bg.data());
+        // 1. 高速整块恢复预计算好的背景底图（普通截图为暗化图，取色器为原图）
+        pixmap.data_mut().copy_from_slice(self.base_bg.data());
 
         // 2. 提取当前有效矩形选区
         let active_rect = match self.selection {

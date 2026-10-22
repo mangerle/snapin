@@ -41,17 +41,21 @@ pub fn create_dimmed_pixmap_fast(img: &RgbaImage) -> Result<Pixmap, UiError> {
 /// 截图全屏窗口呈现器：管理双缓冲帧缓冲区与 softbuffer 表面呈现
 pub struct SnipperPresenter {
     surface: softbuffer::Surface<Arc<Window>, Arc<Window>>,
-    dimmed_bg: Pixmap,
+    base_bg: Pixmap,
     render_pixmap: Pixmap,
 }
 
 impl SnipperPresenter {
-    /// 初始化截图呈现器与底层共享帧缓冲表面
+    /// 初始化截图呈现器与底层共享帧缓冲表面。
+    ///
+    /// `dimmed` 为 true 时预计算暗化蒙层用于常规截图；取色器传入 false，
+    /// 直接使用原始屏幕图作为底图，避免颜色被遮罩改变视觉观感。
     pub fn try_new(
         window: Arc<Window>,
         width: u32,
         height: u32,
         bg_image: &RgbaImage,
+        dimmed: bool,
     ) -> Result<Self, UiError> {
         let context =
             softbuffer::Context::new(window.clone()).map_err(|e| UiError::Softbuffer {
@@ -72,11 +76,18 @@ impl SnipperPresenter {
             message: format!("初始化帧缓冲尺寸失败: {e}"),
         })?;
 
-        let dimmed_bg = create_dimmed_pixmap_fast(bg_image)?;
-        // 映射窗口前先预刷暗化蒙层，避免出现瞬间白屏或未初始化内容；
+        let base_bg = if dimmed {
+            create_dimmed_pixmap_fast(bg_image)?
+        } else {
+            let mut pixmap =
+                Pixmap::new(width, height).ok_or(UiError::PixmapAlloc { width, height })?;
+            pixmap.data_mut().copy_from_slice(bg_image.as_raw());
+            pixmap
+        };
+        // 映射窗口前先预刷背景底图，避免出现瞬间白屏或未初始化内容；
         // 预刷只是过渡画面，失败时由随后的首次正式渲染兜底，故仅记录调试日志
-        if let Err(error) = blit_pixmap_to_surface(&mut surface, &dimmed_bg) {
-            tracing::debug!("预刷暗化蒙层失败，等待首次正式渲染覆盖: {error}");
+        if let Err(error) = blit_pixmap_to_surface(&mut surface, &base_bg) {
+            tracing::debug!("预刷截图背景底图失败，等待首次正式渲染覆盖: {error}");
         }
 
         let render_pixmap =
@@ -84,7 +95,7 @@ impl SnipperPresenter {
 
         Ok(Self {
             surface,
-            dimmed_bg,
+            base_bg,
             render_pixmap,
         })
     }
@@ -108,7 +119,7 @@ impl SnipperPresenter {
         });
 
         let canvas = SnipperCanvas {
-            dimmed_bg: &self.dimmed_bg,
+            base_bg: &self.base_bg,
             original_rgba: bg_image,
             selection: &state.selection,
             cursor_pos: state.cursor_pos,
@@ -128,9 +139,9 @@ impl SnipperPresenter {
         blit_pixmap_to_surface(&mut self.surface, &self.render_pixmap)
     }
 
-    /// 获取暗化蒙层底图引用
-    pub fn dimmed_bg(&self) -> &Pixmap {
-        &self.dimmed_bg
+    /// 获取截图背景底图引用
+    pub fn base_bg(&self) -> &Pixmap {
+        &self.base_bg
     }
 }
 

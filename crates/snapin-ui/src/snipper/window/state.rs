@@ -159,5 +159,7 @@ mod tests {
         assert!(should_restore_last_selection(SnipMode::Custom));
         assert!(!should_restore_last_selection(SnipMode::AutoCopy));
         assert!(!should_restore_last_selection(SnipMode::Translate));
+        assert!(!should_restore_last_selection(SnipMode::Fullscreen));
+        assert!(!should_restore_last_selection(SnipMode::PickColor));
     }
 }

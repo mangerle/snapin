@@ -96,6 +96,11 @@ async fn main() -> Result<()> {
             let cfg = config.context("区域截图流程缺少用户配置")?;
             run_oneshot_snip(cfg, mode, delay).await?;
         }
+        Commands::PickColor => {
+            tracing::info!("正在启动全屏取色器...");
+            let cfg = config.context("取色器缺少用户配置")?;
+            run_oneshot_snip(cfg, SnipMode::PickColor, 0).await?;
+        }
         Commands::Paste => {
             tracing::info!("正在检查剪贴板生成贴图...");
             if let Ok(true) = send_command_to_daemon(&DaemonRequest::Paste).await {

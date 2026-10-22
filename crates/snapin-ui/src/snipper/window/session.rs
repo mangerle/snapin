@@ -58,8 +58,13 @@ impl SnipperSession {
         );
         window.set_ime_allowed(true);
 
-        let mut presenter =
-            SnipperPresenter::try_new(window.clone(), screen_w, screen_h, &self.bg_image)?;
+        let mut presenter = SnipperPresenter::try_new(
+            window.clone(),
+            screen_w,
+            screen_h,
+            &self.bg_image,
+            self.mode != SnipMode::PickColor,
+        )?;
 
         let config = Arc::new(self.config);
         let mut state = SnipperState::from_config((*config).clone(), self.mode);
@@ -73,6 +78,10 @@ impl SnipperSession {
                 },
                 active_drag: None,
             };
+        } else if self.mode == SnipMode::PickColor {
+            // 取色器必须显示放大镜；单击复制颜色，Esc 或右键取消。
+            state.magnifier.enabled = true;
+            state.set_status_message("单击复制颜色，Esc 取消");
         }
         state.job_dispatcher = Some(Arc::new(SnipperJobDispatcher::new(
             proxy,

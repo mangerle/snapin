@@ -4,6 +4,7 @@ pub mod toolbar_action;
 
 use super::annotation_builder::commit_annotation;
 use super::events::{commit_active_text_input, handle_escape, SnipperState};
+use super::types::SnipMode;
 use crate::snipper::selection::{DragMode, Rect, SelectionState};
 use crate::snipper::toolbar::{StrokeWidthLevel, SubControl, ToolbarItem};
 use image::RgbaImage;
@@ -108,6 +109,14 @@ pub fn handle_mouse_button(
 
     if button == MouseButton::Right && button_state == ElementState::Pressed {
         return handle_escape(state);
+    }
+
+    if state.mode == SnipMode::PickColor {
+        if button == MouseButton::Left && button_state == ElementState::Pressed {
+            super::actions::handle_action_pick_color(state, original_rgba);
+            return true;
+        }
+        return false;
     }
 
     if button != MouseButton::Left {

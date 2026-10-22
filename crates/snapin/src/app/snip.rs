@@ -120,6 +120,12 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode, delay_seconds: u32) -
                     send_desktop_notification("Snapin 文字识别", &summary).await?;
                 }
             }
+            SnipperOutcome::CopiedColor(color) => {
+                if cfg.output.notify_on_copy {
+                    let summary = format!("颜色值已复制到剪贴板: {color}");
+                    send_desktop_notification("Snapin 取色器", &summary).await?;
+                }
+            }
             SnipperOutcome::Saved(path) => {
                 if cfg.output.notify_on_save {
                     let msg = format!("选区图像已保存至: {}", path.display());

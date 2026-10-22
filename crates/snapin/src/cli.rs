@@ -40,6 +40,8 @@ pub enum Commands {
     },
     /// 触发贴图（由剪贴板或选区生成，默认绑定 F1）
     Paste,
+    /// 打开全屏取色器，单击复制当前颜色并退出
+    PickColor,
     /// 批量显示/隐藏当前活动组所有贴图 (默认绑定 Ctrl+F3)
     Toggle,
     /// 切换贴图活动分组（未指定 ID 时循环轮转至下一个分组）
@@ -88,7 +90,10 @@ impl Commands {
     /// 只有真正读取偏好字段的命令才需要读盘结果：截图依赖热键之外的全部设置，
     /// 快捷键同步依赖热键表，守护进程依赖贴图与输出设置。
     pub fn needs_config(&self) -> bool {
-        matches!(self, Self::Snip { .. } | Self::SyncHotkeys | Self::Daemon)
+        matches!(
+            self,
+            Self::Snip { .. } | Self::PickColor | Self::SyncHotkeys | Self::Daemon
+        )
     }
 
     /// 该子命令是否需要预先探测桌面平台能力（GNOME 特权扩展在线状态）。
@@ -96,7 +101,7 @@ impl Commands {
     /// 探测会发起一次 D-Bus 往返，两条路径消费其结果：截图据此决定是否走扩展零白闪原生通道
     /// （扩展未在线时直接走 portal，避免一次注定失败的调用），设置中心据此展示扩展部署状态。
     pub fn needs_capabilities(&self) -> bool {
-        matches!(self, Self::Snip { .. } | Self::Prefs)
+        matches!(self, Self::Snip { .. } | Self::PickColor | Self::Prefs)
     }
 }
 
@@ -120,6 +125,7 @@ mod tests {
             },
             Commands::SyncHotkeys,
             Commands::Daemon,
+            Commands::PickColor,
         ];
         for command in config_heavy {
             assert!(command.needs_config(), "{command:?} 应强依赖配置");
@@ -144,6 +150,7 @@ mod tests {
         }
 
         assert!(Commands::Prefs.needs_capabilities());
+        assert!(Commands::PickColor.needs_capabilities());
         assert!(Commands::Snip {
             auto_copy: true,
             custom: false,
@@ -236,5 +243,8 @@ mod tests {
             cli.command,
             Commands::PinFile { x: 10, y: 20, .. }
         ));
+
+        let cli = Cli::try_parse_from(["snapin", "pick-color"]).unwrap();
+        assert!(matches!(cli.command, Commands::PickColor));
     }
 }

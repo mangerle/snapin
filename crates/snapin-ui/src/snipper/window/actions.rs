@@ -6,7 +6,7 @@ use super::types::SnipperOutcome;
 use crate::paster::PasterItem;
 use crate::snipper::selection::SelectionState;
 use image::{GenericImageView, RgbaImage};
-use snapin_platform::write_image_to_clipboard;
+use snapin_platform::{write_image_to_clipboard, write_text_to_clipboard};
 
 /// 裁剪当前选区图像并合成已绘制的矢量标注
 pub fn crop_selection_image(
@@ -122,6 +122,31 @@ pub fn handle_action_pin(state: &mut SnipperState, original_rgba: &RgbaImage) {
     }
 }
 
+/// 取色器单击：读取光标处像素，按用户设置的格式复制颜色并退出。
+pub fn handle_action_pick_color(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    state.clear_status_message();
+    let text = color_text_at_cursor(state, original_rgba);
+
+    match write_text_to_clipboard(&text) {
+        Ok(()) => state.outcome = Some(SnipperOutcome::CopiedColor(text)),
+        Err(error) => {
+            tracing::warn!("取色器复制颜色值到剪贴板失败: {error}");
+            state.set_status_message(format!("复制颜色失败: {error}"));
+        }
+    }
+}
+
+/// 读取光标位置颜色并按当前取色格式输出；坐标越界时夹取到屏幕边缘。
+fn color_text_at_cursor(state: &SnipperState, img: &RgbaImage) -> String {
+    let px = (state.cursor_pos.0 as i32).clamp(0, img.width().saturating_sub(1) as i32) as u32;
+    let py = (state.cursor_pos.1 as i32).clamp(0, img.height().saturating_sub(1) as i32) as u32;
+    let pixel = img.get_pixel(px, py);
+    state
+        .magnifier
+        .format
+        .format_color(pixel[0], pixel[1], pixel[2])
+}
+
 /// 执行选区 OCR 文字识别并静默复制全文至系统剪贴板
 pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
@@ -212,11 +237,29 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::snipper::magnifier::ColorFormat;
     use crate::snipper::selection::Rect;
     use image::Rgba;
     use snapin_core::annotation::action::AnnotationShape;
     use snapin_core::annotation::shapes::RectAction;
     use snapin_core::annotation::LineStyle;
+
+    /// 取色器按 HEX/RGB 格式输出，并在坐标越界时夹取到边缘
+    #[test]
+    fn test_color_text_at_cursor_formats_and_clamps() {
+        let mut state = SnipperState::new();
+        let img = RgbaImage::from_pixel(4, 4, Rgba([255, 0, 0, 255]));
+
+        state.cursor_pos = (2.0, 2.0);
+        state.magnifier.format = ColorFormat::Hex;
+        assert_eq!(color_text_at_cursor(&state, &img), "#FF0000");
+
+        state.magnifier.format = ColorFormat::Rgb;
+        assert_eq!(color_text_at_cursor(&state, &img), "rgb(255, 0, 0)");
+
+        state.cursor_pos = (99.0, -5.0);
+        assert_eq!(color_text_at_cursor(&state, &img), "rgb(255, 0, 0)");
+    }
 
     #[test]
     fn test_crop_without_selection() {

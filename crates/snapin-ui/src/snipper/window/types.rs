@@ -10,6 +10,8 @@ pub enum SnipperOutcome {
     CopiedImage,
     /// 已将 OCR 识别文字复制到系统剪贴板
     CopiedText(String),
+    /// 已将取色器颜色值复制到系统剪贴板
+    CopiedColor(String),
     /// 已保存至磁盘文件
     Saved(PathBuf),
     /// 已定在屏幕上转换为置顶贴图
@@ -32,4 +34,6 @@ pub enum SnipMode {
     Custom,
     /// 全屏截图（进入会话即锁定整屏选区，工具栏可继续标注或复制/保存/贴图）
     Fullscreen,
+    /// 全屏取色器（无选区，单击复制光标处颜色并退出）
+    PickColor,
 }
