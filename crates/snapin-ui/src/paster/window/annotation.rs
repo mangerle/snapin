@@ -24,6 +24,8 @@ pub const PASTER_MAIN_ITEMS: &[ToolbarItem] = &[
     ToolbarItem::ToolPen,
     ToolbarItem::ToolMarker,
     ToolbarItem::ToolMosaic,
+    ToolbarItem::ToolBlur,
+    ToolbarItem::ToolSpotlight,
     ToolbarItem::ToolText,
     ToolbarItem::ActionUndo,
     ToolbarItem::ActionRedo,
@@ -37,8 +39,8 @@ pub const PASTER_MAIN_ITEMS: &[ToolbarItem] = &[
 
 /// 几何工具属性栏的保守预留宽度（界面像素）。
 ///
-/// 窗口扩容时按此宽度为二级属性栏留出横向空间；当前主栏 13 个按钮的总宽更大，
-/// 实际窗口宽度通常仍由主栏决定。抽成常量是为了以后增删属性控件时只需调整一处。
+/// 窗口扩容时按此宽度为二级属性栏留出横向空间；主栏按钮更多时实际窗口宽度
+/// 仍由主栏决定。抽成常量是为了以后增删属性控件时只需调整一处。
 const SUB_BAR_MAX_WIDTH: f32 = 400.0;
 
 /// 二级属性栏在工具条上方占用的高度（面板 36 + 与主栏间距 4，界面像素）。
@@ -413,6 +415,8 @@ mod tests {
             ToolbarItem::ToolPen,
             ToolbarItem::ToolMarker,
             ToolbarItem::ToolMosaic,
+            ToolbarItem::ToolBlur,
+            ToolbarItem::ToolSpotlight,
             ToolbarItem::ToolText,
             ToolbarItem::ActionUndo,
             ToolbarItem::ActionRedo,
@@ -427,8 +431,8 @@ mod tests {
         assert!(
             PASTER_MAIN_ITEMS
                 .windows(2)
-                .any(|pair| { pair == [ToolbarItem::ToolMosaic, ToolbarItem::ToolText] }),
-            "文字工具必须紧跟马赛克按钮"
+                .any(|pair| { pair == [ToolbarItem::ToolSpotlight, ToolbarItem::ToolText] }),
+            "文字工具必须紧跟效果工具"
         );
         assert!(
             PASTER_MAIN_ITEMS

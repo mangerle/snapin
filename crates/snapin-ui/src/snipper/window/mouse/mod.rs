@@ -78,7 +78,10 @@ fn constrain_with_shift(tool: ToolbarItem, start: (f32, f32), current: (f32, f32
     let dy = y - y0;
 
     match tool {
-        ToolbarItem::ToolRect | ToolbarItem::ToolEllipse => {
+        ToolbarItem::ToolRect
+        | ToolbarItem::ToolEllipse
+        | ToolbarItem::ToolBlur
+        | ToolbarItem::ToolSpotlight => {
             let side = dx.abs().max(dy.abs());
             x = x0 + side * dx.signum();
             y = y0 + side * dy.signum();

@@ -22,6 +22,10 @@ pub enum ToolbarItem {
     ToolBadge,
     /// 马赛克打码
     ToolMosaic,
+    /// 局部高斯模糊遮挡
+    ToolBlur,
+    /// 聚光灯遮罩
+    ToolSpotlight,
     /// 撤销上一步
     ActionUndo,
     /// 重做

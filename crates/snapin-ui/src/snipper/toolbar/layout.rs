@@ -212,8 +212,11 @@ fn build_entries(
     }
 
     cursor.push(None, 16.0 * s);
-    for (index, _) in preset_colors().iter().enumerate() {
-        cursor.push(Some(SubControl::Color(index)), 26.0 * s);
+    // 模糊工具只使用粗细档位调节半径，颜色与模糊无关。
+    if active_tool != ToolbarItem::ToolBlur {
+        for (index, _) in preset_colors().iter().enumerate() {
+            cursor.push(Some(SubControl::Color(index)), 26.0 * s);
+        }
     }
 
     // 末尾留出与内边距等宽的余量，避免最后一个色块贴边
@@ -231,6 +234,10 @@ pub(crate) fn calculate_sub_layout(
 ) -> Option<SubLayout> {
     let active_tool = active_tool?;
     if main_rect.width <= 0.0 {
+        return None;
+    }
+    // 聚光灯没有可调参数，不显示空的二级属性栏。
+    if active_tool == ToolbarItem::ToolSpotlight {
         return None;
     }
 

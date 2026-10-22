@@ -245,3 +245,56 @@ pub fn render_icon_badge(
         pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
     }
 }
+
+/// 图标: 水滴造型表示局部模糊
+pub fn render_icon_blur(
+    pixmap: &mut PixmapMut,
+    cx: f32,
+    cy: f32,
+    s: f32,
+    paint: &Paint,
+    stroke: &Stroke,
+) {
+    let mut pb = PathBuilder::new();
+    pb.move_to(cx, cy - 7.5 * s);
+    pb.cubic_to(
+        cx + 6.0 * s,
+        cy - 1.0 * s,
+        cx + 5.5 * s,
+        cy + 6.5 * s,
+        cx,
+        cy + 6.5 * s,
+    );
+    pb.cubic_to(
+        cx - 5.5 * s,
+        cy + 6.5 * s,
+        cx - 6.0 * s,
+        cy - 1.0 * s,
+        cx,
+        cy - 7.5 * s,
+    );
+    pb.close();
+    if let Some(path) = pb.finish() {
+        pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
+    }
+}
+
+/// 图标: 中心圆与四向光线表示聚光灯
+pub fn render_icon_spotlight(
+    pixmap: &mut PixmapMut,
+    cx: f32,
+    cy: f32,
+    s: f32,
+    paint: &Paint,
+    stroke: &Stroke,
+) {
+    let mut pb = PathBuilder::new();
+    pb.push_circle(cx, cy, 3.8 * s);
+    for (dx, dy) in [(0.0, -1.0), (0.0, 1.0), (-1.0, 0.0), (1.0, 0.0)] {
+        pb.move_to(cx + dx * 5.8 * s, cy + dy * 5.8 * s);
+        pb.line_to(cx + dx * 7.8 * s, cy + dy * 7.8 * s);
+    }
+    if let Some(path) = pb.finish() {
+        pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
+    }
+}

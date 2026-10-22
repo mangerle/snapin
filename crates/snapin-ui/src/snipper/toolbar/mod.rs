@@ -1,6 +1,6 @@
 //! 截图工具栏与二级属性选择器。
 //!
-//! 提供矩形、箭头、画笔、荧光笔、马赛克、文本等标注工具切换，
+//! 提供矩形、箭头、画笔、荧光笔、马赛克、模糊、聚光灯、文本等标注工具切换，
 //! 以及撤销、重做、定在屏幕(贴图)、保存、复制、关闭等动作。
 //! 支持自适应屏幕边缘检测，防止超出可视区域。
 
@@ -88,15 +88,17 @@ impl Toolbar {
         ToolbarItem::ToolPen,         // 3: 铅笔画笔
         ToolbarItem::ToolMarker,      // 4: 荧光记号笔
         ToolbarItem::ToolMosaic,      // 5: 黑白四宫格马赛克
-        ToolbarItem::ToolText,        // 6: 文字 T
-        ToolbarItem::ActionUndo,      // 7: 撤销 (前置分隔线 1)
-        ToolbarItem::ActionRedo,      // 8: 重做
-        ToolbarItem::ActionOcr,       // 9: OCR 扫描提取纯文本
-        ToolbarItem::ActionTranslate, // 10: 截图原位翻译
-        ToolbarItem::ActionClose,     // 11: 关闭取消 X (前置分隔线 2)
-        ToolbarItem::ActionPin,       // 12: 贴图置顶 (图钉)
-        ToolbarItem::ActionSave,      // 13: 保存文件 (软盘)
-        ToolbarItem::ActionCopy,      // 14: 复制到剪贴板 (双重叠矩形)
+        ToolbarItem::ToolBlur,        // 6: 局部模糊
+        ToolbarItem::ToolSpotlight,   // 7: 聚光灯遮罩
+        ToolbarItem::ToolText,        // 8: 文字 T
+        ToolbarItem::ActionUndo,      // 9: 撤销 (前置分隔线 1)
+        ToolbarItem::ActionRedo,      // 10: 重做
+        ToolbarItem::ActionOcr,       // 11: OCR 扫描提取纯文本
+        ToolbarItem::ActionTranslate, // 12: 截图原位翻译
+        ToolbarItem::ActionClose,     // 13: 关闭取消 X (前置分隔线 2)
+        ToolbarItem::ActionPin,       // 14: 贴图置顶 (图钉)
+        ToolbarItem::ActionSave,      // 15: 保存文件 (软盘)
+        ToolbarItem::ActionCopy,      // 16: 复制到剪贴板 (双重叠矩形)
     ];
 
     /// 根据选区与屏幕宽高重新计算工具栏自适应摆放位置 (自适应 HiDPI 缩放)
@@ -297,7 +299,9 @@ impl Toolbar {
                 | ToolbarItem::ToolMarker
                 | ToolbarItem::ToolText
                 | ToolbarItem::ToolBadge
-                | ToolbarItem::ToolMosaic => {
+                | ToolbarItem::ToolMosaic
+                | ToolbarItem::ToolBlur
+                | ToolbarItem::ToolSpotlight => {
                     let next = if self.active_tool == Some(item) {
                         None
                     } else {

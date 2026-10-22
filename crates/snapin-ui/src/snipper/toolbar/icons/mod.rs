@@ -36,6 +36,10 @@ pub fn render_item_icon(
         ToolbarItem::ToolPen => tools::render_icon_pen(pixmap, cx, cy, s, &paint, &stroke),
         ToolbarItem::ToolMarker => tools::render_icon_marker(pixmap, cx, cy, s, &paint, &stroke),
         ToolbarItem::ToolMosaic => tools::render_icon_mosaic(pixmap, cx, cy, s, &paint, &stroke),
+        ToolbarItem::ToolBlur => tools::render_icon_blur(pixmap, cx, cy, s, &paint, &stroke),
+        ToolbarItem::ToolSpotlight => {
+            tools::render_icon_spotlight(pixmap, cx, cy, s, &paint, &stroke)
+        }
         ToolbarItem::ToolText => tools::render_icon_text(pixmap, cx, cy, s, &paint, &stroke),
         ToolbarItem::ToolBadge => tools::render_icon_badge(pixmap, cx, cy, s, &paint, &stroke),
         ToolbarItem::ActionUndo => actions::render_icon_undo(pixmap, cx, cy, s, &paint, &stroke),

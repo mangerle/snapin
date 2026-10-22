@@ -5,10 +5,11 @@ use crate::snipper::selection::Rect;
 use crate::snipper::toolbar::{Toolbar, ToolbarItem};
 use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::{
-    ArrowAction, BadgeAction, EllipseAction, MarkerAction, MosaicAction, PenAction, RectAction,
+    ArrowAction, BadgeAction, BlurAction, EllipseAction, MarkerAction, MosaicAction, PenAction,
+    RectAction, SpotlightAction,
 };
 use snapin_core::annotation::{ArrowStyle, BadgeStyle, LineStyle};
-use tiny_skia::PixmapMut;
+use tiny_skia::{Paint, PixmapMut, Transform};
 
 /// 即时预览与提交时的几何与样式上下文参数
 pub struct AnnotationDraftParams<'a> {
@@ -133,6 +134,11 @@ pub fn render_draft_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapM
                 0.0,
             );
         }
+        // 模糊在拖拽过程中只显示半透明占位框，避免每帧对选区做大面积卷积；
+        // 提交后由图元重放执行一次真正的模糊。
+        ToolbarItem::ToolBlur => {
+            draw_blur_placeholder(params, pixmap);
+        }
         _ => {
             // 其余图元复用同一构建工厂，保证预览与最终提交的几何和样式完全一致。
             if let Some(shape) = build_shape(params) {
@@ -140,6 +146,18 @@ pub fn render_draft_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapM
             }
         }
     }
+}
+
+/// 绘制模糊拖拽预览：半透明灰框代替实时卷积。
+fn draw_blur_placeholder(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
+    let pts = params.points;
+    let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+    let Some(rect) = tiny_skia::Rect::from_xywh(rect.x, rect.y, rect.width, rect.height) else {
+        return;
+    };
+    let mut paint = Paint::default();
+    paint.set_color_rgba8(110, 110, 110, 120);
+    pixmap.fill_rect(rect, &paint, Transform::identity(), None);
 }
 
 /// 统一图元工厂：构建已完成绘制的持久化 AnnotationShape 图元
@@ -193,6 +211,19 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
             Some(AnnotationShape::Mosaic(MosaicAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
                 cell_size: 10,
+            }))
+        }
+        ToolbarItem::ToolBlur => {
+            let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+            Some(AnnotationShape::Blur(BlurAction {
+                rect: (rect.x, rect.y, rect.width, rect.height),
+                radius: (params.stroke_width * 2.0).clamp(4.0, 50.0) as u32,
+            }))
+        }
+        ToolbarItem::ToolSpotlight => {
+            let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+            Some(AnnotationShape::Spotlight(SpotlightAction {
+                rect: (rect.x, rect.y, rect.width, rect.height),
             }))
         }
         ToolbarItem::ToolBadge => {

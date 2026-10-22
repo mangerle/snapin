@@ -4,8 +4,8 @@
 //! 采用命令模式维护 Undo/Redo 历史栈。
 
 use crate::annotation::shapes::{
-    ArrowAction, BadgeAction, EllipseAction, MarkerAction, MosaicAction, PenAction, RectAction,
-    TextAction, TranslationAction,
+    ArrowAction, BadgeAction, BlurAction, EllipseAction, MarkerAction, MosaicAction, PenAction,
+    RectAction, SpotlightAction, TextAction, TranslationAction,
 };
 use serde::{Deserialize, Serialize};
 use tiny_skia::PixmapMut;
@@ -36,6 +36,8 @@ pub enum AnnotationShape {
     Pen(PenAction),
     Marker(MarkerAction),
     Mosaic(MosaicAction),
+    Blur(BlurAction),
+    Spotlight(SpotlightAction),
     Badge(BadgeAction),
     Text(TextAction),
     Translation(TranslationAction),
@@ -51,6 +53,8 @@ impl AnnotationShape {
             Self::Pen(a) => a.draw_offset(pixmap, offset_x, offset_y),
             Self::Marker(a) => a.draw_offset(pixmap, offset_x, offset_y),
             Self::Mosaic(a) => a.draw_offset(pixmap, offset_x, offset_y),
+            Self::Blur(a) => a.draw_offset(pixmap, offset_x, offset_y),
+            Self::Spotlight(a) => a.draw_offset(pixmap, offset_x, offset_y),
             Self::Badge(a) => a.draw_offset(pixmap, offset_x, offset_y),
             Self::Text(a) => a.draw_offset(pixmap, offset_x, offset_y),
             Self::Translation(a) => a.draw_offset(pixmap, offset_x, offset_y),
@@ -78,6 +82,8 @@ impl AnnotationShape {
             Self::Pen(a) => a.adjust_size(stroke_w, font_sz),
             Self::Marker(a) => a.adjust_size(stroke_w, font_sz),
             Self::Mosaic(a) => a.adjust_size(stroke_w, font_sz),
+            Self::Blur(a) => a.adjust_size(stroke_w, font_sz),
+            Self::Spotlight(a) => a.adjust_size(stroke_w, font_sz),
             Self::Badge(a) => a.adjust_size(stroke_w, font_sz),
             Self::Text(a) => a.adjust_size(stroke_w, font_sz),
             Self::Translation(a) => a.adjust_size(stroke_w, font_sz),
@@ -110,6 +116,7 @@ impl AnnotationHistory {
             | AnnotationShape::Arrow(_)
             | AnnotationShape::Pen(_)
             | AnnotationShape::Marker(_)
+            | AnnotationShape::Blur(_)
             | AnnotationShape::Badge(_) => {
                 last.adjust_size(stroke_width, 0.0);
                 true

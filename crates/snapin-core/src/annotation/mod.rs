@@ -6,7 +6,7 @@ pub mod style;
 
 pub use action::{AnnotationAction, AnnotationHistory, AnnotationShape};
 pub use shapes::{
-    ArrowAction, BadgeAction, EllipseAction, MarkerAction, MosaicAction, PenAction, RectAction,
-    TextAction, TranslationAction, TranslationShapeItem,
+    ArrowAction, BadgeAction, BlurAction, EllipseAction, MarkerAction, MosaicAction, PenAction,
+    RectAction, SpotlightAction, TextAction, TranslationAction, TranslationShapeItem,
 };
 pub use style::{ArrowStyle, BadgeStyle, LineStyle};
