@@ -2,7 +2,6 @@
 
 use super::state::PasterWindowState;
 use crate::paster::context_menu::MenuItemId;
-use crate::paster::manager::PasterItem;
 use image::RgbaImage;
 use snapin_platform::{
     open_path_in_file_manager, read_clipboard_image, read_clipboard_text, save_image_with_config,
@@ -15,7 +14,9 @@ use winit::window::Window;
 /// 分发执行上下文菜单动作指令
 pub fn dispatch_menu_action(state: &mut PasterWindowState, action: MenuItemId, window: &Window) {
     match action {
-        MenuItemId::CopyImage => copy_paster_to_clipboard(&state.item),
+        MenuItemId::CopyImage => {
+            copy_paster_to_clipboard(state);
+        }
         MenuItemId::SaveImageAs => save_paster_to_disk(state),
         MenuItemId::ToggleToolbar => {
             state.set_toolbar_visible(!state.show_toolbar, window);
@@ -45,11 +46,32 @@ pub fn dispatch_menu_action(state: &mut PasterWindowState, action: MenuItemId, w
     }
 }
 
-/// 复制贴图图像至剪贴板（基于零拷贝裸像素切片直接写入系统剪贴板）
-pub fn copy_paster_to_clipboard(item: &PasterItem) {
-    let w = item.pixmap.width();
-    let h = item.pixmap.height();
-    let _ = write_raw_image_to_clipboard(w, h, item.pixmap.data());
+/// 复制贴图图像至剪贴板，并按配置发送成功通知。
+///
+/// 返回是否复制成功：双击“复制并关闭”等复合动作可据此决定是否继续关闭窗口，
+/// 避免复制失败后仍关闭窗口导致用户丢失图像。
+pub fn copy_paster_to_clipboard(state: &mut PasterWindowState) -> bool {
+    let w = state.item.pixmap.width();
+    let h = state.item.pixmap.height();
+    match write_raw_image_to_clipboard(w, h, state.item.pixmap.data()) {
+        Ok(()) => {
+            state.set_status_message("已复制图像到剪贴板");
+            if state.config.output.notify_on_copy {
+                let message = "贴图图像已复制到剪贴板".to_string();
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.spawn(async move {
+                        let _ = send_desktop_notification("Snapin 贴图", &message).await;
+                    });
+                }
+            }
+            true
+        }
+        Err(error) => {
+            tracing::warn!("复制贴图图像到系统剪贴板失败: {error}");
+            state.set_status_message(format!("复制图像失败: {error}"));
+            false
+        }
+    }
 }
 
 /// 保存贴图图像并遵循全局输出配置（格式、质量与命名模板）

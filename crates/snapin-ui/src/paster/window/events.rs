@@ -55,7 +55,7 @@ pub fn handle_paster_key(
         Key::Character(c) if c.eq_ignore_ascii_case("h") => state.flip_horizontal(),
         Key::Character(c) if c.eq_ignore_ascii_case("v") => state.flip_vertical(),
         Key::Character(c) if c.eq_ignore_ascii_case("c") => {
-            copy_paster_to_clipboard(&state.item);
+            copy_paster_to_clipboard(state);
             false
         }
         Key::Character(c) if c.eq_ignore_ascii_case("s") => {
@@ -211,11 +211,12 @@ fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
             state.last_click_time = None;
             match state.config.paster.double_click_action {
                 DoubleClickAction::CopyAndClose => {
-                    copy_paster_to_clipboard(&state.item);
-                    state.should_close = true;
+                    if copy_paster_to_clipboard(state) {
+                        state.should_close = true;
+                    }
                 }
                 DoubleClickAction::Copy => {
-                    copy_paster_to_clipboard(&state.item);
+                    copy_paster_to_clipboard(state);
                 }
                 DoubleClickAction::Close => {
                     state.should_close = true;

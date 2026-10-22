@@ -161,7 +161,9 @@ pub(crate) fn handle_toolbar_click(state: &mut PasterWindowState, window_size: (
             }
             ToolbarItem::ActionOcr => submit_paster_ocr(state),
             ToolbarItem::ActionTranslate => submit_paster_translate(state),
-            ToolbarItem::ActionCopy => copy_paster_to_clipboard(&state.item),
+            ToolbarItem::ActionCopy => {
+                copy_paster_to_clipboard(state);
+            }
             ToolbarItem::ActionSave => save_paster_to_disk(state),
             ToolbarItem::ActionClose => state.should_close = true,
             _ => {}
