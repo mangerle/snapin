@@ -115,6 +115,33 @@ cp "${PROJECT_ROOT}/extension/icons/snapin-tray.svg" "${STAGE_DIR}/usr/share/gno
 # 7.1 PP-OCRv6 模型资产已在第 4.1 步统一打包，此处不得重复拷贝：
 #     目标目录已存在时 cp -r 会再套一层 ppocrv6/ppocrv6，使软件包白带一倍体积。
 
+# 7.2 安装版权与第三方许可文件。Slint 以免版税许可随设置中心分发，
+#     发行包必须保留许可文本与 AboutSlint 归属说明，供离线查阅。
+DOC_DIR="${STAGE_DIR}/usr/share/doc/${PACKAGE_NAME}"
+mkdir -p "${DOC_DIR}"
+cp "${PROJECT_ROOT}/LICENSE" "${DOC_DIR}/LICENSE"
+cp "${PROJECT_ROOT}/NOTICE" "${DOC_DIR}/NOTICE"
+cp "${PROJECT_ROOT}/THIRD_PARTY_NOTICES.md" "${DOC_DIR}/THIRD_PARTY_NOTICES.md"
+mkdir -p "${DOC_DIR}/LICENSES"
+cp "${PROJECT_ROOT}/LICENSES/LicenseRef-Slint-Royalty-free-2.0.md" "${DOC_DIR}/LICENSES/"
+cat << 'EOF' > "${DOC_DIR}/copyright"
+Snapin
+Copyright 2026 wangle
+
+Snapin 自有源代码以 Apache License 2.0 发布。
+完整许可文本见 /usr/share/doc/snapin/LICENSE。
+
+本产品包含由 SixtyFPS GmbH 开发的 Slint，依据
+Slint Royalty-free Desktop, Mobile, and Web Applications License 2.0 使用。
+许可文本见：
+/usr/share/doc/snapin/LICENSES/LicenseRef-Slint-Royalty-free-2.0.md
+
+PP-OCRv6 模型、ONNX Runtime、Rust 依赖与其他第三方组件的声明见：
+/usr/share/doc/snapin/THIRD_PARTY_NOTICES.md
+EOF
+chmod 755 "${DOC_DIR}" "${DOC_DIR}/LICENSES"
+chmod 644 "${DOC_DIR}/LICENSE" "${DOC_DIR}/NOTICE" "${DOC_DIR}/THIRD_PARTY_NOTICES.md" "${DOC_DIR}/copyright"
+
 # 8. 生成 DEBIAN/control 控制文件
 cat << EOF > "${STAGE_DIR}/DEBIAN/control"
 Package: ${PACKAGE_NAME}
