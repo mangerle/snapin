@@ -9,6 +9,8 @@ use snapin_platform::{
     list_windows, send_desktop_notification,
 };
 use snapin_ui::snipper::{run_snipper_session, SnipMode, SnipperOutcome};
+use std::path::Path;
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 /// 获取屏幕快照（优先扩展零白闪通道，未命中则优雅降级 XDG Desktop Portal）。
@@ -155,8 +157,11 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode, delay_seconds: u32) -
             SnipperOutcome::Pinned(item) => {
                 tracing::info!("正在向常驻集中贴图工作区投递选区窗口...");
                 let raw_path = AppPaths::generate_temp_path("paster_ipc", "raw");
+                let raw_written =
+                    AppPaths::write_secure_file(&raw_path, item.pixmap.data()).is_ok();
                 let mut delivered = false;
-                if snapin_core::AppPaths::write_secure_file(&raw_path, item.pixmap.data()).is_ok() {
+
+                if raw_written {
                     let req = snapin_daemon::DaemonRequest::CreatePaster {
                         width: item.pixmap.width(),
                         height: item.pixmap.height(),
@@ -168,20 +173,29 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode, delay_seconds: u32) -
                     if let Ok(true) = snapin_daemon::send_command_to_daemon(&req).await {
                         tracing::info!("已成功通过零序列化膨胀安全路径移交常驻集中贴图工作区展示");
                         delivered = true;
-                    } else {
-                        let _ = std::fs::remove_file(&raw_path);
                     }
                 }
 
                 if !delivered {
-                    tracing::info!("未检测到常驻守护服务，就地启动集中贴图工作区");
-                    tokio::task::spawn_blocking(move || {
-                        if let Err(e) = snapin_ui::paster::spawn_paster_window(item) {
-                            tracing::error!("贴图工作区运行异常: {e}");
+                    if raw_written {
+                        tracing::info!("未检测到常驻守护服务，改由独立进程启动集中贴图工作区");
+                        if let Err(error) = spawn_detached_paster(&raw_path, item.position) {
+                            let _ = std::fs::remove_file(&raw_path);
+                            tracing::error!("启动独立贴图进程失败: {error:#}");
+                            let _ = send_desktop_notification(
+                                "Snapin 贴图失败",
+                                "无法启动独立贴图进程，详情请查看运行日志",
+                            )
+                            .await;
                         }
-                    })
-                    .await
-                    .context("调度本地贴图工作区失败")?;
+                    } else {
+                        tracing::error!("贴图像素临时文件写入失败，无法生成贴图");
+                        let _ = send_desktop_notification(
+                            "Snapin 贴图失败",
+                            "贴图像素临时文件写入失败，请检查临时目录权限与磁盘空间",
+                        )
+                        .await;
+                    }
                 }
             }
             SnipperOutcome::Cancelled => {
@@ -190,5 +204,30 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode, delay_seconds: u32) -
         }
     }
 
+    Ok(())
+}
+
+/// 派生独立的 `snapin pin-file` 子进程完成一次性贴图。
+///
+/// winit 0.29 通过进程级静态标志限制 `EventLoop` 每进程只能创建一次，而截图会话已经
+/// 占用了该名额；守护进程缺席时若仍在本进程创建贴图工作区，必然返回
+/// `EventLoop can't be recreated`。因此必须把像素文件交给全新进程，由它复用
+/// `pin-file` 既有的守护进程 IPC 与本地贴图回退逻辑，并在贴图关闭后自行退出。
+/// 父进程不等待子进程，避免每个贴图都长期占用一个截图进程的内存。
+fn spawn_detached_paster(raw_path: &Path, position: (i32, i32)) -> Result<()> {
+    let exe = std::env::current_exe().context("获取当前可执行文件路径失败")?;
+    Command::new(&exe)
+        .arg("pin-file")
+        .arg(raw_path)
+        .arg(position.0.to_string())
+        .arg(position.1.to_string())
+        .spawn()
+        .with_context(|| {
+            format!(
+                "启动独立贴图进程失败，可执行文件: {}，像素文件: {}",
+                exe.display(),
+                raw_path.display()
+            )
+        })?;
     Ok(())
 }
