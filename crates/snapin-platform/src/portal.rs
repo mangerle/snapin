@@ -6,6 +6,7 @@
 use crate::error::PlatformError;
 use ashpd::desktop::file_chooser::{FileFilter, SelectedFiles};
 use ashpd::desktop::screenshot::Screenshot;
+use ashpd::desktop::ResponseError;
 use image::RgbaImage;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -110,16 +111,25 @@ pub async fn pick_save_path(
         None => request,
     };
 
-    let files = request
+    let response = request
         .send()
         .await
         .map_err(|error| PlatformError::Portal {
             message: format!("请求系统保存对话框失败: {error}"),
         })?
-        .response()
-        .map_err(|error| PlatformError::Portal {
-            message: format!("等待保存对话框结果失败: {error}"),
-        })?;
+        .response();
+
+    // Portal 将用户关闭对话框视为请求被取消而非故障，必须与真实错误区分：
+    // 取消是正常用户操作，调用方据此保留当前界面而不提示保存失败。
+    let files = match response {
+        Ok(files) => files,
+        Err(ashpd::Error::Response(ResponseError::Cancelled)) => return Ok(None),
+        Err(error) => {
+            return Err(PlatformError::Portal {
+                message: format!("等待保存对话框结果失败: {error}"),
+            })
+        }
+    };
 
     let Some(uri) = files.uris().first() else {
         return Ok(None);
