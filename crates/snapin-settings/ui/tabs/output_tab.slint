@@ -11,6 +11,7 @@ export component OutputTab inherits VerticalLayout {
     in-out property <float> jpeg_quality: 90;    // 10 ~ 100
     in-out property <bool> notify_on_copy: false;
     in-out property <bool> notify_on_save: true;
+    in-out property <bool> prompt_save_path: false;
 
     SettingCard {
         title: "文件存储与自动命名";
@@ -18,6 +19,14 @@ export component OutputTab inherits VerticalLayout {
 
         VerticalLayout {
             spacing: 14px;
+
+            AppSwitch {
+                title: "保存截图时弹出文件保存对话框";
+                subtitle: "开启后点击保存可自选目录与文件名；关闭则直接保存到下方默认文件夹";
+                checked <=> root.prompt_save_path;
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
 
             VerticalLayout {
                 spacing: 6px;

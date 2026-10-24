@@ -8,13 +8,16 @@ use super::types::SnipperOutcome;
 use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::{TranslationAction, TranslationShapeItem};
 use snapin_core::config::{Config, CoverMode};
-use snapin_platform::{save_image_with_config, write_image_to_clipboard, write_text_to_clipboard};
+use snapin_platform::{
+    pick_save_path, resolve_save_path, save_image_to_path, save_image_with_config,
+    write_image_to_clipboard, write_text_to_clipboard,
+};
 use snapin_service::ocr::{
     estimate_dominant_background_color, get_contrasting_text_color, LocalPpOcrEngine, OcrEngine,
     OcrResult, OcrTextBlock,
 };
 use snapin_service::{create_translator, ServiceTranslateProvider, Translator, TranslatorOptions};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use tokio::runtime::Handle;
 use tokio::task::AbortHandle;
@@ -56,9 +59,11 @@ pub enum SnipperJobOutcome {
     Ocr(OcrResult),
     Translate(Vec<TranslationShapeItem>),
     Saved {
-        path: std::path::PathBuf,
+        path: PathBuf,
         image: image::RgbaImage,
     },
+    /// 用户在保存对话框中主动取消，截图会话应继续保留
+    SaveCancelled,
     Failed {
         kind: SnipperJobKind,
         message: String,
@@ -188,25 +193,7 @@ async fn execute_job(services: Arc<AppServices>, job: SnipperJob) -> SnipperJobO
                 },
             }
         }
-        SnipperJobKind::Save => {
-            let config = services.config.clone();
-            let result = tokio::task::spawn_blocking(move || {
-                save_with_fallback(&job.image, &config).map(|path| (path, job.image))
-            })
-            .await;
-
-            match result {
-                Ok(Ok((path, image))) => SnipperJobOutcome::Saved { path, image },
-                Ok(Err(message)) => SnipperJobOutcome::Failed {
-                    kind: SnipperJobKind::Save,
-                    message,
-                },
-                Err(error) => SnipperJobOutcome::Failed {
-                    kind: SnipperJobKind::Save,
-                    message: format!("保存任务异常: {error}"),
-                },
-            }
-        }
+        SnipperJobKind::Save => execute_save_job(services, job).await,
         SnipperJobKind::Translate => {
             let SnipperJob {
                 image,
@@ -278,6 +265,68 @@ async fn execute_job(services: Arc<AppServices>, job: SnipperJob) -> SnipperJobO
             }
         }
     }
+}
+
+/// 执行截图保存：直接写入默认目录，或先经系统对话框确认目标路径。
+///
+/// 对话框必须异步打开，编码落盘则放入阻塞线程池，避免阻塞事件循环。
+async fn execute_save_job(services: Arc<AppServices>, job: SnipperJob) -> SnipperJobOutcome {
+    let config = services.config.clone();
+    let chosen_path = if config.output.prompt_save_path {
+        match pick_save_target(&config).await {
+            Ok(Some(path)) => Some(path),
+            Ok(None) => return SnipperJobOutcome::SaveCancelled,
+            Err(message) => {
+                return SnipperJobOutcome::Failed {
+                    kind: SnipperJobKind::Save,
+                    message,
+                }
+            }
+        }
+    } else {
+        None
+    };
+
+    let image = job.image;
+    let result = tokio::task::spawn_blocking(move || match chosen_path {
+        Some(path) => save_image_to_path(&image, &path, &config.output)
+            .map(|saved| (saved, image))
+            .map_err(|error| format!("保存到所选路径失败: {error}")),
+        None => save_with_fallback(&image, &config).map(|saved| (saved, image)),
+    })
+    .await;
+
+    match result {
+        Ok(Ok((path, image))) => SnipperJobOutcome::Saved { path, image },
+        Ok(Err(message)) => SnipperJobOutcome::Failed {
+            kind: SnipperJobKind::Save,
+            message,
+        },
+        Err(error) => SnipperJobOutcome::Failed {
+            kind: SnipperJobKind::Save,
+            message: format!("保存任务异常: {error}"),
+        },
+    }
+}
+
+/// 弹出系统保存对话框，建议文件名与初始目录沿用快捷保存配置。
+///
+/// 返回 `Ok(None)` 表示用户主动取消；只有确认路径后才编码落盘，取消时不会留下无主文件。
+async fn pick_save_target(config: &Config) -> Result<Option<PathBuf>, String> {
+    let suggested = resolve_save_path(&config.output);
+    let suggested_name = suggested
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("snapin.png")
+        .to_string();
+    let current_folder = suggested
+        .parent()
+        .filter(|folder| folder.is_absolute())
+        .map(Path::to_path_buf);
+
+    pick_save_path(&suggested_name, current_folder.as_deref())
+        .await
+        .map_err(|error| format!("打开保存对话框失败: {error}"))
 }
 
 /// 按用户配置保存截图；配置路径失败时降级保存到 Pictures 目录。
@@ -391,6 +440,9 @@ pub fn handle_job_outcome(state: &mut SnipperState, outcome: SnipperJobOutcome) 
             }
             state.outcome = Some(SnipperOutcome::Saved(path));
         }
+        SnipperJobOutcome::SaveCancelled => {
+            state.set_status_message("已取消保存");
+        }
         SnipperJobOutcome::Failed { kind, message } => {
             tracing::warn!("{}后台任务失败: {message}", kind.label());
             state.set_status_message(format!("{}失败: {message}", kind.label()));
@@ -458,6 +510,14 @@ mod tests {
             Some(SnipperOutcome::Saved(saved_path)) => assert_eq!(saved_path, path),
             _ => panic!("保存成功必须返回 Saved 结果"),
         }
+    }
+
+    #[test]
+    fn test_handle_save_cancelled_keeps_session_open() {
+        let mut state = SnipperState::new();
+        handle_job_outcome(&mut state, SnipperJobOutcome::SaveCancelled);
+        assert!(state.outcome.is_none(), "取消保存不得结束截图会话");
+        assert_eq!(state.status_message.as_deref(), Some("已取消保存"));
     }
 
     #[test]

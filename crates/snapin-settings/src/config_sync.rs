@@ -65,6 +65,7 @@ fn sync_output_to_window(win: &SettingsWindow, o: &config::model::OutputConfig) 
     win.set_jpeg_quality(o.jpeg_quality as f32);
     win.set_notify_on_copy(o.notify_on_copy);
     win.set_notify_on_save(o.notify_on_save);
+    win.set_prompt_save_path(o.prompt_save_path);
 }
 
 /// 同步快捷键板块设置
@@ -148,6 +149,7 @@ fn extract_output_from_window(win: &SettingsWindow, o: &mut config::model::Outpu
     o.jpeg_quality = win.get_jpeg_quality() as u8;
     o.notify_on_copy = win.get_notify_on_copy();
     o.notify_on_save = win.get_notify_on_save();
+    o.prompt_save_path = win.get_prompt_save_path();
 }
 
 /// 提取快捷键设置。
@@ -253,6 +255,7 @@ mod tests {
         cfg.output.jpeg_quality = 82;
         cfg.output.notify_on_copy = true;
         cfg.output.notify_on_save = false;
+        cfg.output.prompt_save_path = true;
 
         cfg.ocr.local.model_dir = "/opt/models/ppocrv6".to_string();
 

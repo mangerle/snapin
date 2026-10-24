@@ -61,6 +61,7 @@ export component SettingsWindow inherits Window {
     in-out property <float> jpeg_quality: 90;
     in-out property <bool> notify_on_copy: false;
     in-out property <bool> notify_on_save: true;
+    in-out property <bool> prompt_save_path: false;
 
     // 6. 文字识别与翻译
     in-out property <string> ocr_model_dir: "";
@@ -269,6 +270,7 @@ export component SettingsWindow inherits Window {
                         jpeg_quality <=> root.jpeg_quality;
                         notify_on_copy <=> root.notify_on_copy;
                         notify_on_save <=> root.notify_on_save;
+                        prompt_save_path <=> root.prompt_save_path;
                     }
 
                     if root.active_tab == 5: OcrTab {

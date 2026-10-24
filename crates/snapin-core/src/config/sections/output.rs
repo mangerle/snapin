@@ -29,6 +29,13 @@ pub struct OutputConfig {
     /// 保存选区图片到文件后是否触发桌面系统通知
     #[serde(default)]
     pub notify_on_save: bool,
+
+    /// 截图保存时是否弹出系统文件保存对话框让用户选择位置。
+    ///
+    /// 关闭时直接写入 `quick_save_dir`（默认行为）；开启时每次点击保存都先
+    /// 经 XDG Portal 询问目标路径，便于按场景归档到不同目录。
+    #[serde(default)]
+    pub prompt_save_path: bool,
 }
 
 impl Default for OutputConfig {
@@ -40,6 +47,7 @@ impl Default for OutputConfig {
             jpeg_quality: default_jpeg_quality(),
             notify_on_copy: false,
             notify_on_save: false,
+            prompt_save_path: false,
         }
     }
 }
