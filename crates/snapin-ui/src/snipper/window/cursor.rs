@@ -40,11 +40,12 @@ fn desired_cursor_icon(state: &SnipperState) -> CursorIcon {
     }
 
     let (cx, cy) = (state.cursor_pos.0 as f32, state.cursor_pos.1 as f32);
-    if state.toolbar.active_tool.is_some() || state.toolbar.contains_point(cx, cy) {
+    if state.toolbar.contains_point(cx, cy) {
         return CursorIcon::Default;
     }
 
-    // 标注编辑优先于选区：已选中标注的手柄可拉伸，任意标注本体可整体拖动
+    // 标注编辑优先于选区与绘制：已选中标注的手柄可拉伸，任意标注本体可整体拖动；
+    // 即使标注工具处于激活态也保持可编辑提示
     if let Some(handle) = annotation_edit::hit_test_selected_handle(state, cx, cy) {
         return resize_cursor(handle);
     }
@@ -55,6 +56,14 @@ fn desired_cursor_icon(state: &SnipperState) -> CursorIcon {
     let tolerance = 8.0 * state.toolbar.ui_scale;
     if let Some(handle) = rect.hit_test_handle(cx, cy, tolerance) {
         return resize_cursor(handle);
+    }
+
+    if state.toolbar.active_tool.is_some() {
+        return if rect.contains(cx, cy) {
+            CursorIcon::Crosshair
+        } else {
+            CursorIcon::Default
+        };
     }
     if rect.contains(cx, cy) {
         return CursorIcon::Move;
@@ -147,7 +156,7 @@ mod tests {
             active_drag: None,
         };
         state.toolbar.active_tool = Some(crate::snipper::toolbar::ToolbarItem::ToolRect);
-        assert_eq!(desired_cursor_icon(&state), CursorIcon::Default);
+        assert_eq!(desired_cursor_icon(&state), CursorIcon::Crosshair);
     }
 
     /// 悬停已提交标注显示移动光标，选中后手柄显示方向缩放光标

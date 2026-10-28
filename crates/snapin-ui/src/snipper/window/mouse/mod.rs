@@ -185,31 +185,30 @@ fn handle_locked_press(
         return true;
     }
 
+    commit_active_text_input(state);
+
+    // 已提交标注的编辑优先于新建文本与新图元：画完标注后工具通常仍处于激活态，
+    // 此时点击已有标注应当先选中拖动，而不是被迫在它上面叠画新图元
+    if super::annotation_edit::handle_press(state, cx, cy) {
+        return true;
+    }
+
     if state.toolbar.active_tool == Some(ToolbarItem::ToolText) {
         return handle_text_tool_click(state, cx, cy);
     }
 
-    commit_active_text_input(state);
-
-    // 未激活标注工具时，优先编辑已提交的标注：已选中标注的手柄拉伸或整体拖动
-    if state.toolbar.active_tool.is_none() && super::annotation_edit::handle_press(state, cx, cy) {
-        return true;
-    }
-
-    // 未激活标注工具时，优先检测是否命中 8 个控制手柄中的任意一个进行微调缩放
-    if state.toolbar.active_tool.is_none() {
-        let handle_tolerance = 8.0 * state.toolbar.ui_scale;
-        if let Some(handle) = rect.hit_test_handle(cx, cy, handle_tolerance) {
-            super::annotation_edit::clear(state);
-            if let SelectionState::Locked {
-                ref mut active_drag,
-                ..
-            } = state.selection
-            {
-                *active_drag = Some(DragMode::Resize(handle));
-            }
-            return true;
+    // 选区控制手柄优先于继续绘制：工具激活时也允许随时调整选区大小
+    let handle_tolerance = 8.0 * state.toolbar.ui_scale;
+    if let Some(handle) = rect.hit_test_handle(cx, cy, handle_tolerance) {
+        super::annotation_edit::clear(state);
+        if let SelectionState::Locked {
+            ref mut active_drag,
+            ..
+        } = state.selection
+        {
+            *active_drag = Some(DragMode::Resize(handle));
         }
+        return true;
     }
 
     if rect.contains(cx, cy) {

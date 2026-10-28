@@ -63,13 +63,11 @@ pub fn hit_test_selected_handle(state: &SnipperState, cx: f32, cy: f32) -> Optio
 
 /// 处理左键按下：优先命中已选中标注的手柄，其次命中任意标注并开始整体拖动。
 ///
+/// 该判断不受标注工具激活状态影响：画完一个标注后工具通常仍处于激活态，
+/// 此时点击已有标注应当先选中并编辑，而不是在它上面叠画新图元。
 /// 返回 true 表示事件已被标注编辑消费；点击空白返回 false 并取消当前选中，
-/// 让选区移动与重新框选逻辑继续执行。
+/// 让选区移动、重新框选与继续绘制逻辑执行。
 pub fn handle_press(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
-    if state.toolbar.active_tool.is_some() {
-        return false;
-    }
-
     if let Some(handle) = hit_test_selected_handle(state, cx, cy) {
         let Some(index) = state.selected_annotation else {
             return false;
@@ -235,12 +233,16 @@ mod tests {
         assert!(state.annotation_drag.is_none());
     }
 
-    /// 激活标注工具时不得抢占画布拖动，避免影响继续绘制
+    /// 标注工具激活时仍应允许直接点击已有标注进入编辑，而不是强制先取消工具
     #[test]
-    fn test_active_tool_blocks_annotation_editing() {
+    fn test_active_tool_still_allows_annotation_editing() {
         let mut state = state_with_rect();
         state.toolbar.active_tool = Some(ToolbarItem::ToolPen);
-        assert!(!handle_press(&mut state, 150.0, 150.0));
-        assert!(state.selected_annotation.is_none());
+        assert!(handle_press(&mut state, 150.0, 150.0));
+        assert_eq!(state.selected_annotation, Some(0));
+        assert!(matches!(
+            state.annotation_drag,
+            Some(AnnotationDrag::Move { .. })
+        ));
     }
 }
