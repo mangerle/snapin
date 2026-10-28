@@ -11,6 +11,7 @@ use snapin_core::config::{Config, InterfaceConfig, SnipConfig};
 use snapin_platform::WindowRect;
 use std::sync::Arc;
 use winit::keyboard::ModifiersState;
+use winit::window::CursorIcon;
 
 /// 截图会话可变运行状态封装
 pub struct SnipperState {
@@ -28,6 +29,8 @@ pub struct SnipperState {
     pub cursor_pos: (f64, f64),
     /// 是否已收到首个光标位置；未就绪时不绘制跟随放大镜，避免左上角出现 (0,0) 占位框
     pub cursor_ready: bool,
+    /// 当前窗口光标形状；用于避免鼠标移动时重复提交相同的系统光标设置
+    pub cursor_icon: CursorIcon,
     pub modifiers: ModifiersState,
     pub pending_stroke_points: Vec<(f32, f32)>,
     pub active_text_input: Option<TextInputSession>,
@@ -57,6 +60,7 @@ impl SnipperState {
             annotations: AnnotationHistory::default(),
             cursor_pos: (0.0, 0.0),
             cursor_ready: false,
+            cursor_icon: CursorIcon::Default,
             modifiers: ModifiersState::default(),
             pending_stroke_points: Vec::with_capacity(64),
             active_text_input: None,

@@ -1,5 +1,6 @@
 //! 截图交互会话事件分发器：负责解析平台窗口事件并驱动状态流转与界面呈现。
 
+use super::cursor::refresh_cursor;
 use super::events::handle_key_input;
 use super::events::SnipperState;
 use super::jobs::SnipperUserEvent;
@@ -123,6 +124,9 @@ impl SnipperEventDispatcher {
             }
             _ => {}
         }
+
+        // 任意事件都可能改变选区、工具或光标位置，统一在此刷新系统光标形状
+        refresh_cursor(window, state);
     }
 
     /// 检查是否存在有效结果并安全退出事件循环

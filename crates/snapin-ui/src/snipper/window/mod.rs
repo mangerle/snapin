@@ -2,6 +2,7 @@
 
 pub mod actions;
 pub mod annotation_builder;
+pub mod cursor;
 pub mod drag_calculator;
 pub mod event_dispatcher;
 pub mod events;
