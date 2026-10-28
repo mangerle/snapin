@@ -1,6 +1,7 @@
 //! 矩形标注图元绘制实现。
 
-use crate::annotation::action::AnnotationAction;
+use super::{resize_rect, valid_rect};
+use crate::annotation::action::{AnnotationAction, ShapeRect};
 use crate::annotation::style::LineStyle;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Paint, Path, PathBuilder, PixmapMut, Transform};
@@ -55,6 +56,19 @@ impl AnnotationAction for RectAction {
 
     fn adjust_corner_radius(&mut self, radius: f32) {
         self.corner_radius = radius.clamp(0.0, 30.0);
+    }
+
+    fn bounds(&self) -> Option<ShapeRect> {
+        valid_rect(self.rect)
+    }
+
+    fn translate(&mut self, dx: f32, dy: f32) {
+        self.rect.0 += dx;
+        self.rect.1 += dy;
+    }
+
+    fn resize_from_bounds(&mut self, from: ShapeRect, to: ShapeRect) {
+        self.rect = resize_rect(from, to, self.rect);
     }
 }
 

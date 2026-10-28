@@ -10,6 +10,9 @@ use crate::annotation::shapes::{
 use serde::{Deserialize, Serialize};
 use tiny_skia::PixmapMut;
 
+/// 标注图元的轴对齐包围盒 (x, y, width, height)，单位像素
+pub type ShapeRect = (f32, f32, f32, f32);
+
 /// 单次矢量标注行为的 Trait 抽象
 pub trait AnnotationAction: Send + Sync {
     /// 执行带坐标偏移量的绘制（在全屏绘制时 offset 为 0，局部裁剪时 offset 为 -crop_x, -crop_y）
@@ -25,6 +28,22 @@ pub trait AnnotationAction: Send + Sync {
 
     /// 动态调节矩形圆角半径；非矩形图元默认忽略
     fn adjust_corner_radius(&mut self, _radius: f32) {}
+
+    /// 返回图元的轴对齐包围盒；没有有效几何（空文本、退化线段等）时返回 None
+    fn bounds(&self) -> Option<ShapeRect>;
+
+    /// 整体平移图元
+    fn translate(&mut self, dx: f32, dy: f32);
+
+    /// 按包围盒映射缩放图元：`from` 为拖拽开始时的包围盒，`to` 为手柄拖拽后的新包围盒。
+    ///
+    /// 每次拖拽都基于原始形状与原始包围盒重新计算，避免逐帧累积缩放误差。
+    fn resize_from_bounds(&mut self, _from: ShapeRect, _to: ShapeRect) {}
+
+    /// 是否允许通过包围盒手柄拉伸缩放；复合图元（原位翻译块）只支持整体移动
+    fn supports_resize(&self) -> bool {
+        true
+    }
 }
 
 /// 所有支持的闭合矢量标注图元枚举 (代数数据类型，天然支持无堆分配存储、值拷贝与 Serde 序列化)
@@ -87,6 +106,74 @@ impl AnnotationShape {
             Self::Badge(a) => a.adjust_size(stroke_w, font_sz),
             Self::Text(a) => a.adjust_size(stroke_w, font_sz),
             Self::Translation(a) => a.adjust_size(stroke_w, font_sz),
+        }
+    }
+
+    /// 返回图元的轴对齐包围盒
+    pub fn bounds(&self) -> Option<ShapeRect> {
+        match self {
+            Self::Rect(a) => a.bounds(),
+            Self::Ellipse(a) => a.bounds(),
+            Self::Arrow(a) => a.bounds(),
+            Self::Pen(a) => a.bounds(),
+            Self::Marker(a) => a.bounds(),
+            Self::Mosaic(a) => a.bounds(),
+            Self::Blur(a) => a.bounds(),
+            Self::Spotlight(a) => a.bounds(),
+            Self::Badge(a) => a.bounds(),
+            Self::Text(a) => a.bounds(),
+            Self::Translation(a) => a.bounds(),
+        }
+    }
+
+    /// 整体平移图元
+    pub fn translate(&mut self, dx: f32, dy: f32) {
+        match self {
+            Self::Rect(a) => a.translate(dx, dy),
+            Self::Ellipse(a) => a.translate(dx, dy),
+            Self::Arrow(a) => a.translate(dx, dy),
+            Self::Pen(a) => a.translate(dx, dy),
+            Self::Marker(a) => a.translate(dx, dy),
+            Self::Mosaic(a) => a.translate(dx, dy),
+            Self::Blur(a) => a.translate(dx, dy),
+            Self::Spotlight(a) => a.translate(dx, dy),
+            Self::Badge(a) => a.translate(dx, dy),
+            Self::Text(a) => a.translate(dx, dy),
+            Self::Translation(a) => a.translate(dx, dy),
+        }
+    }
+
+    /// 按包围盒映射缩放图元
+    pub fn resize_from_bounds(&mut self, from: ShapeRect, to: ShapeRect) {
+        match self {
+            Self::Rect(a) => a.resize_from_bounds(from, to),
+            Self::Ellipse(a) => a.resize_from_bounds(from, to),
+            Self::Arrow(a) => a.resize_from_bounds(from, to),
+            Self::Pen(a) => a.resize_from_bounds(from, to),
+            Self::Marker(a) => a.resize_from_bounds(from, to),
+            Self::Mosaic(a) => a.resize_from_bounds(from, to),
+            Self::Blur(a) => a.resize_from_bounds(from, to),
+            Self::Spotlight(a) => a.resize_from_bounds(from, to),
+            Self::Badge(a) => a.resize_from_bounds(from, to),
+            Self::Text(a) => a.resize_from_bounds(from, to),
+            Self::Translation(a) => a.resize_from_bounds(from, to),
+        }
+    }
+
+    /// 是否允许通过包围盒手柄拉伸缩放
+    pub fn supports_resize(&self) -> bool {
+        match self {
+            Self::Rect(a) => a.supports_resize(),
+            Self::Ellipse(a) => a.supports_resize(),
+            Self::Arrow(a) => a.supports_resize(),
+            Self::Pen(a) => a.supports_resize(),
+            Self::Marker(a) => a.supports_resize(),
+            Self::Mosaic(a) => a.supports_resize(),
+            Self::Blur(a) => a.supports_resize(),
+            Self::Spotlight(a) => a.supports_resize(),
+            Self::Badge(a) => a.supports_resize(),
+            Self::Text(a) => a.supports_resize(),
+            Self::Translation(a) => a.supports_resize(),
         }
     }
 }
@@ -212,6 +299,44 @@ impl AnnotationHistory {
     /// 获取撤销栈切片借用
     pub fn undo_stack(&self) -> &[AnnotationShape] {
         &self.undo_stack
+    }
+
+    /// 从顶层向下命中测试标注图元，返回第一个包围盒包含该点的索引。
+    ///
+    /// 采用包围盒判定而非逐像素判定：编辑手柄本身留有余量，包围盒命中已足够，
+    /// 同时避免对画笔、马赛克等复杂图元反复光栅化。
+    pub fn hit_test(&self, point: (f32, f32)) -> Option<usize> {
+        self.undo_stack
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(index, shape)| {
+                let (x, y, w, h) = shape.bounds()?;
+                let inside = point.0 >= x && point.0 <= x + w && point.1 >= y && point.1 <= y + h;
+                inside.then_some(index)
+            })
+    }
+
+    /// 获取指定索引图元的包围盒
+    pub fn bounds_at(&self, index: usize) -> Option<ShapeRect> {
+        self.undo_stack.get(index)?.bounds()
+    }
+
+    /// 获取指定索引图元的不可变借用
+    pub fn shape_at(&self, index: usize) -> Option<&AnnotationShape> {
+        self.undo_stack.get(index)
+    }
+
+    /// 用编辑后的图元替换指定索引；索引越界返回 false。
+    ///
+    /// 编辑不进入撤销栈：用户拖拽标注的过程中可能产生成百次中间状态，
+    /// 只有最终落定结果保留在历史栈中，撤销语义仍是“撤销整次标注绘制”。
+    pub fn replace(&mut self, index: usize, shape: AnnotationShape) -> bool {
+        let Some(slot) = self.undo_stack.get_mut(index) else {
+            return false;
+        };
+        *slot = shape;
+        true
     }
 
     /// 清空所有标注历史
@@ -434,5 +559,146 @@ mod tests {
         assert!(!history.can_undo());
         assert!(history.redo());
         assert!(history.can_undo());
+    }
+
+    /// 各类图元的包围盒、平移与按包围盒缩放必须正确生效
+    #[test]
+    fn test_shape_geometry_editing() {
+        use crate::annotation::shapes::{ArrowAction, BadgeAction, PenAction, TextAction};
+        use crate::annotation::style::{ArrowStyle, BadgeStyle};
+
+        let mut rect = AnnotationShape::Rect(RectAction {
+            rect: (10.0, 20.0, 100.0, 80.0),
+            color: (255, 0, 0, 255),
+            stroke_width: 2.0,
+            is_filled: false,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
+        });
+        assert_eq!(rect.bounds(), Some((10.0, 20.0, 100.0, 80.0)));
+        rect.translate(5.0, -5.0);
+        assert_eq!(rect.bounds(), Some((15.0, 15.0, 100.0, 80.0)));
+        rect.resize_from_bounds((15.0, 15.0, 100.0, 80.0), (0.0, 0.0, 200.0, 160.0));
+        assert_eq!(rect.bounds(), Some((0.0, 0.0, 200.0, 160.0)));
+
+        // 箭头按包围盒线性映射起终点
+        let mut arrow = AnnotationShape::Arrow(ArrowAction {
+            start: (0.0, 0.0),
+            end: (100.0, 50.0),
+            color: (255, 0, 0, 255),
+            stroke_width: 2.0,
+            style: ArrowStyle::Solid,
+        });
+        arrow.resize_from_bounds((0.0, 0.0, 100.0, 50.0), (0.0, 0.0, 200.0, 100.0));
+        match arrow {
+            AnnotationShape::Arrow(a) => {
+                assert_eq!(a.start, (0.0, 0.0));
+                assert_eq!(a.end, (200.0, 100.0));
+            }
+            _ => panic!("预期箭头图元"),
+        }
+
+        // 画笔点集整体平移
+        let mut pen = AnnotationShape::Pen(PenAction {
+            points: vec![(0.0, 0.0), (10.0, 10.0)],
+            color: (255, 0, 0, 255),
+            stroke_width: 2.0,
+        });
+        pen.translate(5.0, 5.0);
+        match pen {
+            AnnotationShape::Pen(p) => assert_eq!(p.points, vec![(5.0, 5.0), (15.0, 15.0)]),
+            _ => panic!("预期画笔图元"),
+        }
+
+        // 序号半径按包围盒平均比例缩放
+        let mut badge = AnnotationShape::Badge(BadgeAction {
+            center: (50.0, 50.0),
+            number: 1,
+            color: (0, 128, 255, 255),
+            radius: 10.0,
+            style: BadgeStyle::Filled,
+        });
+        badge.resize_from_bounds((40.0, 40.0, 20.0, 20.0), (30.0, 30.0, 40.0, 40.0));
+        match badge {
+            AnnotationShape::Badge(b) => {
+                assert_eq!(b.center, (50.0, 50.0));
+                assert_eq!(b.radius, 20.0);
+            }
+            _ => panic!("预期序号图元"),
+        }
+
+        // 文本按高度比例缩放字号
+        let mut text = AnnotationShape::Text(TextAction {
+            pos: (10.0, 20.0),
+            text: "说明".to_string(),
+            color: (0, 0, 0, 255),
+            font_size: 16.0,
+        });
+        assert_eq!(text.bounds(), Some((10.0, 20.0, 32.0, 20.0)));
+        text.resize_from_bounds((10.0, 20.0, 32.0, 20.0), (0.0, 0.0, 64.0, 40.0));
+        match text {
+            AnnotationShape::Text(t) => {
+                assert_eq!(t.pos, (0.0, 0.0));
+                assert_eq!(t.font_size, 32.0);
+            }
+            _ => panic!("预期文本图元"),
+        }
+    }
+
+    /// 命中测试必须优先返回更靠上（后绘制）的标注
+    #[test]
+    fn test_hit_test_prefers_topmost_shape() {
+        use crate::annotation::shapes::EllipseAction;
+
+        let mut history = AnnotationHistory::default();
+        history.push(AnnotationShape::Rect(RectAction {
+            rect: (100.0, 100.0, 100.0, 100.0),
+            color: (255, 0, 0, 255),
+            stroke_width: 1.0,
+            is_filled: false,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
+        }));
+        history.push(AnnotationShape::Ellipse(EllipseAction {
+            rect: (120.0, 120.0, 50.0, 50.0),
+            color: (0, 255, 0, 255),
+            stroke_width: 1.0,
+            is_filled: false,
+            line_style: LineStyle::Solid,
+        }));
+
+        assert_eq!(history.hit_test((130.0, 130.0)), Some(1));
+        assert_eq!(history.hit_test((110.0, 110.0)), Some(0));
+        assert_eq!(history.hit_test((500.0, 500.0)), None);
+    }
+
+    /// 编辑替换必须只改动目标索引，并拒绝越界索引
+    #[test]
+    fn test_replace_shape_at_index() {
+        let mut history = AnnotationHistory::default();
+        history.push(AnnotationShape::Rect(RectAction {
+            rect: (0.0, 0.0, 10.0, 10.0),
+            color: (255, 0, 0, 255),
+            stroke_width: 1.0,
+            is_filled: false,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
+        }));
+
+        let mut moved = history.shape_at(0).expect("索引 0 必须存在").clone();
+        moved.translate(5.0, 5.0);
+        assert!(history.replace(0, moved));
+        assert_eq!(history.bounds_at(0), Some((5.0, 5.0, 10.0, 10.0)));
+        assert!(!history.replace(
+            9,
+            AnnotationShape::Rect(RectAction {
+                rect: (0.0, 0.0, 1.0, 1.0),
+                color: (255, 0, 0, 255),
+                stroke_width: 1.0,
+                is_filled: false,
+                corner_radius: 0.0,
+                line_style: LineStyle::Solid,
+            })
+        ));
     }
 }

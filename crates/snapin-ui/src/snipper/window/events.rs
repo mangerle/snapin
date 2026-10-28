@@ -35,9 +35,11 @@ pub fn handle_key_input(
             false
         }
         Key::Character(c) if c.eq_ignore_ascii_case("z") && state.modifiers.control_key() => {
+            super::annotation_edit::clear(state);
             state.annotations.undo()
         }
         Key::Character(c) if c.eq_ignore_ascii_case("y") && state.modifiers.control_key() => {
+            super::annotation_edit::clear(state);
             state.annotations.redo()
         }
         Key::Character(c) if c.eq_ignore_ascii_case("c") && state.modifiers.control_key() => {
@@ -103,7 +105,7 @@ fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
     }
 }
 
-/// 逐级退出处理 (先提交文本 -> 再收起二级栏/工具 -> 再取消选区 -> 再退出窗口)
+/// 逐级退出处理 (先提交文本 -> 再收起二级栏/工具 -> 再取消标注选中 -> 再取消选区 -> 再退出窗口)
 pub fn handle_escape(state: &mut SnipperState) -> bool {
     if state.active_text_input.is_some() {
         commit_active_text_input(state);
@@ -111,8 +113,13 @@ pub fn handle_escape(state: &mut SnipperState) -> bool {
     } else if state.toolbar.active_tool.is_some() {
         state.toolbar.active_tool = None;
         state.toolbar.sub_rect = None;
+        super::annotation_edit::clear(state);
+        true
+    } else if state.selected_annotation.is_some() {
+        super::annotation_edit::clear(state);
         true
     } else if matches!(state.selection, SelectionState::Locked { .. }) {
+        super::annotation_edit::clear(state);
         state.selection = SelectionState::Idle;
         true
     } else {
@@ -133,6 +140,7 @@ fn handle_copy_hex_color(state: &SnipperState, img: &RgbaImage) {
 /// 历史选区回溯向后
 fn handle_history_back(state: &mut SnipperState, img: &RgbaImage) -> bool {
     if let Some(r) = state.history.previous_history() {
+        super::annotation_edit::clear(state);
         state.selection = SelectionState::Locked {
             rect: r,
             active_drag: None,
@@ -149,6 +157,7 @@ fn handle_history_back(state: &mut SnipperState, img: &RgbaImage) -> bool {
 /// 历史选区回溯向前
 fn handle_history_forward(state: &mut SnipperState, img: &RgbaImage) -> bool {
     if let Some(r) = state.history.next_history() {
+        super::annotation_edit::clear(state);
         state.selection = SelectionState::Locked {
             rect: r,
             active_drag: None,

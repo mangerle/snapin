@@ -1,5 +1,6 @@
 //! 截图交互会话状态机模型与配置初始化。
 
+use super::annotation_edit::AnnotationDrag;
 use super::jobs::{SnipperJobDispatcher, SnipperJobKind};
 use super::text_input::TextInputSession;
 use super::types::{SnipMode, SnipperOutcome};
@@ -34,6 +35,10 @@ pub struct SnipperState {
     pub modifiers: ModifiersState,
     pub pending_stroke_points: Vec<(f32, f32)>,
     pub active_text_input: Option<TextInputSession>,
+    /// 当前选中的已提交标注在历史栈中的索引
+    pub selected_annotation: Option<usize>,
+    /// 标注拖动或手柄拉伸会话
+    pub annotation_drag: Option<AnnotationDrag>,
     pub outcome: Option<SnipperOutcome>,
     /// 操作失败或空结果提示（显示在画布顶部，下一次操作时清除）
     pub status_message: Option<String>,
@@ -64,6 +69,8 @@ impl SnipperState {
             modifiers: ModifiersState::default(),
             pending_stroke_points: Vec::with_capacity(64),
             active_text_input: None,
+            selected_annotation: None,
+            annotation_drag: None,
             outcome: None,
             status_message: None,
             job_dispatcher: None,

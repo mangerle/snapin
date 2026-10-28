@@ -1,7 +1,7 @@
 //! 截图全屏窗口呈现器与底层双缓冲光栅化表面管理。
 
 use crate::error::UiError;
-use crate::snipper::canvas::SnipperCanvas;
+use crate::snipper::canvas::{SelectedAnnotation, SnipperCanvas};
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::window::events::SnipperState;
@@ -311,6 +311,7 @@ impl SnipperPresenter {
             pending_stroke,
             active_text_input: state.active_text_input.as_ref(),
             status_message: state.status_message.as_deref(),
+            selected_annotation: selected_annotation_view(state),
         }
     }
 
@@ -352,6 +353,18 @@ fn magnifier_signature(magnifier: &Magnifier) -> MagnifierSignature {
         magnifier.show_grid,
         magnifier.ui_scale,
     )
+}
+
+/// 仅在选择器锁定状态下构建选中标注的编辑框视图。
+fn selected_annotation_view(state: &SnipperState) -> Option<SelectedAnnotation> {
+    if !matches!(state.selection, SelectionState::Locked { .. }) {
+        return None;
+    }
+    let rect = super::annotation_edit::selected_bounds(state)?;
+    Some(SelectedAnnotation {
+        rect,
+        resizable: super::annotation_edit::selected_supports_resize(state),
+    })
 }
 
 /// 将浮点矩形向外取整为像素包围盒，并裁剪到画布范围。

@@ -1,6 +1,7 @@
 //! 步骤数字序号气泡标号图元绘制实现。
 
-use crate::annotation::action::AnnotationAction;
+use super::map_point;
+use crate::annotation::action::{AnnotationAction, ShapeRect};
 use crate::annotation::style::BadgeStyle;
 use crate::render::with_thread_local_text_renderer;
 use serde::{Deserialize, Serialize};
@@ -83,6 +84,31 @@ impl AnnotationAction for BadgeAction {
 
     fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
         self.radius = (stroke_w * 3.0).clamp(10.0, 48.0);
+    }
+
+    fn bounds(&self) -> Option<ShapeRect> {
+        let r = self.radius.max(1.0);
+        Some((self.center.0 - r, self.center.1 - r, r * 2.0, r * 2.0))
+    }
+
+    fn translate(&mut self, dx: f32, dy: f32) {
+        self.center.0 += dx;
+        self.center.1 += dy;
+    }
+
+    fn resize_from_bounds(&mut self, from: ShapeRect, to: ShapeRect) {
+        self.center = map_point(from, to, self.center);
+        let sx = if from.2.abs() > f32::EPSILON {
+            to.2 / from.2
+        } else {
+            1.0
+        };
+        let sy = if from.3.abs() > f32::EPSILON {
+            to.3 / from.3
+        } else {
+            1.0
+        };
+        self.radius = (self.radius * (sx + sy) * 0.5).clamp(6.0, 512.0);
     }
 }
 

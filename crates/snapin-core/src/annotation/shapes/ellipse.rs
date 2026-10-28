@@ -1,6 +1,7 @@
 //! 椭圆与圆形标注图元绘制实现。
 
-use crate::annotation::action::AnnotationAction;
+use super::{resize_rect, valid_rect};
+use crate::annotation::action::{AnnotationAction, ShapeRect};
 use crate::annotation::style::LineStyle;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Rect as SkiaRect, Transform};
@@ -45,5 +46,18 @@ impl AnnotationAction for EllipseAction {
 
     fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
         self.stroke_width = stroke_w;
+    }
+
+    fn bounds(&self) -> Option<ShapeRect> {
+        valid_rect(self.rect)
+    }
+
+    fn translate(&mut self, dx: f32, dy: f32) {
+        self.rect.0 += dx;
+        self.rect.1 += dy;
+    }
+
+    fn resize_from_bounds(&mut self, from: ShapeRect, to: ShapeRect) {
+        self.rect = resize_rect(from, to, self.rect);
     }
 }

@@ -23,6 +23,11 @@ pub fn handle_cursor_move(
     state.cursor_ready = true;
     let (cx, cy) = (pos.0 as f32, pos.1 as f32);
 
+    // 标注编辑拖拽优先于选区与工具栏悬停处理
+    if state.annotation_drag.is_some() {
+        return super::annotation_edit::handle_drag_move(state, cx, cy);
+    }
+
     match &mut state.selection {
         SelectionState::Idle => {
             let hovered = window_at((cx, cy), &state.window_rects);
@@ -151,6 +156,7 @@ fn handle_left_press(
 
     if matches!(state.selection, SelectionState::Idle) {
         state.press_window = state.hovered_window;
+        super::annotation_edit::clear(state);
         state.selection = SelectionState::Creating {
             start: (cx, cy),
             current: (cx, cy),
@@ -172,6 +178,7 @@ fn handle_locked_press(
     // 优先检测是否点击在工具栏范围内，坚决拦截阻止事件穿透到画布
     if state.toolbar.contains_point(cx, cy) {
         commit_active_text_input(state);
+        super::annotation_edit::clear(state);
         if let Some(item) = state.toolbar.handle_click(cx, cy) {
             dispatch_toolbar_action(state, item, original_rgba);
         }
@@ -184,10 +191,16 @@ fn handle_locked_press(
 
     commit_active_text_input(state);
 
+    // 未激活标注工具时，优先编辑已提交的标注：已选中标注的手柄拉伸或整体拖动
+    if state.toolbar.active_tool.is_none() && super::annotation_edit::handle_press(state, cx, cy) {
+        return true;
+    }
+
     // 未激活标注工具时，优先检测是否命中 8 个控制手柄中的任意一个进行微调缩放
     if state.toolbar.active_tool.is_none() {
         let handle_tolerance = 8.0 * state.toolbar.ui_scale;
         if let Some(handle) = rect.hit_test_handle(cx, cy, handle_tolerance) {
+            super::annotation_edit::clear(state);
             if let SelectionState::Locked {
                 ref mut active_drag,
                 ..
@@ -201,10 +214,12 @@ fn handle_locked_press(
 
     if rect.contains(cx, cy) {
         if state.toolbar.active_tool.is_some() {
+            super::annotation_edit::clear(state);
             state.pending_stroke_points.clear();
             state.pending_stroke_points.push((cx, cy));
             return true;
         }
+        super::annotation_edit::clear(state);
         if let SelectionState::Locked {
             ref mut active_drag,
             ..
@@ -221,6 +236,7 @@ fn handle_locked_press(
     // 点击在已有选区外部：清除当前选区，允许重新框选
     state.toolbar.active_tool = None;
     state.pending_stroke_points.clear();
+    super::annotation_edit::clear(state);
     state.selection = SelectionState::Creating {
         start: (cx, cy),
         current: (cx, cy),
@@ -239,6 +255,11 @@ fn handle_left_release(
     let screen_h = original_rgba.height() as f32;
     let remember_selection = state.config.snip.remember_last_selection;
     let pressed_window = state.press_window.take();
+
+    // 标注拖动或手柄拉伸结束：编辑结果已实时写入历史栈，直接消费本次释放
+    if super::annotation_edit::handle_drag_release(state) {
+        return true;
+    }
 
     match &mut state.selection {
         SelectionState::Creating { start, current } => {

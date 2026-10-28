@@ -3,6 +3,7 @@
 //! 光标形状完全由当前选区状态与悬停位置推导：拖拽中固定显示操作对应的形状，
 //! 静止时按“工具栏 > 缩放手柄 > 选区内部”的优先级决定，避免拖拽过程中光标闪回箭头。
 
+use super::annotation_edit::{self, AnnotationDrag};
 use super::events::SnipperState;
 use crate::snipper::selection::{DragMode, ResizeHandle, SelectionState};
 use winit::window::{CursorIcon, Window};
@@ -25,6 +26,12 @@ fn desired_cursor_icon(state: &SnipperState) -> CursorIcon {
     };
 
     // 拖拽中始终显示当前操作对应的形状，避免光标在拖动过程中闪回箭头
+    if let Some(drag) = &state.annotation_drag {
+        return match drag {
+            AnnotationDrag::Move { .. } => CursorIcon::Move,
+            AnnotationDrag::Resize { handle, .. } => resize_cursor(*handle),
+        };
+    }
     if let Some(drag) = active_drag {
         return match drag {
             DragMode::Move { .. } => CursorIcon::Move,
@@ -35,6 +42,14 @@ fn desired_cursor_icon(state: &SnipperState) -> CursorIcon {
     let (cx, cy) = (state.cursor_pos.0 as f32, state.cursor_pos.1 as f32);
     if state.toolbar.active_tool.is_some() || state.toolbar.contains_point(cx, cy) {
         return CursorIcon::Default;
+    }
+
+    // 标注编辑优先于选区：已选中标注的手柄可拉伸，任意标注本体可整体拖动
+    if let Some(handle) = annotation_edit::hit_test_selected_handle(state, cx, cy) {
+        return resize_cursor(handle);
+    }
+    if state.annotations.hit_test((cx, cy)).is_some() {
+        return CursorIcon::Move;
     }
 
     let tolerance = 8.0 * state.toolbar.ui_scale;
@@ -132,6 +147,46 @@ mod tests {
             active_drag: None,
         };
         state.toolbar.active_tool = Some(crate::snipper::toolbar::ToolbarItem::ToolRect);
+        assert_eq!(desired_cursor_icon(&state), CursorIcon::Default);
+    }
+
+    /// 悬停已提交标注显示移动光标，选中后手柄显示方向缩放光标
+    #[test]
+    fn test_cursor_icon_for_annotation_editing() {
+        use snapin_core::annotation::shapes::RectAction;
+        use snapin_core::annotation::{AnnotationShape, LineStyle};
+
+        let mut state = SnipperState::new();
+        state.toolbar.ui_scale = 1.0;
+        state.selection = SelectionState::Locked {
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 800.0,
+                height: 600.0,
+            },
+            active_drag: None,
+        };
+        state.annotations.push(AnnotationShape::Rect(RectAction {
+            rect: (100.0, 100.0, 200.0, 120.0),
+            color: (255, 0, 0, 255),
+            stroke_width: 2.0,
+            is_filled: false,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
+        }));
+
+        state.cursor_pos = (150.0, 150.0);
+        assert_eq!(desired_cursor_icon(&state), CursorIcon::Move);
+
+        state.selected_annotation = Some(0);
+        state.cursor_pos = (300.0, 220.0);
+        assert_eq!(desired_cursor_icon(&state), CursorIcon::NwseResize);
+
+        // 远离标注且移到选区外时恢复默认；选区内空白处保持移动光标
+        state.cursor_pos = (600.0, 500.0);
+        assert_eq!(desired_cursor_icon(&state), CursorIcon::Move);
+        state.cursor_pos = (850.0, 650.0);
         assert_eq!(desired_cursor_icon(&state), CursorIcon::Default);
     }
 }

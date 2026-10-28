@@ -1,6 +1,7 @@
 //! 文本标注图元绘制实现。
 
-use crate::annotation::action::AnnotationAction;
+use super::{estimate_text_width, map_point};
+use crate::annotation::action::{AnnotationAction, ShapeRect};
 use crate::render::with_thread_local_text_renderer;
 use serde::{Deserialize, Serialize};
 use tiny_skia::PixmapMut;
@@ -30,5 +31,29 @@ impl AnnotationAction for TextAction {
 
     fn adjust_size(&mut self, _stroke_w: f32, font_sz: f32) {
         self.font_size = font_sz;
+    }
+
+    fn bounds(&self) -> Option<ShapeRect> {
+        if self.text.is_empty() {
+            return None;
+        }
+        let width = estimate_text_width(&self.text, self.font_size).max(1.0);
+        let height = (self.font_size * 1.25).max(1.0);
+        Some((self.pos.0, self.pos.1, width, height))
+    }
+
+    fn translate(&mut self, dx: f32, dy: f32) {
+        self.pos.0 += dx;
+        self.pos.1 += dy;
+    }
+
+    fn resize_from_bounds(&mut self, from: ShapeRect, to: ShapeRect) {
+        self.pos = map_point(from, to, self.pos);
+        let sy = if from.3.abs() > f32::EPSILON {
+            to.3 / from.3
+        } else {
+            1.0
+        };
+        self.font_size = (self.font_size * sy).clamp(8.0, 240.0);
     }
 }

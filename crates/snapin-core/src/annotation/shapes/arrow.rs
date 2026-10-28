@@ -3,7 +3,8 @@
 //! 箭头提供三种并列形态：实线箭杆、虚线箭杆、锥形填充箭杆（尾细头粗）。
 //! 三者在同一份几何基础上绘制，只在箭杆渲染方式上分叉。
 
-use crate::annotation::action::AnnotationAction;
+use super::map_point;
+use crate::annotation::action::{AnnotationAction, ShapeRect};
 use crate::annotation::style::{ArrowStyle, LineStyle};
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Transform};
@@ -172,6 +173,29 @@ impl AnnotationAction for ArrowAction {
 
     fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
         self.stroke_width = stroke_w;
+    }
+
+    fn bounds(&self) -> Option<ShapeRect> {
+        let min_x = self.start.0.min(self.end.0);
+        let min_y = self.start.1.min(self.end.1);
+        let width = (self.end.0 - self.start.0).abs();
+        let height = (self.end.1 - self.start.1).abs();
+        if width < f32::EPSILON && height < f32::EPSILON {
+            return None;
+        }
+        Some((min_x, min_y, width.max(1.0), height.max(1.0)))
+    }
+
+    fn translate(&mut self, dx: f32, dy: f32) {
+        self.start.0 += dx;
+        self.start.1 += dy;
+        self.end.0 += dx;
+        self.end.1 += dy;
+    }
+
+    fn resize_from_bounds(&mut self, from: ShapeRect, to: ShapeRect) {
+        self.start = map_point(from, to, self.start);
+        self.end = map_point(from, to, self.end);
     }
 }
 

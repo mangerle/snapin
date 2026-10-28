@@ -10,10 +10,21 @@ use crate::snipper::window::text_input::TextInputSession;
 use image::RgbaImage;
 use snapin_core::annotation::AnnotationHistory;
 use snapin_core::render::with_thread_local_text_renderer;
-use tiny_skia::{Paint, PathBuilder, Pixmap, PixmapMut, Rect as SkiaRect, Stroke, Transform};
+use tiny_skia::{
+    Paint, PathBuilder, Pixmap, PixmapMut, Rect as SkiaRect, Stroke, StrokeDash, Transform,
+};
 
 /// 正在拉伸绘制中的待提交标注笔触元数据 (工具类型, 轨迹点集合, 预设色值)
 pub type PendingStroke<'a> = (&'a ToolbarItem, &'a [(f32, f32)], u32);
+
+/// 选中标注的编辑框信息
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SelectedAnnotation {
+    /// 标注的轴对齐包围盒
+    pub rect: Rect,
+    /// 是否允许通过手柄拉伸（原位翻译块只允许整体移动）
+    pub resizable: bool,
+}
 
 /// 顶部状态提示框布局参数
 struct StatusLayout {
@@ -73,6 +84,8 @@ pub struct SnipperCanvas<'a> {
     pub pending_stroke: Option<PendingStroke<'a>>,
     pub active_text_input: Option<&'a TextInputSession>,
     pub status_message: Option<&'a str>,
+    /// 当前选中的已提交标注编辑框
+    pub selected_annotation: Option<SelectedAnnotation>,
 }
 
 impl<'a> SnipperCanvas<'a> {
@@ -116,6 +129,10 @@ impl<'a> SnipperCanvas<'a> {
                 }
 
                 self.render_selection_borders_and_handles(pixmap, &r);
+
+                if let Some(selected) = self.selected_annotation {
+                    self.render_annotation_selection(pixmap, &selected);
+                }
 
                 // 绘制工具栏 (若处于锁定状态且存在工具栏)
                 if matches!(self.selection, SelectionState::Locked { .. }) {
@@ -320,16 +337,7 @@ impl<'a> SnipperCanvas<'a> {
 
             // 绘制 8 个控制手柄 (4个角点 + 4条边中点，白色方块带主题描边)
             let handle_size = (6.0 * s).round().max(4.0);
-            let handles = [
-                (rect.x, rect.y),
-                (rect.x + rect.width / 2.0, rect.y),
-                (rect.x + rect.width, rect.y),
-                (rect.x + rect.width, rect.y + rect.height / 2.0),
-                (rect.x + rect.width, rect.y + rect.height),
-                (rect.x + rect.width / 2.0, rect.y + rect.height),
-                (rect.x, rect.y + rect.height),
-                (rect.x, rect.y + rect.height / 2.0),
-            ];
+            let handles = handle_positions(rect);
 
             let mut handle_paint = Paint::default();
             handle_paint.set_color_rgba8(255, 255, 255, 255);
@@ -379,4 +387,83 @@ impl<'a> SnipperCanvas<'a> {
             render_draft_preview(&params, pixmap);
         }
     }
+
+    /// 绘制已选中标注的编辑框：白色虚线包围盒与 8 个缩放手柄。
+    ///
+    /// 虚线样式用于与选区实线边框区分；不可拉伸的复合图元只绘制包围盒。
+    fn render_annotation_selection(&self, pixmap: &mut PixmapMut, selected: &SelectedAnnotation) {
+        let Some(skia_rect) = SkiaRect::from_xywh(
+            selected.rect.x,
+            selected.rect.y,
+            selected.rect.width,
+            selected.rect.height,
+        ) else {
+            return;
+        };
+        let s = self.ui_scale;
+
+        let mut dash_paint = Paint::default();
+        dash_paint.set_color_rgba8(255, 255, 255, 235);
+        let dash = Stroke {
+            width: (1.2 * s).max(1.0),
+            dash: StrokeDash::new(vec![6.0 * s, 4.0 * s], 0.0),
+            ..Default::default()
+        };
+        let mut pb = PathBuilder::new();
+        pb.push_rect(skia_rect);
+        if let Some(path) = pb.finish() {
+            pixmap.stroke_path(&path, &dash_paint, &dash, Transform::identity(), None);
+        }
+
+        if !selected.resizable {
+            return;
+        }
+
+        let handle_size = (6.0 * s).round().max(4.0);
+        let (ar, ag, ab) = self.accent_color;
+        let mut handle_paint = Paint::default();
+        handle_paint.set_color_rgba8(255, 255, 255, 255);
+        let mut handle_border_paint = Paint::default();
+        handle_border_paint.set_color_rgba8(ar, ag, ab, 255);
+        let handle_stroke = Stroke {
+            width: 1.0 * s,
+            ..Default::default()
+        };
+
+        for (cx, cy) in handle_positions(&selected.rect) {
+            if let Some(hr) = SkiaRect::from_xywh(
+                cx - handle_size / 2.0,
+                cy - handle_size / 2.0,
+                handle_size,
+                handle_size,
+            ) {
+                pixmap.fill_rect(hr, &handle_paint, Transform::identity(), None);
+                let mut b_pb = PathBuilder::new();
+                b_pb.push_rect(hr);
+                if let Some(bp) = b_pb.finish() {
+                    pixmap.stroke_path(
+                        &bp,
+                        &handle_border_paint,
+                        &handle_stroke,
+                        Transform::identity(),
+                        None,
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// 计算包围盒 8 个控制手柄的中心坐标 (4 个角点 + 4 条边中点)
+fn handle_positions(rect: &Rect) -> [(f32, f32); 8] {
+    [
+        (rect.x, rect.y),
+        (rect.x + rect.width / 2.0, rect.y),
+        (rect.x + rect.width, rect.y),
+        (rect.x + rect.width, rect.y + rect.height / 2.0),
+        (rect.x + rect.width, rect.y + rect.height),
+        (rect.x + rect.width / 2.0, rect.y + rect.height),
+        (rect.x, rect.y + rect.height),
+        (rect.x, rect.y + rect.height / 2.0),
+    ]
 }

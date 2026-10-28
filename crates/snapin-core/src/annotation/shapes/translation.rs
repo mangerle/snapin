@@ -1,6 +1,7 @@
 //! 截图原位翻译替换图元光栅化实现。
 
-use crate::annotation::action::AnnotationAction;
+use super::valid_rect;
+use crate::annotation::action::{AnnotationAction, ShapeRect};
 use crate::config::enums::CoverMode;
 use crate::render::with_thread_local_text_renderer;
 use serde::{Deserialize, Serialize};
@@ -130,6 +131,42 @@ impl AnnotationAction for TranslationAction {
         for item in &mut self.items {
             item.font_size = font_sz;
         }
+    }
+
+    fn bounds(&self) -> Option<ShapeRect> {
+        let mut min_x = f32::MAX;
+        let mut min_y = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut max_y = f32::MIN;
+        let mut found = false;
+        for item in &self.items {
+            let Some((x, y, w, h)) = valid_rect(item.rect) else {
+                continue;
+            };
+            found = true;
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x + w);
+            max_y = max_y.max(y + h);
+        }
+        found.then_some((
+            min_x,
+            min_y,
+            (max_x - min_x).max(1.0),
+            (max_y - min_y).max(1.0),
+        ))
+    }
+
+    fn translate(&mut self, dx: f32, dy: f32) {
+        for item in &mut self.items {
+            item.rect.0 += dx;
+            item.rect.1 += dy;
+        }
+    }
+
+    /// 原位翻译块由多个独立文本项组成，拉伸会破坏字号与覆盖区域的适配关系，只允许整体移动
+    fn supports_resize(&self) -> bool {
+        false
     }
 }
 
