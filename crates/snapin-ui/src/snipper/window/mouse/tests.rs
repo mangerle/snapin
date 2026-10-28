@@ -6,6 +6,41 @@ use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::RectAction;
 use snapin_core::annotation::LineStyle;
 
+/// 空闲态鼠标移动必须触发重绘，保证放大镜实时跟随光标
+#[test]
+fn test_idle_cursor_move_requests_redraw_for_magnifier() {
+    let mut state = SnipperState::new();
+    state.magnifier.enabled = true;
+
+    assert!(
+        handle_cursor_move(&mut state, (100.0, 100.0), 1920.0, 1080.0),
+        "首次移动必须请求重绘以显示放大镜"
+    );
+    assert!(state.cursor_ready);
+    assert_eq!(state.cursor_pos, (100.0, 100.0));
+
+    // 悬停区域未变化时仍要逐帧重绘，否则放大镜会停在旧位置
+    assert!(
+        handle_cursor_move(&mut state, (120.0, 80.0), 1920.0, 1080.0),
+        "光标移动必须持续请求重绘"
+    );
+}
+
+/// 放大镜禁用时空闲态移动无需重绘，避免无意义的整屏刷新
+#[test]
+fn test_idle_cursor_move_skips_redraw_without_magnifier() {
+    let mut state = SnipperState::new();
+    state.magnifier.enabled = false;
+
+    assert!(!handle_cursor_move(
+        &mut state,
+        (100.0, 100.0),
+        1920.0,
+        1080.0
+    ));
+    assert!(state.cursor_ready);
+}
+
 #[test]
 fn test_mouse_wheel_continuous_stroke_width_and_retroactive_adjust() {
     let mut state = SnipperState::new();

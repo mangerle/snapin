@@ -45,7 +45,6 @@ impl SnipperEventDispatcher {
                 let need_redraw = handle_cursor_move(
                     state,
                     (position.x, position.y),
-                    window,
                     screen_w as f32,
                     screen_h as f32,
                 );

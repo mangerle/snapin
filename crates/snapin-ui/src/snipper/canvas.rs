@@ -15,6 +15,46 @@ use tiny_skia::{Paint, PathBuilder, Pixmap, PixmapMut, Rect as SkiaRect, Stroke,
 /// 正在拉伸绘制中的待提交标注笔触元数据 (工具类型, 轨迹点集合, 预设色值)
 pub type PendingStroke<'a> = (&'a ToolbarItem, &'a [(f32, f32)], u32);
 
+/// 顶部状态提示框布局参数
+struct StatusLayout {
+    scale: f32,
+    box_x: f32,
+    box_y: f32,
+    box_w: f32,
+    box_h: f32,
+    padding_x: f32,
+    padding_y: f32,
+    font_size: f32,
+}
+
+/// 计算顶部状态提示框布局；[`SnipperCanvas::render_status_message`] 与脏区计算共用。
+fn status_layout(message: &str, canvas_w: u32, ui_scale: f32) -> StatusLayout {
+    let scale = ui_scale.max(0.5);
+    let font_size = 13.0 * scale;
+    let padding_x = 14.0 * scale;
+    let padding_y = 8.0 * scale;
+    let estimated_width = message
+        .chars()
+        .map(|ch| if ch.is_ascii() { 7.5 } else { 13.0 })
+        .sum::<f32>()
+        * scale;
+    let max_width = (canvas_w as f32 - 16.0 * scale).max(120.0 * scale);
+    let box_width = (estimated_width + padding_x * 2.0).min(max_width);
+    let box_height = font_size * 1.4 + padding_y * 2.0;
+    let box_x = ((canvas_w as f32 - box_width) / 2.0).max(8.0 * scale);
+
+    StatusLayout {
+        scale,
+        box_x,
+        box_y: 16.0 * scale,
+        box_w: box_width,
+        box_h: box_height,
+        padding_x,
+        padding_y,
+        font_size,
+    }
+}
+
 /// 全屏选区画布渲染上下文
 pub struct SnipperCanvas<'a> {
     pub base_bg: &'a Pixmap,
@@ -85,27 +125,63 @@ impl<'a> SnipperCanvas<'a> {
                 }
             }
         } else {
-            // 未收到首个光标位置前不绘制放大镜：winit 刚映射窗口时没有光标坐标，
-            // 若直接用 (0,0) 会在左上角留下一个误导性的像素框。
-            if self.cursor_ready {
-                if let Some(hover) = self.hovered_window {
-                    self.fast_cutout_restore(pixmap, &hover, screen_w, screen_h);
-                    self.render_window_hover_border(pixmap, &hover);
-                }
-                self.magnifier.render(
-                    pixmap,
-                    self.original_rgba,
-                    self.cursor_pos.0 as i32,
-                    self.cursor_pos.1 as i32,
-                );
-            }
+            self.render_idle_overlay(pixmap, true);
         }
 
         self.render_status_message(pixmap);
     }
 
+    /// 绘制空闲态的光标覆盖层：悬停窗口高亮与像素放大镜。
+    ///
+    /// `restore_hover` 为 true 时先恢复悬停窗口的原始屏幕像素（全量渲染路径）；
+    /// 增量重绘传 false，悬停区域保持不变，避免每帧重复恢复整块窗口。
+    pub fn render_idle_overlay(&self, pixmap: &mut PixmapMut, restore_hover: bool) {
+        // 未收到首个光标位置前不绘制放大镜：winit 刚映射窗口时没有光标坐标，
+        // 若直接用 (0,0) 会在左上角留下一个误导性的像素框。
+        if !self.cursor_ready {
+            return;
+        }
+
+        if let Some(hover) = self.hovered_window {
+            if restore_hover {
+                self.fast_cutout_restore(pixmap, &hover, pixmap.width(), pixmap.height());
+            }
+            self.render_window_hover_border(pixmap, &hover);
+        }
+
+        self.magnifier.render(
+            pixmap,
+            self.original_rgba,
+            self.cursor_pos.0 as i32,
+            self.cursor_pos.1 as i32,
+        );
+    }
+
+    /// 返回顶部状态提示框覆盖的像素矩形（无消息或空文本时返回 None）。
+    ///
+    /// 与 [`Self::render_status_message`] 共用同一布局函数，供增量重绘精确抹除旧提示。
+    pub fn status_message_bounds(
+        message: Option<&str>,
+        canvas_w: u32,
+        ui_scale: f32,
+    ) -> Option<Rect> {
+        let message = message?;
+        if message.is_empty() {
+            return None;
+        }
+        let layout = status_layout(message, canvas_w, ui_scale);
+        // 外扩 1 像素吸收描边与抗锯齿溢出
+        let margin = layout.scale;
+        Some(Rect {
+            x: layout.box_x - margin,
+            y: layout.box_y - margin,
+            width: layout.box_w + margin * 2.0,
+            height: layout.box_h + margin * 2.0,
+        })
+    }
+
     /// 在画布顶部居中绘制操作失败或空结果提示
-    fn render_status_message(&self, pixmap: &mut PixmapMut) {
+    pub(crate) fn render_status_message(&self, pixmap: &mut PixmapMut) {
         let Some(message) = self.status_message else {
             return;
         };
@@ -113,20 +189,15 @@ impl<'a> SnipperCanvas<'a> {
             return;
         }
 
-        let scale = self.ui_scale.max(0.5);
-        let font_size = 13.0 * scale;
-        let padding_x = 14.0 * scale;
-        let padding_y = 8.0 * scale;
-        let estimated_width = message
-            .chars()
-            .map(|ch| if ch.is_ascii() { 7.5 } else { 13.0 })
-            .sum::<f32>()
-            * scale;
-        let max_width = (pixmap.width() as f32 - 16.0 * scale).max(120.0 * scale);
-        let box_width = (estimated_width + padding_x * 2.0).min(max_width);
-        let box_height = font_size * 1.4 + padding_y * 2.0;
-        let box_x = ((pixmap.width() as f32 - box_width) / 2.0).max(8.0 * scale);
-        let box_y = 16.0 * scale;
+        let layout = status_layout(message, pixmap.width(), self.ui_scale);
+        let scale = layout.scale;
+        let box_width = layout.box_w;
+        let box_height = layout.box_h;
+        let box_x = layout.box_x;
+        let box_y = layout.box_y;
+        let padding_x = layout.padding_x;
+        let padding_y = layout.padding_y;
+        let font_size = layout.font_size;
 
         let mut path = PathBuilder::new();
         let radius = 6.0 * scale;

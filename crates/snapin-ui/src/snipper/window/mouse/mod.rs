@@ -11,13 +11,11 @@ use crate::snipper::toolbar::{StrokeWidthLevel, SubControl, ToolbarItem};
 use image::RgbaImage;
 use toolbar_action::{dispatch_toolbar_action, handle_text_tool_click};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
-use winit::window::Window;
 
 /// 鼠标移动事件统一处理 (更新光标坐标、选区创建与调整手柄拖拽)
 pub fn handle_cursor_move(
     state: &mut SnipperState,
     pos: (f64, f64),
-    _window: &Window,
     screen_w: f32,
     screen_h: f32,
 ) -> bool {
@@ -30,7 +28,8 @@ pub fn handle_cursor_move(
             let hovered = window_at((cx, cy), &state.window_rects);
             let changed = hovered != state.hovered_window;
             state.hovered_window = hovered;
-            changed
+            // 放大镜必须逐帧跟随光标；禁用放大镜时仍只在高亮窗口切换时重绘
+            changed || state.magnifier.enabled
         }
         SelectionState::Creating { current, .. } => {
             *current = (cx, cy);
