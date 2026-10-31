@@ -33,7 +33,7 @@ pub use extension_client::{
 };
 pub use hotkey_manager::{
     hotkey_to_gnome_accelerator, suspend_hotkeys_for_settings, sync_global_hotkeys,
-    sync_hotkeys_to_gnome,
+    sync_hotkeys_to_gnome, HotkeyAction, PlatformHotkeyListener,
 };
 pub use lifecycle::{
     enable_gnome_extension, open_path_in_file_manager, spawn_detached_system_command,

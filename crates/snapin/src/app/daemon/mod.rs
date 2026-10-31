@@ -65,6 +65,11 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
         .map_err(|e| tracing::warn!("初始化跨平台原生系统托盘失败: {e}"))
         .ok();
 
+    // 初始化跨平台全局快捷键监听器（在 Windows/macOS 平台捕获系统级按键）
+    let hotkey_listener = snapin_platform::PlatformHotkeyListener::new(&cfg.hotkeys)
+        .map_err(|e| tracing::warn!("初始化跨平台全局热键监听器失败: {e}"))
+        .ok();
+
     // 3. 初始化并启动 IPC 监听服务，使用 watch 通道驱动平滑停机
     let listener = IpcListener::bind(None)
         .await
@@ -143,6 +148,51 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
                                 break;
                             }
                             _ => {}
+                        }
+                    }
+                }
+
+                if let Some(ref hk) = hotkey_listener {
+                    if let Some(action) = hk.poll_action() {
+                        tracing::debug!("系统全局热键触发: {:?}", action);
+                        match action {
+                            snapin_platform::HotkeyAction::Snip => {
+                                let snip_cfg = cfg.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = super::snip::run_oneshot_snip(
+                                        snip_cfg,
+                                        snapin_ui::snipper::SnipMode::Normal,
+                                        0,
+                                    )
+                                    .await
+                                    {
+                                        tracing::warn!("全局热键触发截图失败: {e}");
+                                    }
+                                });
+                            }
+                            snapin_platform::HotkeyAction::Translate => {
+                                let snip_cfg = cfg.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = super::snip::run_oneshot_snip(
+                                        snip_cfg,
+                                        snapin_ui::snipper::SnipMode::Translate,
+                                        0,
+                                    )
+                                    .await
+                                    {
+                                        tracing::warn!("全局热键触发截图翻译失败: {e}");
+                                    }
+                                });
+                            }
+                            snapin_platform::HotkeyAction::Paste => {
+                                let _ = handle_command(DaemonRequest::Paste, &workspace_proxy).await;
+                            }
+                            snapin_platform::HotkeyAction::TogglePasters => {
+                                let _ = handle_command(DaemonRequest::TogglePasters, &workspace_proxy).await;
+                            }
+                            snapin_platform::HotkeyAction::SwitchGroup => {
+                                let _ = handle_command(DaemonRequest::SwitchGroup(None), &workspace_proxy).await;
+                            }
                         }
                     }
                 }

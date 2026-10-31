@@ -19,7 +19,12 @@ pub fn sync_global_hotkeys(config: &HotkeyConfig) -> Result<(), PlatformError> {
 
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        sync_hotkeys_desktop(config)
+        tracing::info!(
+            "Windows/macOS 快捷键在守护进程启动时由 PlatformHotkeyListener 自动注册: 截图={}, 贴图={}",
+            hotkey_to_accelerator(&config.snip),
+            hotkey_to_accelerator(&config.paste)
+        );
+        Ok(())
     }
 
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
@@ -29,15 +34,117 @@ pub fn sync_global_hotkeys(config: &HotkeyConfig) -> Result<(), PlatformError> {
     }
 }
 
+/// 全局热键触发动作枚举
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HotkeyAction {
+    /// 触发选区截屏
+    Snip,
+    /// 触发剪贴板贴图
+    Paste,
+    /// 触发截屏并直接翻译
+    Translate,
+    /// 触发批量显隐贴图
+    TogglePasters,
+    /// 触发切换贴图分组
+    SwitchGroup,
+}
+
+/// 跨平台全局热键监听器
+pub struct PlatformHotkeyListener {
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    inner: native_hotkey::NativeHotkeyListener,
+}
+
+impl PlatformHotkeyListener {
+    /// 初始化系统全局热键监听
+    ///
+    /// - Linux: 返回无操作空对象（热键由系统设置 media-keys 闭环驱动可执行文件执行）；
+    /// - Windows / macOS: 基于 global-hotkey 向操作系统底层注册钩子。
+    pub fn new(_config: &HotkeyConfig) -> Result<Self, PlatformError> {
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        {
+            let inner = native_hotkey::NativeHotkeyListener::init(_config)?;
+            Ok(Self { inner })
+        }
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            Ok(Self {})
+        }
+    }
+
+    /// 非阻塞检查是否按下了注册的全局快捷键
+    pub fn poll_action(&self) -> Option<HotkeyAction> {
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        {
+            self.inner.try_recv()
+        }
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            None
+        }
+    }
+}
+
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-fn sync_hotkeys_desktop(config: &HotkeyConfig) -> Result<(), PlatformError> {
-    tracing::info!(
-        "已加载 Windows/macOS 桌面快捷键: 截图={}, 贴图={}, 翻译={}",
-        hotkey_to_accelerator(&config.snip),
-        hotkey_to_accelerator(&config.paste),
-        hotkey_to_accelerator(&config.translate),
-    );
-    Ok(())
+mod native_hotkey {
+    use super::{hotkey_to_accelerator, HotkeyAction};
+    use crate::error::PlatformError;
+    use global_hotkey::hotkey::HotKey;
+    use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
+    use snapin_core::config::HotkeyConfig;
+    use std::collections::HashMap;
+
+    pub struct NativeHotkeyListener {
+        _manager: GlobalHotKeyManager,
+        action_map: HashMap<u32, HotkeyAction>,
+    }
+
+    impl NativeHotkeyListener {
+        pub fn init(config: &HotkeyConfig) -> Result<Self, PlatformError> {
+            let manager = GlobalHotKeyManager::new().map_err(|e| PlatformError::Hotkey {
+                message: format!("初始化原生全局热键管理器失败: {e}"),
+            })?;
+
+            let mut action_map = HashMap::with_capacity(5);
+
+            let pairs = [
+                (&config.snip, HotkeyAction::Snip),
+                (&config.paste, HotkeyAction::Paste),
+                (&config.translate, HotkeyAction::Translate),
+                (&config.toggle_pasters, HotkeyAction::TogglePasters),
+                (&config.switch_group, HotkeyAction::SwitchGroup),
+            ];
+
+            for (hotkey, action) in pairs {
+                let acc = hotkey_to_accelerator(hotkey);
+                if let Ok(hk) = acc.parse::<HotKey>() {
+                    if let Err(e) = manager.register(hk) {
+                        tracing::warn!("注册快捷键 [{acc}] 失败: {e}");
+                    } else {
+                        action_map.insert(hk.id, action);
+                    }
+                }
+            }
+
+            Ok(Self {
+                _manager: manager,
+                action_map,
+            })
+        }
+
+        pub fn try_recv(&self) -> Option<HotkeyAction> {
+            while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
+                if event.state == HotKeyState::Pressed {
+                    if let Some(&action) = self.action_map.get(&event.id) {
+                        return Some(action);
+                    }
+                }
+            }
+            None
+        }
+    }
 }
 
 /// 将热键转换为通用的跨平台按键表达字符串
