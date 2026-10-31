@@ -3,6 +3,9 @@
 //! 负责解析命令行参数，并按子命令的真实需要最小化地初始化日志、配置与平台能力，
 //! 最后调度至守护进程服务或客户端 IPC 触发。
 
+// 在 Windows 发布构建中隐藏控制台黑框窗口，在 Debug 模式下保留以供输出日志调试。
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 pub mod app;
 pub mod cli;
 
