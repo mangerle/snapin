@@ -79,8 +79,9 @@ export default class SnapinHelperExtension extends Extension {
         // 已连接的窗口标题监听器，disable 时统一断开，防止扩展重载后闭包泄漏
         this._titleWatchers = new Set();
 
-        // 2. 创建 GNOME 顶栏原生托盘指示器与菜单
-        this._showIndicator();
+        // 2. 托盘由 Snapin 守护进程通过标准 StatusNotifierItem (SNI) 协议在顶栏统一呈现（免注销即装即现）
+        // 扩展专注提供 Mutter 合成器内部原生截图与窗口置顶特权，避免产生双重托盘图标。
+        // 若外部显式调用 SetTrayVisible(true) 仍保留兜底展示能力。
 
         // 3. 监听全局窗口创建事件：贴图窗口一诞生立即强制置顶，并设为 UTILITY 类型从 Dock 隐藏
         this._windowCreatedId = global.display.connect('window-created', (_display, metaWin) => {

@@ -5642,6 +5642,7 @@ dependencies = [
  "chrono",
  "global-hotkey",
  "image 0.24.9",
+ "ksni",
  "rustix 0.38.44",
  "serde",
  "serde_json",

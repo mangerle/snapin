@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Snapin
+Comment=专为跨平台打造的高性能截图与桌面贴图工具
+Exec=snapin
+Icon=snapin
+Terminal=false
+Type=Application
+Categories=Utility;
+X-GNOME-Autostart-enabled=true

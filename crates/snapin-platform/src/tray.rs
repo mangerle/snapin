@@ -119,17 +119,179 @@ mod native {
     }
 }
 
+#[cfg(target_os = "linux")]
+mod linux {
+    use super::TrayAction;
+    use crate::error::PlatformError;
+    use ksni::{blocking::TrayMethods, menu::*, Tray};
+    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::sync::Mutex;
+
+    struct LinuxSniTray {
+        action_tx: Mutex<Sender<TrayAction>>,
+        icon_data: Option<ksni::Icon>,
+    }
+
+    impl Tray for LinuxSniTray {
+        fn id(&self) -> String {
+            "snapin".into()
+        }
+
+        fn title(&self) -> String {
+            "Snapin 截图与贴图工具".into()
+        }
+
+        fn icon_name(&self) -> String {
+            "snapin".into()
+        }
+
+        fn icon_pixmap(&self) -> Vec<ksni::Icon> {
+            self.icon_data.clone().into_iter().collect()
+        }
+
+        fn activate(&mut self, _x: i32, _y: i32) {
+            if let Ok(tx) = self.action_tx.lock() {
+                let _ = tx.send(TrayAction::Snip);
+            }
+        }
+
+        fn menu(&self) -> Vec<MenuItem<Self>> {
+            vec![
+                StandardItem {
+                    label: "截屏".into(),
+                    activate: Box::new(|this: &mut Self| {
+                        if let Ok(tx) = this.action_tx.lock() {
+                            let _ = tx.send(TrayAction::Snip);
+                        }
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+                StandardItem {
+                    label: "全屏截图".into(),
+                    activate: Box::new(|this: &mut Self| {
+                        if let Ok(tx) = this.action_tx.lock() {
+                            let _ = tx.send(TrayAction::Fullscreen);
+                        }
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+                StandardItem {
+                    label: "取色器".into(),
+                    activate: Box::new(|this: &mut Self| {
+                        if let Ok(tx) = this.action_tx.lock() {
+                            let _ = tx.send(TrayAction::PickColor);
+                        }
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+                StandardItem {
+                    label: "贴图".into(),
+                    activate: Box::new(|this: &mut Self| {
+                        if let Ok(tx) = this.action_tx.lock() {
+                            let _ = tx.send(TrayAction::Paste);
+                        }
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+                StandardItem {
+                    label: "隐藏/显示所有贴图".into(),
+                    activate: Box::new(|this: &mut Self| {
+                        if let Ok(tx) = this.action_tx.lock() {
+                            let _ = tx.send(TrayAction::TogglePasters);
+                        }
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+                MenuItem::Separator,
+                StandardItem {
+                    label: "首选项...".into(),
+                    activate: Box::new(|this: &mut Self| {
+                        if let Ok(tx) = this.action_tx.lock() {
+                            let _ = tx.send(TrayAction::Preferences);
+                        }
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+                StandardItem {
+                    label: "退出 Snapin".into(),
+                    activate: Box::new(|this: &mut Self| {
+                        if let Ok(tx) = this.action_tx.lock() {
+                            let _ = tx.send(TrayAction::Exit);
+                        }
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+            ]
+        }
+    }
+
+    /// Linux 平台原生 StatusNotifierItem 托盘管理器
+    pub struct LinuxPlatformTray {
+        _handle: ksni::blocking::Handle<LinuxSniTray>,
+        action_rx: Receiver<TrayAction>,
+    }
+
+    impl LinuxPlatformTray {
+        pub fn init(rgba_icon: Option<(Vec<u8>, u32, u32)>) -> Result<Self, PlatformError> {
+            let (tx, rx) = channel();
+
+            let icon_data = rgba_icon.map(|(rgba, width, height)| {
+                let mut argb = Vec::with_capacity(rgba.len());
+                let (chunks, _) = rgba.as_chunks::<4>();
+                for &[r, g, b, a] in chunks {
+                    argb.push(a);
+                    argb.push(r);
+                    argb.push(g);
+                    argb.push(b);
+                }
+                ksni::Icon {
+                    width: width as i32,
+                    height: height as i32,
+                    data: argb,
+                }
+            });
+
+            let tray = LinuxSniTray {
+                action_tx: Mutex::new(tx),
+                icon_data,
+            };
+
+            let handle = tray.spawn().map_err(|e| PlatformError::Tray {
+                message: format!("启动 Linux StatusNotifierItem (SNI) 系统托盘服务失败: {e}"),
+            })?;
+
+            Ok(Self {
+                _handle: handle,
+                action_rx: rx,
+            })
+        }
+
+        pub fn try_recv(&self) -> Option<TrayAction> {
+            self.action_rx.try_recv().ok()
+        }
+    }
+}
+
 /// 统一跨平台托盘对象封装
 pub struct PlatformTray {
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     inner: native::NativePlatformTray,
+    #[cfg(target_os = "linux")]
+    inner: linux::LinuxPlatformTray,
 }
 
 impl PlatformTray {
     /// 初始化跨平台系统托盘
     ///
-    /// - Linux: 返回无操作空对象（托盘生命周期由 GNOME 扩展或 D-Bus 闭环管理）；
-    /// - Windows / macOS: 创建原生系统托盘并监听菜单动作。
+    /// - Linux: 创建基于 StatusNotifierItem (SNI) 的系统原生托盘，即开即用免注销重登；
+    /// - Windows / macOS: 基于原生系统托盘 API 提供上下文菜单与动作回调。
     pub fn new(_rgba_icon: Option<(Vec<u8>, u32, u32)>) -> Result<Self, PlatformError> {
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
@@ -140,7 +302,13 @@ impl PlatformTray {
             Ok(Self { inner })
         }
 
-        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        #[cfg(target_os = "linux")]
+        {
+            let inner = linux::LinuxPlatformTray::init(_rgba_icon)?;
+            Ok(Self { inner })
+        }
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
         {
             Ok(Self {})
         }
@@ -153,7 +321,12 @@ impl PlatformTray {
             self.inner.try_recv()
         }
 
-        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        #[cfg(target_os = "linux")]
+        {
+            self.inner.try_recv()
+        }
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
         {
             None
         }

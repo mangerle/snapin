@@ -70,8 +70,16 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
     let workspace_proxy =
         spawn_paster_workspace_thread(false).context("初始化并启动集中贴图工作区失败")?;
 
-    // 初始化跨平台原生系统托盘（在 Windows/macOS 平台提供系统托盘上下文菜单）
-    let tray = PlatformTray::new(None)
+    // 初始化跨平台原生系统托盘（在 Linux、Windows 与 macOS 平台提供系统托盘上下文菜单）
+    let tray_icon =
+        image::load_from_memory(include_bytes!("../../../../../assets/icons/32x32.png"))
+            .ok()
+            .map(|img| {
+                let rgba = img.to_rgba8();
+                (rgba.as_raw().clone(), rgba.width(), rgba.height())
+            });
+
+    let tray = PlatformTray::new(tray_icon)
         .map_err(|e| tracing::warn!("初始化跨平台原生系统托盘失败: {e}"))
         .ok();
 
