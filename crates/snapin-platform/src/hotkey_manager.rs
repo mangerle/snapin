@@ -7,6 +7,61 @@ use crate::error::PlatformError;
 use snapin_core::config::{Hotkey, HotkeyConfig};
 use std::process::Command;
 
+/// 跨平台同步系统全局快捷键配置。
+///
+/// - Linux: 同步至 GNOME 桌面环境媒体快捷键配置；
+/// - Windows / macOS: 记录并准备系统级全局热键绑定。
+pub fn sync_global_hotkeys(config: &HotkeyConfig) -> Result<(), PlatformError> {
+    #[cfg(target_os = "linux")]
+    {
+        sync_hotkeys_to_gnome(config)
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        sync_hotkeys_desktop(config)
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    {
+        let _ = config;
+        Ok(())
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn sync_hotkeys_desktop(config: &HotkeyConfig) -> Result<(), PlatformError> {
+    tracing::info!(
+        "已加载 Windows/macOS 桌面快捷键: 截图={}, 贴图={}, 翻译={}",
+        hotkey_to_accelerator(&config.snip),
+        hotkey_to_accelerator(&config.paste),
+        hotkey_to_accelerator(&config.translate),
+    );
+    Ok(())
+}
+
+/// 将热键转换为通用的跨平台按键表达字符串
+pub fn hotkey_to_accelerator(hotkey: &Hotkey) -> String {
+    let mut parts = Vec::new();
+    if hotkey.ctrl {
+        parts.push("Ctrl");
+    }
+    if hotkey.alt {
+        parts.push("Alt");
+    }
+    if hotkey.shift {
+        parts.push("Shift");
+    }
+    if hotkey.meta {
+        #[cfg(target_os = "macos")]
+        parts.push("Cmd");
+        #[cfg(not(target_os = "macos"))]
+        parts.push("Super");
+    }
+    parts.push(hotkey.key.as_str());
+    parts.join("+")
+}
+
 /// 自动在 GNOME 设置中注册或更新 Snapin 快捷键
 pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError> {
     tracing::info!("正在向 GNOME 系统注册/同步自定义快捷键...");

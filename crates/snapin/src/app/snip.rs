@@ -5,71 +5,24 @@ use image::RgbaImage;
 use snapin_core::config::Config;
 use snapin_core::AppPaths;
 use snapin_platform::{
-    capture_fullscreen_extension, capture_fullscreen_portal, get_platform_capabilities,
-    list_windows, send_desktop_notification,
+    capture_fullscreen_snapshot, enumerate_visible_windows, send_desktop_notification,
 };
 use snapin_ui::snipper::{run_snipper_session, SnipMode, SnipperOutcome};
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-/// 获取屏幕快照（优先扩展零白闪通道，未命中则优雅降级 XDG Desktop Portal）。
-///
-/// 通道沿革：曾存在一条更快的"在扩展进程内 read_pixels 直取原始像素"通道，但其数组返回值
-/// 在 GNOME 50 的 GJS 上命中 gi/arg.cpp 编解码断言，直接以 SIGABRT 终止 gnome-shell，
-/// 表现为按一次截图就被登出。本机历史上该通道成功 0 次、而下面这条 PNG 通道成功 46 次，
-/// 故原始像素通道已永久移除，只保留像素不跨 GJS 边界传递的 PNG 通道。
+/// 获取全屏快照（跨平台调度：Linux 优先扩展零白闪/Portal降级，Windows/macOS 走原生极速捕获）。
 pub async fn acquire_screen_snapshot() -> Result<RgbaImage> {
     let t_start = Instant::now();
-    let caps = get_platform_capabilities();
-
-    if caps.gnome_extension_active {
-        match capture_via_extension(t_start).await {
-            Ok(image) => return Ok(image),
-            Err(error) => {
-                tracing::warn!(
-                    "GNOME 扩展零白闪截屏通道未命中，降级 XDG Portal（该通道带快门闪屏）。\
-                     若刚升级过软件包，扩展 JS 无法热更新，需注销重登一次方可生效；原因: {error:#}"
-                )
-            }
-        }
-    } else {
-        tracing::debug!(
-            "GNOME 扩展未在线（桌面: {}，Wayland: {}），直接走 XDG Portal 通道",
-            caps.desktop_env,
-            caps.is_wayland
-        );
-    }
-
-    let rgba = capture_fullscreen_portal()
+    let rgba = capture_fullscreen_snapshot()
         .await
-        .context("Portal 全屏截图捕获失败")?;
-    Ok(rgba)
-}
-
-/// 经配套扩展的原生 `Shell.Screenshot` 通道完成一次全屏 PNG 捕获与解码
-async fn capture_via_extension(t_start: Instant) -> Result<RgbaImage> {
-    let target_path = AppPaths::generate_temp_path("screen", "png");
-    let target_str = target_path.to_string_lossy().to_string();
-
-    if !capture_fullscreen_extension(&target_str)
-        .await
-        .context("请求 GNOME 扩展执行原生截屏失败")?
-    {
-        anyhow::bail!("GNOME 扩展返回截屏失败，目标: {target_str}");
-    }
-
-    let bytes = tokio::fs::read(&target_path)
-        .await
-        .context("读取扩展输出的全屏快照失败")?;
-    let _ = tokio::fs::remove_file(&target_path).await;
-
-    let rgba = image::load_from_memory(&bytes)
-        .context("全屏快照 PNG 解码失败")?
-        .into_rgba8();
+        .context("屏幕快照捕获失败")?;
 
     tracing::info!(
-        "命中 GNOME 扩展原生零白闪截屏通道，全屏截屏总耗时: {:.2}ms",
+        "全屏快照捕获成功，图像尺寸: {}x{}，耗时: {:.2}ms",
+        rgba.width(),
+        rgba.height(),
         Instant::now()
             .saturating_duration_since(t_start)
             .as_secs_f64()
@@ -103,12 +56,11 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode, delay_seconds: u32) -
     );
 
     let cfg_clone = cfg.clone();
-    let windows = if get_platform_capabilities().gnome_extension_active
-        && matches!(
-            mode,
-            SnipMode::Normal | SnipMode::AutoCopy | SnipMode::Translate
-        ) {
-        match tokio::time::timeout(Duration::from_millis(500), list_windows()).await {
+    let windows = if matches!(
+        mode,
+        SnipMode::Normal | SnipMode::AutoCopy | SnipMode::Translate
+    ) {
+        match tokio::time::timeout(Duration::from_millis(500), enumerate_visible_windows()).await {
             Ok(Ok(windows)) => windows,
             Ok(Err(error)) => {
                 tracing::debug!("获取窗口截图候选列表失败，继续使用普通区域截图: {error}");

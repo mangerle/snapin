@@ -47,6 +47,14 @@ pub enum PlatformError {
     #[error("截屏图像内存解码失败，原因: {message}")]
     ImageDecode { message: String },
 
+    /// 跨平台屏幕捕获失败
+    #[error("屏幕捕获失败，原因: {message}")]
+    Capture { message: String },
+
+    /// 跨平台系统托盘操作失败
+    #[error("系统托盘操作失败，原因: {message}")]
+    Tray { message: String },
+
     /// 核心领域错误透明转换
     #[error(transparent)]
     Core(#[from] CoreError),

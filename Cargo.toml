@@ -36,6 +36,7 @@ tiny-skia = "0.11"
 # 图像操作与零拷贝像素裁剪
 image = { version = "0.24", default-features = false, features = ["png", "jpeg", "webp"] }
 chrono = "0.4"
+xcap = "0.9"
 
 # 异步运行时与 D-Bus 进程间通信
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "time", "signal", "process"] }
