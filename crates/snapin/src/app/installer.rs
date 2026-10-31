@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 
 const EXT_METADATA: &str = include_str!("../../../../extension/metadata.json");
 const EXT_JAVASCRIPT: &str = include_str!("../../../../extension/extension.js");
-const EXT_ICON_SVG: &[u8] = include_bytes!("../../../../extension/icons/snapin-tray.svg");
+const EXT_ICON_SVG: &[u8] = include_bytes!("../../../../assets/icons/snapin.svg");
 
 /// 安装配套 GNOME Shell 扩展并触发桌面热重载
 pub fn install_gnome_extension() -> Result<()> {

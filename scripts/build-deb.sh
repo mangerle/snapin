@@ -43,7 +43,7 @@ chmod 755 "${STAGE_DIR}/usr/bin/snapin"
 
 # 4. 拷贝专属现代 SVG 矢量应用图标与系统状态托盘图标
 cp "${PROJECT_ROOT}/assets/icons/snapin.svg" "${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps/snapin.svg"
-cp "${PROJECT_ROOT}/assets/icons/snapin-tray.svg" "${STAGE_DIR}/usr/share/icons/hicolor/scalable/status/snapin-tray.svg"
+cp "${PROJECT_ROOT}/assets/icons/snapin.svg" "${STAGE_DIR}/usr/share/icons/hicolor/scalable/status/snapin-tray.svg"
 
 # 4.1 打包 PP-OCRv6 离线模型资产至 FHS 只读数据目录 /usr/share/snapin/models
 #     模型为包自带的只读、架构无关数据，按 FHS 归 /usr/share；运行时的解析链已优先
@@ -110,7 +110,7 @@ EOF
 cp "${PROJECT_ROOT}/extension/metadata.json" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin@wangle.local/metadata.json"
 cp "${PROJECT_ROOT}/extension/extension.js" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin@wangle.local/extension.js"
 mkdir -p "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin@wangle.local/icons"
-cp "${PROJECT_ROOT}/extension/icons/snapin-tray.svg" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin@wangle.local/icons/snapin-tray.svg"
+cp "${PROJECT_ROOT}/assets/icons/snapin.svg" "${STAGE_DIR}/usr/share/gnome-shell/extensions/snapin@wangle.local/icons/snapin-tray.svg"
 
 # 7.1 PP-OCRv6 模型资产已在第 4.1 步统一打包，此处不得重复拷贝：
 #     目标目录已存在时 cp -r 会再套一层 ppocrv6/ppocrv6，使软件包白带一倍体积。
