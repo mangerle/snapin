@@ -1,0 +1,14 @@
+[Unit]
+Description=Snapin 截图与桌面贴图守护服务
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/snapin daemon
+Restart=on-failure
+RestartSec=2s
+Slice=app.slice
+
+[Install]
+WantedBy=graphical-session.target

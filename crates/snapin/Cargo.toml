@@ -58,3 +58,10 @@ depends = ["libwayland-client0", "libxkbcommon0", "libfontconfig1", "libfreetype
 section = "utils"
 priority = "optional"
 
+[package.metadata.packager.deb.files]
+"../../extension/metadata.json" = "/usr/share/gnome-shell/extensions/snapin@wangle.local/metadata.json"
+"../../extension/extension.js" = "/usr/share/gnome-shell/extensions/snapin@wangle.local/extension.js"
+"../../assets/icons/snapin.svg" = "/usr/share/gnome-shell/extensions/snapin@wangle.local/icons/snapin-tray.svg"
+"../../assets/systemd/snapin.service" = "/usr/lib/systemd/user/snapin.service"
+
+
