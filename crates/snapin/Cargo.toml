@@ -34,8 +34,16 @@ identifier = "local.wangle.snapin"
 category = "Utility"
 description = "专为跨平台打造的高性能截图与桌面贴图工具"
 long-description = "Snapin 是一款现代化截图与贴图工具，支持智能窗口吸附、置顶贴图、全屏秒级抓取与系统托盘。"
-icons = ["../../assets/icons/snapin.svg"]
-resources = ["../../assets/models/ppocrv6 -> models/ppocrv6"]
+icons = [
+  "../../assets/icons/32x32.png",
+  "../../assets/icons/128x128.png",
+  "../../assets/icons/256x256.png",
+  "../../assets/icons/512x512.png",
+  "../../assets/icons/icon.ico",
+]
+resources = [
+  { src = "../../assets/models/ppocrv6", target = "models/ppocrv6" }
+]
 
 [package.metadata.packager.windows]
 digest-algorithm = "sha256"

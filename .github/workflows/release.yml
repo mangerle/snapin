@@ -71,6 +71,9 @@ jobs:
       - name: 安装 cargo-packager CLI
         run: cargo install cargo-packager --locked
 
+      - name: 编译 Release 二进制文件
+        run: cargo build --release -p snapin
+
       - name: 编译并打包 Linux DEB
         run: |
           cargo packager --release -p snapin --formats deb
@@ -108,6 +111,9 @@ jobs:
       - name: 安装 cargo-packager CLI
         run: cargo install cargo-packager --locked
 
+      - name: 编译 Release 二进制文件 (${{ matrix.target }})
+        run: cargo build --release -p snapin --target ${{ matrix.target }}
+
       - name: 使用 cargo-packager 构建 Windows NSIS 安装包与便携包
         run: |
           cargo packager --release -p snapin --target ${{ matrix.target }} --formats nsis,zip
@@ -137,6 +143,9 @@ jobs:
 
       - name: 安装 cargo-packager CLI
         run: cargo install cargo-packager --locked
+
+      - name: 编译 Release 二进制文件
+        run: cargo build --release -p snapin
 
       - name: 使用 cargo-packager 构建 macOS DMG 镜像
         run: |

@@ -145,23 +145,26 @@ Snapin 采用 Tauri 官方打包核心 `cargo-packager` 实现跨平台零脚本
 cargo install cargo-packager --locked
 ```
 
-根据当前操作系统生成原生安装包：
+打包前需确保已编译最新的 Release 版本二进制文件：
 
 - **Linux (Debian / Ubuntu)**：
   ```bash
-  cargo packager --release -p snapin --formats deb
+  # 一键编译并打包 DEB
+  cargo build --release -p snapin && cargo packager --release -p snapin --formats deb
   sudo apt install ./target/release/snapin_*_amd64.deb
   ```
 
 - **Windows (向导安装包与便携包)**：
   ```bash
-  # 生成 NSIS 中文向导安装包 (.exe) 与免安装绿色版 (.zip)
+  # 编译并生成 NSIS 中文向导安装包 (.exe) 与免安装绿色版 (.zip)
+  cargo build --release -p snapin
   cargo packager --release -p snapin --formats nsis,zip
   ```
 
 - **macOS (苹果 DMG 镜像包)**：
   ```bash
-  # 生成标准拖拽式 DMG 镜像 (.dmg)
+  # 编译并生成标准拖拽式 DMG 镜像 (.dmg)
+  cargo build --release -p snapin
   cargo packager --release -p snapin --formats dmg
   ```
 

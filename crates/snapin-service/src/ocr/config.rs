@@ -131,16 +131,25 @@ impl LocalOcrPaths {
             }
         }
 
-        // 5. 系统级标准安装目录: /usr/share/snapin/models/ppocrv6
-        let sys_dir = Path::new("/usr/share/snapin/models/ppocrv6");
-        if let Some(paths) = Self::discover_in_root(sys_dir) {
+        // 5. 系统级标准安装目录:
+        // 5.1 Debian/Ubuntu cargo-packager 默认资源目录: /usr/lib/snapin/models/ppocrv6
+        let sys_lib_dir = Path::new("/usr/lib/snapin/models/ppocrv6");
+        if let Some(paths) = Self::discover_in_root(sys_lib_dir) {
+            return Ok(paths);
+        }
+
+        // 5.2 共享数据目录: /usr/share/snapin/models/ppocrv6
+        let sys_share_dir = Path::new("/usr/share/snapin/models/ppocrv6");
+        if let Some(paths) = Self::discover_in_root(sys_share_dir) {
             return Ok(paths);
         }
 
         Err(ServiceError::ModelNotFound {
             path: custom_dir
                 .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|| "/usr/share/snapin/models/ppocrv6".to_string()),
+                .unwrap_or_else(|| {
+                    "/usr/lib/snapin/models/ppocrv6 或 /usr/share/snapin/models/ppocrv6".to_string()
+                }),
         })
     }
 }
