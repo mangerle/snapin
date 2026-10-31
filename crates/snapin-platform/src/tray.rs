@@ -38,16 +38,17 @@ pub enum TrayAction {
 mod native {
     use super::TrayAction;
     use crate::error::PlatformError;
-    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::collections::HashMap;
     use tray_icon::{
-        menu::{Menu, MenuItem},
+        menu::{Menu, MenuEvent, MenuItem},
         Icon, TrayIcon, TrayIconBuilder,
     };
 
     /// Windows / macOS 平台原生托盘管理器
     pub struct NativePlatformTray {
         _tray: TrayIcon,
-        receiver: Receiver<TrayAction>,
+        _menu: Menu,
+        action_map: HashMap<tray_icon::menu::MenuId, TrayAction>,
     }
 
     impl NativePlatformTray {
@@ -59,24 +60,24 @@ mod native {
             })?;
 
             let menu = Menu::new();
-            let (tx, rx) = channel();
+            let mut action_map = HashMap::with_capacity(8);
 
             // 构建与 Linux 扩展菜单完全对称的托盘项目
-            Self::append_item(&menu, "截屏", TrayAction::Snip, tx.clone())?;
-            Self::append_item(&menu, "全屏截图", TrayAction::Fullscreen, tx.clone())?;
-            Self::append_item(&menu, "取色器", TrayAction::PickColor, tx.clone())?;
-            Self::append_item(&menu, "贴图", TrayAction::Paste, tx.clone())?;
+            Self::append_item(&menu, "截屏", TrayAction::Snip, &mut action_map)?;
+            Self::append_item(&menu, "全屏截图", TrayAction::Fullscreen, &mut action_map)?;
+            Self::append_item(&menu, "取色器", TrayAction::PickColor, &mut action_map)?;
+            Self::append_item(&menu, "贴图", TrayAction::Paste, &mut action_map)?;
             Self::append_item(
                 &menu,
                 "隐藏/显示所有贴图",
                 TrayAction::TogglePasters,
-                tx.clone(),
+                &mut action_map,
             )?;
-            Self::append_item(&menu, "首选项...", TrayAction::Preferences, tx.clone())?;
-            Self::append_item(&menu, "退出 Snapin", TrayAction::Exit, tx)?;
+            Self::append_item(&menu, "首选项...", TrayAction::Preferences, &mut action_map)?;
+            Self::append_item(&menu, "退出 Snapin", TrayAction::Exit, &mut action_map)?;
 
             let tray = TrayIconBuilder::new()
-                .with_menu(Box::new(menu))
+                .with_menu(Box::new(menu.clone()))
                 .with_tooltip("Snapin 截图与贴图工具")
                 .with_icon(icon)
                 .build()
@@ -86,18 +87,20 @@ mod native {
 
             Ok(Self {
                 _tray: tray,
-                receiver: rx,
+                _menu: menu,
+                action_map,
             })
         }
 
-        /// 追加菜单项并绑定回调
+        /// 追加菜单项并记录 ID 到指令映射表
         fn append_item(
             menu: &Menu,
             text: &str,
-            _action: TrayAction,
-            _sender: Sender<TrayAction>,
+            action: TrayAction,
+            action_map: &mut HashMap<tray_icon::menu::MenuId, TrayAction>,
         ) -> Result<(), PlatformError> {
             let item = MenuItem::new(text, true, None);
+            action_map.insert(item.id().clone(), action);
             menu.append(&item).map_err(|e| PlatformError::Tray {
                 message: format!("向托盘菜单追加项目失败: {e}"),
             })?;
@@ -106,7 +109,12 @@ mod native {
 
         /// 非阻塞拉取用户触发的托盘指令
         pub fn try_recv(&self) -> Option<TrayAction> {
-            self.receiver.try_recv().ok()
+            while let Ok(event) = MenuEvent::receiver().try_recv() {
+                if let Some(&action) = self.action_map.get(&event.id) {
+                    return Some(action);
+                }
+            }
+            None
         }
     }
 }

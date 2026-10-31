@@ -8,9 +8,10 @@ use snapin_core::config::Config;
 use snapin_daemon::{send_command_to_daemon, DaemonRequest, IpcListener};
 use snapin_platform::{
     enable_gnome_extension, send_desktop_notification, set_extension_tray_visible,
-    sync_hotkeys_to_gnome,
+    sync_hotkeys_to_gnome, PlatformTray, TrayAction,
 };
 use snapin_ui::paster::spawn_paster_workspace_thread;
+#[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
@@ -59,6 +60,11 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
     let workspace_proxy =
         spawn_paster_workspace_thread(false).context("初始化并启动集中贴图工作区失败")?;
 
+    // 初始化跨平台原生系统托盘（在 Windows/macOS 平台提供系统托盘上下文菜单）
+    let tray = PlatformTray::new(None)
+        .map_err(|e| tracing::warn!("初始化跨平台原生系统托盘失败: {e}"))
+        .ok();
+
     // 3. 初始化并启动 IPC 监听服务，使用 watch 通道驱动平滑停机
     let listener = IpcListener::bind(None)
         .await
@@ -69,6 +75,7 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
         listener.run_loop(tx, shutdown_rx).await;
     });
 
+    #[cfg(unix)]
     let mut sigterm = signal(SignalKind::terminate()).context("注册 SIGTERM 信号监听失败")?;
 
     tracing::info!("Snapin 守护服务已就绪，等待热键指令...");
@@ -83,12 +90,62 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
         }
     }
 
-    // 4. IPC 指令调度主循环：支持 SIGTERM 与内部 Shutdown 指令触发平滑停机
+    // 托盘菜单轮询定时器（每 100ms 探测一次非阻塞事件）
+    let mut tray_interval = tokio::time::interval(std::time::Duration::from_millis(100));
+
+    // 4. IPC 指令调度主循环：支持 SIGTERM/Ctrl-C 与内部 Shutdown 指令触发平滑停机
     loop {
         tokio::select! {
-            _ = sigterm.recv() => {
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("收到中断信号 (Ctrl+C)，开始平滑停机");
+                break;
+            }
+            _ = async {
+                #[cfg(unix)]
+                {
+                    sigterm.recv().await
+                }
+                #[cfg(not(unix))]
+                {
+                    std::future::pending::<Option<()>>().await
+                }
+            } => {
                 tracing::info!("收到 SIGTERM，开始平滑停机");
                 break;
+            }
+            _ = tray_interval.tick() => {
+                if let Some(ref t) = tray {
+                    if let Some(action) = t.poll_action() {
+                        tracing::debug!("托盘触发操作: {:?}", action);
+                        match action {
+                            TrayAction::Snip => {
+                                let snip_cfg = cfg.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = super::snip::run_oneshot_snip(
+                                        snip_cfg,
+                                        snapin_ui::snipper::SnipMode::Normal,
+                                        0,
+                                    )
+                                    .await
+                                    {
+                                        tracing::warn!("托盘触发截图失败: {e}");
+                                    }
+                                });
+                            }
+                            TrayAction::Paste => {
+                                let _ = handle_command(DaemonRequest::Paste, &workspace_proxy).await;
+                            }
+                            TrayAction::TogglePasters => {
+                                let _ = handle_command(DaemonRequest::TogglePasters, &workspace_proxy).await;
+                            }
+                            TrayAction::Exit => {
+                                tracing::info!("托盘请求退出 Snapin，启动平滑停机流程");
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
             }
             maybe_invocation = rx.recv() => {
                 let Some(invocation) = maybe_invocation else {
