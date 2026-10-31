@@ -135,12 +135,35 @@ cd snapin
 cargo build --release
 ```
 
-生成并安装 Debian 包：
+### 本地安装与跨平台打包
+
+Snapin 采用 Tauri 官方打包核心 `cargo-packager` 实现跨平台零脚本声明式打包。
+
+首先安装打包工具：
 
 ```bash
-./scripts/build-deb.sh
-sudo apt install ./target/snapin_*_amd64.deb
+cargo install cargo-packager --locked
 ```
+
+根据当前操作系统生成原生安装包：
+
+- **Linux (Debian / Ubuntu)**：
+  ```bash
+  cargo packager --release -p snapin --formats deb
+  sudo apt install ./target/release/snapin_*_amd64.deb
+  ```
+
+- **Windows (向导安装包与便携包)**：
+  ```bash
+  # 生成 NSIS 中文向导安装包 (.exe) 与免安装绿色版 (.zip)
+  cargo packager --release -p snapin --formats nsis,zip
+  ```
+
+- **macOS (苹果 DMG 镜像包)**：
+  ```bash
+  # 生成标准拖拽式 DMG 镜像 (.dmg)
+  cargo packager --release -p snapin --formats dmg
+  ```
 
 开发环境也可单独部署 GNOME Shell 扩展：
 

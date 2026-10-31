@@ -99,11 +99,10 @@ cargo test
 - 扩展 JavaScript 无法热更新，验证前需要注销并重新登录。
 - 未重新登录时截图会降级到 XDG Portal，这是预期行为，不是新引入的缺陷。
 
-涉及打包脚本的改动，请至少执行一次 `./scripts/build-deb.sh`，并检查生成的 deb 内容：
-
-```bash
-dpkg-deb -c target/snapin_*_amd64.deb
-```
+涉及打包配置的改动，请在对应平台上执行 `cargo packager` 进行校验：
+- **Linux**: `cargo packager --release -p snapin --formats deb`
+- **Windows**: `cargo packager --release -p snapin --formats nsis,zip`
+- **macOS**: `cargo packager --release -p snapin --formats dmg`
 
 ## 许可证
 

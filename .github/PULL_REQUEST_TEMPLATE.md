@@ -30,5 +30,5 @@ Closes #
 - [ ] 相关注释、README 或第三方许可声明已同步更新
 - [ ] 未提交密钥、令牌、用户配置或含敏感内容的截图
 - [ ] 如修改了 GNOME Shell 扩展，已提升 `extension/metadata.json` 的 `version`
-- [ ] 如修改了打包脚本，已执行 `./scripts/build-deb.sh` 并检查 deb 内容
+- [ ] 如修改了打包配置，已执行 `cargo packager` 验证各平台安装包生成正常
 - [ ] 界面改动已附改动前后的截图或录屏（如适用）

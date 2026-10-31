@@ -1,4 +1,9 @@
 name: Release
+# Snapin 全平台跨架构自动化发布流水线
+# 采用 Tauri 官方打包核心 cargo-packager，零手写构建脚本，全自动矩阵出包:
+# - Linux: Debian (.deb x64/arm64)
+# - Windows: NSIS 现代向导安装包 (.exe) + 绿色便携包 (.zip) (x64/arm64)
+# - macOS: 苹果标准安装包 (.dmg / .app)
 
 on:
   push:
@@ -13,14 +18,38 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-and-release:
-    name: 构建 Debian 软件包并通过 git-cliff 自动发布 Release
+  changelog:
+    name: 生成版本更新日志 (git-cliff)
     runs-on: ubuntu-latest
+    outputs:
+      release_body: ${{ steps.git-cliff.outputs.content }}
     steps:
       - name: 检出完整代码与提交历史 (fetch-depth 0)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: 生成当前版本分类 Changelog
+        uses: orhun/git-cliff-action@v4
+        id: git-cliff
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          OUTPUT: RELEASE_CHANGELOG.md
+
+      - name: 上传 Changelog 临时产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-changelog
+          path: RELEASE_CHANGELOG.md
+
+  build-linux:
+    name: 构建 Linux 软件包 (cargo-packager)
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
 
       - name: 配置 Rust 稳定版工具链
         uses: dtolnay/rust-toolchain@stable
@@ -28,7 +57,7 @@ jobs:
       - name: 启用 Rust 依赖缓存
         uses: Swatinem/rust-cache@v2
 
-      - name: 安装系统开发依赖库与打包工具
+      - name: 安装系统开发依赖库
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -39,25 +68,124 @@ jobs:
             libdbus-1-dev \
             pkg-config
 
-      - name: 基于 Commit 规范自动生成当前版本分类 Changelog (git-cliff)
-        uses: orhun/git-cliff-action@v4
-        id: git-cliff
-        with:
-          config: cliff.toml
-          args: --latest --strip header
-        env:
-          OUTPUT: RELEASE_CHANGELOG.md
+      - name: 安装 cargo-packager CLI
+        run: cargo install cargo-packager --locked
 
-      - name: 运行构建与打包脚本
+      - name: 编译并打包 Linux DEB
         run: |
-          chmod +x scripts/build-deb.sh
-          ./scripts/build-deb.sh
+          cargo packager --release -p snapin --formats deb
 
-      - name: 发布 GitHub Release 并挂载 Changelog 与软件包
+      - name: 上传 Linux 构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifacts
+          path: target/release/snapin_*.deb
+
+  build-windows:
+    name: 构建 Windows 软件包 (cargo-packager x64/arm64)
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            arch: x64
+          - target: aarch64-pc-windows-msvc
+            arch: arm64
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Rust 目标工具链 (${{ matrix.target }})
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: 启用 Rust 依赖缓存
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: 安装 cargo-packager CLI
+        run: cargo install cargo-packager --locked
+
+      - name: 使用 cargo-packager 构建 Windows NSIS 安装包与便携包
+        run: |
+          cargo packager --release -p snapin --target ${{ matrix.target }} --formats nsis,zip
+
+      - name: 上传 Windows 构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}-artifacts
+          path: |
+            target/${{ matrix.target }}/release/*.exe
+            target/${{ matrix.target }}/release/*.zip
+
+  build-macos:
+    name: 构建 macOS 应用程序包 (cargo-packager dmg/app)
+    runs-on: macos-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Rust 稳定版工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: 启用 Rust 依赖缓存
+        uses: Swatinem/rust-cache@v2
+
+      - name: 安装 cargo-packager CLI
+        run: cargo install cargo-packager --locked
+
+      - name: 使用 cargo-packager 构建 macOS DMG 镜像
+        run: |
+          cargo packager --release -p snapin --formats dmg
+
+      - name: 上传 macOS 构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-artifacts
+          path: target/release/*.dmg
+
+  publish-release:
+    name: 汇总发布 GitHub Release
+    needs: [changelog, build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 下载 Changelog
+        uses: actions/download-artifact@v4
+        with:
+          name: release-changelog
+
+      - name: 下载 Linux 产物
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-artifacts
+          path: release-files
+
+      - name: 下载 Windows x64 产物
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-x64-artifacts
+          path: release-files
+
+      - name: 下载 Windows arm64 产物
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-arm64-artifacts
+          path: release-files
+
+      - name: 下载 macOS 产物
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-artifacts
+          path: release-files
+
+      - name: 发布至 GitHub Release 并自动挂载所有产品包
         uses: softprops/action-gh-release@v2
         with:
           body_path: RELEASE_CHANGELOG.md
-          files: |
-            target/snapin_*.deb
+          files: release-files/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

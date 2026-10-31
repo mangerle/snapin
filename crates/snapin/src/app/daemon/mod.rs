@@ -47,9 +47,19 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
 
     tracing::info!("Snapin 守护服务启动中...");
 
-    // 自动确保 GNOME 快捷键注册与配套扩展原地热重载
+    // 自动确保 GNOME 快捷键注册与配套扩展原地自愈部署与热重载
     let startup_hotkeys = cfg.hotkeys.clone();
-    match tokio::task::spawn_blocking(move || sync_hotkeys_to_gnome(&startup_hotkeys)).await {
+    match tokio::task::spawn_blocking(move || {
+        #[cfg(target_os = "linux")]
+        {
+            if let Err(e) = super::installer::install_gnome_extension() {
+                tracing::debug!("自愈检查 GNOME 扩展部署状态: {e}");
+            }
+        }
+        sync_hotkeys_to_gnome(&startup_hotkeys)
+    })
+    .await
+    {
         Ok(Ok(())) => {}
         Ok(Err(error)) => tracing::warn!("启动守护服务时向系统注册快捷键失败: {error}"),
         Err(error) => tracing::warn!("快捷键注册任务异常: {error}"),

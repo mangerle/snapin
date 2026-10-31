@@ -92,20 +92,46 @@ impl LocalOcrPaths {
             });
         }
 
-        // 3. 用户数据目录: ~/.local/share/snapin/models/ppocrv6
-        if let Ok(home) = std::env::var("HOME") {
-            let user_dir = Path::new(&home)
-                .join(".local")
-                .join("share")
-                .join("snapin")
-                .join("models")
-                .join("ppocrv6");
-            if let Some(paths) = Self::discover_in_root(&user_dir) {
+        // 3. 当前可执行文件同级目录 (针对 Windows/Linux 便携包及开发环境)
+        if let Ok(current_exe) = std::env::current_exe() {
+            if let Some(exe_dir) = current_exe.parent() {
+                // 3.1 snapin.exe 同级: ./models/ppocrv6
+                let local_models = exe_dir.join("models").join("ppocrv6");
+                if let Some(paths) = Self::discover_in_root(&local_models) {
+                    return Ok(paths);
+                }
+
+                // 3.2 macOS App Bundle 资源目录: ../Resources/models/ppocrv6
+                let macos_resources = exe_dir
+                    .parent()
+                    .map(|p| p.join("Resources").join("models").join("ppocrv6"));
+                if let Some(mac_dir) = macos_resources {
+                    if let Some(paths) = Self::discover_in_root(&mac_dir) {
+                        return Ok(paths);
+                    }
+                }
+            }
+        }
+
+        // 4. 用户数据目录:
+        // Linux: ~/.local/share/snapin/models/ppocrv6
+        // Windows: %LOCALAPPDATA%\snapin\models\ppocrv6
+        #[cfg(target_os = "windows")]
+        let user_data_base = std::env::var("LOCALAPPDATA").map(PathBuf::from).ok();
+
+        #[cfg(not(target_os = "windows"))]
+        let user_data_base = std::env::var("HOME")
+            .map(|h| PathBuf::from(h).join(".local").join("share"))
+            .ok();
+
+        if let Some(base) = user_data_base {
+            let user_model_dir = base.join("snapin").join("models").join("ppocrv6");
+            if let Some(paths) = Self::discover_in_root(&user_model_dir) {
                 return Ok(paths);
             }
         }
 
-        // 3. 系统级标准安装目录: /usr/share/snapin/models/ppocrv6
+        // 5. 系统级标准安装目录: /usr/share/snapin/models/ppocrv6
         let sys_dir = Path::new("/usr/share/snapin/models/ppocrv6");
         if let Some(paths) = Self::discover_in_root(sys_dir) {
             return Ok(paths);

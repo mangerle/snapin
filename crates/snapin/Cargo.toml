@@ -27,3 +27,26 @@ tiny-skia.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 rustix.workspace = true
+
+[package.metadata.packager]
+product-name = "Snapin"
+identifier = "local.wangle.snapin"
+category = "Utility"
+description = "专为跨平台打造的高性能截图与桌面贴图工具"
+long-description = "Snapin 是一款现代化截图与贴图工具，支持智能窗口吸附、置顶贴图、全屏秒级抓取与系统托盘。"
+icons = ["../../assets/icons/snapin.svg"]
+resources = ["../../assets/models/ppocrv6 -> models/ppocrv6"]
+
+[package.metadata.packager.windows]
+digest-algorithm = "sha256"
+
+[package.metadata.packager.macos]
+minimum-system-version = "11.0"
+entitlements = ""
+frameworks = []
+
+[package.metadata.packager.deb]
+depends = ["libwayland-client0", "libxkbcommon0", "libfontconfig1", "libfreetype6", "libdbus-1-3"]
+section = "utils"
+priority = "optional"
+
