@@ -61,6 +61,17 @@ fn config_for(command: &Commands, loaded: Result<Config>) -> Result<Option<Confi
 async fn main() -> Result<()> {
     // 1. 最先解析命令行：--help 与 --version 等纯 CLI 路径应立即结束，不产生读盘与 D-Bus 副作用
     let Cli { command } = Cli::parse();
+    let command = match command {
+        Some(cmd) => cmd,
+        None => {
+            // 未指定子命令（如用户点击桌面图标启动）：若守护进程在线则唤起首选项，未运行则默认拉起常驻服务
+            if let Ok(true) = send_command_to_daemon(&DaemonRequest::Ping).await {
+                Commands::Prefs
+            } else {
+                Commands::Daemon
+            }
+        }
+    };
 
     // 2. 预读配置以还原用户的日志分级偏好，随后校验各子命令对配置的强依赖
     let loaded_config = config::load_or_create_config(None).map_err(anyhow::Error::new);

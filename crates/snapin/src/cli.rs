@@ -10,11 +10,11 @@ use std::path::PathBuf;
     author = "wangle",
     version = env!("CARGO_PKG_VERSION"),
     about = "专为 Linux Wayland (Ubuntu 26 GNOME) 打造的纯 Rust 截图与贴图工具",
-    arg_required_else_help = true
+    arg_required_else_help = false
 )]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 }
 
 /// 支持的子命令定义
@@ -163,14 +163,11 @@ mod tests {
         assert!(!Commands::Daemon.needs_capabilities());
     }
 
-    /// 裸命令必须给出用法提示而非静默拉起守护进程
+    /// 裸命令启动应被允许（用于桌面图标双击拉起常驻守护服务）
     #[test]
-    fn test_bare_invocation_requires_subcommand() {
-        let error = Cli::try_parse_from(["snapin"]).expect_err("无子命令时不应解析成功");
-        assert_eq!(
-            error.kind(),
-            clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
-        );
+    fn test_bare_invocation_allowed_for_desktop_launch() {
+        let cli = Cli::try_parse_from(["snapin"]).expect("无子命令时应允许解析并调度为默认行为");
+        assert!(cli.command.is_none());
     }
 
     /// 纯 CLI 路径（--version）应能独立解析成功
@@ -184,38 +181,41 @@ mod tests {
     /// 子命令参数应正确落到强类型命令模型
     #[test]
     fn test_subcommand_parsing() {
+        let cli = Cli::try_parse_from(["snapin"]).unwrap();
+        assert!(cli.command.is_none(), "无参数启动应被允许并解析为 None");
+
         let cli = Cli::try_parse_from(["snapin", "snip", "--custom"]).unwrap();
         assert!(matches!(
             cli.command,
-            Commands::Snip {
+            Some(Commands::Snip {
                 auto_copy: false,
                 custom: true,
                 translate: false,
                 fullscreen: false,
                 delay: 0,
-            }
+            })
         ));
 
         let cli = Cli::try_parse_from(["snapin", "snip", "--translate"]).unwrap();
         assert!(matches!(
             cli.command,
-            Commands::Snip {
+            Some(Commands::Snip {
                 translate: true,
                 ..
-            }
+            })
         ));
 
         let cli = Cli::try_parse_from(["snapin", "snip", "--fullscreen"]).unwrap();
         assert!(matches!(
             cli.command,
-            Commands::Snip {
+            Some(Commands::Snip {
                 fullscreen: true,
                 ..
-            }
+            })
         ));
 
         let cli = Cli::try_parse_from(["snapin", "snip", "--delay", "3"]).unwrap();
-        assert!(matches!(cli.command, Commands::Snip { delay: 3, .. }));
+        assert!(matches!(cli.command, Some(Commands::Snip { delay: 3, .. })));
         assert!(
             Cli::try_parse_from(["snapin", "snip", "--delay", "61"]).is_err(),
             "截图延时超过 60 秒必须被拒绝"
@@ -241,10 +241,10 @@ mod tests {
         let cli = Cli::try_parse_from(["snapin", "pin-file", "/tmp/a.raw", "10", "20"]).unwrap();
         assert!(matches!(
             cli.command,
-            Commands::PinFile { x: 10, y: 20, .. }
+            Some(Commands::PinFile { x: 10, y: 20, .. })
         ));
 
         let cli = Cli::try_parse_from(["snapin", "pick-color"]).unwrap();
-        assert!(matches!(cli.command, Commands::PickColor));
+        assert!(matches!(cli.command, Some(Commands::PickColor)));
     }
 }
