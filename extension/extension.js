@@ -1,8 +1,4 @@
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
-import * as Main from 'resource:///org/gnome/shell/ui/main.js';
-import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
-import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
-import St from 'gi://St';
 import Gio from 'gi://Gio';
 import Shell from 'gi://Shell';
 import Meta from 'gi://Meta';
@@ -12,11 +8,7 @@ import GLib from 'gi://GLib';
 //   1. PlaceWindowByTitle —— Wayland 禁止客户端自行摆放或提级窗口，贴图窗口的绝对定位与
 //      置顶必须由拥有特权的 Mutter 扩展代为执行。
 //   2. CaptureFullscreen   —— 用合成器内部对象直接把整屏写进给定文件流，无快门白闪。
-//
-// 曾经还有第三个方法 CaptureFullscreenRaw（在 shell 进程内 read_pixels 取原始像素），
-// 已永久移除：该调用的数组返回值缺少长度注解，在 GNOME 50 的 GJS 上会命中
-// gi/arg.cpp 断言并 `Bail out!` 以 SIGABRT 终止 gnome-shell，表现为按一次截图就被登出。
-// 它在本机历史上从未成功过一次，而 CaptureFullscreen 成功过 46 次（258~1170ms）。
+//   3. ListWindows         —— 枚举 Mutter 当前所有可见窗口几何，为快速吸附提供依据。
 const IFACE_XML = `
 <node>
   <interface name="org.gnome.Shell.Extensions.Snapin">
@@ -33,34 +25,8 @@ const IFACE_XML = `
     <method name="ListWindows">
       <arg type="s" direction="out" name="windowsJson"/>
     </method>
-    <method name="SetTrayVisible">
-      <arg type="b" direction="in" name="visible"/>
-      <arg type="b" direction="out" name="applied"/>
-    </method>
   </interface>
 </node>`;
-
-// 托盘菜单条目：以数据表驱动构建，避免重复的 connect 样板并防止同一命令被多处重复注册
-const TRAY_MENU = [
-    { label: '截屏', command: 'snapin snip' },
-    { label: '全屏截图', command: 'snapin snip --fullscreen' },
-    { label: '延时 3 秒截图', command: 'snapin snip --delay 3' },
-    { label: '取色器', command: 'snapin pick-color' },
-    { label: '截屏并自动复制', command: 'snapin snip --auto-copy' },
-    { label: '自定义截屏', command: 'snapin snip --custom' },
-    { label: '贴图', command: 'snapin paste' },
-    { label: '隐藏/显示所有贴图', command: 'snapin toggle' },
-    // 不带分组参数时由守护进程轮转至下一个分组，硬编码分组会使其永远停在同一组
-    { label: '切换到另一贴图组', command: 'snapin switch-group' },
-    { label: '清空截屏历史', command: 'snapin clear-history' },
-    { separator: true },
-    { label: '首选项...', command: 'snapin prefs' },
-    {
-        label: '重新启动',
-        command: 'bash -c "systemctl --user restart snapin 2>/dev/null || (snapin exit 2>/dev/null; sleep 0.5; snapin daemon &)"',
-    },
-    { label: '退出', command: 'snapin exit' },
-];
 
 // 延迟放置请求的最长有效期：贴图标题含唯一 ID 不会复用，超时仅用于兜底回收异常未映射的请求
 const PLACEMENT_TTL_US = 5 * 1000 * 1000;
@@ -79,11 +45,7 @@ export default class SnapinHelperExtension extends Extension {
         // 已连接的窗口标题监听器，disable 时统一断开，防止扩展重载后闭包泄漏
         this._titleWatchers = new Set();
 
-        // 2. 托盘由 Snapin 守护进程通过标准 StatusNotifierItem (SNI) 协议在顶栏统一呈现（免注销即装即现）
-        // 扩展专注提供 Mutter 合成器内部原生截图与窗口置顶特权，避免产生双重托盘图标。
-        // 若外部显式调用 SetTrayVisible(true) 仍保留兜底展示能力。
-
-        // 3. 监听全局窗口创建事件：贴图窗口一诞生立即强制置顶，并设为 UTILITY 类型从 Dock 隐藏
+        // 2. 监听全局窗口创建事件：贴图窗口一诞生立即强制置顶，并设为 UTILITY 类型从 Dock 隐藏
         this._windowCreatedId = global.display.connect('window-created', (_display, metaWin) => {
             this._applyPinAttributes(metaWin);
             if (!metaWin) return;
@@ -98,84 +60,6 @@ export default class SnapinHelperExtension extends Extension {
         });
     }
 
-    /**
-     * 在顶栏创建并挂载托盘指示器（幂等：已存在时直接返回）。
-     *
-     * 之所以把创建逻辑抽出来，是因为"退出应用"只隐藏托盘、不停用扩展：
-     * 扩展一旦被停用，GNOME 45+ 在本会话内无法重新加载，贴图定位与原生截屏会一起失效。
-     */
-    _showIndicator() {
-        if (this._indicator) {
-            return;
-        }
-
-        let indicator = new PanelMenu.Button(0.5, 'Snapin Indicator', false);
-        indicator.menu.setSourceAlignment(0.5);
-        indicator.set_style('-natural-hpadding: 6px; -minimum-hpadding: 4px; margin: 0; padding: 0;');
-
-        let box = new St.BoxLayout({
-            style_class: 'panel-status-indicators-box',
-        });
-        let iconFile = Gio.File.new_for_path(this.path + '/icons/snapin-tray.svg');
-        let icon;
-        if (iconFile.query_exists(null)) {
-            icon = new St.Icon({
-                gicon: new Gio.FileIcon({ file: iconFile }),
-                style_class: 'system-status-icon',
-                style: 'margin: 0; padding: 0;',
-            });
-        } else {
-            icon = new St.Icon({
-                icon_name: 'image-crop-symbolic',
-                style_class: 'system-status-icon',
-                style: 'margin: 0; padding: 0;',
-            });
-        }
-        box.add_child(icon);
-        indicator.add_child(box);
-
-        for (let entry of TRAY_MENU) {
-            let item;
-            if (entry.separator) {
-                item = new PopupMenu.PopupSeparatorMenuItem();
-            } else {
-                item = new PopupMenu.PopupMenuItem(entry.label);
-                item.connect('activate', () => {
-                    GLib.spawn_command_line_async(entry.command);
-                });
-            }
-            indicator.menu.addMenuItem(item);
-        }
-
-        Main.panel.addToStatusArea('snapin-indicator', indicator, 1, 'right');
-        this._indicator = indicator;
-    }
-
-    /** 从顶栏移除托盘指示器，但保留 D-Bus 服务与窗口特权（供"退出应用"使用） */
-    _hideIndicator() {
-        if (this._indicator) {
-            this._indicator.destroy();
-            this._indicator = null;
-        }
-    }
-
-    /**
-     * 显示或隐藏顶栏托盘。
-     *
-     * 退出 Snapin 时只隐藏托盘而不停用扩展：扩展被停用后本会话内无法重新加载，
-     * 会导致贴图定位与零白闪截屏一并失效直到注销重登；守护进程启动时会再次调用本方法把托盘加回来。
-     * @param {boolean} visible 是否显示托盘
-     * @returns {boolean} 固定返回 true，表示请求已受理
-     */
-    SetTrayVisible(visible) {
-        if (visible) {
-            this._showIndicator();
-        } else {
-            this._hideIndicator();
-        }
-        return true;
-    }
-
     disable() {
         if (this._windowCreatedId) {
             global.display.disconnect(this._windowCreatedId);
@@ -188,8 +72,6 @@ export default class SnapinHelperExtension extends Extension {
         this._titleWatchers.clear();
 
         this._pendingPlacements = new Map();
-
-        this._hideIndicator();
 
         if (this._dbusImpl) {
             this._dbusImpl.unexport();

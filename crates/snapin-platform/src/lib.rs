@@ -28,8 +28,7 @@ pub use clipboard::{
 };
 pub use error::PlatformError;
 pub use extension_client::{
-    capture_fullscreen_extension, list_windows, place_paster_window, set_extension_tray_visible,
-    WindowRect,
+    capture_fullscreen_extension, list_windows, place_paster_window, WindowRect,
 };
 pub use hotkey_manager::{
     hotkey_to_gnome_accelerator, suspend_hotkeys_for_settings, sync_global_hotkeys,

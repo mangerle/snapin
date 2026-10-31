@@ -7,34 +7,14 @@ use commands::handle_command;
 use snapin_core::config::Config;
 use snapin_daemon::{send_command_to_daemon, DaemonRequest, IpcListener};
 use snapin_platform::{
-    enable_gnome_extension, send_desktop_notification, set_extension_tray_visible,
-    sync_hotkeys_to_gnome, PlatformTray, TrayAction,
+    enable_gnome_extension, send_desktop_notification, sync_hotkeys_to_gnome, PlatformTray,
+    TrayAction,
 };
 use snapin_ui::paster::spawn_paster_workspace_thread;
 #[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
-
-/// 把顶栏托盘恢复显示。
-///
-/// 退出 Snapin 时托盘被隐藏但扩展保持加载；守护进程再次启动（systemd 拉起、托盘菜单"重新启动"）
-/// 时需要显式恢复。扩展可能刚被 enable 拉起、接口尚未就绪，这里在约 1 秒内重试若干次；
-/// 仍失败只记录告警——下次登录时扩展加载会自动显示托盘。
-async fn restore_extension_tray() {
-    for attempt in 0..4u32 {
-        match set_extension_tray_visible(true).await {
-            Ok(()) => {
-                tracing::debug!("已请求扩展恢复顶栏托盘（第 {} 次尝试）", attempt + 1);
-                return;
-            }
-            Err(error) if attempt == 3 => {
-                tracing::warn!("恢复顶栏托盘失败，扩展接口可能尚未就绪: {error}");
-            }
-            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(250)).await,
-        }
-    }
-}
 
 /// 运行后台守护服务
 pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
@@ -65,8 +45,6 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
         Err(error) => tracing::warn!("快捷键注册任务异常: {error}"),
     }
     enable_gnome_extension();
-    // 上次退出时只隐藏了托盘，这里把它恢复出来
-    restore_extension_tray().await;
     let workspace_proxy =
         spawn_paster_workspace_thread(false).context("初始化并启动集中贴图工作区失败")?;
 
@@ -102,6 +80,8 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
     let mut sigterm = signal(SignalKind::terminate()).context("注册 SIGTERM 信号监听失败")?;
 
     tracing::info!("Snapin 守护服务已就绪，等待热键指令...");
+    let _ = snapin_core::confirm_update_success();
+
     if cfg.general.notify_on_startup {
         if let Err(error) = send_desktop_notification(
             "Snapin 截图贴图",
@@ -111,6 +91,15 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
         {
             tracing::debug!("发送启动就绪通知失败或系统通知不可用: {error}");
         }
+    }
+
+    // 后台周期性轻量检查更新（模式 B：仅检查版本并发送桌面气泡通知，不下载大包）
+    if cfg.general.auto_check_update {
+        let check_url = cfg.general.custom_update_url.clone();
+        let interval_hours = cfg.general.update_check_interval_hours.max(1);
+        tokio::spawn(async move {
+            run_update_check_loop(check_url, interval_hours).await;
+        });
     }
 
     // 托盘菜单轮询定时器（每 100ms 探测一次非阻塞事件）
@@ -243,4 +232,37 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
 
     tracing::info!("Snapin 守护服务已平滑退出");
     Ok(())
+}
+
+/// 守护进程后台更新轻量巡检循环（模式 B：仅提示不主动下载）
+async fn run_update_check_loop(custom_url: Option<String>, interval_hours: u32) {
+    // 延迟 10 秒发起首次检查，避开系统开机高峰期与网络重连抖动
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    let period = std::time::Duration::from_secs((interval_hours as u64).saturating_mul(3600));
+    let mut check_interval = tokio::time::interval(period);
+
+    loop {
+        tracing::debug!("后台轻量检查 Snapin 新版本...");
+        match snapin_core::check_update_async(custom_url.as_deref()).await {
+            Ok(Some(update)) => {
+                let new_version = update.version().to_string();
+                tracing::info!("检测到 Snapin 新版本: v{new_version}");
+                let title = "Snapin 发现新版本";
+                let body =
+                    format!("检测到新版本 v{new_version}，可前往设置中心【关于】页查看并更新。");
+                if let Err(error) = send_desktop_notification(title, &body).await {
+                    tracing::debug!("发送版本更新桌面通知失败: {error}");
+                }
+            }
+            Ok(None) => {
+                tracing::debug!("当前已是最新版本，无需更新。");
+            }
+            Err(error) => {
+                tracing::debug!("后台静默检查更新失败（已安全忽略）: {error}");
+            }
+        }
+
+        check_interval.tick().await;
+    }
 }

@@ -59,8 +59,14 @@ fn config_for(command: &Commands, loaded: Result<Config>) -> Result<Option<Confi
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // 0. 在任何逻辑执行之前执行自更新启动自检：若升级后新版本连续崩溃达 2 次，自动触发回滚
+    if let Err(err) = snapin_core::check_and_recover_on_startup() {
+        eprintln!("自更新启动自检失败: {err}");
+    }
+
     // 1. 最先解析命令行：--help 与 --version 等纯 CLI 路径应立即结束，不产生读盘与 D-Bus 副作用
     let Cli { command } = Cli::parse();
+
     let command = match command {
         Some(cmd) => cmd,
         None => {
