@@ -13,51 +13,104 @@ static SEQUENCE_COUNTER: AtomicU64 = AtomicU64::new(1);
 pub struct AppPaths;
 
 impl AppPaths {
-    /// 获取用户配置根目录：优先 `$XDG_CONFIG_HOME/snapin`，兜底 `~/.config/snapin`
+    /// 获取用户配置根目录：
+    /// - Linux: 优先 `$XDG_CONFIG_HOME/snapin`，兜底 `~/.config/snapin`
+    /// - Windows: 优先 `%APPDATA%\snapin`，兜底系统临时目录
+    /// - macOS: `~/Library/Application Support/snapin`
     pub fn config_dir() -> PathBuf {
+        #[cfg(target_os = "windows")]
+        let base = std::env::var("APPDATA")
+            .map(PathBuf::from)
+            .or_else(|_| {
+                std::env::var("USERPROFILE")
+                    .map(|h| PathBuf::from(h).join("AppData").join("Roaming"))
+            })
+            .unwrap_or_else(|_| std::env::temp_dir());
+
+        #[cfg(target_os = "macos")]
+        let base = std::env::var("HOME")
+            .map(|h| PathBuf::from(h).join("Library").join("Application Support"))
+            .unwrap_or_else(|_| PathBuf::from("."));
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         let base = std::env::var("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".config")))
             .unwrap_or_else(|_| PathBuf::from("."));
+
         let p = base.join("snapin");
         ensure_private_dir(&p);
         p
     }
 
-    /// 获取默认配置文件路径：`$XDG_CONFIG_HOME/snapin/config.toml`
+    /// 获取默认配置文件路径：`$XDG_CONFIG_HOME/snapin/config.toml` 或系统对应配置目录
     pub fn default_config_file() -> PathBuf {
         Self::config_dir().join("config.toml")
     }
 
-    /// 获取缓存根目录：优先 `$XDG_CACHE_HOME/snapin`，兜底 `~/.cache/snapin`
+    /// 获取缓存根目录：
+    /// - Linux: 优先 `$XDG_CACHE_HOME/snapin`，兜底 `~/.cache/snapin`
+    /// - Windows: 优先 `%LOCALAPPDATA%\snapin\cache`
+    /// - macOS: `~/Library/Caches/snapin`
     pub fn cache_dir() -> PathBuf {
+        #[cfg(target_os = "windows")]
+        let base = std::env::var("LOCALAPPDATA")
+            .map(|p| PathBuf::from(p).join("snapin").join("cache"))
+            .unwrap_or_else(|_| std::env::temp_dir().join("snapin-cache"));
+
+        #[cfg(target_os = "macos")]
+        let base = std::env::var("HOME")
+            .map(|h| {
+                PathBuf::from(h)
+                    .join("Library")
+                    .join("Caches")
+                    .join("snapin")
+            })
+            .unwrap_or_else(|_| PathBuf::from(".snapin-cache"));
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         let base = std::env::var("XDG_CACHE_HOME")
             .map(PathBuf::from)
             .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".cache")))
-            .unwrap_or_else(|_| PathBuf::from("."));
-        let p = base.join("snapin");
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join("snapin");
+
+        let p = base;
         ensure_private_dir(&p);
         p
     }
 
-    /// 获取安全运行时临时目录（多用户 UID 隔离与 tmpfs 提速）：
-    /// 优先 `$XDG_RUNTIME_DIR/snapin`，次选 `/dev/shm/snapin-$UID`，兜底系统临时目录
+    /// 获取安全运行时临时目录（多用户隔离与 tmpfs 提速）：
+    /// - Linux: 优先 `$XDG_RUNTIME_DIR/snapin`，次选 `/dev/shm/snapin-$UID`，兜底系统临时目录
+    /// - Windows: `%TEMP%\snapin-<USERNAME>`
+    /// - macOS: 优先 `$TMPDIR/snapin`，兜底系统临时目录
     pub fn runtime_dir() -> PathBuf {
-        if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
-            let p = PathBuf::from(runtime_dir).join("snapin");
-            ensure_private_dir(&p);
-            return p;
+        #[cfg(unix)]
+        {
+            if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
+                let p = PathBuf::from(runtime_dir).join("snapin");
+                ensure_private_dir(&p);
+                return p;
+            }
+
+            let uid = rustix::process::getuid().as_raw();
+            let shm_dir = Path::new("/dev/shm");
+            let base = if shm_dir.exists() {
+                shm_dir.join(format!("snapin-{uid}"))
+            } else {
+                std::env::temp_dir().join(format!("snapin-{uid}"))
+            };
+            ensure_private_dir(&base);
+            base
         }
 
-        let uid = rustix::process::getuid().as_raw();
-        let shm_dir = Path::new("/dev/shm");
-        let base = if shm_dir.exists() {
-            shm_dir.join(format!("snapin-{uid}"))
-        } else {
-            std::env::temp_dir().join(format!("snapin-{uid}"))
-        };
-        ensure_private_dir(&base);
-        base
+        #[cfg(windows)]
+        {
+            let username = std::env::var("USERNAME").unwrap_or_else(|_| "user".to_string());
+            let base = std::env::temp_dir().join(format!("snapin-{username}"));
+            ensure_private_dir(&base);
+            base
+        }
     }
 
     /// 获取 IPC 通信套接字文件路径：始终位于 `runtime_dir()` 私有目录内。
@@ -69,11 +122,23 @@ impl AppPaths {
         Self::runtime_dir().join("snapin.sock")
     }
 
-    /// 获取用户图片默认保存目录：优先 `~/Pictures`，兜底当前目录
+    /// 获取用户图片默认保存目录：优先操作系统图片目录，兜底当前目录
     pub fn pictures_dir() -> PathBuf {
-        std::env::var("HOME")
-            .map(|h| PathBuf::from(h).join("Pictures"))
-            .unwrap_or_else(|_| PathBuf::from("."))
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(profile) = std::env::var("USERPROFILE") {
+                return PathBuf::from(profile).join("Pictures");
+            }
+        }
+
+        #[cfg(unix)]
+        {
+            if let Ok(home) = std::env::var("HOME") {
+                return PathBuf::from(home).join("Pictures");
+            }
+        }
+
+        PathBuf::from(".")
     }
 
     /// 获取 GNOME Shell 扩展安装目标路径

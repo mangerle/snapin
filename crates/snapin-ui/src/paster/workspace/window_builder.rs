@@ -10,7 +10,7 @@ use std::sync::Arc;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::EventLoopWindowTarget;
 use winit::platform::wayland::WindowBuilderExtWayland;
-use winit::window::{Window, WindowBuilder};
+use winit::window::{Window, WindowBuilder, WindowLevel};
 
 /// 单个受管贴图窗口的运行时物理实例
 pub struct PasterInstance {
@@ -39,6 +39,7 @@ pub(crate) fn create_new_paster_window(
             .with_title(&title)
             .with_decorations(false)
             .with_transparent(true)
+            .with_window_level(WindowLevel::AlwaysOnTop)
             .with_inner_size(PhysicalSize::new(initial_w, initial_h))
             .with_position(PhysicalPosition::new(init_x, init_y))
             .build(elwt)

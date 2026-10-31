@@ -109,11 +109,16 @@ async fn capture_xcap() -> Result<RgbaImage, PlatformError> {
 
         // 单显示器场景：直接极速捕获并转换
         if monitors.len() == 1 {
-            let captured = monitors[0]
-                .capture_image()
-                .map_err(|e| PlatformError::Capture {
-                    message: format!("显示器捕获失败: {e}"),
-                })?;
+            let captured = monitors[0].capture_image().map_err(|e| {
+                #[cfg(target_os = "macos")]
+                let hint =
+                    "（请检查是否已在“系统设置 -> 隐私与安全性 -> 屏幕录制”中授予 Snapin 权限）";
+                #[cfg(not(target_os = "macos"))]
+                let hint = "";
+                PlatformError::Capture {
+                    message: format!("显示器捕获失败: {e}{hint}"),
+                }
+            })?;
             return Ok(captured);
         }
 
