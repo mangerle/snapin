@@ -58,7 +58,9 @@ pub enum DaemonResponse {
     Pong,
     /// 状态查询结果快照
     Status {
+        #[serde(default)]
         active_group: usize,
+        #[serde(default)]
         paster_count: usize,
     },
     /// 操作执行异常反馈

@@ -43,8 +43,10 @@ pub async fn send_request_to_path(
     let mut stream = match timeout(IPC_TIMEOUT, connect_fut).await {
         Ok(Ok(s)) => s,
         Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => {
-            // 套接字文件残留但无进程监听，安全清理孤儿套接字文件
-            let _ = std::fs::remove_file(socket_path);
+            // 不在这里删除套接字：accept 队列暂时耗尽、进程被 SIGSTOP 或极端负载
+            // 都可能返回 ConnectionRefused，删除会误伤仍然存活的守护进程。
+            // 残留套接字由 IpcListener::bind 在持有单实例锁时统一判定和清理。
+            tracing::debug!("连接 IPC 套接字被拒绝，按服务未就绪处理: {e}");
             return Ok(None);
         }
         Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
