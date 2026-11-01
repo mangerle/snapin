@@ -12,10 +12,12 @@ use crate::paster::window::jobs::PasterJobRuntime;
 use crate::ports::{DesktopPort, NoopDesktop};
 use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 
+mod chrome;
 mod frame_cache;
 mod job_slot;
 mod jobs;
 
+use chrome::PasterChrome;
 use frame_cache::FrameCache;
 use job_slot::PasterJobSlot;
 
@@ -44,11 +46,8 @@ pub struct PasterWindowState {
     /// 贴图标注工具栏（主栏按钮集由 `PASTER_MAIN_ITEMS` 指定）
     pub toolbar: Toolbar,
     pub should_close: bool,
-    pub has_shadow: bool,
-    pub show_toolbar: bool,
-    /// 鼠标穿透开启时图像区域不参与输入命中，仅保留工具条作为恢复手柄
-    pub mouse_through: bool,
-    pub smooth_scaling: bool,
+    /// 窗口外观与交互开关
+    pub(crate) chrome: PasterChrome,
     pub file_path: Option<PathBuf>,
     pub context_menu: ContextMenuState,
     pub cursor_pos: (f32, f32),
@@ -83,10 +82,7 @@ impl PasterWindowState {
             annotations: AnnotationHistory::default(),
             toolbar: create_paster_toolbar(),
             should_close: false,
-            has_shadow: true,
-            show_toolbar: false,
-            mouse_through: false,
-            smooth_scaling: true,
+            chrome: PasterChrome::default(),
             file_path: None,
             context_menu: ContextMenuState::default(),
             cursor_pos: (0.0, 0.0),
@@ -285,7 +281,7 @@ impl PasterWindowState {
             return;
         }
 
-        self.show_toolbar = visible;
+        self.chrome.show_toolbar = visible;
         if !visible {
             self.commit_text_session();
             self.toolbar.active_tool = None;
@@ -300,7 +296,7 @@ impl PasterWindowState {
     /// 只有“隐藏工具条”在鼠标穿透开启时被拒绝；显示工具条始终允许，
     /// 这样 `set_mouse_through(true)` 的强制显示路径不会被守卫误伤。
     pub(crate) fn can_set_toolbar_visible(&self, visible: bool) -> bool {
-        visible || !self.mouse_through
+        visible || !self.chrome.mouse_through
     }
 
     /// 切换贴图鼠标穿透。
@@ -308,9 +304,9 @@ impl PasterWindowState {
     /// 开启时强制显示工具条并关闭右键菜单：图像区域将不再参与输入命中，
     /// 用户只能通过工具条上的穿透按钮恢复交互，因此工具条必须始终可见。
     pub fn set_mouse_through(&mut self, enabled: bool, window: &Window) {
-        self.mouse_through = enabled;
+        self.chrome.mouse_through = enabled;
         if enabled {
-            if !self.show_toolbar {
+            if !self.chrome.show_toolbar {
                 self.set_toolbar_visible(true, window);
             }
             self.cancel_text_session();
@@ -486,7 +482,7 @@ pub(crate) fn apply_window_scale_resize(state: &mut PasterWindowState, window: &
     let mut new_w = (base_w * scale).max(20.0);
     let mut new_h = (base_h * scale).max(20.0);
 
-    if state.show_toolbar {
+    if state.chrome.show_toolbar {
         // 工具条度量以 state.ui_scale 为准：首次在 HiDPI 屏上打开工具条时，
         // toolbar.ui_scale 可能仍是初始的 1.0，先同步避免按过期倍率扩容不足。
         state.toolbar.ui_scale = state.ui_scale.max(0.1);
@@ -501,7 +497,8 @@ pub(crate) fn apply_window_scale_resize(state: &mut PasterWindowState, window: &
 
     // 若当前正在展示右键菜单，确保窗口物理尺寸足以容纳菜单而不被截断
     if state.context_menu.is_open {
-        let main_items = ContextMenuState::build_main_items(state.show_toolbar, state.has_shadow);
+        let main_items =
+            ContextMenuState::build_main_items(state.chrome.show_toolbar, state.chrome.has_shadow);
         let (req_w, req_h) = state.context_menu.required_menu_extent(&main_items);
         new_w = new_w.max(req_w);
         new_h = new_h.max(req_h);
@@ -621,10 +618,10 @@ mod tests {
     #[test]
     fn test_mouse_through_blocks_toolbar_hide() {
         let mut state = test_state();
-        state.show_toolbar = true;
+        state.chrome.show_toolbar = true;
         assert!(state.can_set_toolbar_visible(false), "未穿透时应允许隐藏");
 
-        state.mouse_through = true;
+        state.chrome.mouse_through = true;
         assert!(
             !state.can_set_toolbar_visible(false),
             "穿透开启后不得隐藏唯一可交互手柄"

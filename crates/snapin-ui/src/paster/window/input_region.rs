@@ -143,7 +143,7 @@ pub(crate) fn input_layout_from_state(
     window_h: f32,
 ) -> InputRegionLayout {
     let scale = state.item.transform.scale.max(f32::EPSILON);
-    let (toolbar_main, toolbar_sub, toolbar_dropdown) = if state.show_toolbar {
+    let (toolbar_main, toolbar_sub, toolbar_dropdown) = if state.chrome.show_toolbar {
         (
             Some(state.toolbar.main_rect),
             state.toolbar.sub_rect,
@@ -159,7 +159,7 @@ pub(crate) fn input_layout_from_state(
         window_h,
         image_w: state.item.pixmap.width() as f32 * scale,
         image_h: state.item.pixmap.height() as f32 * scale,
-        mouse_through: state.mouse_through,
+        mouse_through: state.chrome.mouse_through,
         ui_scale: state.ui_scale,
         toolbar_main,
         toolbar_sub,
@@ -176,7 +176,8 @@ fn context_menu_rects(state: &PasterWindowState) -> (Option<Rect>, Option<Rect>)
         return (None, None);
     }
 
-    let main_items = ContextMenuState::build_main_items(state.show_toolbar, state.has_shadow);
+    let main_items =
+        ContextMenuState::build_main_items(state.chrome.show_toolbar, state.chrome.has_shadow);
     let main_height =
         ContextMenuState::items_total_height(&main_items, menu.item_height, menu.ui_scale);
     let main = Rect {
@@ -187,7 +188,7 @@ fn context_menu_rects(state: &PasterWindowState) -> (Option<Rect>, Option<Rect>)
     };
 
     let submenu = menu.active_submenu.map(|(kind, x, y)| {
-        let sub_items = ContextMenuState::build_sub_items(kind, state.smooth_scaling);
+        let sub_items = ContextMenuState::build_sub_items(kind, state.chrome.smooth_scaling);
         let sub_height =
             ContextMenuState::items_total_height(&sub_items, menu.item_height, menu.ui_scale);
         Rect {

@@ -18,15 +18,17 @@ pub fn dispatch_menu_action(state: &mut PasterWindowState, action: MenuItemId, w
         }
         MenuItemId::SaveImageAs => save_paster_as(state),
         MenuItemId::ToggleToolbar => {
-            state.set_toolbar_visible(!state.show_toolbar, window);
+            state.set_toolbar_visible(!state.chrome.show_toolbar, window);
             // 隐藏工具条会结束文字会话，同步关闭 IME，避免输入法状态残留
-            if !state.show_toolbar {
+            if !state.chrome.show_toolbar {
                 window.set_ime_allowed(false);
             }
         }
-        MenuItemId::ToggleShadow => state.has_shadow = !state.has_shadow,
+        MenuItemId::ToggleShadow => state.chrome.has_shadow = !state.chrome.has_shadow,
         MenuItemId::Scale(s) => state.set_scale(s, window),
-        MenuItemId::ToggleSmoothScaling => state.smooth_scaling = !state.smooth_scaling,
+        MenuItemId::ToggleSmoothScaling => {
+            state.chrome.smooth_scaling = !state.chrome.smooth_scaling
+        }
         MenuItemId::RotateLeft => {
             state.rotate_ccw(window);
         }

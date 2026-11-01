@@ -149,7 +149,7 @@ pub(crate) fn handle_toolbar_click(
     window_size: (f32, f32),
     window: &Window,
 ) -> bool {
-    if !state.show_toolbar {
+    if !state.chrome.show_toolbar {
         return false;
     }
     refresh_toolbar_layout(state, window_size.0, window_size.1);
@@ -170,7 +170,7 @@ pub(crate) fn handle_toolbar_click(
             ToolbarAction::Ocr => submit_paster_ocr(state),
             ToolbarAction::Translate => submit_paster_translate(state),
             ToolbarAction::MouseThrough => {
-                state.set_mouse_through(!state.mouse_through, window);
+                state.set_mouse_through(!state.chrome.mouse_through, window);
             }
             ToolbarAction::Copy => {
                 copy_paster_to_clipboard(state);
@@ -589,7 +589,7 @@ mod tests {
     fn 工具条锚定在图像下方() {
         let mut state = test_state(140, 80);
         state.ui_scale = 1.0;
-        state.show_toolbar = true;
+        state.chrome.show_toolbar = true;
         state.toolbar.active_tool = Some(Tool::Rect);
 
         refresh_toolbar_layout(&mut state, 508.0, 180.0);

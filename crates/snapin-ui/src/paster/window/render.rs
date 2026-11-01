@@ -60,7 +60,7 @@ pub fn render_paster_to_surface(
     // 1. 构建几何变换矩阵 (缩放)
     let tf = Transform::from_scale(scale, scale);
 
-    let quality = if state.smooth_scaling {
+    let quality = if state.chrome.smooth_scaling {
         FilterQuality::Bilinear
     } else {
         FilterQuality::Nearest
@@ -82,19 +82,24 @@ pub fn render_paster_to_surface(
     // 4. 绘制贴图精致外边框与窗口阴影。
     //    必须按「缩放后的贴图尺寸」描边而不是窗口尺寸：右键菜单放不下时窗口会被临时撑大，
     //    若跟着窗口描边，边框会一并扩大，用户一眼就能看出贴图被撑过——透明像素挡不住这个观感。
-    render_paster_border_and_shadow(&mut target_pixmap, scaled_w, scaled_h, state.has_shadow);
+    render_paster_border_and_shadow(
+        &mut target_pixmap,
+        scaled_w,
+        scaled_h,
+        state.chrome.has_shadow,
+    );
 
     // 5. 在图像顶部居中绘制状态提示（OCR / 翻译进度与结果），随后再叠加工具栏与菜单
     render_status_message(state, &mut target_pixmap, scaled_w);
 
     // 6. 绘制标注工具栏与右键上下文菜单 (统一复用线程局部高精度文本排版引擎)
-    if state.show_toolbar || state.context_menu.is_open {
-        if state.show_toolbar {
+    if state.chrome.show_toolbar || state.context_menu.is_open {
+        if state.chrome.show_toolbar {
             // 与命中测试同源：工具条锚定在缩放后的图像正下方，窗口扩容区域保持透明
             refresh_toolbar_layout(state, width as f32, height as f32);
         }
         with_thread_local_text_renderer(|tr| {
-            if state.show_toolbar {
+            if state.chrome.show_toolbar {
                 state.toolbar.render(&mut target_pixmap.as_mut());
             }
             if state.context_menu.is_open {
@@ -102,9 +107,9 @@ pub fn render_paster_to_surface(
                     &state.context_menu,
                     &mut target_pixmap.as_mut(),
                     tr,
-                    state.show_toolbar,
-                    state.has_shadow,
-                    state.smooth_scaling,
+                    state.chrome.show_toolbar,
+                    state.chrome.has_shadow,
+                    state.chrome.smooth_scaling,
                 );
             }
         });

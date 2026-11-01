@@ -78,7 +78,7 @@ pub fn handle_paster_cursor_move(
         return state.update_stroke(state.cursor_pos);
     }
 
-    let toolbar_hover_changed = if state.show_toolbar {
+    let toolbar_hover_changed = if state.chrome.show_toolbar {
         refresh_toolbar_layout(state, window_size.0, window_size.1);
         state
             .toolbar
@@ -88,12 +88,13 @@ pub fn handle_paster_cursor_move(
     };
 
     let menu_hover_changed = if state.context_menu.is_open {
-        let items = ContextMenuState::build_main_items(state.show_toolbar, state.has_shadow);
+        let items =
+            ContextMenuState::build_main_items(state.chrome.show_toolbar, state.chrome.has_shadow);
         state.context_menu.handle_mouse_move(
             state.cursor_pos.0,
             state.cursor_pos.1,
             &items,
-            state.smooth_scaling,
+            state.chrome.smooth_scaling,
         )
     } else {
         false
@@ -147,8 +148,10 @@ pub fn handle_paster_mouse_button(
             apply_window_scale_resize(state, window);
 
             let win_size = window.inner_size();
-            let main_items =
-                ContextMenuState::build_main_items(state.show_toolbar, state.has_shadow);
+            let main_items = ContextMenuState::build_main_items(
+                state.chrome.show_toolbar,
+                state.chrome.has_shadow,
+            );
             state.context_menu.open_at(
                 state.cursor_pos.0,
                 state.cursor_pos.1,
@@ -170,12 +173,13 @@ pub fn handle_paster_mouse_button(
 /// 左键按下：优先处理菜单与工具栏，其次在激活标注工具时开始一笔，最后才拖动窗口。
 fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
     if state.context_menu.is_open {
-        let main_items = ContextMenuState::build_main_items(state.show_toolbar, state.has_shadow);
+        let main_items =
+            ContextMenuState::build_main_items(state.chrome.show_toolbar, state.chrome.has_shadow);
         let action = state.context_menu.handle_click(
             state.cursor_pos.0,
             state.cursor_pos.1,
             &main_items,
-            state.smooth_scaling,
+            state.chrome.smooth_scaling,
         );
         if let Some(act) = action {
             dispatch_menu_action(state, act, window);
