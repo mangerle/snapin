@@ -47,8 +47,10 @@ pub fn render_paster_to_surface(
 ) -> Result<(), UiError> {
     surface.resize(width, height)?;
 
-    let mut target_pixmap =
-        Pixmap::new(width, height).ok_or(UiError::PixmapAlloc { width, height })?;
+    let mut target_pixmap = state
+        .take_frame_pixmap(width, height)
+        .ok_or(UiError::PixmapAlloc { width, height })?;
+    target_pixmap.fill(Color::TRANSPARENT);
 
     // 右键菜单放不下时窗口会被临时撑大：ARGB8888 通路下扩容区域本就是全透明像素，无需涂抹
     // （涂抹反而会遮掉透明效果）；只有回退到无 alpha 的 softbuffer 通路（Xrgb8888）时，
@@ -128,7 +130,9 @@ pub fn render_paster_to_surface(
     }
 
     // 8. 提交渲染至共享内存表面呈现（ARGB 通路下未被内容覆盖的像素保持透明）
-    surface.present(&target_pixmap)
+    let result = surface.present(&target_pixmap);
+    state.restore_frame_pixmap(target_pixmap);
+    result
 }
 
 /// 将当前拖拽中的笔迹按屏幕坐标绘制到目标画布上。

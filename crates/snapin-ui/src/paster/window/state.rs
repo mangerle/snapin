@@ -59,9 +59,31 @@ pub struct PasterWindowState {
     pub(crate) is_drawing: bool,
     /// 正在编辑的文字标注会话（坐标与字号均为图像像素），无会话时为 `None`
     pub(crate) active_text_input: Option<TextInputSession>,
+    /// 渲染帧缓冲；窗口尺寸不变时复用，避免每帧重新分配整窗像素。
+    frame_pixmap: Option<Pixmap>,
 }
 
 impl PasterWindowState {
+    /// 取出与窗口尺寸匹配的渲染帧缓冲；尺寸变化时才重新分配。
+    ///
+    /// 渲染期间状态仍需要读取图像、工具栏与菜单字段，因此缓冲区先移出状态，
+    /// 渲染完成后由调用方归还，避免长期持有 `&mut self` 造成的借用冲突。
+    pub(crate) fn take_frame_pixmap(&mut self, width: u32, height: u32) -> Option<Pixmap> {
+        let needs_resize = self
+            .frame_pixmap
+            .as_ref()
+            .is_none_or(|pixmap| pixmap.width() != width || pixmap.height() != height);
+        if needs_resize {
+            self.frame_pixmap = Pixmap::new(width, height);
+        }
+        self.frame_pixmap.take()
+    }
+
+    /// 归还渲染帧缓冲，供下一帧复用。
+    pub(crate) fn restore_frame_pixmap(&mut self, pixmap: Pixmap) {
+        self.frame_pixmap = Some(pixmap);
+    }
+
     /// 是否有后台媒体任务正在执行。
     pub(crate) fn has_pending_job(&self) -> bool {
         self.pending_job_id.is_some()
@@ -105,6 +127,7 @@ impl PasterWindowState {
             status_message: None,
             last_click_time: None,
             pending_stroke_points: Vec::with_capacity(64),
+            frame_pixmap: None,
             is_drawing: false,
             active_text_input: None,
         }
@@ -542,6 +565,32 @@ mod tests {
 
         state.set_status_message_at("翻译完成", now);
         assert_eq!(state.status_deadline(), Some(now + STATUS_MESSAGE_TTL));
+    }
+
+    /// 尺寸不变的连续帧必须复用同一块像素缓冲，不能每帧重新分配。
+    #[test]
+    fn test_frame_pixmap_is_reused_for_same_size() {
+        let mut state = test_state();
+        let first = state.take_frame_pixmap(32, 16).expect("应可分配帧缓冲");
+        let pointer = first.data().as_ptr();
+        state.restore_frame_pixmap(first);
+
+        let second = state.take_frame_pixmap(32, 16).expect("应可复用帧缓冲");
+        assert_eq!(second.data().as_ptr(), pointer);
+        state.restore_frame_pixmap(second);
+    }
+
+    /// 窗口尺寸变化时必须重新分配匹配尺寸的帧缓冲。
+    #[test]
+    fn test_frame_pixmap_resizes_with_window() {
+        let mut state = test_state();
+        let first = state.take_frame_pixmap(32, 16).expect("应可分配帧缓冲");
+        state.restore_frame_pixmap(first);
+
+        let resized = state.take_frame_pixmap(64, 32).expect("应可重新分配");
+        assert_eq!(resized.width(), 64);
+        assert_eq!(resized.height(), 32);
+        state.restore_frame_pixmap(resized);
     }
 
     #[test]
