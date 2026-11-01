@@ -4,19 +4,20 @@
 
 <h1 align="center">Snapin</h1>
 
-<p align="center">纯 Rust 打造的原生 Wayland 截图与贴图工具</p>
+<p align="center">纯 Rust 打造的跨平台截图与贴图工具（Linux / Windows / macOS）</p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="LICENSES/LicenseRef-Slint-Royalty-free-2.0.md"><img src="https://img.shields.io/badge/Slint-Royalty--free%202.0-2379f4.svg" alt="Slint: Royalty-free 2.0"></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-stable-dea584.svg" alt="Rust stable"></a>
-  <a href="#环境要求"><img src="https://img.shields.io/badge/platform-Linux%20Wayland-2ea44f.svg" alt="Platform: Linux Wayland"></a>
-  <a href="#环境要求"><img src="https://img.shields.io/badge/GNOME-45--51-4a86cf.svg" alt="GNOME 45-51"></a>
+  <a href="#环境要求"><img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-2ea44f.svg" alt="Platform: Linux / Windows / macOS"></a>
+  <a href="#环境要求"><img src="https://img.shields.io/badge/Linux-Wayland%20%7C%20GNOME%2045--51-4a86cf.svg" alt="Linux: Wayland / GNOME 45-51"></a>
 </p>
 
-Snapin 是专为 Linux Wayland（推荐 Ubuntu 24.04+ GNOME）打造的纯 Rust 截图与贴图工具。
-截图窗口使用 winit + tiny-skia 完成纯 CPU 软件光栅化，配合 GNOME Shell 扩展获得窗口置顶、
-精确定位与零白闪原生截屏能力；贴图使用自建 ARGB8888 共享内存表面实现真透明。
+Snapin 是纯 Rust 打造的跨平台截图与贴图工具，支持 Linux、Windows 与 macOS。
+截图窗口使用 winit + tiny-skia 完成纯 CPU 软件光栅化；Linux 上配合 GNOME Shell 扩展
+获得窗口置顶、精确定位与零白闪原生截屏能力，Windows / macOS 通过 xcap 实现截屏；
+贴图在 Linux Wayland 下使用自建 ARGB8888 共享内存表面实现真透明，其他平台回退到 softbuffer 通路。
 
 ## 目录
 
@@ -73,21 +74,31 @@ Snapin 是专为 Linux Wayland（推荐 Ubuntu 24.04+ GNOME）打造的纯 Rust 
 
 ### 系统集成
 
-- 配套 GNOME Shell 扩展：窗口置顶、精确落位、原生截屏、顶栏托盘。
-- 5 个可自定义全局快捷键。
-- systemd 用户服务、开机自启、桌面通知。
+- **[Linux]** 配套 GNOME Shell 扩展：窗口置顶、精确落位、原生截屏、顶栏托盘。
+- 5 个可自定义全局快捷键（Linux 同步到 GNOME，Windows / macOS 通过原生热键注册）。
+- **[Linux]** systemd 用户服务、开机自启、桌面通知。
 - Slint 设置中心，保存后热重载守护进程配置。
 
 ## 环境要求
 
-- Linux Wayland 会话，推荐 Ubuntu 24.04+ GNOME。
-- GNOME Shell 45 至 51；其他桌面环境只能使用部分功能，详见[已知限制](#已知限制)。
-- systemd 用户会话与 XDG Desktop Portal。
-- OCR 需要系统安装 `libonnxruntime1.23`；deb 包已声明该依赖。若发行版仓库没有提供该包，
-  需要先自行提供兼容版本，否则 `apt` 会因依赖不满足而拒绝安装。
-- 不支持 X11 会话。
+### Linux（完整功能）
 
-构建需要 Rust stable 与以下系统库：
+- Wayland 会话，推荐 Ubuntu 24.04+ GNOME。
+- GNOME Shell 45 至 51（其他桌面环境可用 XDG Portal 截屏，但全局快捷键、托盘与窗口置顶可能不可用）。
+- systemd 用户会话与 XDG Desktop Portal。
+- OCR 需要系统安装 `libonnxruntime1.23`；deb 包已声明该依赖。
+- X11 会话未做适配，部分功能（如贴图真透明、窗口置顶）无法正常工作，不保证可用。
+
+### Windows
+
+- Windows 10 及以上。
+- 以管理员权限运行或在系统"键盘快捷键"中授权，方可注册全局热键。
+
+### macOS
+
+- macOS 系统需在"系统设置 → 隐私与安全性 → 屏幕录制"中为 Snapin 授权，截屏功能才可正常使用。
+
+构建（仅 Linux）需要 Rust stable 与以下系统库：
 
 ```bash
 sudo apt-get install -y \
@@ -311,13 +322,13 @@ deb 在安装时会把扩展同步到当前用户的
 
 ## 已知限制
 
-- 仅支持 Wayland；不支持 X11 会话。
-- GNOME Shell 扩展是完整体验的前提。其他桌面环境只能使用 XDG Portal 截屏等部分能力，
+- **[Linux]** Wayland 会话为完整体验的前提；X11 未做适配，不保证可用。
+- **[Linux]** GNOME Shell 扩展是完整体验的前提。其他桌面环境只能使用 XDG Portal 截屏等部分能力，
   全局快捷键、托盘与窗口置顶可能不可用。
 - 暂不支持跨显示器拼接截图或滚动截图。
 - 截图默认不包含鼠标指针。
 - 不提供云端上传、分享链接与历史图库。
-- GNOME Shell 扩展的 JavaScript 无法热更新，升级扩展代码后必须注销并重新登录。
+- **[Linux]** GNOME Shell 扩展的 JavaScript 无法热更新，升级扩展代码后必须注销并重新登录。
 - OCR 使用 PP-OCRv6 small 模型，超小字号或复杂排版可能需要用户替换更大的模型。
 
 ## 从源码构建

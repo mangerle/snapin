@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Snapin 截图与贴图工具图标，冰川水蓝满铺底">
+  <defs>
+    <!-- 冰川水蓝满铺 45 度渐变底板 -->
+    <linearGradient id="snapin-bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#06B6D4"/>
+      <stop offset="1" stop-color="#0284C7"/>
+    </linearGradient>
+    <!-- 浅水蓝渐变金属圆环 -->
+    <linearGradient id="snapin-ring" x1="80" y1="80" x2="432" y2="432" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#CFFAFE"/>
+      <stop offset="1" stop-color="#BAE6FD"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 1. 饱满超平滑 Squircle 底板 -->
+  <rect width="512" height="512" rx="116" fill="url(#snapin-bg)"/>
+
+  <!-- 2. 舷窗金属外环与透亮冰川内视窗 -->
+  <circle cx="256" cy="256" r="176" fill="none" stroke="url(#snapin-ring)" stroke-width="30"/>
+  <circle cx="256" cy="256" r="161" fill="#0E4E63"/>
+
+  <!-- 3. 经典双交错裁切符号 (Snap & Crop) -->
+  <!-- 第一组 L 型裁剪光刃 -->
+  <path d="M 160 216 L 312 216 L 312 368" fill="none" stroke="#F8FAFC" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 第二组反向 L 型裁剪光刃 -->
+  <path d="M 352 296 L 200 296 L 200 144" fill="none" stroke="#F8FAFC" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
