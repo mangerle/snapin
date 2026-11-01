@@ -1,7 +1,7 @@
 //! 网易有道翻译 OpenAPI 适配器。
 
 use crate::error::ServiceError;
-use crate::translate::batch::{join_batch, merge_joined_results, plan_batches, BatchLimits};
+use crate::translate::batch::{translate_joined_batches, BatchLimits};
 use crate::translate::config::TranslateProvider;
 use crate::translate::engine::Translator;
 use crate::translate::http::{post_signed_form, shared_client};
@@ -179,20 +179,10 @@ impl Translator for YoudaoTranslator {
 
         let from_lang = normalize_language(TranslateProvider::Youdao, from);
         let to_lang = normalize_language(TranslateProvider::Youdao, to);
-        let mut results = Vec::with_capacity(texts.len());
-
-        for batch in plan_batches(texts, YOUDAO_BATCH_LIMITS) {
-            let (query, indices) = join_batch(batch);
-            if query.is_empty() {
-                results.extend(std::iter::repeat_n(String::new(), batch.len()));
-                continue;
-            }
-            let translated = self
-                .request_joined(&query, from_lang, to_lang, indices.len())
-                .await?;
-            results.extend(merge_joined_results(batch.len(), &indices, translated)?);
-        }
-
-        Ok(results)
+        translate_joined_batches(texts, YOUDAO_BATCH_LIMITS, |query, expected| async move {
+            self.request_joined(&query, from_lang, to_lang, expected)
+                .await
+        })
+        .await
     }
 }

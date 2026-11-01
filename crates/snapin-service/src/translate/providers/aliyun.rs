@@ -1,7 +1,7 @@
 //! 阿里云机器翻译 API 适配器。
 
 use crate::error::ServiceError;
-use crate::translate::batch::{join_batch, merge_joined_results, plan_batches, BatchLimits};
+use crate::translate::batch::{translate_joined_batches, BatchLimits};
 use crate::translate::config::TranslateProvider;
 use crate::translate::engine::Translator;
 use crate::translate::http::{post_signed_form, shared_client};
@@ -205,20 +205,10 @@ impl Translator for AliyunTranslator {
 
         let source_lang = normalize_language(TranslateProvider::Aliyun, from);
         let target_lang = normalize_language(TranslateProvider::Aliyun, to);
-        let mut results = Vec::with_capacity(texts.len());
-
-        for batch in plan_batches(texts, ALIYUN_BATCH_LIMITS) {
-            let (query, indices) = join_batch(batch);
-            if query.is_empty() {
-                results.extend(std::iter::repeat_n(String::new(), batch.len()));
-                continue;
-            }
-            let translated = self
-                .request_joined(&query, source_lang, target_lang, indices.len())
-                .await?;
-            results.extend(merge_joined_results(batch.len(), &indices, translated)?);
-        }
-
-        Ok(results)
+        translate_joined_batches(texts, ALIYUN_BATCH_LIMITS, |query, expected| async move {
+            self.request_joined(&query, source_lang, target_lang, expected)
+                .await
+        })
+        .await
     }
 }

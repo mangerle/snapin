@@ -28,6 +28,32 @@ impl BatchLimits {
     }
 }
 
+/// 执行合并式批量翻译：分片、空文本占位、换行归一化与结果回填由本函数统一完成。
+///
+/// 调用方只提供“把一段合并文本翻译成若干行”的请求闭包，百度/有道/阿里可以共享
+/// 完全相同的批处理边界，避免各自漏掉空文本、超长文本或条数校验。
+pub(crate) async fn translate_joined_batches<F, Fut>(
+    texts: &[String],
+    limits: BatchLimits,
+    mut request: F,
+) -> Result<Vec<String>, crate::ServiceError>
+where
+    F: FnMut(String, usize) -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<String>, crate::ServiceError>>,
+{
+    let mut results = Vec::with_capacity(texts.len());
+    for batch in plan_batches(texts, limits) {
+        let (query, indices) = join_batch(batch);
+        if query.is_empty() {
+            results.extend(std::iter::repeat_n(String::new(), batch.len()));
+            continue;
+        }
+        let translated = request(query, indices.len()).await?;
+        results.extend(merge_joined_results(batch.len(), &indices, translated)?);
+    }
+    Ok(results)
+}
+
 /// 按条数与字节预算把文本切成连续批次，保持原始顺序。
 pub(crate) fn plan_batches(texts: &[String], limits: BatchLimits) -> Vec<&[String]> {
     let mut batches = Vec::new();

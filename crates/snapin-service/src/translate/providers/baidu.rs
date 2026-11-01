@@ -1,7 +1,7 @@
 //! 百度通用文本翻译 API 适配器。
 
 use crate::error::ServiceError;
-use crate::translate::batch::{join_batch, merge_joined_results, plan_batches, BatchLimits};
+use crate::translate::batch::{translate_joined_batches, BatchLimits};
 use crate::translate::config::TranslateProvider;
 use crate::translate::engine::Translator;
 use crate::translate::http::{post_signed_form, shared_client};
@@ -161,21 +161,10 @@ impl Translator for BaiduTranslator {
 
         let from_lang = normalize_language(TranslateProvider::Baidu, from);
         let to_lang = normalize_language(TranslateProvider::Baidu, to);
-        let mut results = Vec::with_capacity(texts.len());
-
-        // 百度通过换行符合并翻译；按字节预算分片，并剔除空文本避免返回条数错位。
-        for batch in plan_batches(texts, BAIDU_BATCH_LIMITS) {
-            let (query, indices) = join_batch(batch);
-            if query.is_empty() {
-                results.extend(std::iter::repeat_n(String::new(), batch.len()));
-                continue;
-            }
-            let translated = self
-                .request_joined(&query, from_lang, to_lang, indices.len())
-                .await?;
-            results.extend(merge_joined_results(batch.len(), &indices, translated)?);
-        }
-
-        Ok(results)
+        translate_joined_batches(texts, BAIDU_BATCH_LIMITS, |query, expected| async move {
+            self.request_joined(&query, from_lang, to_lang, expected)
+                .await
+        })
+        .await
     }
 }
