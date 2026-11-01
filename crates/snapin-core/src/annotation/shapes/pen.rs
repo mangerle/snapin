@@ -1,7 +1,8 @@
 //! 平滑自由画笔标注图元实现。
 
 use super::{map_point, points_bounds};
-use crate::annotation::action::{AnnotationAction, ShapeRect};
+use crate::annotation::action::AnnotationAction;
+use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{LineCap, LineJoin, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
@@ -65,7 +66,7 @@ impl AnnotationAction for PenAction {
         self.stroke_width = stroke_w;
     }
 
-    fn bounds(&self) -> Option<ShapeRect> {
+    fn bounds(&self) -> Option<Rect> {
         points_bounds(&self.points)
     }
 
@@ -76,7 +77,7 @@ impl AnnotationAction for PenAction {
         }
     }
 
-    fn resize_from_bounds(&mut self, from: ShapeRect, to: ShapeRect) {
+    fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
         for point in &mut self.points {
             *point = map_point(from, to, *point);
         }

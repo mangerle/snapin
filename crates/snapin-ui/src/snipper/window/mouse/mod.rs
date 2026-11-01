@@ -7,7 +7,7 @@ use super::events::{commit_active_text_input, handle_escape, SnipperState};
 use super::state::window_at;
 use super::types::SnipMode;
 use crate::editor::toolbar::{StrokeWidthLevel, SubControl, Tool};
-use crate::snipper::selection::{DragMode, Rect, SelectionState};
+use crate::snipper::selection::{hit_test_handle, DragMode, Rect, SelectionState};
 use image::RgbaImage;
 use toolbar_action::{dispatch_toolbar_action, handle_text_tool_click};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
@@ -203,7 +203,7 @@ fn handle_locked_press(
 
     // 选区控制手柄优先于继续绘制：工具激活时也允许随时调整选区大小
     let handle_tolerance = 8.0 * state.toolbar.ui_scale;
-    if let Some(handle) = rect.hit_test_handle(cx, cy, handle_tolerance) {
+    if let Some(handle) = hit_test_handle(&rect, cx, cy, handle_tolerance) {
         super::annotation_edit::clear(state);
         if let SelectionState::Locked {
             ref mut active_drag,

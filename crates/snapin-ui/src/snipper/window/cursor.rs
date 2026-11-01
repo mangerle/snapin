@@ -5,7 +5,7 @@
 
 use super::annotation_edit::{self, AnnotationDrag};
 use super::events::SnipperState;
-use crate::snipper::selection::{DragMode, ResizeHandle, SelectionState};
+use crate::snipper::selection::{hit_test_handle, DragMode, ResizeHandle, SelectionState};
 use winit::window::{CursorIcon, Window};
 
 /// 根据当前交互状态刷新窗口光标形状。
@@ -61,7 +61,7 @@ fn desired_cursor_icon(state: &SnipperState) -> CursorIcon {
     }
 
     let tolerance = 8.0 * state.toolbar.ui_scale;
-    if let Some(handle) = rect.hit_test_handle(cx, cy, tolerance) {
+    if let Some(handle) = hit_test_handle(rect, cx, cy, tolerance) {
         return resize_cursor(handle);
     }
 

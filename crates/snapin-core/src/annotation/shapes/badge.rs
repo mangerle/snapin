@@ -1,8 +1,9 @@
 //! 步骤数字序号气泡标号图元绘制实现。
 
 use super::map_point;
-use crate::annotation::action::{AnnotationAction, ShapeRect};
+use crate::annotation::action::AnnotationAction;
 use crate::annotation::style::BadgeStyle;
+use crate::geometry::Rect;
 use crate::render::with_thread_local_text_renderer;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Stroke, Transform};
@@ -86,9 +87,14 @@ impl AnnotationAction for BadgeAction {
         self.radius = (stroke_w * 3.0).clamp(10.0, 48.0);
     }
 
-    fn bounds(&self) -> Option<ShapeRect> {
+    fn bounds(&self) -> Option<Rect> {
         let r = self.radius.max(1.0);
-        Some((self.center.0 - r, self.center.1 - r, r * 2.0, r * 2.0))
+        Some(Rect {
+            x: self.center.0 - r,
+            y: self.center.1 - r,
+            width: r * 2.0,
+            height: r * 2.0,
+        })
     }
 
     fn translate(&mut self, dx: f32, dy: f32) {
@@ -96,15 +102,15 @@ impl AnnotationAction for BadgeAction {
         self.center.1 += dy;
     }
 
-    fn resize_from_bounds(&mut self, from: ShapeRect, to: ShapeRect) {
+    fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
         self.center = map_point(from, to, self.center);
-        let sx = if from.2.abs() > f32::EPSILON {
-            to.2 / from.2
+        let sx = if from.width.abs() > f32::EPSILON {
+            to.width / from.width
         } else {
             1.0
         };
-        let sy = if from.3.abs() > f32::EPSILON {
-            to.3 / from.3
+        let sy = if from.height.abs() > f32::EPSILON {
+            to.height / from.height
         } else {
             1.0
         };

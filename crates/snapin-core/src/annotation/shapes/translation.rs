@@ -1,8 +1,9 @@
 //! 截图原位翻译替换图元光栅化实现。
 
 use super::valid_rect;
-use crate::annotation::action::{AnnotationAction, ShapeRect};
+use crate::annotation::action::AnnotationAction;
 use crate::config::enums::CoverMode;
+use crate::geometry::Rect;
 use crate::render::with_thread_local_text_renderer;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Transform};
@@ -133,28 +134,28 @@ impl AnnotationAction for TranslationAction {
         }
     }
 
-    fn bounds(&self) -> Option<ShapeRect> {
+    fn bounds(&self) -> Option<Rect> {
         let mut min_x = f32::MAX;
         let mut min_y = f32::MAX;
         let mut max_x = f32::MIN;
         let mut max_y = f32::MIN;
         let mut found = false;
         for item in &self.items {
-            let Some((x, y, w, h)) = valid_rect(item.rect) else {
+            let Some(rect) = valid_rect(super::rect_from_tuple(item.rect)) else {
                 continue;
             };
             found = true;
-            min_x = min_x.min(x);
-            min_y = min_y.min(y);
-            max_x = max_x.max(x + w);
-            max_y = max_y.max(y + h);
+            min_x = min_x.min(rect.x);
+            min_y = min_y.min(rect.y);
+            max_x = max_x.max(rect.x + rect.width);
+            max_y = max_y.max(rect.y + rect.height);
         }
-        found.then_some((
-            min_x,
-            min_y,
-            (max_x - min_x).max(1.0),
-            (max_y - min_y).max(1.0),
-        ))
+        found.then_some(Rect {
+            x: min_x,
+            y: min_y,
+            width: (max_x - min_x).max(1.0),
+            height: (max_y - min_y).max(1.0),
+        })
     }
 
     fn translate(&mut self, dx: f32, dy: f32) {

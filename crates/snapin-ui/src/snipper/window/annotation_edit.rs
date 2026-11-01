@@ -2,8 +2,8 @@
 
 use super::drag_calculator::calculate_drag;
 use super::events::SnipperState;
-use crate::snipper::selection::{DragMode, Rect, ResizeHandle};
-use snapin_core::annotation::{AnnotationShape, ShapeRect};
+use crate::snipper::selection::{hit_test_handle, DragMode, Rect, ResizeHandle};
+use snapin_core::annotation::AnnotationShape;
 
 /// 标注编辑拖拽会话：始终基于按下瞬间的原始图元重建，避免逐帧累积误差
 #[derive(Debug, Clone)]
@@ -23,25 +23,10 @@ pub enum AnnotationDrag {
     },
 }
 
-/// 将核心包围盒转为选区矩形类型
-fn rect_from_bounds((x, y, width, height): ShapeRect) -> Rect {
-    Rect {
-        x,
-        y,
-        width,
-        height,
-    }
-}
-
-/// 将选区矩形转为核心包围盒类型
-fn bounds_from_rect(rect: Rect) -> ShapeRect {
-    (rect.x, rect.y, rect.width, rect.height)
-}
-
 /// 已选中标注的包围盒
 pub fn selected_bounds(state: &SnipperState) -> Option<Rect> {
     let index = state.selected_annotation?;
-    state.annotations.bounds_at(index).map(rect_from_bounds)
+    state.annotations.bounds_at(index)
 }
 
 /// 已选中标注是否支持手柄拉伸
@@ -58,7 +43,7 @@ pub fn hit_test_selected_handle(state: &SnipperState, cx: f32, cy: f32) -> Optio
         return None;
     }
     let rect = selected_bounds(state)?;
-    rect.hit_test_handle(cx, cy, 8.0 * state.toolbar.ui_scale)
+    hit_test_handle(&rect, cx, cy, 8.0 * state.toolbar.ui_scale)
 }
 
 /// 处理左键按下：优先命中已选中标注的手柄，其次命中任意标注并开始整体拖动。
@@ -123,10 +108,7 @@ pub fn handle_drag_move(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
             let (new_bounds, _) =
                 calculate_drag(original_bounds, &DragMode::Resize(*handle), (cx, cy));
             let mut shape = original.clone();
-            shape.resize_from_bounds(
-                bounds_from_rect(*original_bounds),
-                bounds_from_rect(new_bounds),
-            );
+            shape.resize_from_bounds(*original_bounds, new_bounds);
             shape
         }
     };
@@ -195,8 +177,8 @@ mod tests {
 
         assert!(handle_drag_move(&mut state, 180.0, 130.0));
         let bounds = state.annotations.bounds_at(0).expect("矩形必须有包围盒");
-        assert_eq!(bounds.0, 130.0);
-        assert_eq!(bounds.1, 80.0);
+        assert_eq!(bounds.x, 130.0);
+        assert_eq!(bounds.y, 80.0);
 
         assert!(handle_drag_release(&mut state));
         assert!(state.annotation_drag.is_none());
@@ -217,10 +199,10 @@ mod tests {
 
         assert!(handle_drag_move(&mut state, 400.0, 320.0));
         let bounds = state.annotations.bounds_at(0).expect("矩形必须有包围盒");
-        assert_eq!(bounds.0, 100.0);
-        assert_eq!(bounds.1, 100.0);
-        assert_eq!(bounds.2, 300.0);
-        assert_eq!(bounds.3, 220.0);
+        assert_eq!(bounds.x, 100.0);
+        assert_eq!(bounds.y, 100.0);
+        assert_eq!(bounds.width, 300.0);
+        assert_eq!(bounds.height, 220.0);
     }
 
     /// 点击空白取消选中，且不消费事件（交还给选区逻辑）

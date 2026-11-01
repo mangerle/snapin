@@ -4,8 +4,9 @@
 //! 三者在同一份几何基础上绘制，只在箭杆渲染方式上分叉。
 
 use super::map_point;
-use crate::annotation::action::{AnnotationAction, ShapeRect};
+use crate::annotation::action::AnnotationAction;
 use crate::annotation::style::{ArrowStyle, LineStyle};
+use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Transform};
 
@@ -175,7 +176,7 @@ impl AnnotationAction for ArrowAction {
         self.stroke_width = stroke_w;
     }
 
-    fn bounds(&self) -> Option<ShapeRect> {
+    fn bounds(&self) -> Option<Rect> {
         let min_x = self.start.0.min(self.end.0);
         let min_y = self.start.1.min(self.end.1);
         let width = (self.end.0 - self.start.0).abs();
@@ -183,7 +184,12 @@ impl AnnotationAction for ArrowAction {
         if width < f32::EPSILON && height < f32::EPSILON {
             return None;
         }
-        Some((min_x, min_y, width.max(1.0), height.max(1.0)))
+        Some(Rect {
+            x: min_x,
+            y: min_y,
+            width: width.max(1.0),
+            height: height.max(1.0),
+        })
     }
 
     fn translate(&mut self, dx: f32, dy: f32) {
@@ -193,7 +199,7 @@ impl AnnotationAction for ArrowAction {
         self.end.1 += dy;
     }
 
-    fn resize_from_bounds(&mut self, from: ShapeRect, to: ShapeRect) {
+    fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
         self.start = map_point(from, to, self.start);
         self.end = map_point(from, to, self.end);
     }

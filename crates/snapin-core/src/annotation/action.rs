@@ -7,11 +7,9 @@ use crate::annotation::shapes::{
     ArrowAction, BadgeAction, BlurAction, EllipseAction, MarkerAction, MosaicAction, PenAction,
     RectAction, SpotlightAction, TextAction, TranslationAction,
 };
+use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use tiny_skia::PixmapMut;
-
-/// 标注图元的轴对齐包围盒 (x, y, width, height)，单位像素
-pub type ShapeRect = (f32, f32, f32, f32);
 
 /// 单次矢量标注行为的 Trait 抽象
 pub trait AnnotationAction: Send + Sync {
@@ -30,7 +28,7 @@ pub trait AnnotationAction: Send + Sync {
     fn adjust_corner_radius(&mut self, _radius: f32) {}
 
     /// 返回图元的轴对齐包围盒；没有有效几何（空文本、退化线段等）时返回 None
-    fn bounds(&self) -> Option<ShapeRect>;
+    fn bounds(&self) -> Option<Rect>;
 
     /// 整体平移图元
     fn translate(&mut self, dx: f32, dy: f32);
@@ -38,7 +36,7 @@ pub trait AnnotationAction: Send + Sync {
     /// 按包围盒映射缩放图元：`from` 为拖拽开始时的包围盒，`to` 为手柄拖拽后的新包围盒。
     ///
     /// 每次拖拽都基于原始形状与原始包围盒重新计算，避免逐帧累积缩放误差。
-    fn resize_from_bounds(&mut self, _from: ShapeRect, _to: ShapeRect) {}
+    fn resize_from_bounds(&mut self, _from: Rect, _to: Rect) {}
 
     /// 是否允许通过包围盒手柄拉伸缩放；复合图元（原位翻译块）只支持整体移动
     fn supports_resize(&self) -> bool {
@@ -110,7 +108,7 @@ impl AnnotationShape {
     }
 
     /// 返回图元的轴对齐包围盒
-    pub fn bounds(&self) -> Option<ShapeRect> {
+    pub fn bounds(&self) -> Option<Rect> {
         match self {
             Self::Rect(a) => a.bounds(),
             Self::Ellipse(a) => a.bounds(),
@@ -144,7 +142,7 @@ impl AnnotationShape {
     }
 
     /// 按包围盒映射缩放图元
-    pub fn resize_from_bounds(&mut self, from: ShapeRect, to: ShapeRect) {
+    pub fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
         match self {
             Self::Rect(a) => a.resize_from_bounds(from, to),
             Self::Ellipse(a) => a.resize_from_bounds(from, to),
@@ -311,14 +309,17 @@ impl AnnotationHistory {
             .enumerate()
             .rev()
             .find_map(|(index, shape)| {
-                let (x, y, w, h) = shape.bounds()?;
-                let inside = point.0 >= x && point.0 <= x + w && point.1 >= y && point.1 <= y + h;
+                let bounds = shape.bounds()?;
+                let inside = point.0 >= bounds.x
+                    && point.0 <= bounds.x + bounds.width
+                    && point.1 >= bounds.y
+                    && point.1 <= bounds.y + bounds.height;
                 inside.then_some(index)
             })
     }
 
     /// 获取指定索引图元的包围盒
-    pub fn bounds_at(&self, index: usize) -> Option<ShapeRect> {
+    pub fn bounds_at(&self, index: usize) -> Option<Rect> {
         self.undo_stack.get(index)?.bounds()
     }
 
@@ -356,6 +357,16 @@ impl From<TranslationAction> for AnnotationShape {
 mod tests {
     use super::*;
     use crate::annotation::style::{BadgeStyle, LineStyle};
+
+    /// 构造测试用共享矩形，避免测试中反复书写结构体字段。
+    fn rect_bounds(x: f32, y: f32, width: f32, height: f32) -> Rect {
+        Rect {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
 
     #[test]
     fn test_undo_redo_stack() {
@@ -575,11 +586,14 @@ mod tests {
             corner_radius: 0.0,
             line_style: LineStyle::Solid,
         });
-        assert_eq!(rect.bounds(), Some((10.0, 20.0, 100.0, 80.0)));
+        assert_eq!(rect.bounds(), Some(rect_bounds(10.0, 20.0, 100.0, 80.0)));
         rect.translate(5.0, -5.0);
-        assert_eq!(rect.bounds(), Some((15.0, 15.0, 100.0, 80.0)));
-        rect.resize_from_bounds((15.0, 15.0, 100.0, 80.0), (0.0, 0.0, 200.0, 160.0));
-        assert_eq!(rect.bounds(), Some((0.0, 0.0, 200.0, 160.0)));
+        assert_eq!(rect.bounds(), Some(rect_bounds(15.0, 15.0, 100.0, 80.0)));
+        rect.resize_from_bounds(
+            rect_bounds(15.0, 15.0, 100.0, 80.0),
+            rect_bounds(0.0, 0.0, 200.0, 160.0),
+        );
+        assert_eq!(rect.bounds(), Some(rect_bounds(0.0, 0.0, 200.0, 160.0)));
 
         // 箭头按包围盒线性映射起终点
         let mut arrow = AnnotationShape::Arrow(ArrowAction {
@@ -589,7 +603,10 @@ mod tests {
             stroke_width: 2.0,
             style: ArrowStyle::Solid,
         });
-        arrow.resize_from_bounds((0.0, 0.0, 100.0, 50.0), (0.0, 0.0, 200.0, 100.0));
+        arrow.resize_from_bounds(
+            rect_bounds(0.0, 0.0, 100.0, 50.0),
+            rect_bounds(0.0, 0.0, 200.0, 100.0),
+        );
         match arrow {
             AnnotationShape::Arrow(a) => {
                 assert_eq!(a.start, (0.0, 0.0));
@@ -618,7 +635,10 @@ mod tests {
             radius: 10.0,
             style: BadgeStyle::Filled,
         });
-        badge.resize_from_bounds((40.0, 40.0, 20.0, 20.0), (30.0, 30.0, 40.0, 40.0));
+        badge.resize_from_bounds(
+            rect_bounds(40.0, 40.0, 20.0, 20.0),
+            rect_bounds(30.0, 30.0, 40.0, 40.0),
+        );
         match badge {
             AnnotationShape::Badge(b) => {
                 assert_eq!(b.center, (50.0, 50.0));
@@ -634,8 +654,11 @@ mod tests {
             color: (0, 0, 0, 255),
             font_size: 16.0,
         });
-        assert_eq!(text.bounds(), Some((10.0, 20.0, 32.0, 20.0)));
-        text.resize_from_bounds((10.0, 20.0, 32.0, 20.0), (0.0, 0.0, 64.0, 40.0));
+        assert_eq!(text.bounds(), Some(rect_bounds(10.0, 20.0, 32.0, 20.0)));
+        text.resize_from_bounds(
+            rect_bounds(10.0, 20.0, 32.0, 20.0),
+            rect_bounds(0.0, 0.0, 64.0, 40.0),
+        );
         match text {
             AnnotationShape::Text(t) => {
                 assert_eq!(t.pos, (0.0, 0.0));
@@ -688,7 +711,10 @@ mod tests {
         let mut moved = history.shape_at(0).expect("索引 0 必须存在").clone();
         moved.translate(5.0, 5.0);
         assert!(history.replace(0, moved));
-        assert_eq!(history.bounds_at(0), Some((5.0, 5.0, 10.0, 10.0)));
+        assert_eq!(
+            history.bounds_at(0),
+            Some(rect_bounds(5.0, 5.0, 10.0, 10.0))
+        );
         assert!(!history.replace(
             9,
             AnnotationShape::Rect(RectAction {

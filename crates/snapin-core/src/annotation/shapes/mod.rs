@@ -24,15 +24,32 @@ pub use spotlight::SpotlightAction;
 pub use text::TextAction;
 pub use translation::{TranslationAction, TranslationShapeItem};
 
-use super::action::ShapeRect;
+use crate::geometry::Rect;
+
+/// 将历史结构体中的元组矩形转换为共享 [`Rect`]。
+///
+/// 标注图元为了 Serde 兼容仍保存四元组，但所有新几何计算统一走结构体。
+pub(crate) fn rect_from_tuple(rect: (f32, f32, f32, f32)) -> Rect {
+    Rect {
+        x: rect.0,
+        y: rect.1,
+        width: rect.2,
+        height: rect.3,
+    }
+}
+
+/// 将共享 [`Rect`] 写回图元的历史四元组表示。
+pub(crate) fn tuple_from_rect(rect: Rect) -> (f32, f32, f32, f32) {
+    (rect.x, rect.y, rect.width, rect.height)
+}
 
 /// 过滤宽高非正的退化矩形
-pub(crate) fn valid_rect(rect: ShapeRect) -> Option<ShapeRect> {
-    (rect.2 > 0.0 && rect.3 > 0.0).then_some(rect)
+pub(crate) fn valid_rect(rect: Rect) -> Option<Rect> {
+    (rect.width > 0.0 && rect.height > 0.0).then_some(rect)
 }
 
 /// 计算点集的轴对齐包围盒；少于两个点视为无效几何
-pub(crate) fn points_bounds(points: &[(f32, f32)]) -> Option<ShapeRect> {
+pub(crate) fn points_bounds(points: &[(f32, f32)]) -> Option<Rect> {
     if points.len() < 2 {
         return None;
     }
@@ -46,37 +63,44 @@ pub(crate) fn points_bounds(points: &[(f32, f32)]) -> Option<ShapeRect> {
         max_x = max_x.max(*x);
         max_y = max_y.max(*y);
     }
-    let width = (max_x - min_x).max(1.0);
-    let height = (max_y - min_y).max(1.0);
-    Some((min_x, min_y, width, height))
+    Some(Rect {
+        x: min_x,
+        y: min_y,
+        width: (max_x - min_x).max(1.0),
+        height: (max_y - min_y).max(1.0),
+    })
 }
 
 /// 将点从源包围盒线性映射到目标包围盒。
 ///
 /// 源包围盒某一维为零时该维不做缩放，只跟随目标原点平移，避免除零与退化。
-pub(crate) fn map_point(from: ShapeRect, to: ShapeRect, point: (f32, f32)) -> (f32, f32) {
-    let sx = if from.2.abs() > f32::EPSILON {
-        to.2 / from.2
+pub(crate) fn map_point(from: Rect, to: Rect, point: (f32, f32)) -> (f32, f32) {
+    let sx = if from.width.abs() > f32::EPSILON {
+        to.width / from.width
     } else {
         1.0
     };
-    let sy = if from.3.abs() > f32::EPSILON {
-        to.3 / from.3
+    let sy = if from.height.abs() > f32::EPSILON {
+        to.height / from.height
     } else {
         1.0
     };
     (
-        to.0 + (point.0 - from.0) * sx,
-        to.1 + (point.1 - from.1) * sy,
+        to.x + (point.0 - from.x) * sx,
+        to.y + (point.1 - from.y) * sy,
     )
 }
 
 /// 按包围盒映射缩放矩形，结果宽高至少保留 1 像素
-pub(crate) fn resize_rect(from: ShapeRect, to: ShapeRect, rect: ShapeRect) -> ShapeRect {
-    let (x0, y0) = map_point(from, to, (rect.0, rect.1));
-    let (x1, y1) = map_point(from, to, (rect.0 + rect.2, rect.1 + rect.3));
-    let (x, y) = (x0.min(x1), y0.min(y1));
-    (x, y, (x1 - x0).abs().max(1.0), (y1 - y0).abs().max(1.0))
+pub(crate) fn resize_rect(from: Rect, to: Rect, rect: Rect) -> Rect {
+    let (x0, y0) = map_point(from, to, (rect.x, rect.y));
+    let (x1, y1) = map_point(from, to, (rect.x + rect.width, rect.y + rect.height));
+    Rect {
+        x: x0.min(x1),
+        y: y0.min(y1),
+        width: (x1 - x0).abs().max(1.0),
+        height: (y1 - y0).abs().max(1.0),
+    }
 }
 
 /// 估算单行文本的渲染宽度。

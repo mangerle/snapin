@@ -3,8 +3,9 @@
 //! 对指定矩形区域执行两轮可分离盒式模糊，近似高斯模糊效果。模糊在撤销/重做时
 //! 从底图重新计算，而不是保存像素快照，因此历史栈保持轻量且结果确定。
 
-use super::{resize_rect, valid_rect};
-use crate::annotation::action::{AnnotationAction, ShapeRect};
+use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect};
+use crate::annotation::action::AnnotationAction;
+use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use tiny_skia::PixmapMut;
 
@@ -57,8 +58,8 @@ impl AnnotationAction for BlurAction {
         self.radius = (stroke_w * 2.0).clamp(4.0, 50.0) as u32;
     }
 
-    fn bounds(&self) -> Option<ShapeRect> {
-        valid_rect(self.rect)
+    fn bounds(&self) -> Option<Rect> {
+        valid_rect(rect_from_tuple(self.rect))
     }
 
     fn translate(&mut self, dx: f32, dy: f32) {
@@ -66,8 +67,8 @@ impl AnnotationAction for BlurAction {
         self.rect.1 += dy;
     }
 
-    fn resize_from_bounds(&mut self, from: ShapeRect, to: ShapeRect) {
-        self.rect = resize_rect(from, to, self.rect);
+    fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
+        self.rect = tuple_from_rect(resize_rect(from, to, rect_from_tuple(self.rect)));
     }
 }
 

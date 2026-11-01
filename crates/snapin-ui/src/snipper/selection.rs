@@ -2,7 +2,7 @@
 //!
 //! 支持鼠标拖拽选区、8 个锚点微调缩放、选区平移以及按逗号 `,` 和句号 `.` 快速回溯历史选区。
 
-pub use crate::geometry::{Rect, ResizeHandle};
+pub use crate::geometry::{hit_test_handle, Rect, ResizeHandle};
 
 /// 选区交互状态机
 #[derive(Debug, Clone, PartialEq, Default)]

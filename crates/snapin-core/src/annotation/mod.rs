@@ -4,7 +4,8 @@ pub mod action;
 pub mod shapes;
 pub mod style;
 
-pub use action::{AnnotationAction, AnnotationHistory, AnnotationShape, ShapeRect};
+pub use crate::geometry::Rect;
+pub use action::{AnnotationAction, AnnotationHistory, AnnotationShape};
 pub use shapes::{
     ArrowAction, BadgeAction, BlurAction, EllipseAction, MarkerAction, MosaicAction, PenAction,
     RectAction, SpotlightAction, TextAction, TranslationAction, TranslationShapeItem,
