@@ -10,6 +10,12 @@ use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use tiny_skia::PixmapMut;
 
+/// 单次截图/贴图会话允许保留的最大图元数。
+///
+/// 这是防止长时间连续标注把内存拖到无上限的安全阀；正常使用远达不到。
+/// 达到上限后丢弃最旧图元并告警，保留最新绘制结果。
+pub const MAX_ANNOTATION_SHAPES: usize = 2_048;
+
 /// 当前生效的标注图元集合，顺序即绘制层级。
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -18,8 +24,15 @@ pub struct AnnotationDocument {
 }
 
 impl AnnotationDocument {
-    /// 追加一个图元到文档顶层。
+    /// 追加一个图元到文档顶层；超过安全上限时丢弃最旧图元并告警。
     pub(crate) fn push(&mut self, shape: AnnotationShape) {
+        if self.shapes.len() >= MAX_ANNOTATION_SHAPES {
+            let _ = self.shapes.remove(0);
+            tracing::warn!(
+                "标注图元数量达到上限 {}，已丢弃最旧图元以限制内存占用",
+                MAX_ANNOTATION_SHAPES
+            );
+        }
         self.shapes.push(shape);
     }
 
@@ -191,6 +204,20 @@ mod tests {
         assert_eq!(doc.hit_test((5.0, 5.0)), Some(0));
         assert_eq!(doc.hit_test((25.0, 5.0)), Some(1));
         assert_eq!(doc.bounds_at(0).map(|rect| rect.x), Some(0.0));
+    }
+
+    /// 超出上限时只保留最新的图元，避免单会话无界增长。
+    #[test]
+    fn test_document_enforces_shape_limit() {
+        let mut doc = AnnotationDocument::default();
+        for index in 0..=MAX_ANNOTATION_SHAPES {
+            doc.push(rect_at(index as f32));
+        }
+        assert_eq!(doc.len(), MAX_ANNOTATION_SHAPES);
+        assert!(
+            doc.shapes()[0].bounds().is_some_and(|rect| rect.x > 0.0),
+            "超限后最旧图元应被丢弃"
+        );
     }
 
     /// 文档序列化保持旧版 `[...]` 形状，兼容既有历史数据。
