@@ -83,8 +83,8 @@ fn discover_library() -> Result<PathBuf, ServiceError> {
     for variable in ["SNAPIN_ORT_DYLIB", "ORT_DYLIB_PATH"] {
         if let Ok(value) = std::env::var(variable) {
             let path = PathBuf::from(&value);
-            if !value.contains('/') {
-                // 允许直接传入 soname，由动态链接器在标准搜索路径中解析。
+            // 裸库名交给动态链接器搜索（Linux soname / Windows PATH / macOS dyld）。
+            if !value.contains(['/', '\\']) {
                 return Ok(path);
             }
             if path.exists() {
@@ -93,46 +93,139 @@ fn discover_library() -> Result<PathBuf, ServiceError> {
         }
     }
 
-    let mut search_dirs: Vec<PathBuf> = Vec::with_capacity(12);
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            search_dirs.push(parent.to_path_buf());
-            search_dirs.push(parent.join("lib"));
-            search_dirs.push(parent.join("../lib/snapin"));
-        }
-    }
-
-    search_dirs.extend([
-        PathBuf::from("/usr/lib/snapin"),
-        PathBuf::from("/usr/local/lib"),
-        PathBuf::from("/usr/lib"),
-    ]);
-
-    let multiarch = match std::env::consts::ARCH {
-        "x86_64" => Some("x86_64-linux-gnu"),
-        "aarch64" => Some("aarch64-linux-gnu"),
-        "arm" => Some("arm-linux-gnueabihf"),
-        _ => None,
-    };
-    if let Some(triplet) = multiarch {
-        search_dirs.push(PathBuf::from(format!("/usr/lib/{triplet}")));
-        search_dirs.push(PathBuf::from(format!("/lib/{triplet}")));
-    }
-
+    let search_dirs = runtime_search_dirs();
     for dir in &search_dirs {
         if let Some(path) = find_library_in_dir(dir) {
             return Ok(path);
         }
     }
-
     Err(ServiceError::InferenceError {
         stage: "onnx_runtime_load".to_string(),
-        reason: "未找到 libonnxruntime.so，请安装系统包 libonnxruntime1.23，或通过 SNAPIN_ORT_DYLIB 指定动态库路径"
-            .to_string(),
+        reason: runtime_missing_reason().to_string(),
     })
 }
 
-/// 在指定目录中查找 `libonnxruntime.so` 或带版本号的动态库。
+/// 构建当前平台的运行时动态库搜索目录。
+fn runtime_search_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::with_capacity(12);
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            dirs.push(parent.to_path_buf());
+            dirs.push(parent.join("lib"));
+            dirs.push(parent.join("../lib/snapin"));
+            #[cfg(target_os = "macos")]
+            {
+                dirs.push(parent.join("../Frameworks"));
+                dirs.push(parent.join("../Resources"));
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            dirs.push(PathBuf::from(local).join("snapin").join("lib"));
+        }
+        if let Some(path) = std::env::var_os("PATH") {
+            dirs.extend(std::env::split_paths(&path));
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        dirs.extend([
+            PathBuf::from("/usr/local/lib"),
+            PathBuf::from("/opt/homebrew/lib"),
+            PathBuf::from("/usr/lib"),
+        ]);
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        dirs.extend([
+            PathBuf::from("/usr/lib/snapin"),
+            PathBuf::from("/usr/local/lib"),
+            PathBuf::from("/usr/lib"),
+        ]);
+        let multiarch = match std::env::consts::ARCH {
+            "x86_64" => Some("x86_64-linux-gnu"),
+            "aarch64" => Some("aarch64-linux-gnu"),
+            "arm" => Some("arm-linux-gnueabihf"),
+            _ => None,
+        };
+        if let Some(triplet) = multiarch {
+            dirs.push(PathBuf::from(format!("/usr/lib/{triplet}")));
+            dirs.push(PathBuf::from(format!("/lib/{triplet}")));
+        }
+    }
+
+    dirs
+}
+
+/// 当前平台缺失运行时时的安装提示。
+fn runtime_missing_reason() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "未找到 onnxruntime.dll，请将 ONNX Runtime 放入程序目录或 PATH，或通过 SNAPIN_ORT_DYLIB 指定动态库路径"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "未找到 libonnxruntime.dylib，请通过 Homebrew 安装 onnxruntime，或通过 SNAPIN_ORT_DYLIB 指定动态库路径"
+    }
+    #[cfg(target_os = "linux")]
+    {
+        "未找到 libonnxruntime.so，请安装系统包 libonnxruntime1.23，或通过 SNAPIN_ORT_DYLIB 指定动态库路径"
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        "当前平台不支持 ONNX Runtime 动态库发现"
+    }
+}
+
+/// 是否为当前平台的无版本动态库名。
+fn is_exact_library_name(name: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        name.eq_ignore_ascii_case("onnxruntime.dll")
+    }
+    #[cfg(target_os = "macos")]
+    {
+        name == "libonnxruntime.dylib" || name == "libonnxruntime.so"
+    }
+    #[cfg(target_os = "linux")]
+    {
+        name == "libonnxruntime.so"
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        let _ = name;
+        false
+    }
+}
+
+/// 是否为当前平台带版本号的动态库名。
+fn is_versioned_library_name(name: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        name.to_ascii_lowercase().starts_with("onnxruntime")
+            && name.to_ascii_lowercase().ends_with(".dll")
+    }
+    #[cfg(target_os = "macos")]
+    {
+        name.starts_with("libonnxruntime.") && name.ends_with(".dylib")
+    }
+    #[cfg(target_os = "linux")]
+    {
+        name.starts_with("libonnxruntime.so.")
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        let _ = name;
+        false
+    }
+}
+
+/// 在指定目录中查找当前平台的无版本或带版本动态库，带版本按名称降序优先。
 fn find_library_in_dir(dir: &Path) -> Option<PathBuf> {
     let entries = std::fs::read_dir(dir).ok()?;
     let mut exact: Option<PathBuf> = None;
@@ -141,9 +234,9 @@ fn find_library_in_dir(dir: &Path) -> Option<PathBuf> {
     for entry in entries.flatten() {
         let file_name = entry.file_name();
         let name = file_name.to_string_lossy();
-        if name == "libonnxruntime.so" {
+        if is_exact_library_name(&name) {
             exact = Some(entry.path());
-        } else if name.starts_with("libonnxruntime.so.") {
+        } else if is_versioned_library_name(&name) {
             versioned.push((name.to_string(), entry.path()));
         }
     }
@@ -164,5 +257,65 @@ mod tests {
     fn test_find_library_in_temp_dir_returns_none() {
         let temp = tempfile::tempdir().expect("创建临时目录失败");
         assert!(find_library_in_dir(temp.path()).is_none());
+    }
+
+    /// 当前平台必须能识别自己的动态库命名，且不会把其他平台名称误判。
+    #[test]
+    fn test_platform_library_names() {
+        #[cfg(target_os = "windows")]
+        {
+            assert!(is_exact_library_name("onnxruntime.dll"));
+            assert!(is_exact_library_name("ONNXRUNTIME.DLL"));
+            assert!(is_versioned_library_name("onnxruntime1.23.dll"));
+            assert!(!is_exact_library_name("libonnxruntime.so"));
+        }
+        #[cfg(target_os = "macos")]
+        {
+            assert!(is_exact_library_name("libonnxruntime.dylib"));
+            assert!(is_versioned_library_name("libonnxruntime.1.23.dylib"));
+            assert!(!is_exact_library_name("onnxruntime.dll"));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            assert!(is_exact_library_name("libonnxruntime.so"));
+            assert!(is_versioned_library_name("libonnxruntime.so.1.23"));
+            assert!(!is_exact_library_name("onnxruntime.dll"));
+        }
+    }
+
+    /// 无版本库优先于带版本库，带版本按字符串降序选择。
+    #[test]
+    fn test_find_library_prefers_exact_then_newest_version() {
+        let temp = tempfile::tempdir().expect("创建临时目录失败");
+        let (old, new, exact) = if cfg!(target_os = "windows") {
+            (
+                "onnxruntime1.22.dll",
+                "onnxruntime1.23.dll",
+                "onnxruntime.dll",
+            )
+        } else if cfg!(target_os = "macos") {
+            (
+                "libonnxruntime.1.22.dylib",
+                "libonnxruntime.1.23.dylib",
+                "libonnxruntime.dylib",
+            )
+        } else {
+            (
+                "libonnxruntime.so.1.22",
+                "libonnxruntime.so.1.23",
+                "libonnxruntime.so",
+            )
+        };
+        std::fs::File::create(temp.path().join(old)).expect("创建旧版本库");
+        std::fs::File::create(temp.path().join(new)).expect("创建新版本库");
+        assert_eq!(
+            find_library_in_dir(temp.path()),
+            Some(temp.path().join(new))
+        );
+        std::fs::File::create(temp.path().join(exact)).expect("创建无版本库");
+        assert_eq!(
+            find_library_in_dir(temp.path()),
+            Some(temp.path().join(exact))
+        );
     }
 }
