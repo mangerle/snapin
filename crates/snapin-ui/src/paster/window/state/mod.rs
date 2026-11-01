@@ -30,8 +30,8 @@ pub(crate) const STATUS_MESSAGE_TTL: Duration = Duration::from_secs(3);
 /// 贴图窗口运行时状态
 pub struct PasterWindowState {
     pub item: PasterItem,
-    /// 创建贴图时的原始像素副本，撤销/重做时作为重放标注的唯一底图
-    pub base_pixmap: Pixmap,
+    /// 撤销/重做所需的原始底图；无标注时不复制，首次标注时才从当前图像生成
+    pub base_pixmap: Option<Pixmap>,
     /// 已提交标注图元的撤销/重做历史（坐标为图像像素坐标）
     pub annotations: AnnotationHistory,
     /// 贴图标注工具栏（主栏按钮集由 `PASTER_MAIN_ITEMS` 指定）
@@ -68,10 +68,9 @@ pub struct PasterWindowState {
 
 impl PasterWindowState {
     pub fn new(item: PasterItem) -> Self {
-        let base_pixmap = item.pixmap.clone();
         Self {
             item,
-            base_pixmap,
+            base_pixmap: None,
             annotations: AnnotationHistory::default(),
             toolbar: create_paster_toolbar(),
             should_close: false,
@@ -238,6 +237,7 @@ impl PasterWindowState {
             return 0;
         }
         let count = items.len();
+        self.ensure_base_pixmap();
         self.annotations
             .push(AnnotationShape::Translation(TranslationAction::new(items)));
         self.rebuild_item_pixmap();
@@ -367,6 +367,7 @@ impl PasterWindowState {
         let Some(shape) = shape else {
             return false;
         };
+        self.ensure_base_pixmap();
         shape.draw(&mut self.item.pixmap.as_mut());
         self.annotations.push(shape);
         true
@@ -404,9 +405,23 @@ impl PasterWindowState {
 
     /// 从原始底图重建展示图像，并按顺序重放当前生效的标注。
     fn rebuild_item_pixmap(&mut self) {
-        let mut pixmap = self.base_pixmap.clone();
+        let Some(base) = self.base_pixmap.as_ref() else {
+            return;
+        };
+        let mut pixmap = base.clone();
         self.annotations.replay_all(&mut pixmap.as_mut());
         self.item.pixmap = pixmap;
+        if !self.annotations.can_undo() && !self.annotations.can_redo() {
+            // 历史已空，底图与当前图完全一致，释放副本回到单图状态。
+            self.base_pixmap = None;
+        }
+    }
+
+    /// 首次产生标注前捕获底图，避免所有贴图窗口无条件持有第二份完整像素。
+    pub(crate) fn ensure_base_pixmap(&mut self) {
+        if self.base_pixmap.is_none() {
+            self.base_pixmap = Some(self.item.pixmap.clone());
+        }
     }
 
     /// 将当前图像固化为新的标注底图并清空历史。
@@ -414,7 +429,7 @@ impl PasterWindowState {
     /// 旋转/翻转/替换图像会改变像素坐标体系，历史图元在新坐标系中已失去意义
     /// （特别是旋转会交换宽高），因此必须整体重置而不能保留撤销记录。
     fn reset_annotation_baseline(&mut self) {
-        self.base_pixmap = self.item.pixmap.clone();
+        self.base_pixmap = None;
         self.annotations.clear();
         self.pending_stroke_points.clear();
         self.is_drawing = false;

@@ -50,6 +50,7 @@ impl PasterWindowState {
         let Some(shape) = session.commit() else {
             return false;
         };
+        self.ensure_base_pixmap();
         shape.draw(&mut self.item.pixmap.as_mut());
         self.annotations.push(shape);
         true
