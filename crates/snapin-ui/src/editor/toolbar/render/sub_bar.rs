@@ -1,0 +1,291 @@
+//! 二级属性栏与属性控件绘制。
+
+use super::super::icons::{add_round_rect, make_paint};
+use super::super::items::{preset_colors, StrokeWidthLevel};
+use super::super::layout::{SubControl, SubDropdown};
+use super::super::Toolbar;
+use super::dropdown::render_dropdown;
+use super::widgets::{
+    fill_button_highlight, fill_circle, render_arrow_preview, render_badge_style_icon,
+    render_corner_radius_icon, render_divider, stroke_circle, stroke_sample,
+};
+use crate::editor::toolbar::items::ToolbarItem;
+use crate::geometry::Rect;
+use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
+
+/// 绘制二级属性栏内容 (形状切换 + 3 档粗细 + 6 个预设色块，自适应 HiDPI 缩放)
+pub(super) fn render_sub_options(toolbar: &Toolbar, pixmap: &mut PixmapMut, rect: &Rect) {
+    let Some(layout) = toolbar.sub_layout() else {
+        return;
+    };
+    let s = toolbar.ui_scale;
+    let center_y = rect.y + rect.height / 2.0;
+    let color = toolbar.sub_options.color;
+    let highlight = Color::from_rgba8(37, 99, 235, 45);
+    let presets = preset_colors();
+
+    for entry in &layout.entries {
+        match entry.control {
+            None => render_divider(pixmap, entry.rect.x + 8.0 * s, rect.y + 8.0 * s, s),
+            Some(SubControl::ShapeRect) => {
+                let active = toolbar.active_tool == Some(ToolbarItem::ToolRect);
+                if active {
+                    fill_button_highlight(pixmap, &entry.rect, highlight, s);
+                }
+                render_sub_shape_rect(pixmap, entry.rect.x + 12.0 * s, center_y, s, active);
+            }
+            Some(SubControl::ShapeEllipse) => {
+                let active = toolbar.active_tool == Some(ToolbarItem::ToolEllipse);
+                if active {
+                    fill_button_highlight(pixmap, &entry.rect, highlight, s);
+                }
+                render_sub_shape_ellipse(pixmap, entry.rect.x + 12.0 * s, center_y, s, active);
+            }
+            Some(SubControl::Stroke(level)) => {
+                let radius = match level {
+                    StrokeWidthLevel::Thin => 2.5 * s,
+                    StrokeWidthLevel::Medium => 4.5 * s,
+                    StrokeWidthLevel::Thick => 7.0 * s,
+                };
+                let selected = toolbar.sub_options.stroke_width == level;
+                let paint = if selected {
+                    Color::from_rgba8(37, 99, 235, 255)
+                } else {
+                    Color::from_rgba8(165, 170, 182, 255)
+                };
+                fill_circle(pixmap, entry.rect.x + 8.0 * s, center_y, radius, paint);
+            }
+            Some(SubControl::LineStyle) => {
+                let open = toolbar.open_dropdown == Some(SubDropdown::Line);
+                if open {
+                    fill_button_highlight(pixmap, &entry.rect, highlight, s);
+                }
+                stroke_sample(
+                    pixmap,
+                    entry.rect.x + 8.0 * s,
+                    entry.rect.x + entry.rect.width - 14.0 * s,
+                    center_y,
+                    2.0 * s,
+                    toolbar.sub_options.line_style,
+                    Color::from_rgba8(45, 48, 56, 255),
+                );
+                render_caret(
+                    pixmap,
+                    entry.rect.x + entry.rect.width - 8.0 * s,
+                    center_y,
+                    s,
+                );
+            }
+            Some(SubControl::FillToggle) => {
+                render_fill_toggle(
+                    pixmap,
+                    entry.rect.x + 12.0 * s,
+                    center_y,
+                    s,
+                    toolbar.sub_options.filled,
+                    color,
+                );
+            }
+            Some(SubControl::CornerRadius) => {
+                render_corner_radius_icon(
+                    pixmap,
+                    entry.rect.x + 12.0 * s,
+                    center_y,
+                    s,
+                    toolbar.sub_options.corner_radius,
+                );
+            }
+            Some(SubControl::BadgeStyle) => {
+                let open = toolbar.open_dropdown == Some(SubDropdown::Badge);
+                if open {
+                    fill_button_highlight(pixmap, &entry.rect, highlight, s);
+                }
+                render_badge_style_icon(
+                    pixmap,
+                    entry.rect.x + 12.0 * s,
+                    center_y,
+                    s,
+                    toolbar.sub_options.badge_style,
+                    color,
+                );
+                render_caret(
+                    pixmap,
+                    entry.rect.x + entry.rect.width - 8.0 * s,
+                    center_y,
+                    s,
+                );
+            }
+            Some(SubControl::ArrowStyle) => {
+                let open = toolbar.open_dropdown == Some(SubDropdown::Arrow);
+                if open {
+                    fill_button_highlight(pixmap, &entry.rect, highlight, s);
+                }
+                render_arrow_preview(
+                    pixmap,
+                    entry.rect.x + 8.0 * s,
+                    entry.rect.x + entry.rect.width - 14.0 * s,
+                    center_y,
+                    s,
+                    toolbar.sub_options.arrow_style,
+                    Color::from_rgba8(45, 48, 56, 255),
+                );
+                render_caret(
+                    pixmap,
+                    entry.rect.x + entry.rect.width - 8.0 * s,
+                    center_y,
+                    s,
+                );
+            }
+            Some(SubControl::Color(index)) => {
+                let Some(preset) = presets.get(index) else {
+                    continue;
+                };
+                let is_selected = toolbar.sub_options.color == *preset;
+                let cx = entry.rect.x + 8.0 * s;
+                fill_circle(pixmap, cx, center_y, 8.0 * s, *preset);
+                stroke_circle(
+                    pixmap,
+                    cx,
+                    center_y,
+                    8.0 * s,
+                    Color::from_rgba8(0, 0, 0, 32),
+                    1.0 * s,
+                );
+                if is_selected {
+                    stroke_circle(
+                        pixmap,
+                        cx,
+                        center_y,
+                        10.5 * s,
+                        Color::from_rgba8(45, 48, 56, 220),
+                        1.8 * s,
+                    );
+                }
+            }
+        }
+    }
+
+    if let Some(dropdown) = &layout.dropdown {
+        render_dropdown(pixmap, dropdown, toolbar, s);
+    }
+}
+
+/// 绘制下拉按钮右侧的展开箭头
+fn render_caret(pixmap: &mut PixmapMut, cx: f32, cy: f32, s: f32) {
+    let mut pb = PathBuilder::new();
+    pb.move_to(cx - 2.5 * s, cy - 1.5 * s);
+    pb.line_to(cx, cy + 1.5 * s);
+    pb.line_to(cx + 2.5 * s, cy - 1.5 * s);
+    if let Some(path) = pb.finish() {
+        let stroke = Stroke {
+            width: 1.4 * s,
+            ..Default::default()
+        };
+        pixmap.stroke_path(
+            &path,
+            &make_paint(Color::from_rgba8(100, 106, 120, 255)),
+            &stroke,
+            Transform::identity(),
+            None,
+        );
+    }
+}
+
+/// 绘制“仅边框 / 边框+填充”开关图标
+fn render_fill_toggle(
+    pixmap: &mut PixmapMut,
+    cx: f32,
+    cy: f32,
+    s: f32,
+    filled: bool,
+    color: Color,
+) {
+    let half = 7.0 * s;
+    let mut pb = PathBuilder::new();
+    add_round_rect(
+        &mut pb,
+        cx - half,
+        cy - half,
+        half * 2.0,
+        half * 2.0,
+        2.0 * s,
+    );
+    if let Some(path) = pb.finish() {
+        if filled {
+            pixmap.fill_path(
+                &path,
+                &make_paint(color),
+                tiny_skia::FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+        } else {
+            let stroke = Stroke {
+                width: 1.8 * s,
+                ..Default::default()
+            };
+            pixmap.stroke_path(
+                &path,
+                &make_paint(Color::from_rgba8(90, 96, 110, 255)),
+                &stroke,
+                Transform::identity(),
+                None,
+            );
+        }
+    }
+}
+
+/// 绘制二级属性栏中的微型矩形形状图标
+fn render_sub_shape_rect(pixmap: &mut PixmapMut, cx: f32, cy: f32, s: f32, is_active: bool) {
+    let mut pb = PathBuilder::new();
+    add_round_rect(
+        &mut pb,
+        cx - 6.5 * s,
+        cy - 5.5 * s,
+        13.0 * s,
+        11.0 * s,
+        1.5 * s,
+    );
+    if let Some(path) = pb.finish() {
+        let color = if is_active {
+            Color::from_rgba8(37, 99, 235, 255)
+        } else {
+            Color::from_rgba8(75, 85, 99, 255)
+        };
+        let paint = make_paint(color);
+        let stroke = Stroke {
+            width: 1.6 * s,
+            ..Default::default()
+        };
+        pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+    }
+}
+
+/// 绘制二级属性栏中的微型椭圆形状图标
+fn render_sub_shape_ellipse(pixmap: &mut PixmapMut, cx: f32, cy: f32, s: f32, is_active: bool) {
+    let mut pb = PathBuilder::new();
+    let a = 6.5 * s;
+    let b = 5.5 * s;
+    let ox = a * 0.552_284_8_f32;
+    let oy = b * 0.552_284_8_f32;
+    pb.move_to(cx - a, cy);
+    pb.cubic_to(cx - a, cy - oy, cx - ox, cy - b, cx, cy - b);
+    pb.cubic_to(cx + ox, cy - b, cx + a, cy - oy, cx + a, cy);
+    pb.cubic_to(cx + a, cy + oy, cx + ox, cy + b, cx, cy + b);
+    pb.cubic_to(cx - ox, cy + b, cx - a, cy + oy, cx - a, cy);
+    pb.close();
+
+    if let Some(path) = pb.finish() {
+        let color = if is_active {
+            Color::from_rgba8(37, 99, 235, 255)
+        } else {
+            Color::from_rgba8(75, 85, 99, 255)
+        };
+        let paint = make_paint(color);
+        let stroke = Stroke {
+            width: 1.6 * s,
+            ..Default::default()
+        };
+        pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+    }
+}

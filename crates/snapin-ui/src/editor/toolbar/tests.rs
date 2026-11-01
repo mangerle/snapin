@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::editor::toolbar::items::ToolbarItem;
+use crate::editor::toolbar::items::CORNER_RADIUS_PRESETS;
 use crate::geometry::Rect;
 
 #[test]
