@@ -56,11 +56,14 @@ pub fn build_updater(custom_manifest_url: Option<&str>) -> Result<Updater, CoreE
         .filter(|url| !url.trim().is_empty())
         .unwrap_or(DEFAULT_MANIFEST_URL);
 
+    let allow_file = manifest_url.starts_with("file://");
+
     Updater::builder()
         .current_version(env!("CARGO_PKG_VERSION"))
         .map_err(|e| CoreError::UpdateError(format!("解析当前客户端版本失败: {e}")))?
         .manifest_url(manifest_url)
         .public_key(UPDATE_PUBLIC_KEY)
+        .allow_file_protocol(allow_file)
         .timeout(Duration::from_secs(15))
         .build()
         .map_err(|e| CoreError::UpdateError(format!("构建自更新引擎失败: {e}")))
@@ -107,4 +110,57 @@ pub fn confirm_update_success() -> Result<(), CoreError> {
     shipup::confirm_update_success()
         .map_err(|e| CoreError::UpdateError(format!("确认升级状态闭环失败: {e}")))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 测试默认配置下 Updater 能够成功构建且参数合法
+    #[test]
+    fn test_build_updater_default() {
+        let updater = build_updater(None);
+        assert!(updater.is_ok(), "默认更新器应当构建成功");
+    }
+
+    /// 测试传递自定义 Manifest URL 时更新器能够成功构建
+    #[test]
+    fn test_build_updater_custom_url() {
+        let custom = "https://example.com/mirror/latest.json";
+        let updater = build_updater(Some(custom));
+        assert!(updater.is_ok(), "自定义端点更新器应当构建成功");
+    }
+
+    /// 测试空字符串自定义端点能够安全回退至官方默认 URL
+    #[test]
+    fn test_build_updater_fallback_on_empty() {
+        let updater = build_updater(Some("   "));
+        assert!(updater.is_ok(), "空字符串应当安全回退到默认 URL 并构建成功");
+    }
+
+    /// 测试启动崩溃自检与确认闭环可以安全幂等调用
+    #[test]
+    fn test_crash_recovery_and_confirm_lifecycle() {
+        let recover_res = check_and_recover_on_startup();
+        assert!(recover_res.is_ok(), "首次正常启动自检应当顺利通过");
+
+        let confirm_res = confirm_update_success();
+        assert!(confirm_res.is_ok(), "确认升级状态闭环应当顺利通过");
+    }
+
+    /// 测试未经合法 Ed25519 签名的伪造清单会被更新器强行安全阻断
+    #[test]
+    fn test_unsigned_manifest_rejected_by_signature_guard() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let manifest_path = temp_dir.path().join("latest.json");
+        std::fs::write(&manifest_path, r#"{"version":"9.9.9","packages":{}}"#)
+            .expect("写入临时清单失败");
+
+        let file_url = format!("file://{}", manifest_path.to_string_lossy());
+        let check_res = check_update(Some(&file_url));
+        assert!(
+            check_res.is_err(),
+            "缺少合法 Ed25519 签名的清单必须被更新器拦截拒绝"
+        );
+    }
 }
