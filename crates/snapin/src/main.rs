@@ -177,6 +177,9 @@ async fn main() -> Result<()> {
             let cfg = config.context("守护进程启动缺少用户配置")?;
             run_daemon_server(cfg).await?;
         }
+        Commands::Update { check } => {
+            app::update::run_cli_update(config, check).await?;
+        }
     }
 
     Ok(())

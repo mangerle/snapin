@@ -72,6 +72,12 @@ pub enum Commands {
     InstallExtension,
     /// 向系统 GNOME 快捷键中心同步绑定默认热键
     SyncHotkeys,
+    /// 检查或执行 Snapin 在线自更新
+    Update {
+        /// 仅检查最新版本信息，不下载也不安装
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 /// 解析截图延时秒数，限制在 0..=60，避免误输入导致长时间无响应。

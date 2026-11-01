@@ -1,10 +1,154 @@
 import { AboutSlint } from "std-widgets.slint";
-import { SettingCard } from "../common.slint";
+import { SettingCard, PrimaryButton, SecondaryButton } from "../common.slint";
 
 export component AboutTab inherits VerticalLayout {
     in property <string> app_version: "";
+    in property <int> update_status: 0; // 0: Idle, 1: Checking, 2: UpToDate, 3: Available, 4: Downloading, 5: Downloaded, 6: Error
+    in property <string> update_version: "";
+    in property <string> update_notes: "";
+    in property <string> update_status_text: "";
+    in property <float> download_progress: 0.0;
+    in property <string> download_speed_text: "";
+
+    callback check_for_updates();
+    callback start_download_update();
+    callback restart_and_install();
+
     spacing: 16px;
     padding-right: 8px;
+
+    SettingCard {
+        title: "版本与在线更新";
+        subtitle: "基于数字签名安全验证的自动升级系统";
+
+        VerticalLayout {
+            spacing: 12px;
+
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: start;
+
+                Text { text: "当前版本:"; width: 90px; color: #64748b; vertical-alignment: center; }
+                Text { text: root.app_version; font-weight: 700; color: #1e293b; vertical-alignment: center; }
+
+                if root.update_status == 0 || root.update_status == 2 || root.update_status == 6: SecondaryButton {
+                    text: root.update_status == 1 ? "正在检查..." : "检查更新";
+                    clicked => { root.check_for_updates(); }
+                }
+
+                if root.update_status == 1: Text {
+                    text: "正在连接更新服务器检查新版本...";
+                    color: #2563eb;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
+
+                if root.update_status == 2: Text {
+                    text: "当前已是最新版本";
+                    color: #10b981;
+                    font-size: 13px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+
+                if root.update_status == 6: Text {
+                    text: root.update_status_text;
+                    color: #ef4444;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
+            }
+
+            if root.update_status == 3: VerticalLayout {
+                spacing: 10px;
+                Rectangle { height: 1px; background: #e2e8f0; }
+
+                HorizontalLayout {
+                    spacing: 12px;
+                    Text { text: "发现新版本:"; width: 90px; color: #64748b; font-weight: 600; }
+                    Text { text: "v" + root.update_version; font-weight: 700; color: #2563eb; }
+                }
+
+                if root.update_notes != "": VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "更新内容:"; color: #64748b; font-size: 12px; font-weight: 600; }
+                    Rectangle {
+                        background: #f8fafc;
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: #e2e8f0;
+                        HorizontalLayout {
+                            padding: 10px;
+                            Text {
+                                text: root.update_notes;
+                                font-size: 12px;
+                                color: #334155;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 12px;
+                    PrimaryButton {
+                        text: "立即下载更新";
+                        clicked => { root.start_download_update(); }
+                    }
+                }
+            }
+
+            if root.update_status == 4: VerticalLayout {
+                spacing: 8px;
+                Rectangle { height: 1px; background: #e2e8f0; }
+
+                HorizontalLayout {
+                    Text { text: "正在下载新版本更新包..."; color: #1e293b; font-size: 13px; font-weight: 600; }
+                    Text { text: root.download_speed_text; color: #64748b; font-size: 12px; horizontal-alignment: right; }
+                }
+
+                Rectangle {
+                    height: 8px;
+                    background: #e2e8f0;
+                    border-radius: 4px;
+                    clip: true;
+
+                    Rectangle {
+                        x: 0px;
+                        y: 0px;
+                        width: parent.width * root.download_progress;
+                        height: parent.height;
+                        background: #2563eb;
+                        border-radius: 4px;
+                    }
+                }
+            }
+
+            if root.update_status == 5: VerticalLayout {
+                spacing: 10px;
+                Rectangle { height: 1px; background: #e2e8f0; }
+
+                HorizontalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: "新版本更新包已安全下载并完成数字签名验签，点击重启即可生效！";
+                        color: #10b981;
+                        font-size: 13px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 12px;
+                    PrimaryButton {
+                        text: "立即重启并安装";
+                        clicked => { root.restart_and_install(); }
+                    }
+                }
+            }
+        }
+    }
 
     SettingCard {
         title: "Snapin 原生截图与贴图工具";
@@ -13,11 +157,6 @@ export component AboutTab inherits VerticalLayout {
         VerticalLayout {
             spacing: 12px;
 
-            HorizontalLayout {
-                spacing: 12px;
-                Text { text: "当前版本:"; width: 90px; color: #64748b; }
-                Text { text: root.app_version; font-weight: 700; color: #1e293b; }
-            }
 
             HorizontalLayout {
                 spacing: 12px;

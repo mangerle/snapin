@@ -6,3 +6,4 @@ pub mod installer;
 pub mod lifecycle;
 pub mod paste;
 pub mod snip;
+pub mod update;

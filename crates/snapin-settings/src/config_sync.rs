@@ -29,6 +29,7 @@ pub(crate) fn sync_config_to_window(win: &SettingsWindow, cfg: &Config) {
 fn sync_general_to_window(win: &SettingsWindow, g: &config::model::GeneralConfig) {
     win.set_autostart(g.autostart);
     win.set_notify_on_startup(g.notify_on_startup);
+    win.set_auto_check_update(g.auto_check_update);
     win.set_log_level_index(log_level_to_index(g.log_level));
 }
 
@@ -112,6 +113,7 @@ pub(crate) fn extract_config_from_window(win: &SettingsWindow, cfg: &mut Config)
 fn extract_general_from_window(win: &SettingsWindow, g: &mut config::model::GeneralConfig) {
     g.autostart = win.get_autostart();
     g.notify_on_startup = win.get_notify_on_startup();
+    g.auto_check_update = win.get_auto_check_update();
     g.log_level = index_to_log_level(win.get_log_level_index());
 }
 

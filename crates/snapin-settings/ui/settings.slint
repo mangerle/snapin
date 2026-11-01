@@ -32,8 +32,18 @@ export component SettingsWindow inherits Window {
     // 1. 常规设置
     in-out property <bool> autostart: true;
     in-out property <bool> notify_on_startup: false;
+    in-out property <bool> auto_check_update: true;
     in-out property <int> log_level_index: 2;
     in-out property <string> extension_status_text: "GNOME Shell 窗口特权扩展已就绪";
+
+    // 8. 关于与自更新
+    in-out property <int> update_status: 0;
+    in-out property <string> update_version: "";
+    in-out property <string> update_notes: "";
+    in-out property <string> update_status_text: "";
+    in-out property <float> download_progress: 0.0;
+    in-out property <string> download_speed_text: "";
+
 
     // 2. 界面外观
     in-out property <int> accent_color_index: 0;
@@ -86,6 +96,10 @@ export component SettingsWindow inherits Window {
     callback save_and_apply();
     callback restore_defaults();
     callback open_config_folder();
+    callback check_for_updates();
+    callback start_download_update();
+    callback restart_and_install();
+
 
     HorizontalLayout {
         // ---------------- 左侧导航栏 ----------------
@@ -236,6 +250,7 @@ export component SettingsWindow inherits Window {
                     if root.active_tab == 0: GeneralTab {
                         autostart <=> root.autostart;
                         notify_on_startup <=> root.notify_on_startup;
+                        auto_check_update <=> root.auto_check_update;
                         log_level_index <=> root.log_level_index;
                         extension_status_text: root.extension_status_text;
                         open_config_folder => { root.open_config_folder(); }
@@ -296,7 +311,17 @@ export component SettingsWindow inherits Window {
 
                     if root.active_tab == 7: AboutTab {
                         app_version: root.app_version;
+                        update_status: root.update_status;
+                        update_version: root.update_version;
+                        update_notes: root.update_notes;
+                        update_status_text: root.update_status_text;
+                        download_progress: root.download_progress;
+                        download_speed_text: root.download_speed_text;
+                        check_for_updates => { root.check_for_updates(); }
+                        start_download_update => { root.start_download_update(); }
+                        restart_and_install => { root.restart_and_install(); }
                     }
+
                 }
             }
 

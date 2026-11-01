@@ -191,6 +191,118 @@ jobs:
           name: macos-artifacts
           path: release-files
 
+      - name: 配置 Rust 工具链并安装 shipup-cli
+        if: env.SHIPUP_PRIVATE_KEY != ''
+        env:
+          SHIPUP_PRIVATE_KEY: ${{ secrets.SHIPUP_PRIVATE_KEY }}
+        run: |
+          cargo install shipup-cli --locked
+
+      - name: 生成 Ed25519 签名与最新版本清单 (latest.json)
+        if: env.SHIPUP_PRIVATE_KEY != ''
+        env:
+          SHIPUP_PRIVATE_KEY: ${{ secrets.SHIPUP_PRIVATE_KEY }}
+          TAG_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          CLEAN_VERSION="${TAG_NAME#v}"
+          KEY_FILE="$(mktemp)"
+          echo -n "$SHIPUP_PRIVATE_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+
+          NOTES_ARG=()
+          if [ -f "RELEASE_CHANGELOG.md" ]; then
+            NOTES_ARG=(--notes-file "RELEASE_CHANGELOG.md")
+          fi
+
+          for file in release-files/*; do
+            [ -f "$file" ] || continue
+            filename="$(basename "$file")"
+            download_url="https://github.com/${REPO}/releases/download/${TAG_NAME}/${filename}"
+
+            case "$filename" in
+              *amd64.deb|*_x86_64.deb)
+                shipup-cli release \
+                  --version "$CLEAN_VERSION" \
+                  --target "x86_64-unknown-linux-gnu" \
+                  --package "$file" \
+                  --url "$download_url" \
+                  --package-type installer \
+                  --key "$KEY_FILE" \
+                  --manifest "release-files/latest.json" \
+                  "${NOTES_ARG[@]}"
+                ;;
+              *arm64.deb|*_aarch64.deb)
+                shipup-cli release \
+                  --version "$CLEAN_VERSION" \
+                  --target "aarch64-unknown-linux-gnu" \
+                  --package "$file" \
+                  --url "$download_url" \
+                  --package-type installer \
+                  --key "$KEY_FILE" \
+                  --manifest "release-files/latest.json" \
+                  "${NOTES_ARG[@]}"
+                ;;
+              *setup*.exe|*x64*setup*.exe|*x86_64*setup*.exe)
+                shipup-cli release \
+                  --version "$CLEAN_VERSION" \
+                  --target "x86_64-pc-windows-msvc" \
+                  --package "$file" \
+                  --url "$download_url" \
+                  --package-type installer \
+                  --key "$KEY_FILE" \
+                  --manifest "release-files/latest.json" \
+                  "${NOTES_ARG[@]}"
+                ;;
+              *arm64*setup*.exe|*aarch64*setup*.exe)
+                shipup-cli release \
+                  --version "$CLEAN_VERSION" \
+                  --target "aarch64-pc-windows-msvc" \
+                  --package "$file" \
+                  --url "$download_url" \
+                  --package-type installer \
+                  --key "$KEY_FILE" \
+                  --manifest "release-files/latest.json" \
+                  "${NOTES_ARG[@]}"
+                ;;
+              *x64*.zip|*x86_64*.zip)
+                shipup-cli release \
+                  --version "$CLEAN_VERSION" \
+                  --target "x86_64-pc-windows-msvc" \
+                  --package "$file" \
+                  --url "$download_url" \
+                  --package-type archive \
+                  --key "$KEY_FILE" \
+                  --manifest "release-files/latest.json" \
+                  "${NOTES_ARG[@]}"
+                ;;
+              *arm64*.zip|*aarch64*.zip)
+                shipup-cli release \
+                  --version "$CLEAN_VERSION" \
+                  --target "aarch64-pc-windows-msvc" \
+                  --package "$file" \
+                  --url "$download_url" \
+                  --package-type archive \
+                  --key "$KEY_FILE" \
+                  --manifest "release-files/latest.json" \
+                  "${NOTES_ARG[@]}"
+                ;;
+              *.dmg)
+                shipup-cli release \
+                  --version "$CLEAN_VERSION" \
+                  --target "x86_64-apple-darwin" \
+                  --package "$file" \
+                  --url "$download_url" \
+                  --package-type archive \
+                  --key "$KEY_FILE" \
+                  --manifest "release-files/latest.json" \
+                  "${NOTES_ARG[@]}"
+                ;;
+            esac
+          done
+
+          rm -f "$KEY_FILE"
+
       - name: 发布至 GitHub Release 并自动挂载所有产品包
         uses: softprops/action-gh-release@v2
         with:
@@ -198,3 +310,4 @@ jobs:
           files: release-files/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

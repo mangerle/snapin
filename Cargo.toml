@@ -83,5 +83,9 @@ arboard = { version = "3.4", default-features = false, features = ["wayland-data
 slint = "1"
 slint-build = "1"
 
+# 跨平台自更新系统 (带 Ed25519 签名验证与崩溃回滚)
+shipup = { version = "0.5.1", features = ["async", "blocking"] }
+
 # 测试辅助依赖
 tempfile = "3"
+

@@ -8,8 +8,10 @@ slint::include_modules!();
 pub mod config_sync;
 pub mod mapping;
 pub mod shortcut;
+pub mod update_controller;
 
 use config_sync::{extract_config_from_window, sync_config_to_window};
+
 use slint::{ComponentHandle, SharedString};
 use snapin_core::config::{self, Config};
 use snapin_core::error::CoreError;
@@ -81,6 +83,7 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
 
     // 2. 注册界面交互与保存回调
     register_callbacks(&window, config_arc);
+    update_controller::register_update_callbacks(&window);
 
     // 3. 临时挂起 Snapin 系统全局快捷键，确保录制时按键不被系统拦截触发
     if let Err(e) = suspend_hotkeys_for_settings() {
