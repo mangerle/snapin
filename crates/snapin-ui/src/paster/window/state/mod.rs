@@ -24,6 +24,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tiny_skia::Pixmap;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::keyboard::ModifiersState;
 use winit::window::Window;
 
 /// 贴图窗口状态提示的展示有效期
@@ -60,6 +61,8 @@ pub struct PasterWindowState {
     /// 图像顶部状态提示及其产生时刻，超过 [`STATUS_MESSAGE_TTL`] 后自动失效
     pub(crate) status_message: Option<(String, Instant)>,
     pub(crate) last_click_time: Option<Instant>,
+    /// 当前修饰键状态；文本输入据此忽略 Ctrl 组合字符
+    pub(crate) modifiers: ModifiersState,
     /// 当前一笔尚待提交的标注轨迹（图像像素坐标）
     pub(crate) pending_stroke_points: Vec<(f32, f32)>,
     /// 左键是否正处于一笔标注的拖拽过程中
@@ -95,6 +98,7 @@ impl PasterWindowState {
             pending_job_cancel: None,
             status_message: None,
             last_click_time: None,
+            modifiers: ModifiersState::default(),
             pending_stroke_points: Vec::with_capacity(64),
             frame_pixmap: None,
             input_region_cache: None,

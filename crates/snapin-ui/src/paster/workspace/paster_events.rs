@@ -93,6 +93,9 @@ fn handle_paster_event(inst: &mut PasterInstance, event: WindowEvent) -> bool {
                 inst.window.request_redraw();
             }
         }
+        WindowEvent::ModifiersChanged(modifiers) => {
+            inst.state.modifiers = modifiers.state();
+        }
         WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
             let s = scale_factor as f32;
             inst.state.ui_scale = s;

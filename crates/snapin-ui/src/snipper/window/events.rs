@@ -75,39 +75,35 @@ pub fn handle_key_input(
     }
 }
 
-/// 处理处于文本编辑中的按键交互
+/// 处理处于文本编辑中的按键交互。
+///
+/// 具体字符增删与 Esc/Enter 语义由共享的 [`TextInputSession`] 处理，
+/// 截图侧只负责把动作落到标注历史。
 fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
-    match key {
-        Key::Named(NamedKey::Escape) | Key::Named(NamedKey::Enter) => {
+    let ctrl_pressed = state.modifiers.control_key();
+    let action = match state.active_text_input.as_mut() {
+        Some(session) => crate::editor::text_input::handle_session_key(session, key, ctrl_pressed),
+        None => return false,
+    };
+    match action {
+        crate::editor::text_input::TextSessionAction::Handled => true,
+        crate::editor::text_input::TextSessionAction::Commit => {
             commit_active_text_input(state);
             true
         }
-        Key::Named(NamedKey::Backspace) => {
-            if let Some(session) = &mut state.active_text_input {
-                session.pop_char();
-            }
+        crate::editor::text_input::TextSessionAction::Cancel => {
+            state.active_text_input = None;
             true
         }
-        Key::Named(NamedKey::Space) => {
-            if let Some(session) = &mut state.active_text_input {
-                session.push_char(' ');
-            }
-            true
-        }
-        Key::Character(s) if !state.modifiers.control_key() => {
-            if let Some(session) = &mut state.active_text_input {
-                session.push_str(s.as_str());
-            }
-            true
-        }
-        _ => false,
+        crate::editor::text_input::TextSessionAction::Ignored => false,
     }
 }
 
 /// 逐级退出处理 (先提交文本 -> 再收起二级栏/工具 -> 再取消标注选中 -> 再取消选区 -> 再退出窗口)
 pub fn handle_escape(state: &mut SnipperState) -> bool {
     if state.active_text_input.is_some() {
-        commit_active_text_input(state);
+        // Esc 统一取消当前输入，与贴图侧保持一致。
+        state.active_text_input = None;
         true
     } else if state.toolbar.active_tool.is_some() {
         state.toolbar.active_tool = None;

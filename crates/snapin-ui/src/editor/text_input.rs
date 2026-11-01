@@ -4,6 +4,7 @@ use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::TextAction;
 use snapin_core::render::with_thread_local_text_renderer;
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
+use winit::keyboard::{Key, NamedKey};
 
 /// 正在进行的文本标注交互输入会话
 #[derive(Debug, Clone)]
@@ -312,6 +313,50 @@ fn render_input_cursor(
     }
 }
 
+/// 文本会话按键处理结果。
+///
+/// 会话只负责维护字符内容；提交/取消需要访问标注历史与画布，因此把动作返回给
+/// 截图/贴图各自的状态层执行，避免共享层反向依赖具体窗口状态。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextSessionAction {
+    /// 按键已被输入会话消费，内容已更新
+    Handled,
+    /// 请求提交当前文本
+    Commit,
+    /// 请求取消当前文本
+    Cancel,
+    /// 与文本输入无关，交回调用方处理
+    Ignored,
+}
+
+/// 统一处理文本输入会话中的按键。
+///
+/// Esc 统一取消当前输入、Enter 提交，避免截图侧提交而贴图侧取消的行为分叉；
+/// Ctrl 组合键不写入普通字符，交由窗口快捷键处理。
+pub fn handle_session_key(
+    session: &mut TextInputSession,
+    key: &Key,
+    ctrl_pressed: bool,
+) -> TextSessionAction {
+    match key {
+        Key::Named(NamedKey::Escape) => TextSessionAction::Cancel,
+        Key::Named(NamedKey::Enter) => TextSessionAction::Commit,
+        Key::Named(NamedKey::Backspace) => {
+            session.pop_char();
+            TextSessionAction::Handled
+        }
+        Key::Named(NamedKey::Space) => {
+            session.push_char(' ');
+            TextSessionAction::Handled
+        }
+        Key::Character(text) if !ctrl_pressed && !text.is_empty() => {
+            session.push_str(text.as_str());
+            TextSessionAction::Handled
+        }
+        _ => TextSessionAction::Ignored,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,5 +430,28 @@ mod tests {
             .iter()
             .any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_pixels);
+    }
+
+    /// Esc 统一取消、Enter 提交，Ctrl 组合字符不进入文本内容。
+    #[test]
+    fn test_shared_text_session_key_actions() {
+        let mut session = TextInputSession::new((0.0, 0.0), (255, 255, 255, 255), 16.0);
+        assert_eq!(
+            handle_session_key(&mut session, &Key::Named(NamedKey::Escape), false),
+            TextSessionAction::Cancel
+        );
+        assert_eq!(
+            handle_session_key(&mut session, &Key::Named(NamedKey::Enter), false),
+            TextSessionAction::Commit
+        );
+        assert_eq!(
+            handle_session_key(&mut session, &Key::Character("a".into()), true),
+            TextSessionAction::Ignored
+        );
+        assert_eq!(
+            handle_session_key(&mut session, &Key::Character("a".into()), false),
+            TextSessionAction::Handled
+        );
+        assert_eq!(session.text, "a");
     }
 }

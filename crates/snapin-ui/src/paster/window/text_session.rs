@@ -11,7 +11,7 @@ use crate::editor::text_input::TextInputSession;
 use crate::editor::toolbar::Tool;
 use tiny_skia::{Color, Pixmap};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::keyboard::{Key, NamedKey};
+use winit::keyboard::Key;
 use winit::window::Window;
 
 impl PasterWindowState {
@@ -66,37 +66,24 @@ impl PasterWindowState {
     /// 该分支由 [`super::events::handle_paster_key`] 在会话激活时优先调用，
     /// 因此 Esc 不会继续落到「关闭贴图」的全局分支上。
     pub(crate) fn handle_text_session_key(&mut self, key: &Key) -> bool {
-        match key {
-            Key::Named(NamedKey::Escape) => {
-                self.cancel_text_session();
-                true
+        let ctrl_pressed = self.modifiers.control_key();
+        let action = match self.active_text_input.as_mut() {
+            Some(session) => {
+                crate::editor::text_input::handle_session_key(session, key, ctrl_pressed)
             }
-            Key::Named(NamedKey::Enter) => {
+            None => return false,
+        };
+        match action {
+            crate::editor::text_input::TextSessionAction::Handled => true,
+            crate::editor::text_input::TextSessionAction::Commit => {
                 self.commit_text_session();
                 true
             }
-            Key::Named(NamedKey::Backspace) => match &mut self.active_text_input {
-                Some(session) => {
-                    session.pop_char();
-                    true
-                }
-                None => false,
-            },
-            Key::Named(NamedKey::Space) => match &mut self.active_text_input {
-                Some(session) => {
-                    session.push_char(' ');
-                    true
-                }
-                None => false,
-            },
-            Key::Character(text) if !text.is_empty() => match &mut self.active_text_input {
-                Some(session) => {
-                    session.push_str(text.as_str());
-                    true
-                }
-                None => false,
-            },
-            _ => false,
+            crate::editor::text_input::TextSessionAction::Cancel => {
+                self.cancel_text_session();
+                true
+            }
+            crate::editor::text_input::TextSessionAction::Ignored => false,
         }
     }
 
@@ -179,6 +166,7 @@ mod tests {
     use crate::model::PasterItem;
     use snapin_core::annotation::AnnotationShape;
     use tiny_skia::Pixmap;
+    use winit::keyboard::NamedKey;
 
     /// 构造一张启用文字工具的测试贴图状态
     fn text_state(width: u32, height: u32) -> PasterWindowState {
