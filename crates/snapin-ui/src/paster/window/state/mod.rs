@@ -260,7 +260,15 @@ impl PasterWindowState {
     ///
     /// 显示时窗口需要在图像下方额外容纳属性栏与主栏；隐藏时恢复为贴近图像的尺寸。
     /// 隐藏同时提交进行中的文字会话并退出绘制模式，避免已输入内容丢失或 IME 状态残留。
+    ///
+    /// 鼠标穿透开启时图像区域不参与输入命中，工具条是唯一可恢复交互的手柄；
+    /// 此时禁止隐藏工具条，否则窗口将完全点击穿透且无法从窗口内部恢复。
     pub fn set_toolbar_visible(&mut self, visible: bool, window: &Window) {
+        if !self.can_set_toolbar_visible(visible) {
+            self.set_status_message("鼠标穿透开启时不能隐藏工具条，请先关闭穿透");
+            return;
+        }
+
         self.show_toolbar = visible;
         if !visible {
             self.commit_text_session();
@@ -269,6 +277,14 @@ impl PasterWindowState {
             self.is_drawing = false;
         }
         apply_window_scale_resize(self, window);
+    }
+
+    /// 判断当前状态是否允许把工具条切换到目标可见性。
+    ///
+    /// 只有“隐藏工具条”在鼠标穿透开启时被拒绝；显示工具条始终允许，
+    /// 这样 `set_mouse_through(true)` 的强制显示路径不会被守卫误伤。
+    pub(crate) fn can_set_toolbar_visible(&self, visible: bool) -> bool {
+        visible || !self.mouse_through
     }
 
     /// 切换贴图鼠标穿透。
@@ -573,6 +589,24 @@ mod tests {
         assert_eq!(resized.width(), 64);
         assert_eq!(resized.height(), 32);
         state.restore_frame_pixmap(resized);
+    }
+
+    /// 鼠标穿透开启时隐藏工具条会让输入区域变为空集，必须被守卫拒绝
+    #[test]
+    fn test_mouse_through_blocks_toolbar_hide() {
+        let mut state = test_state();
+        state.show_toolbar = true;
+        assert!(state.can_set_toolbar_visible(false), "未穿透时应允许隐藏");
+
+        state.mouse_through = true;
+        assert!(
+            !state.can_set_toolbar_visible(false),
+            "穿透开启后不得隐藏唯一可交互手柄"
+        );
+        assert!(
+            state.can_set_toolbar_visible(true),
+            "显示工具条不应被穿透守卫拦截"
+        );
     }
 
     #[test]
