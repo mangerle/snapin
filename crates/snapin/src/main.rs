@@ -11,7 +11,7 @@ pub mod cli;
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use cli::{Cli, Commands};
+use cli::{Cli, CommandRoute, Commands};
 use snapin_app::{
     clear_snip_history, ensure_daemon_running, exit_snapin_application, install_gnome_extension,
     run_cli_update, run_daemon_process, run_pin_file,
@@ -216,22 +216,22 @@ fn main() -> Result<()> {
     // `snapin snip/paste/pin-file` 是热键高频拉起的短命令，进程正常退出也不会确认
     // 升级成功；若在 CLI 入口累加未确认启动计数，更新后的正常使用会被误判为连续崩溃
     // 并回滚刚安装的健康版本。守护进程启动平稳后会调用确认接口闭环。
-    match command {
-        Commands::Daemon => {
+    match command.route() {
+        CommandRoute::Daemon => {
             let config = config.context("守护进程启动缺少用户配置")?;
             run_daemon_process(config)
         }
-        Commands::Prefs => run_preferences(),
-        Commands::InstallExtension => install_gnome_extension(),
-        Commands::SyncHotkeys => {
+        CommandRoute::Preferences => run_preferences(),
+        CommandRoute::InstallExtension => install_gnome_extension(),
+        CommandRoute::SyncHotkeys => {
             let config = config.context("快捷键同步流程缺少用户配置")?;
             sync_hotkeys_to_gnome(&config.hotkeys).context("同步快捷键至 GNOME 失败")?;
             tracing::info!("成功将快捷键同步注册至 Ubuntu GNOME 系统！");
             Ok(())
         }
-        other => {
+        CommandRoute::Async => {
             let runtime = cli_runtime()?;
-            run_async_command(&runtime, other, config)
+            run_async_command(&runtime, command, config)
         }
     }
 }

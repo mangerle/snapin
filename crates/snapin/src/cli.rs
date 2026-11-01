@@ -91,13 +91,51 @@ fn parse_delay_seconds(raw: &str) -> Result<u32, String> {
     Ok(seconds)
 }
 
+/// 子命令的调度路径。
+///
+/// 把“是否需要配置”和“由主线程同步流程还是异步 IPC 流程执行”收敛到同一张分派表，
+/// 避免 `needs_config` 与 `main` 的 match 各自维护、新增命令时漏改其中一侧。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandRoute {
+    /// 常驻守护进程主线程
+    Daemon,
+    /// 独立设置中心进程
+    Preferences,
+    /// 同步安装 GNOME 扩展
+    InstallExtension,
+    /// 同步注册系统快捷键
+    SyncHotkeys,
+    /// 短生命周期 IPC 或运维命令
+    Async,
+}
+
 impl Commands {
+    /// 返回该子命令唯一的调度路径。
+    pub fn route(&self) -> CommandRoute {
+        match self {
+            Self::Daemon => CommandRoute::Daemon,
+            Self::Prefs => CommandRoute::Preferences,
+            Self::InstallExtension => CommandRoute::InstallExtension,
+            Self::SyncHotkeys => CommandRoute::SyncHotkeys,
+            Self::Snip { .. }
+            | Self::PickColor
+            | Self::Paste
+            | Self::Toggle
+            | Self::SwitchGroup { .. }
+            | Self::ClearHistory
+            | Self::Exit
+            | Self::PinFile { .. }
+            | Self::Update { .. } => CommandRoute::Async,
+        }
+    }
+
     /// 该子命令是否强依赖用户配置文件。
     ///
     /// 只有真正读取偏好字段的命令才需要读盘结果：快捷键同步依赖热键表，
-    /// 守护进程依赖贴图、输出与更新设置；截图与取色已委托守护进程，无需在 CLI 进程读配置。
+    /// 守护进程依赖贴图、输出与更新设置，CLI 更新需要读取自定义更新源；
+    /// 截图与取色已委托守护进程，无需在 CLI 进程读配置。
     pub fn needs_config(&self) -> bool {
-        matches!(self, Self::SyncHotkeys | Self::Daemon)
+        matches!(self, Self::Daemon | Self::SyncHotkeys | Self::Update { .. })
     }
 }
 
@@ -111,7 +149,11 @@ mod tests {
     fn test_startup_dependency_predicates() {
         Cli::command().debug_assert();
 
-        let config_heavy = [Commands::SyncHotkeys, Commands::Daemon];
+        let config_heavy = [
+            Commands::SyncHotkeys,
+            Commands::Daemon,
+            Commands::Update { check: true },
+        ];
         for command in config_heavy {
             assert!(command.needs_config(), "{command:?} 应强依赖配置");
         }
@@ -226,5 +268,23 @@ mod tests {
 
         let cli = Cli::try_parse_from(["snapin", "pick-color"]).unwrap();
         assert!(matches!(cli.command, Some(Commands::PickColor)));
+    }
+
+    /// 调度路径必须覆盖全部子命令，且配置依赖与路径表保持一致。
+    #[test]
+    fn test_command_routes_are_exhaustive() {
+        assert_eq!(Commands::Daemon.route(), CommandRoute::Daemon);
+        assert_eq!(Commands::Prefs.route(), CommandRoute::Preferences);
+        assert_eq!(
+            Commands::InstallExtension.route(),
+            CommandRoute::InstallExtension
+        );
+        assert_eq!(Commands::SyncHotkeys.route(), CommandRoute::SyncHotkeys);
+        assert_eq!(
+            Commands::Update { check: false }.route(),
+            CommandRoute::Async
+        );
+        assert_eq!(Commands::Paste.route(), CommandRoute::Async);
+        assert!(Commands::Update { check: false }.needs_config());
     }
 }
