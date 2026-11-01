@@ -11,6 +11,7 @@
 //! UI 不再持有工作线程、服务缓存或配置快照；工作区配置热更新由应用层执行器统一失效，
 //! 避免截图侧与贴图侧各自维护一套 OCR/翻译缓存。
 
+use crate::model::PasterId;
 use crate::paster::workspace::PasterWorkspaceProxy;
 use crate::ports::{JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, PortError};
 use image::RgbaImage;
@@ -64,7 +65,7 @@ impl PasterJobRuntime {
     /// 后台执行器停止、队列已满或任务参数非法时返回 [`PortError`]。
     pub(crate) fn submit_ocr(
         &self,
-        paster_id: u64,
+        paster_id: PasterId,
         image: RgbaImage,
     ) -> Result<(JobId, JobCancel), PortError> {
         let proxy = self.proxy.clone();
@@ -90,7 +91,7 @@ impl PasterJobRuntime {
     /// 与 [`Self::submit_ocr`] 相同。
     pub(crate) fn submit_translate(
         &self,
-        paster_id: u64,
+        paster_id: PasterId,
         image: RgbaImage,
         cover_mode: CoverMode,
     ) -> Result<(JobId, JobCancel), PortError> {
@@ -121,7 +122,7 @@ impl PasterJobRuntime {
     /// 与 [`Self::submit_ocr`] 相同。
     pub(crate) fn submit_save(
         &self,
-        paster_id: u64,
+        paster_id: PasterId,
         image: RgbaImage,
         as_dialog: bool,
         open_folder_after: bool,

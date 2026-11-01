@@ -5,6 +5,7 @@ use super::paster_events::handle_paster_window_event;
 use super::proxy::{PasterAppEvent, WorkspaceStatus};
 use super::window_builder::create_new_paster_window;
 use super::WorkspaceRuntime;
+use crate::model::PasterId;
 use crate::ports::JobId;
 use crate::snipper::window::jobs::SnipperJobSink;
 use crate::snipper::{SnipperOutcome, SnipperView};
@@ -260,7 +261,7 @@ pub(crate) fn handle_workspace_window_event(
 /// 保存通知与“保存后打开目录”由应用层媒体执行器完成，UI 只负责更新窗口状态，
 /// 避免表现层重复解释通知配置。
 fn handle_save_finished(
-    paster_id: u64,
+    paster_id: PasterId,
     job_id: JobId,
     result: Result<Option<PathBuf>, String>,
     runtime: &mut WorkspaceRuntime,
@@ -297,7 +298,7 @@ fn handle_save_finished(
 
 /// 将后台 OCR 结果回填到发起任务的贴图窗口。
 fn handle_ocr_finished(
-    paster_id: u64,
+    paster_id: PasterId,
     job_id: JobId,
     result: Result<String, String>,
     runtime: &mut WorkspaceRuntime,
@@ -321,7 +322,7 @@ fn handle_ocr_finished(
 
 /// 将后台翻译结果注入发起任务的贴图窗口标注历史并重建展示图像。
 fn handle_translate_finished(
-    paster_id: u64,
+    paster_id: PasterId,
     job_id: JobId,
     result: Result<Vec<TranslationShapeItem>, String>,
     runtime: &mut WorkspaceRuntime,
