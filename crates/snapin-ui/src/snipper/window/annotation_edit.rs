@@ -26,14 +26,14 @@ pub enum AnnotationDrag {
 /// 已选中标注的包围盒
 pub fn selected_bounds(state: &SnipperState) -> Option<Rect> {
     let index = state.selected_annotation?;
-    state.annotations.bounds_at(index)
+    state.annotations.bounds_at(index.get())
 }
 
 /// 已选中标注是否支持手柄拉伸
 pub fn selected_supports_resize(state: &SnipperState) -> bool {
     state
         .selected_annotation
-        .and_then(|index| state.annotations.shape_at(index))
+        .and_then(|index| state.annotations.shape_at(index.get()))
         .is_some_and(AnnotationShape::supports_resize)
 }
 
@@ -58,7 +58,7 @@ pub fn handle_press(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
             return false;
         };
         let bounds = selected_bounds(state);
-        let original = state.annotations.shape_at(index).cloned();
+        let original = state.annotations.shape_at(index.get()).cloned();
         if let (Some(original_bounds), Some(original)) = (bounds, original) {
             state.annotation_drag = Some(AnnotationDrag::Resize {
                 handle,
@@ -70,7 +70,7 @@ pub fn handle_press(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
     }
 
     if let Some(index) = state.annotations.hit_test((cx, cy)) {
-        state.selected_annotation = Some(index);
+        state.selected_annotation = Some(index.into());
         if let Some(original) = state.annotations.shape_at(index).cloned() {
             state.annotation_drag = Some(AnnotationDrag::Move {
                 origin: (cx, cy),
@@ -113,7 +113,7 @@ pub fn handle_drag_move(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
         }
     };
 
-    if state.annotations.replace(index, updated) {
+    if state.annotations.replace(index.get(), updated) {
         true
     } else {
         clear(state);
@@ -169,7 +169,7 @@ mod tests {
         let mut state = state_with_rect();
 
         assert!(handle_press(&mut state, 150.0, 150.0));
-        assert_eq!(state.selected_annotation, Some(0));
+        assert_eq!(state.selected_annotation, Some(0.into()));
         assert!(matches!(
             state.annotation_drag,
             Some(AnnotationDrag::Move { .. })
@@ -221,7 +221,7 @@ mod tests {
         let mut state = state_with_rect();
         state.toolbar.active_tool = Some(Tool::Pen);
         assert!(handle_press(&mut state, 150.0, 150.0));
-        assert_eq!(state.selected_annotation, Some(0));
+        assert_eq!(state.selected_annotation, Some(0.into()));
         assert!(matches!(
             state.annotation_drag,
             Some(AnnotationDrag::Move { .. })

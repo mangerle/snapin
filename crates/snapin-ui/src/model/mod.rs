@@ -66,6 +66,28 @@ impl From<usize> for GroupId {
     }
 }
 
+/// 标注图元历史索引。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ShapeId(usize);
+
+impl ShapeId {
+    /// 构造标注历史索引。
+    pub const fn new(value: usize) -> Self {
+        Self(value)
+    }
+
+    /// 读取原始索引。
+    pub const fn get(self) -> usize {
+        self.0
+    }
+}
+
+impl From<usize> for ShapeId {
+    fn from(value: usize) -> Self {
+        Self(value)
+    }
+}
+
 /// 单张贴图的数据上下文（像素数据由所属窗口独占）。
 #[derive(Debug)]
 pub struct PasterItem {
