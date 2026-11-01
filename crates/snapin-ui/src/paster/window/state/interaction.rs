@@ -9,6 +9,22 @@ use crate::editor::toolbar::Toolbar;
 use crate::paster::context_menu::ContextMenuState;
 use std::time::Instant;
 
+/// 贴图窗口当前交互模式。
+///
+/// 该枚举是笔迹、文字会话与右键菜单的派生视图，用于事件分发时避免到处组合
+/// `active_text_input`、`is_drawing`、`context_menu.is_open` 三个布尔条件。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InteractionMode {
+    /// 空闲
+    Idle,
+    /// 正在绘制一笔
+    Drawing,
+    /// 正在输入文字
+    TextInput,
+    /// 右键菜单展开
+    Menu,
+}
+
 /// 贴图窗口交互状态。
 pub(crate) struct PasterInteraction {
     /// 标注工具栏
@@ -24,6 +40,19 @@ pub(crate) struct PasterInteraction {
 }
 
 impl PasterInteraction {
+    /// 派生当前交互模式。
+    pub(crate) fn mode(&self) -> InteractionMode {
+        if self.active_text_input.is_some() {
+            InteractionMode::TextInput
+        } else if self.stroke.is_drawing {
+            InteractionMode::Drawing
+        } else if self.context_menu.is_open {
+            InteractionMode::Menu
+        } else {
+            InteractionMode::Idle
+        }
+    }
+
     /// 用指定工具栏创建交互状态。
     pub(crate) fn new(toolbar: Toolbar) -> Self {
         Self {
@@ -33,5 +62,31 @@ impl PasterInteraction {
             context_menu: ContextMenuState::default(),
             last_click_time: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::editor::toolbar::Toolbar;
+
+    /// 交互模式是状态的派生视图，优先级为文字 > 绘制 > 菜单 > 空闲。
+    #[test]
+    fn test_interaction_mode_projection() {
+        let mut interaction = PasterInteraction::new(Toolbar::default());
+        assert_eq!(interaction.mode(), InteractionMode::Idle);
+
+        interaction.context_menu.is_open = true;
+        assert_eq!(interaction.mode(), InteractionMode::Menu);
+
+        interaction.stroke.is_drawing = true;
+        assert_eq!(interaction.mode(), InteractionMode::Drawing);
+
+        interaction.active_text_input = Some(TextInputSession::new(
+            (0.0, 0.0),
+            (255, 255, 255, 255),
+            16.0,
+        ));
+        assert_eq!(interaction.mode(), InteractionMode::TextInput);
     }
 }

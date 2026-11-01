@@ -13,7 +13,7 @@ use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 mod chrome;
 mod document;
 mod frame_cache;
-mod interaction;
+pub(crate) mod interaction;
 mod job_slot;
 mod jobs;
 mod services;

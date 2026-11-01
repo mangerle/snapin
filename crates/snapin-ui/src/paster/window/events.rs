@@ -5,6 +5,7 @@ pub use super::state::PasterWindowState;
 use super::annotation::{handle_toolbar_click, refresh_toolbar_layout};
 use super::menu_actions::{copy_paster_to_clipboard, dispatch_menu_action, save_paster_to_disk};
 use super::state::apply_window_scale_resize;
+use super::state::interaction::InteractionMode;
 use crate::editor::toolbar::Tool;
 use crate::paster::context_menu::ContextMenuState;
 use snapin_core::config::DoubleClickAction;
@@ -110,7 +111,7 @@ pub fn handle_paster_scroll(
     delta: MouseScrollDelta,
     window: &Window,
 ) -> bool {
-    if state.interaction.context_menu.is_open {
+    if state.interaction.mode() == InteractionMode::Menu {
         state.interaction.context_menu.close();
     }
 
