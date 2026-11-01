@@ -114,8 +114,13 @@ pub fn render_draft_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapM
 
 /// 绘制模糊拖拽预览：半透明灰框代替实时卷积。
 fn draw_blur_placeholder(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
-    let pts = params.points;
-    let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+    let Some(first) = params.points.first().copied() else {
+        return;
+    };
+    let Some(last) = params.points.last().copied() else {
+        return;
+    };
+    let rect = Rect::from_points(first, last);
     let Some(rect) = tiny_skia::Rect::from_xywh(rect.x, rect.y, rect.width, rect.height) else {
         return;
     };
@@ -127,9 +132,14 @@ fn draw_blur_placeholder(params: &AnnotationDraftParams, pixmap: &mut PixmapMut)
 /// 统一图元工厂：构建已完成绘制的持久化 AnnotationShape 图元
 pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
     let pts = params.points;
+    let first = *pts.first()?;
+    let last = *pts.last()?;
+    if params.tool != Tool::Badge && pts.len() < 2 {
+        return None;
+    }
     match params.tool {
         Tool::Rect => {
-            let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+            let rect = Rect::from_points(first, last);
             Some(AnnotationShape::Rect(RectAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
                 color: params.color_rgba,
@@ -140,7 +150,7 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
             }))
         }
         Tool::Ellipse => {
-            let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+            let rect = Rect::from_points(first, last);
             Some(AnnotationShape::Ellipse(EllipseAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
                 color: params.color_rgba,
@@ -150,8 +160,8 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
             }))
         }
         Tool::Arrow => Some(AnnotationShape::Arrow(ArrowAction {
-            start: pts[0],
-            end: pts[pts.len() - 1],
+            start: first,
+            end: last,
             color: params.color_rgba,
             stroke_width: params.stroke_width,
             style: params.arrow_style,
@@ -171,27 +181,27 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
             stroke_width: params.stroke_width * 2.0,
         })),
         Tool::Mosaic => {
-            let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+            let rect = Rect::from_points(first, last);
             Some(AnnotationShape::Mosaic(MosaicAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
                 cell_size: 10,
             }))
         }
         Tool::Blur => {
-            let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+            let rect = Rect::from_points(first, last);
             Some(AnnotationShape::Blur(BlurAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
                 radius: (params.stroke_width * 2.0).clamp(4.0, 50.0) as u32,
             }))
         }
         Tool::Spotlight => {
-            let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+            let rect = Rect::from_points(first, last);
             Some(AnnotationShape::Spotlight(SpotlightAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
             }))
         }
         Tool::Badge => {
-            let center = pts[pts.len() - 1];
+            let center = last;
             let radius = (params.stroke_width * 3.0).clamp(10.0, 48.0) * params.ui_scale;
             Some(AnnotationShape::Badge(BadgeAction {
                 center,
@@ -202,5 +212,41 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
             }))
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn params<'a>(tool: Tool, points: &'a [(f32, f32)]) -> AnnotationDraftParams<'a> {
+        AnnotationDraftParams {
+            tool,
+            points,
+            stroke_width: 4.0,
+            color_rgba: (255, 0, 0, 255),
+            ui_scale: 1.0,
+            badge_number: 1,
+            line_style: LineStyle::Solid,
+            filled: false,
+            corner_radius: 0.0,
+            badge_style: BadgeStyle::Filled,
+            arrow_style: ArrowStyle::Tapered,
+        }
+    }
+
+    /// 空点集与单点几何必须返回 None，而不是在工厂内部越界索引。
+    #[test]
+    fn test_build_shape_contract_rejects_insufficient_points() {
+        assert!(build_shape(&params(Tool::Rect, &[])).is_none());
+        assert!(build_shape(&params(Tool::Rect, &[(1.0, 2.0)])).is_none());
+        assert!(build_shape(&params(Tool::Arrow, &[(1.0, 2.0)])).is_none());
+        assert!(build_shape(&params(Tool::Pen, &[(1.0, 2.0)])).is_none());
+    }
+
+    /// 序号工具允许单点定位，仍应生成图元。
+    #[test]
+    fn test_build_shape_accepts_single_badge_point() {
+        assert!(build_shape(&params(Tool::Badge, &[(10.0, 20.0)])).is_some());
     }
 }
