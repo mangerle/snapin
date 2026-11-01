@@ -224,28 +224,14 @@ fn notify_snipper_finished(runtime: &WorkspaceRuntime, outcome: SnipperOutcome) 
     }
 }
 
-/// 将活动分组写回配置文件，保证守护进程重启后恢复到上次分组。
-///
-/// 设计取舍：配置文件仅数 KB，切换分组是低频用户动作，这里同步写盘以省去
-/// 额外的异步通道与停机落盘逻辑；写失败只告警，不影响本次分组切换结果。
+/// 将活动分组写入运行时状态文件，保证守护进程重启后恢复上次分组。
 fn persist_active_group(runtime: &mut WorkspaceRuntime, group: usize) {
-    let config = config_with_active_group(&runtime.cfg, group);
-    let updated = Arc::new(config.clone());
-    runtime.cfg = updated.clone();
-    for inst in runtime.instances.values_mut() {
-        inst.state.config = updated.clone();
-    }
-
-    if let Err(error) = runtime.config_store.save(&config) {
+    let state = crate::ports::WorkspaceState {
+        active_group_id: group,
+    };
+    if let Err(error) = runtime.state_store.save(state) {
         tracing::warn!("持久化贴图活动分组失败: {error}");
     }
-}
-
-/// 生成一份仅更新活动分组字段的配置副本。
-fn config_with_active_group(config: &Config, group: usize) -> Config {
-    let mut updated = config.clone();
-    updated.paster.active_group_id = group;
-    updated
 }
 
 /// 处理特定窗口触发的 Winit 窗口事件
@@ -410,20 +396,6 @@ fn apply_translate_result(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// 更新活动分组时不得改动其它配置字段，也不得反向污染原配置
-    #[test]
-    fn test_config_with_active_group_preserves_other_fields() {
-        let mut config = Config::default();
-        config.paster.initial_opacity = 0.5;
-        config.paster.active_group_id = 0;
-
-        let updated = config_with_active_group(&config, 2);
-
-        assert_eq!(updated.paster.active_group_id, 2);
-        assert_eq!(updated.paster.initial_opacity, 0.5);
-        assert_eq!(config.paster.active_group_id, 0);
-    }
 
     /// 分组 ID 必须落在 0..TOTAL_PIN_GROUPS，边界值不可越界
     #[test]

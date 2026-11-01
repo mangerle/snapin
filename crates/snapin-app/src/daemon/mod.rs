@@ -110,7 +110,7 @@ pub fn run_daemon_process(cfg: Config) -> Result<()> {
         config: gui_config,
         desktop: gui_services.desktop(),
         media: gui_services.media(),
-        config_store: gui_services.config_store(),
+        state_store: Arc::new(crate::workspace_state::AppWorkspaceStateStore::new()),
         on_snipper_finished: Some(snipper_callback),
         on_tick,
     };

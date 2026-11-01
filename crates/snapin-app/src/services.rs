@@ -4,12 +4,12 @@
 //! 创建线程或重复初始化 OCR/翻译服务。容器本身不依赖 GUI 事件循环，便于在
 //! 应用层集成测试中替换端口。
 
-use crate::config::{publish_config, shared_config, AppConfigStore, SharedConfig};
+use crate::config::{publish_config, shared_config, SharedConfig};
 use crate::desktop::AppDesktop;
 use crate::media::MediaService;
 use snapin_core::config::Config;
 use snapin_runtime::TaskRuntime;
-use snapin_ui::{ConfigStore, DesktopPort, MediaJobRunner};
+use snapin_ui::{DesktopPort, MediaJobRunner};
 use std::sync::Arc;
 
 /// 应用级服务容器。
@@ -18,7 +18,6 @@ pub(crate) struct AppServices {
     runtime: TaskRuntime,
     desktop: Arc<AppDesktop>,
     media: Arc<MediaService>,
-    config_store: Arc<AppConfigStore>,
 }
 
 impl AppServices {
@@ -30,13 +29,11 @@ impl AppServices {
         let shared = shared_config(config);
         let desktop = Arc::new(AppDesktop::new(shared.clone(), runtime.clone()));
         let media = Arc::new(MediaService::new(shared.clone(), runtime.clone()));
-        let config_store = Arc::new(AppConfigStore::new(shared.clone()));
         Self {
             config: shared,
             runtime,
             desktop,
             media,
-            config_store,
         }
     }
 
@@ -60,12 +57,7 @@ impl AppServices {
         self.media.clone()
     }
 
-    /// 获取配置持久化端口。
-    pub(crate) fn config_store(&self) -> Arc<dyn ConfigStore> {
-        self.config_store.clone()
-    }
-
-    /// 获取统一后台任务运行时，供守护进程周期任务与一次性任务提交。
+    /// 获取统一后台任务运行时。
     pub(crate) fn runtime(&self) -> TaskRuntime {
         self.runtime.clone()
     }

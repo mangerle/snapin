@@ -9,7 +9,7 @@
 //!
 //! 本模块只声明“UI 需要宿主做什么”的最小契约，具体实现在 `snapin-app` 中：
 //! - [`DesktopPort`]：选区缓存、系统剪贴板与文件管理器等桌面副作用。
-//! - [`ConfigStore`]：配置加载与持久化，避免 UI 直接读写磁盘。
+//! - [`WorkspaceStateStore`]：持久化活动分组等运行时状态，不写入用户配置。
 //! - [`MediaJobRunner`]：把裁剪图交给后台执行 OCR、翻译与保存，并通过回调把结果送回窗口事件循环。
 //!
 //! # 代价与权衡
@@ -20,7 +20,7 @@
 use crate::snipper::selection::Rect;
 use image::RgbaImage;
 use snapin_core::annotation::shapes::TranslationShapeItem;
-use snapin_core::config::{Config, CoverMode};
+use snapin_core::config::CoverMode;
 use std::fmt;
 use std::path::PathBuf;
 
@@ -95,24 +95,30 @@ pub trait DesktopPort: Send + Sync {
     fn notify_copy(&self, body: &str);
 }
 
-/// 配置持久化端口。
+/// 工作区运行时状态。
 ///
-/// UI 只持有配置快照，不负责配置文件定位、权限收紧与原子写入；这些属于应用层
-/// 与存储适配的职责。
-pub trait ConfigStore: Send + Sync {
-    /// 从磁盘加载配置。
-    ///
-    /// # Errors
-    ///
-    /// 配置文件缺失、无法读取或 TOML 解析失败时返回 [`PortError`]。
-    fn load(&self) -> Result<Config, PortError>;
+/// 这类状态描述当前会话位置（如活动分组），不属于用户偏好，不写入 `config.toml`。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WorkspaceState {
+    /// 上次活动的贴图分组 ID
+    pub active_group_id: usize,
+}
 
-    /// 将完整配置原子写回磁盘。
+/// 工作区运行时状态持久化端口。
+pub trait WorkspaceStateStore: Send + Sync {
+    /// 读取运行时状态；文件不存在时返回默认状态。
     ///
     /// # Errors
     ///
-    /// 无法创建父目录、临时文件写入失败或原子替换失败时返回 [`PortError`]。
-    fn save(&self, config: &Config) -> Result<(), PortError>;
+    /// 状态文件读取或解析失败时返回 [`PortError`]。
+    fn load(&self) -> Result<WorkspaceState, PortError>;
+
+    /// 写入运行时状态。
+    ///
+    /// # Errors
+    ///
+    /// 无法创建目录、写入临时文件或原子替换失败时返回 [`PortError`]。
+    fn save(&self, state: WorkspaceState) -> Result<(), PortError>;
 }
 
 /// 后台媒体任务标识。

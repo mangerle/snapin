@@ -19,7 +19,7 @@ pub use window_builder::PasterInstance;
 use super::manager::PasterManager;
 use super::window::jobs::PasterJobRuntime;
 use crate::error::UiError;
-use crate::ports::{ConfigStore, DesktopPort, MediaJobRunner};
+use crate::ports::{DesktopPort, MediaJobRunner, WorkspaceState, WorkspaceStateStore};
 use crate::snipper::{SnipperOutcome, SnipperView};
 use event_handler::{handle_workspace_user_event, handle_workspace_window_event};
 use paster_events::handle_workspace_about_to_wait;
@@ -51,8 +51,8 @@ pub struct PasterWorkspaceOptions {
     pub desktop: Arc<dyn DesktopPort>,
     /// 媒体任务执行端口
     pub media: Arc<dyn MediaJobRunner>,
-    /// 配置持久化端口，用于保存活动分组等低频率设置
-    pub config_store: Arc<dyn ConfigStore>,
+    /// 运行时状态持久化端口，用于保存活动分组
+    pub state_store: Arc<dyn WorkspaceStateStore>,
     /// 截图覆盖层结束回调；常驻守护进程用它把结果送回应用层
     pub on_snipper_finished: Option<SnipperFinishedCallback>,
     /// GUI 线程周期回调；用于在主线程轮询托盘与原生热键。
@@ -73,8 +73,8 @@ pub(crate) struct WorkspaceRuntime {
     pub jobs: Arc<PasterJobRuntime>,
     /// 桌面副作用端口
     pub desktop: Arc<dyn DesktopPort>,
-    /// 配置持久化端口
-    pub config_store: Arc<dyn ConfigStore>,
+    /// 运行时状态持久化端口
+    pub state_store: Arc<dyn WorkspaceStateStore>,
     /// 当前截图覆盖层（同一时刻最多一个）
     pub snipper: Option<SnipperView>,
     /// 用于把截图任务结果投递回本事件循环的代理
@@ -120,15 +120,19 @@ pub fn run_paster_workspace_loop(
         config,
         desktop,
         media,
-        config_store,
+        state_store,
         on_snipper_finished,
         on_tick,
     } = options;
 
     let mut manager = PasterManager::default();
     let cfg = Arc::new(config);
-    let initial_group = cfg
-        .paster
+    let initial_group = state_store
+        .load()
+        .unwrap_or_else(|error| {
+            tracing::warn!("读取工作区运行时状态失败，使用默认分组: {error}");
+            WorkspaceState::default()
+        })
         .active_group_id
         .min(event_handler::TOTAL_PIN_GROUPS.saturating_sub(1));
     manager.switch_group(initial_group);
@@ -142,7 +146,7 @@ pub fn run_paster_workspace_loop(
         cfg,
         jobs,
         desktop,
-        config_store,
+        state_store,
         snipper: None,
         event_proxy,
         on_snipper_finished,

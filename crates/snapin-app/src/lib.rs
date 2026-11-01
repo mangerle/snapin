@@ -21,6 +21,7 @@ mod paste;
 mod services;
 mod snip;
 mod update;
+mod workspace_state;
 
 pub use cleaner::clear_snip_history;
 pub use daemon::run_daemon_process;

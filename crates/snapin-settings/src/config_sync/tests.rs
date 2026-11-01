@@ -37,8 +37,6 @@ fn sample_config() -> Config {
     cfg.snip.default_stroke_width = 3.5;
     cfg.snip.default_font_size = 20.0;
 
-    // active_group_id 是运行期状态，不经界面映射，往返后必须原样保留
-    cfg.paster.active_group_id = 3;
     cfg.paster.initial_opacity = 0.75;
     cfg.paster.zoom_anchor = ZoomAnchor::from_index(1);
     cfg.paster.double_click_action = DoubleClickAction::from_index(2);
