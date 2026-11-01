@@ -9,9 +9,9 @@ pub mod types;
 
 use crate::error::CoreError;
 pub use model::{
-    ColorFormat, Config, CoverMode, DoubleClickAction, GeneralConfig, HotkeyConfig, ImageFormat,
-    InterfaceConfig, LogLevel, OcrConfig, OutputConfig, PasterConfig, SnipConfig, TargetLanguage,
-    TranslateConfig, TranslateProvider, ZoomAnchor,
+    normalize_file_name_template, ColorFormat, Config, CoverMode, DoubleClickAction, GeneralConfig,
+    HotkeyConfig, ImageFormat, InterfaceConfig, LogLevel, OcrConfig, OutputConfig, PasterConfig,
+    SnipConfig, TargetLanguage, TranslateConfig, TranslateProvider, ZoomAnchor,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -225,7 +225,7 @@ mod sanitize_tests {
         assert_eq!(config.output.quick_save_dir, "~/Pictures/Screenshots");
         assert_eq!(
             config.output.file_name_template,
-            "Snapin_{YYYY}{MM}{DD}_{HH}{mm}{ss}.png"
+            "Snapin_{YYYY}{MM}{DD}_{HH}{mm}{ss}"
         );
         assert!(config.general.custom_update_url.is_none());
     }

@@ -4,7 +4,7 @@ use super::template::{expand_home_dir, format_template};
 use crate::error::StorageError;
 use chrono::Local;
 use image::RgbaImage;
-use snapin_core::config::{ImageFormat, OutputConfig};
+use snapin_core::config::{normalize_file_name_template, ImageFormat, OutputConfig};
 use std::path::{Path, PathBuf};
 
 /// 根据输出配置生成目标文件绝对路径（具备重名自增防覆盖安全保障）
@@ -15,7 +15,8 @@ pub fn resolve_save_path(cfg: &OutputConfig) -> PathBuf {
     }
 
     let now = Local::now();
-    let file_name = format_template(&cfg.file_name_template, &now);
+    let template = normalize_file_name_template(&cfg.file_name_template);
+    let file_name = format_template(&template, &now);
     let ext = cfg.default_format.extension();
 
     let initial_path = base_dir.join(format!("{file_name}.{ext}"));
@@ -260,5 +261,51 @@ mod tests {
         assert_eq!(path3, temp_dir.join("snapin_fixed_2.png"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+}
+
+#[cfg(test)]
+mod template_extension_tests {
+    use super::*;
+    use image::Rgba;
+    use snapin_core::config::ImageFormat;
+    use tempfile::tempdir;
+
+    /// 历史模板带 `.png` 时不得再追加一次扩展名。
+    #[test]
+    fn test_template_with_extension_does_not_duplicate_suffix() {
+        let dir = tempdir().expect("应可创建临时目录");
+        let cfg = OutputConfig {
+            quick_save_dir: dir.path().to_string_lossy().to_string(),
+            file_name_template: "shot.png".to_string(),
+            default_format: ImageFormat::Png,
+            ..OutputConfig::default()
+        };
+        let path = resolve_save_path(&cfg);
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("shot.png")
+        );
+
+        let img = RgbaImage::from_pixel(1, 1, Rgba([1, 2, 3, 255]));
+        let saved = save_image_with_config(&img, &cfg).expect("应可保存图像");
+        assert_eq!(saved.extension().and_then(|ext| ext.to_str()), Some("png"));
+    }
+
+    /// 模板扩展名与输出格式不一致时，应以输出格式为准。
+    #[test]
+    fn test_template_extension_is_replaced_by_selected_format() {
+        let dir = tempdir().expect("应可创建临时目录");
+        let cfg = OutputConfig {
+            quick_save_dir: dir.path().to_string_lossy().to_string(),
+            file_name_template: "shot.png".to_string(),
+            default_format: ImageFormat::Webp,
+            ..OutputConfig::default()
+        };
+        let path = resolve_save_path(&cfg);
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("shot.webp")
+        );
     }
 }

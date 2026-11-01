@@ -57,7 +57,7 @@ fn default_quick_save_dir() -> String {
 }
 
 fn default_file_name_template() -> String {
-    "Snapin_{YYYY}{MM}{DD}_{HH}{mm}{ss}.png".to_string()
+    "Snapin_{YYYY}{MM}{DD}_{HH}{mm}{ss}".to_string()
 }
 
 fn default_jpeg_quality() -> u8 {

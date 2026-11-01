@@ -77,9 +77,12 @@ impl Config {
         if self.output.quick_save_dir.trim().is_empty() {
             self.output.quick_save_dir = "~/Pictures/Screenshots".to_string();
         }
-        if self.output.file_name_template.trim().is_empty() {
-            self.output.file_name_template = "Snapin_{YYYY}{MM}{DD}_{HH}{mm}{ss}.png".to_string();
-        }
+        let template = normalize_file_name_template(&self.output.file_name_template);
+        self.output.file_name_template = if template.is_empty() {
+            "Snapin_{YYYY}{MM}{DD}_{HH}{mm}{ss}".to_string()
+        } else {
+            template
+        };
         if self
             .general
             .custom_update_url
@@ -90,5 +93,39 @@ impl Config {
         }
 
         self
+    }
+}
+
+/// 将文件名模板末尾的图片扩展名剥离，扩展名统一由输出格式决定。
+///
+/// 历史默认模板曾包含 `.png`，而保存路径又追加当前格式扩展名，导致 `.png.png`
+/// 或 `.png.jpg`。此函数在配置边界一次性归一化，兼容用户手工保留扩展名的旧模板。
+pub fn normalize_file_name_template(template: &str) -> String {
+    let trimmed = template.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    for extension in ["png", "jpg", "jpeg", "webp"] {
+        let suffix = format!(".{extension}");
+        if lower.ends_with(&suffix) {
+            return trimmed[..trimmed.len().saturating_sub(suffix.len())].to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+#[cfg(test)]
+mod template_tests {
+    use super::normalize_file_name_template;
+
+    /// 模板扩展名必须被剥离，最终扩展名只由输出格式决定。
+    #[test]
+    fn test_normalize_file_name_template_strips_image_extension() {
+        assert_eq!(normalize_file_name_template("shot.png"), "shot");
+        assert_eq!(normalize_file_name_template("shot.JPEG"), "shot");
+        assert_eq!(normalize_file_name_template("shot.webp"), "shot");
+        assert_eq!(
+            normalize_file_name_template("archive.tar.gz"),
+            "archive.tar.gz"
+        );
+        assert_eq!(normalize_file_name_template("  shot  "), "shot");
     }
 }
