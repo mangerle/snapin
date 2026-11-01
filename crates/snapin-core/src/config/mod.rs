@@ -34,7 +34,7 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreE
     if !target_path.exists() {
         if let Some(parent) = target_path.parent() {
             fs::create_dir_all(parent).map_err(|e| CoreError::IoError {
-                path: parent.to_string_lossy().to_string(),
+                path: parent.to_path_buf(),
                 source: e,
             })?;
         }
@@ -46,7 +46,7 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreE
     }
 
     let content = fs::read_to_string(&target_path).map_err(|e| CoreError::IoError {
-        path: target_path.to_string_lossy().to_string(),
+        path: target_path.clone(),
         source: e,
     })?;
 
@@ -60,7 +60,7 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreE
     };
     if !file.is_supported() {
         return Err(CoreError::UnsupportedConfigVersion {
-            path: target_path.to_string_lossy().to_string(),
+            path: target_path.clone(),
             found: file.schema_version,
             supported: CONFIG_SCHEMA_VERSION,
         });
@@ -82,7 +82,7 @@ fn recover_invalid_config(
 ) -> Result<Config, CoreError> {
     let backup_path = target_path.with_extension("toml.bak");
     fs::rename(target_path, &backup_path).map_err(|error| CoreError::IoError {
-        path: target_path.to_string_lossy().to_string(),
+        path: target_path.to_path_buf(),
         source: error,
     })?;
 
@@ -120,12 +120,16 @@ fn tighten_config_permissions(path: &Path) {
 pub fn save_config(config: &Config, target_path: &Path) -> Result<(), CoreError> {
     // 保存前再次收敛外部输入，保证 UI 手工输入与历史配置都不会把越界值写回磁盘。
     let sanitized = config.clone().sanitized();
-    let toml_string = toml::to_string_pretty(&ConfigFile::current(sanitized))?;
+    let toml_string = toml::to_string_pretty(&ConfigFile::current(sanitized)).map_err(|error| {
+        CoreError::ConfigSerializeError {
+            reason: error.to_string(),
+        }
+    })?;
 
     if let Some(parent) = target_path.parent() {
         if !parent.exists() {
             fs::create_dir_all(parent).map_err(|e| CoreError::IoError {
-                path: parent.to_string_lossy().to_string(),
+                path: parent.to_path_buf(),
                 source: e,
             })?;
         }
@@ -149,7 +153,7 @@ pub fn save_config(config: &Config, target_path: &Path) -> Result<(), CoreError>
     {
         let _ = fs::remove_file(&temp_path);
         return Err(CoreError::IoError {
-            path: temp_path.to_string_lossy().to_string(),
+            path: temp_path.clone(),
             source: error,
         });
     }
@@ -157,7 +161,7 @@ pub fn save_config(config: &Config, target_path: &Path) -> Result<(), CoreError>
     if let Err(error) = fs::rename(&temp_path, target_path) {
         let _ = fs::remove_file(&temp_path);
         return Err(CoreError::IoError {
-            path: target_path.to_string_lossy().to_string(),
+            path: target_path.to_path_buf(),
             source: error,
         });
     }
