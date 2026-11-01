@@ -146,47 +146,50 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError>
 
 /// 将热键转换为通用的跨平台按键表达字符串
 pub fn hotkey_to_accelerator(hotkey: &Hotkey) -> String {
+    if hotkey.is_disabled() {
+        return String::new();
+    }
     let mut parts = Vec::new();
-    if hotkey.ctrl {
+    if hotkey.ctrl() {
         parts.push("Ctrl");
     }
-    if hotkey.alt {
+    if hotkey.alt() {
         parts.push("Alt");
     }
-    if hotkey.shift {
+    if hotkey.shift() {
         parts.push("Shift");
     }
-    if hotkey.meta {
+    if hotkey.meta() {
         #[cfg(target_os = "macos")]
         parts.push("Cmd");
         #[cfg(not(target_os = "macos"))]
         parts.push("Super");
     }
-    parts.push(hotkey.key.as_str());
+    parts.push(hotkey.key());
     parts.join("+")
 }
 
 /// 将强类型快捷键转换为 GNOME / GTK Accelerator 标准格式（如 "<Control><Alt>a"、"F1"）
 pub fn hotkey_to_gnome_accelerator(hk: &Hotkey) -> String {
-    if hk.key.is_empty() {
+    if hk.is_disabled() {
         return String::new();
     }
 
     let mut res = String::new();
-    if hk.ctrl {
+    if hk.ctrl() {
         res.push_str("<Control>");
     }
-    if hk.alt {
+    if hk.alt() {
         res.push_str("<Alt>");
     }
-    if hk.shift {
+    if hk.shift() {
         res.push_str("<Shift>");
     }
-    if hk.meta {
+    if hk.meta() {
         res.push_str("<Super>");
     }
 
-    res.push_str(&gnome_key_name(&hk.key));
+    res.push_str(&gnome_key_name(hk.key()));
     res
 }
 

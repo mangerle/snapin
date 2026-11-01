@@ -22,12 +22,20 @@ impl NativeHotkeyListener {
         let mut action_map = HashMap::with_capacity(bindings.len());
 
         for binding in bindings {
+            if binding.hotkey.is_disabled() {
+                continue;
+            }
             let acc = hotkey_to_accelerator(binding.hotkey);
-            if let Ok(hk) = acc.parse::<HotKey>() {
-                if let Err(e) = manager.register(hk) {
-                    tracing::warn!("注册快捷键 [{acc}] 失败: {e}");
-                } else {
-                    action_map.insert(hk.id, binding.action);
+            match acc.parse::<HotKey>() {
+                Ok(hk) => {
+                    if let Err(e) = manager.register(hk) {
+                        tracing::warn!("注册快捷键 [{acc}] 失败: {e}");
+                    } else {
+                        action_map.insert(hk.id, binding.action);
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!("快捷键 [{acc}] 无法转换为原生热键，已跳过: {error}");
                 }
             }
         }

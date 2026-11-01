@@ -196,29 +196,83 @@ pub enum HotkeyParseError {
     UnsupportedMainKey { binding: String, key: String },
 }
 
-/// 强类型键盘快捷键组合结构体
+/// 强类型键盘快捷键组合。
+///
+/// 采用状态枚举而不是 4 个修饰键布尔值 + 空字符串主键：禁用态不再能携带
+/// “Ctrl 已按下但没有主键”之类的非法组合，序列化时禁用态固定写为稳定 ASCII
+/// `none`，中文展示文案只存在于 UI 层。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Hotkey {
+pub enum Hotkey {
+    /// 未绑定任何按键
+    Disabled,
+    /// 已绑定的组合键
+    Bound {
+        /// 修饰键集合
+        modifiers: HotkeyModifiers,
+        /// 归一化后的主键展示名
+        key: String,
+    },
+}
+
+/// 快捷键修饰键集合。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HotkeyModifiers {
     pub ctrl: bool,
     pub alt: bool,
     pub shift: bool,
     pub meta: bool,
-    pub key: String,
+}
+
+impl HotkeyModifiers {
+    /// 是否未按下任何修饰键。
+    pub fn is_empty(self) -> bool {
+        !self.ctrl && !self.alt && !self.shift && !self.meta
+    }
 }
 
 impl Hotkey {
-    /// 构造新的强类型快捷键
-    pub fn new(ctrl: bool, alt: bool, shift: bool, meta: bool, key: impl Into<String>) -> Self {
-        Self {
-            ctrl,
-            alt,
-            shift,
-            meta,
-            key: key.into(),
+    /// 是否处于禁用态。
+    pub fn is_disabled(&self) -> bool {
+        matches!(self, Self::Disabled)
+    }
+
+    /// 是否按下 Ctrl（禁用态返回 false）。
+    pub fn ctrl(&self) -> bool {
+        self.modifiers().is_some_and(|modifiers| modifiers.ctrl)
+    }
+
+    /// 是否按下 Alt（禁用态返回 false）。
+    pub fn alt(&self) -> bool {
+        self.modifiers().is_some_and(|modifiers| modifiers.alt)
+    }
+
+    /// 是否按下 Shift（禁用态返回 false）。
+    pub fn shift(&self) -> bool {
+        self.modifiers().is_some_and(|modifiers| modifiers.shift)
+    }
+
+    /// 是否按下 Super/Meta（禁用态返回 false）。
+    pub fn meta(&self) -> bool {
+        self.modifiers().is_some_and(|modifiers| modifiers.meta)
+    }
+
+    /// 主键展示名；禁用态返回空字符串。
+    pub fn key(&self) -> &str {
+        match self {
+            Self::Disabled => "",
+            Self::Bound { key, .. } => key.as_str(),
         }
     }
 
-    /// 解析人类可读文本为强类型结构（如 "Ctrl+Alt+A"、"F1"、"Ctrl+F3"）。
+    /// 修饰键集合；禁用态返回 `None`。
+    pub fn modifiers(&self) -> Option<HotkeyModifiers> {
+        match self {
+            Self::Disabled => None,
+            Self::Bound { modifiers, .. } => Some(*modifiers),
+        }
+    }
+
+    /// 解析人类可读文本为强类型状态（如 "Ctrl+Alt+A"、"F1"、"Ctrl+F3"）。
     ///
     /// 设计原理：旧实现静默丢弃无法识别的修饰键并接纳任意主键字符串，用户在设置中心录错键
     /// 或手工写坏 config.toml 时，系统会注册一个 GNOME 永远不会触发的空绑定，表现为
@@ -227,7 +281,7 @@ impl Hotkey {
     pub fn parse_str(s: &str) -> Result<Self, HotkeyParseError> {
         let trimmed = s.trim();
         if trimmed.is_empty() || trimmed == "已禁用" || trimmed.eq_ignore_ascii_case("none") {
-            return Ok(Self::new(false, false, false, false, ""));
+            return Ok(Self::Disabled);
         }
 
         let parts: Vec<&str> = trimmed.split('+').map(str::trim).collect();
@@ -238,17 +292,14 @@ impl Hotkey {
             });
         }
 
-        let mut ctrl = false;
-        let mut alt = false;
-        let mut shift = false;
-        let mut meta = false;
+        let mut modifiers = HotkeyModifiers::default();
         for &token in &parts[..parts.len().saturating_sub(1)] {
             let lowered = token.to_lowercase();
             match lowered.as_str() {
-                "ctrl" | "control" => ctrl = true,
-                "alt" => alt = true,
-                "shift" => shift = true,
-                "super" | "win" | "meta" => meta = true,
+                "ctrl" | "control" => modifiers.ctrl = true,
+                "alt" => modifiers.alt = true,
+                "shift" => modifiers.shift = true,
+                "super" | "win" | "meta" => modifiers.meta = true,
                 _ => {
                     return Err(HotkeyParseError::UnknownModifier {
                         binding: trimmed.to_string(),
@@ -264,35 +315,42 @@ impl Hotkey {
                 key: raw_key.to_string(),
             })?;
 
-        Ok(Self {
-            ctrl,
-            alt,
-            shift,
-            meta,
-            key,
-        })
+        Ok(Self::Bound { modifiers, key })
     }
 
-    /// 转换为人类可读的标准展示文本（如 "Ctrl+Alt+A"）
+    /// 转换为人类可读的标准展示文本（如 "Ctrl+Alt+A"）。
     pub fn to_display_string(&self) -> String {
-        if self.key.is_empty() {
-            return "已禁用".to_string();
+        match self {
+            Self::Disabled => "已禁用".to_string(),
+            Self::Bound { modifiers, key } => {
+                if modifiers.is_empty() {
+                    return key.clone();
+                }
+                let mut parts = Vec::with_capacity(5);
+                if modifiers.ctrl {
+                    parts.push("Ctrl");
+                }
+                if modifiers.alt {
+                    parts.push("Alt");
+                }
+                if modifiers.shift {
+                    parts.push("Shift");
+                }
+                if modifiers.meta {
+                    parts.push("Super");
+                }
+                parts.push(key.as_str());
+                parts.join("+")
+            }
         }
-        let mut parts = Vec::new();
-        if self.ctrl {
-            parts.push("Ctrl");
+    }
+
+    /// 配置文件序列化文本：禁用态使用稳定 ASCII `none`，避免中文文案变更破坏兼容。
+    fn to_config_string(&self) -> String {
+        match self {
+            Self::Disabled => "none".to_string(),
+            Self::Bound { .. } => self.to_display_string(),
         }
-        if self.alt {
-            parts.push("Alt");
-        }
-        if self.shift {
-            parts.push("Shift");
-        }
-        if self.meta {
-            parts.push("Super");
-        }
-        parts.push(self.key.as_str());
-        parts.join("+")
     }
 }
 
@@ -367,7 +425,7 @@ impl Serialize for Hotkey {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&self.to_display_string())
+        serializer.serialize_str(&self.to_config_string())
     }
 }
 
@@ -411,6 +469,30 @@ mod tests {
         assert_eq!(decoded, holder);
     }
 
+    /// 禁用态序列化为稳定 ASCII `none`，同时兼容旧版中文与空串输入。
+    #[test]
+    fn test_disabled_hotkey_uses_stable_config_encoding() {
+        let disabled = Hotkey::parse_str("").expect("空绑定应解析为禁用态");
+        assert!(disabled.is_disabled());
+        assert_eq!(disabled.to_display_string(), "已禁用");
+
+        let holder = HotkeyHolder {
+            hotkey: disabled.clone(),
+        };
+        let toml_str = toml::to_string(&holder).expect("禁用态应可序列化");
+        assert!(
+            toml_str.contains("none"),
+            "配置应写入稳定 ASCII none: {toml_str}"
+        );
+        let decoded: HotkeyHolder = toml::from_str(&toml_str).expect("禁用态应可反序列化");
+        assert!(decoded.hotkey.is_disabled());
+
+        for legacy in ["已禁用", "none", "  "] {
+            let parsed = Hotkey::parse_str(legacy).expect("旧版禁用文本应可解析");
+            assert!(parsed.is_disabled(), "{legacy} 应解析为禁用态");
+        }
+    }
+
     #[test]
     fn test_hex_color_non_ascii_is_rejected_without_panic() {
         for input in ["#红色", "#测试", "#ééé", "#💥💥", "红色", "💥"] {
@@ -428,8 +510,8 @@ mod tests {
     #[test]
     fn test_hotkey_parsing_and_serde() {
         let hk = Hotkey::parse_str("Ctrl+Alt+A").expect("合法组合键应解析成功");
-        assert!(hk.ctrl && hk.alt && !hk.shift);
-        assert_eq!(hk.key, "A");
+        assert!(hk.ctrl() && hk.alt() && !hk.shift());
+        assert_eq!(hk.key(), "A");
         assert_eq!(hk.to_display_string(), "Ctrl+Alt+A");
 
         let f1 = Hotkey::parse_str("F1").expect("单功能键应解析成功");
