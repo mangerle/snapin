@@ -50,6 +50,73 @@ pub enum HotkeyAction {
     SwitchGroup,
 }
 
+/// 一条快捷键绑定：动作与用户配置的按键组合。
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[derive(Clone, Copy)]
+struct HotkeyBinding<'a> {
+    action: HotkeyAction,
+    hotkey: &'a Hotkey,
+}
+
+/// 统一的快捷键配置到动作映射，供原生监听器与 GNOME 注册共用。
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+fn configured_bindings(config: &HotkeyConfig) -> [HotkeyBinding<'_>; 5] {
+    [
+        HotkeyBinding {
+            action: HotkeyAction::Snip,
+            hotkey: &config.snip,
+        },
+        HotkeyBinding {
+            action: HotkeyAction::Translate,
+            hotkey: &config.translate,
+        },
+        HotkeyBinding {
+            action: HotkeyAction::Paste,
+            hotkey: &config.paste,
+        },
+        HotkeyBinding {
+            action: HotkeyAction::TogglePasters,
+            hotkey: &config.toggle_pasters,
+        },
+        HotkeyBinding {
+            action: HotkeyAction::SwitchGroup,
+            hotkey: &config.switch_group,
+        },
+    ]
+}
+
+/// GNOME 自定义快捷键的稳定动作顺序，供注册与挂起复用。
+#[cfg(target_os = "linux")]
+const HOTKEY_ACTIONS: [HotkeyAction; 5] = [
+    HotkeyAction::Snip,
+    HotkeyAction::Translate,
+    HotkeyAction::Paste,
+    HotkeyAction::TogglePasters,
+    HotkeyAction::SwitchGroup,
+];
+
+/// 返回 GNOME 注册所需的路径后缀、显示名与命令行参数。
+#[cfg(target_os = "linux")]
+fn gnome_hotkey_metadata(
+    action: HotkeyAction,
+) -> (&'static str, &'static str, &'static [&'static str]) {
+    match action {
+        HotkeyAction::Snip => ("snapin-snip", "Snapin 区域截图", &["snip"]),
+        HotkeyAction::Translate => (
+            "snapin-translate",
+            "Snapin 截图翻译",
+            &["snip", "--translate"],
+        ),
+        HotkeyAction::Paste => ("snapin-paste", "Snapin 贴图", &["paste"]),
+        HotkeyAction::TogglePasters => ("snapin-toggle", "Snapin 隐藏/显示贴图", &["toggle"]),
+        HotkeyAction::SwitchGroup => (
+            "snapin-switch-group",
+            "Snapin 切换贴图组",
+            &["switch-group"],
+        ),
+    }
+}
+
 /// 跨平台全局热键监听器
 pub struct PlatformHotkeyListener {
     #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -108,23 +175,16 @@ mod native_hotkey {
                 message: format!("初始化原生全局热键管理器失败: {e}"),
             })?;
 
-            let mut action_map = HashMap::with_capacity(5);
+            let bindings = super::configured_bindings(config);
+            let mut action_map = HashMap::with_capacity(bindings.len());
 
-            let pairs = [
-                (&config.snip, HotkeyAction::Snip),
-                (&config.paste, HotkeyAction::Paste),
-                (&config.translate, HotkeyAction::Translate),
-                (&config.toggle_pasters, HotkeyAction::TogglePasters),
-                (&config.switch_group, HotkeyAction::SwitchGroup),
-            ];
-
-            for (hotkey, action) in pairs {
-                let acc = hotkey_to_accelerator(hotkey);
+            for binding in bindings {
+                let acc = hotkey_to_accelerator(binding.hotkey);
                 if let Ok(hk) = acc.parse::<HotKey>() {
                     if let Err(e) = manager.register(hk) {
                         tracing::warn!("注册快捷键 [{acc}] 失败: {e}");
                     } else {
-                        action_map.insert(hk.id, action);
+                        action_map.insert(hk.id, binding.action);
                     }
                 }
             }
@@ -170,7 +230,10 @@ pub fn hotkey_to_accelerator(hotkey: &Hotkey) -> String {
     parts.join("+")
 }
 
-/// 自动在 GNOME 设置中注册或更新 Snapin 快捷键
+/// 自动在 GNOME 设置中注册或更新 Snapin 快捷键。
+///
+/// 快捷键表由 [`configured_bindings`] 单一维护，GNOME 与原生监听器共享同一份
+/// 动作映射，避免两套注册逻辑漏掉或错配某个动作。
 pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError> {
     #[cfg(not(target_os = "linux"))]
     {
@@ -183,71 +246,32 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError>
         tracing::info!("正在向 GNOME 系统注册/同步自定义快捷键...");
 
         let base_path = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
-        let snip_path = format!("{base_path}/snapin-snip/");
-        let translate_path = format!("{base_path}/snapin-translate/");
-        let paste_path = format!("{base_path}/snapin-paste/");
-        let toggle_path = format!("{base_path}/snapin-toggle/");
-        let switch_path = format!("{base_path}/snapin-switch-group/");
-
-        ensure_custom_keybindings_registered(&[
-            &snip_path,
-            &translate_path,
-            &paste_path,
-            &toggle_path,
-            &switch_path,
-        ])?;
+        let bindings = configured_bindings(config);
+        let paths: Vec<String> = bindings
+            .iter()
+            .map(|binding| format!("{base_path}/{}/", gnome_hotkey_metadata(binding.action).0))
+            .collect();
+        ensure_custom_keybindings_registered(&paths)?;
 
         let current_exe = get_snapin_executable_path();
+        let mut batch_items: Vec<(String, String, String)> = Vec::with_capacity(bindings.len() * 3);
+        for binding in bindings {
+            let (suffix, name, args) = gnome_hotkey_metadata(binding.action);
+            let schema = format!(
+                "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/{suffix}/"
+            );
+            let command = format!("{current_exe} {}", args.join(" "));
+            let binding_text = hotkey_to_gnome_accelerator(binding.hotkey);
+            batch_items.push((schema.clone(), "name".to_string(), name.to_string()));
+            batch_items.push((schema.clone(), "command".to_string(), command));
+            batch_items.push((schema, "binding".to_string(), binding_text));
+        }
 
-        let snip_schema =
-            format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{snip_path}");
-        let snip_cmd = format!("{current_exe} snip");
-        let snip_binding = hotkey_to_gnome_accelerator(&config.snip);
-
-        let translate_schema = format!(
-            "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{translate_path}"
-        );
-        let translate_cmd = format!("{current_exe} snip --translate");
-        let translate_binding = hotkey_to_gnome_accelerator(&config.translate);
-
-        let paste_schema =
-            format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{paste_path}");
-        let paste_cmd = format!("{current_exe} paste");
-        let paste_binding = hotkey_to_gnome_accelerator(&config.paste);
-
-        let toggle_schema =
-            format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{toggle_path}");
-        let toggle_cmd = format!("{current_exe} toggle");
-        let toggle_binding = hotkey_to_gnome_accelerator(&config.toggle_pasters);
-
-        let switch_schema =
-            format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{switch_path}");
-        let switch_cmd = format!("{current_exe} switch-group");
-        let switch_binding = hotkey_to_gnome_accelerator(&config.switch_group);
-
-        let batch_items = [
-            (snip_schema.as_str(), "name", "Snapin 区域截图"),
-            (snip_schema.as_str(), "command", snip_cmd.as_str()),
-            (snip_schema.as_str(), "binding", snip_binding.as_str()),
-            (translate_schema.as_str(), "name", "Snapin 截图翻译"),
-            (translate_schema.as_str(), "command", translate_cmd.as_str()),
-            (
-                translate_schema.as_str(),
-                "binding",
-                translate_binding.as_str(),
-            ),
-            (paste_schema.as_str(), "name", "Snapin 贴图"),
-            (paste_schema.as_str(), "command", paste_cmd.as_str()),
-            (paste_schema.as_str(), "binding", paste_binding.as_str()),
-            (toggle_schema.as_str(), "name", "Snapin 隐藏/显示贴图"),
-            (toggle_schema.as_str(), "command", toggle_cmd.as_str()),
-            (toggle_schema.as_str(), "binding", toggle_binding.as_str()),
-            (switch_schema.as_str(), "name", "Snapin 切换贴图组"),
-            (switch_schema.as_str(), "command", switch_cmd.as_str()),
-            (switch_schema.as_str(), "binding", switch_binding.as_str()),
-        ];
-
-        execute_gsettings_batch(&batch_items);
+        let batch_refs: Vec<(&str, &str, &str)> = batch_items
+            .iter()
+            .map(|(schema, key, value)| (schema.as_str(), key.as_str(), value.as_str()))
+            .collect();
+        execute_gsettings_batch(&batch_refs);
 
         tracing::info!("GNOME 快捷键同步完成");
         Ok(())
@@ -264,23 +288,15 @@ pub fn suspend_hotkeys_for_settings() -> Result<(), PlatformError> {
     #[cfg(target_os = "linux")]
     {
         let base_path = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
-        let schemas = [
-            format!(
-                "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-snip/"
-            ),
-            format!(
-                "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-translate/"
-            ),
-            format!(
-                "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-paste/"
-            ),
-            format!(
-                "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-toggle/"
-            ),
-            format!(
-                "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-switch-group/"
-            ),
-        ];
+        let schemas: Vec<String> = HOTKEY_ACTIONS
+            .iter()
+            .map(|action| {
+                format!(
+                    "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/{}/",
+                    gnome_hotkey_metadata(*action).0
+                )
+            })
+            .collect();
 
         let items: Vec<(&str, &str, &str)> = schemas
             .iter()
@@ -295,7 +311,7 @@ pub fn suspend_hotkeys_for_settings() -> Result<(), PlatformError> {
 
 /// 确保指定的自定义按键路径已写入 GNOME custom-keybindings 列表
 #[cfg(target_os = "linux")]
-fn ensure_custom_keybindings_registered(paths: &[&str]) -> Result<(), PlatformError> {
+fn ensure_custom_keybindings_registered(paths: &[String]) -> Result<(), PlatformError> {
     let output = Command::new("gsettings")
         .args([
             "get",
@@ -319,8 +335,8 @@ fn ensure_custom_keybindings_registered(paths: &[&str]) -> Result<(), PlatformEr
 
     let mut changed = false;
     for path in paths {
-        if !bindings.iter().any(|b| b == *path) {
-            bindings.push((*path).to_string());
+        if !bindings.iter().any(|binding| binding == path) {
+            bindings.push(path.clone());
             changed = true;
         }
     }
@@ -475,6 +491,48 @@ mod tests {
                 expected,
                 "快捷键 {binding} 的 GNOME accelerator 换算不符"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod binding_tests {
+    use super::*;
+
+    /// 统一映射必须覆盖全部动作，且每个动作只出现一次。
+    #[test]
+    fn test_configured_bindings_cover_each_action_once() {
+        let config = HotkeyConfig::default();
+        let bindings = configured_bindings(&config);
+        let expected = [
+            HotkeyAction::Snip,
+            HotkeyAction::Translate,
+            HotkeyAction::Paste,
+            HotkeyAction::TogglePasters,
+            HotkeyAction::SwitchGroup,
+        ];
+        assert_eq!(bindings.len(), expected.len());
+        for action in expected {
+            let count = bindings
+                .iter()
+                .filter(|binding| binding.action == action)
+                .count();
+            assert_eq!(count, 1, "动作 {action:?} 的绑定数量必须为一");
+        }
+    }
+
+    /// GNOME 自定义快捷键路径后缀必须唯一，否则后注册项会覆盖前一项。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_gnome_hotkey_suffixes_are_unique() {
+        let mut suffixes = Vec::new();
+        for action in HOTKEY_ACTIONS {
+            let (suffix, _, _) = gnome_hotkey_metadata(action);
+            assert!(
+                !suffixes.contains(&suffix),
+                "GNOME 快捷键后缀重复: {suffix}"
+            );
+            suffixes.push(suffix);
         }
     }
 }

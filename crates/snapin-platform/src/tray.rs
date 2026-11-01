@@ -34,13 +34,57 @@ pub enum TrayAction {
     Exit,
 }
 
+/// 托盘菜单的单一描述源，Linux SNI 与 Windows/macOS 原生菜单共用。
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrayMenuEntry {
+    Action {
+        label: &'static str,
+        action: TrayAction,
+    },
+    Separator,
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+const TRAY_MENU: &[TrayMenuEntry] = &[
+    TrayMenuEntry::Action {
+        label: "截屏",
+        action: TrayAction::Snip,
+    },
+    TrayMenuEntry::Action {
+        label: "全屏截图",
+        action: TrayAction::Fullscreen,
+    },
+    TrayMenuEntry::Action {
+        label: "取色器",
+        action: TrayAction::PickColor,
+    },
+    TrayMenuEntry::Action {
+        label: "贴图",
+        action: TrayAction::Paste,
+    },
+    TrayMenuEntry::Action {
+        label: "隐藏/显示所有贴图",
+        action: TrayAction::TogglePasters,
+    },
+    TrayMenuEntry::Separator,
+    TrayMenuEntry::Action {
+        label: "首选项...",
+        action: TrayAction::Preferences,
+    },
+    TrayMenuEntry::Action {
+        label: "退出 Snapin",
+        action: TrayAction::Exit,
+    },
+];
+
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 mod native {
-    use super::TrayAction;
+    use super::{TrayAction, TrayMenuEntry, TRAY_MENU};
     use crate::error::PlatformError;
     use std::collections::HashMap;
     use tray_icon::{
-        menu::{Menu, MenuEvent, MenuItem},
+        menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
         Icon, TrayIcon, TrayIconBuilder,
     };
 
@@ -60,21 +104,21 @@ mod native {
             })?;
 
             let menu = Menu::new();
-            let mut action_map = HashMap::with_capacity(8);
-
-            // 构建与 Linux 扩展菜单完全对称的托盘项目
-            Self::append_item(&menu, "截屏", TrayAction::Snip, &mut action_map)?;
-            Self::append_item(&menu, "全屏截图", TrayAction::Fullscreen, &mut action_map)?;
-            Self::append_item(&menu, "取色器", TrayAction::PickColor, &mut action_map)?;
-            Self::append_item(&menu, "贴图", TrayAction::Paste, &mut action_map)?;
-            Self::append_item(
-                &menu,
-                "隐藏/显示所有贴图",
-                TrayAction::TogglePasters,
-                &mut action_map,
-            )?;
-            Self::append_item(&menu, "首选项...", TrayAction::Preferences, &mut action_map)?;
-            Self::append_item(&menu, "退出 Snapin", TrayAction::Exit, &mut action_map)?;
+            let mut action_map = HashMap::with_capacity(TRAY_MENU.len());
+            for entry in TRAY_MENU {
+                match *entry {
+                    TrayMenuEntry::Action { label, action } => {
+                        Self::append_item(&menu, label, action, &mut action_map)?;
+                    }
+                    TrayMenuEntry::Separator => {
+                        let separator = PredefinedMenuItem::separator();
+                        menu.append(&separator)
+                            .map_err(|error| PlatformError::Tray {
+                                message: format!("向托盘菜单追加分隔线失败: {error}"),
+                            })?;
+                    }
+                }
+            }
 
             let tray = TrayIconBuilder::new()
                 .with_menu(Box::new(menu.clone()))
@@ -121,7 +165,7 @@ mod native {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use super::TrayAction;
+    use super::{TrayAction, TrayMenuEntry, TRAY_MENU};
     use crate::error::PlatformError;
     use ksni::{blocking::TrayMethods, menu::*, Tray};
     use std::sync::mpsc::{channel, Receiver, Sender};
@@ -156,79 +200,26 @@ mod linux {
         }
 
         fn menu(&self) -> Vec<MenuItem<Self>> {
-            vec![
-                StandardItem {
-                    label: "截屏".into(),
-                    activate: Box::new(|this: &mut Self| {
-                        if let Ok(tx) = this.action_tx.lock() {
-                            let _ = tx.send(TrayAction::Snip);
-                        }
-                    }),
-                    ..Default::default()
-                }
-                .into(),
-                StandardItem {
-                    label: "全屏截图".into(),
-                    activate: Box::new(|this: &mut Self| {
-                        if let Ok(tx) = this.action_tx.lock() {
-                            let _ = tx.send(TrayAction::Fullscreen);
-                        }
-                    }),
-                    ..Default::default()
-                }
-                .into(),
-                StandardItem {
-                    label: "取色器".into(),
-                    activate: Box::new(|this: &mut Self| {
-                        if let Ok(tx) = this.action_tx.lock() {
-                            let _ = tx.send(TrayAction::PickColor);
-                        }
-                    }),
-                    ..Default::default()
-                }
-                .into(),
-                StandardItem {
-                    label: "贴图".into(),
-                    activate: Box::new(|this: &mut Self| {
-                        if let Ok(tx) = this.action_tx.lock() {
-                            let _ = tx.send(TrayAction::Paste);
-                        }
-                    }),
-                    ..Default::default()
-                }
-                .into(),
-                StandardItem {
-                    label: "隐藏/显示所有贴图".into(),
-                    activate: Box::new(|this: &mut Self| {
-                        if let Ok(tx) = this.action_tx.lock() {
-                            let _ = tx.send(TrayAction::TogglePasters);
-                        }
-                    }),
-                    ..Default::default()
-                }
-                .into(),
-                MenuItem::Separator,
-                StandardItem {
-                    label: "首选项...".into(),
-                    activate: Box::new(|this: &mut Self| {
-                        if let Ok(tx) = this.action_tx.lock() {
-                            let _ = tx.send(TrayAction::Preferences);
-                        }
-                    }),
-                    ..Default::default()
-                }
-                .into(),
-                StandardItem {
-                    label: "退出 Snapin".into(),
-                    activate: Box::new(|this: &mut Self| {
-                        if let Ok(tx) = this.action_tx.lock() {
-                            let _ = tx.send(TrayAction::Exit);
-                        }
-                    }),
-                    ..Default::default()
-                }
-                .into(),
-            ]
+            TRAY_MENU
+                .iter()
+                .map(|entry| match *entry {
+                    TrayMenuEntry::Separator => MenuItem::Separator,
+                    TrayMenuEntry::Action { label, action } => StandardItem {
+                        label: label.into(),
+                        activate: Box::new(move |this: &mut Self| this.emit(action)),
+                        ..Default::default()
+                    }
+                    .into(),
+                })
+                .collect()
+        }
+    }
+
+    impl LinuxSniTray {
+        fn emit(&self, action: TrayAction) {
+            if let Ok(tx) = self.action_tx.lock() {
+                let _ = tx.send(action);
+            }
         }
     }
 
@@ -330,5 +321,27 @@ impl PlatformTray {
         {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 托盘菜单必须保持动作唯一，避免同一个菜单项触发两次或遗漏平台扩展动作。
+    #[test]
+    fn test_tray_menu_actions_are_unique_and_non_empty() {
+        let mut actions = Vec::new();
+        for entry in TRAY_MENU {
+            match entry {
+                TrayMenuEntry::Action { label, action } => {
+                    assert!(!label.is_empty(), "托盘菜单标签不能为空");
+                    assert!(!actions.contains(action), "托盘动作重复: {action:?}");
+                    actions.push(*action);
+                }
+                TrayMenuEntry::Separator => {}
+            }
+        }
+        assert_eq!(actions.len(), 7, "托盘动作数量应与统一菜单描述一致");
     }
 }
