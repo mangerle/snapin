@@ -168,8 +168,12 @@ mod linux {
     use super::{TrayAction, TrayMenuEntry, TRAY_MENU};
     use crate::error::PlatformError;
     use ksni::{blocking::TrayMethods, menu::*, Tray};
-    use std::sync::mpsc::{channel, Receiver, Sender};
     use std::sync::Mutex;
+    use tokio::sync::mpsc::{channel, Receiver, Sender};
+
+    /// 托盘动作队列容量；托盘点击是低频人工操作，满队列时直接丢弃最旧语义之外的
+    /// 新动作并记录警告，绝不使用无界通道兜底。
+    const TRAY_ACTION_QUEUE_CAPACITY: usize = 32;
 
     struct LinuxSniTray {
         action_tx: Mutex<Sender<TrayAction>>,
@@ -195,7 +199,9 @@ mod linux {
 
         fn activate(&mut self, _x: i32, _y: i32) {
             if let Ok(tx) = self.action_tx.lock() {
-                let _ = tx.send(TrayAction::Snip);
+                if tx.try_send(TrayAction::Snip).is_err() {
+                    tracing::warn!("托盘动作队列已满，忽略本次托盘激活");
+                }
             }
         }
 
@@ -218,7 +224,9 @@ mod linux {
     impl LinuxSniTray {
         fn emit(&self, action: TrayAction) {
             if let Ok(tx) = self.action_tx.lock() {
-                let _ = tx.send(action);
+                if tx.try_send(action).is_err() {
+                    tracing::warn!("托盘动作队列已满，忽略本次菜单动作: {action:?}");
+                }
             }
         }
     }
@@ -231,7 +239,7 @@ mod linux {
 
     impl LinuxPlatformTray {
         pub fn init(rgba_icon: Option<(Vec<u8>, u32, u32)>) -> Result<Self, PlatformError> {
-            let (tx, rx) = channel();
+            let (tx, rx) = channel(TRAY_ACTION_QUEUE_CAPACITY);
 
             let icon_data = rgba_icon.map(|(rgba, width, height)| {
                 let mut argb = Vec::with_capacity(rgba.len());
@@ -264,7 +272,7 @@ mod linux {
             })
         }
 
-        pub fn try_recv(&self) -> Option<TrayAction> {
+        pub fn try_recv(&mut self) -> Option<TrayAction> {
             self.action_rx.try_recv().ok()
         }
     }
@@ -306,7 +314,7 @@ impl PlatformTray {
     }
 
     /// 非阻塞检查是否触发了托盘指令
-    pub fn poll_action(&self) -> Option<TrayAction> {
+    pub fn poll_action(&mut self) -> Option<TrayAction> {
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
             self.inner.try_recv()

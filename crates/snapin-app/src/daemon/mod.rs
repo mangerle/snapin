@@ -193,7 +193,7 @@ fn create_hotkey_listener(cfg: &Config) -> Option<PlatformHotkeyListener> {
 
 /// 构建 GUI 主线程周期回调：轮询托盘与热键，保证原生对象始终在创建它们的线程使用。
 fn build_gui_tick(
-    tray: Option<PlatformTray>,
+    mut tray: Option<PlatformTray>,
     hotkey_listener: Option<PlatformHotkeyListener>,
     services: Arc<AppServices>,
     workspace: PasterWorkspaceProxy,
@@ -202,7 +202,7 @@ fn build_gui_tick(
         return None;
     }
     Some(Box::new(move || {
-        if let Some(tray) = tray.as_ref() {
+        if let Some(tray) = tray.as_mut() {
             if let Some(action) = tray.poll_action() {
                 tracing::debug!("托盘触发操作: {action:?}");
                 if !handle_tray_action(action, &services, &workspace) {
