@@ -1,18 +1,18 @@
 //! Unix Domain Socket 服务端监听器实现。
 
+mod connection;
+
 use super::client::send_request_to_path;
-use super::codec::{read_framed_message, write_framed_message};
-use super::protocol::{get_socket_path, DaemonRequest, DaemonResponse, IpcInvocation, IPC_TIMEOUT};
+use super::protocol::{get_socket_path, DaemonRequest, DaemonResponse, IpcInvocation};
 use crate::error::DaemonError;
+use connection::spawn_connection_handler;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::PathBuf;
 #[cfg(unix)]
 use tokio::net::UnixListener;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::watch;
 use tokio::task::JoinSet;
-use tokio::time::timeout;
-use tokio_util::sync::CancellationToken;
 
 /// 同时处理的 IPC 连接上限，防止异常客户端耗尽任务与内存
 const MAX_CONCURRENT_CONNECTIONS: usize = 32;
@@ -182,70 +182,6 @@ impl IpcListener {
         connections.shutdown().await;
         tracing::info!("IPC 监听循环已退出");
     }
-}
-
-/// 为单个客户端连接生成异步处理任务，完成请求帧反序列化、业务调用与响应帧回传
-async fn spawn_connection_handler<S>(
-    mut stream: S,
-    sender: Sender<IpcInvocation>,
-    connections: &mut JoinSet<()>,
-) where
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
-{
-    // 达到上限时先等待一个旧连接结束，形成真实背压，绝不能继续无界 spawn。
-    if connections.len() >= MAX_CONCURRENT_CONNECTIONS {
-        if let Some(Err(error)) = connections.join_next().await {
-            tracing::warn!("IPC 连接任务异常退出: {error}");
-        }
-    }
-    connections.spawn(async move {
-        let read_res = timeout(
-            IPC_TIMEOUT,
-            read_framed_message::<_, DaemonRequest>(&mut stream),
-        )
-        .await;
-
-        match read_res {
-            Ok(Ok(request)) => {
-                let (resp_tx, resp_rx) = oneshot::channel();
-                let cancelled = CancellationToken::new();
-                let invocation = IpcInvocation {
-                    request,
-                    responder: resp_tx,
-                    cancelled: cancelled.clone(),
-                };
-                if sender.send(invocation).await.is_ok() {
-                    let response = match timeout(IPC_TIMEOUT, resp_rx).await {
-                        Ok(Ok(resp)) => resp,
-                        Ok(Err(_)) => DaemonResponse::Error("业务执行器已关闭".to_string()),
-                        Err(_) => {
-                            // 客户端已经超时：通知业务执行方在下一个阶段边界停止，
-                            // 避免“客户端收到失败、服务端仍完成副作用”的幽灵执行。
-                            cancelled.cancel();
-                            DaemonResponse::Error("业务处理超时".to_string())
-                        }
-                    };
-                    let _ =
-                        timeout(IPC_TIMEOUT, write_framed_message(&mut stream, &response)).await;
-                } else {
-                    let _ = timeout(
-                        IPC_TIMEOUT,
-                        write_framed_message(
-                            &mut stream,
-                            &DaemonResponse::Error("守护进程主循环已关闭".to_string()),
-                        ),
-                    )
-                    .await;
-                }
-            }
-            Ok(Err(e)) => {
-                tracing::warn!("接收客户端 IPC 请求异常: {e}");
-            }
-            Err(_) => {
-                tracing::warn!("接收客户端 IPC 请求超时，主动断开连接");
-            }
-        }
-    });
 }
 
 /// 获取跨进程单实例锁，覆盖 Ping 探测与残留套接字清理之间的竞态窗口。
