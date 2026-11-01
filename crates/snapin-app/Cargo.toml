@@ -22,3 +22,6 @@ tracing.workspace = true
 image.workspace = true
 tiny-skia.workspace = true
 shipup.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
