@@ -2,6 +2,7 @@
 
 use snapin_daemon::DaemonResponse;
 use snapin_platform::send_desktop_notification;
+use snapin_ui::paster::GroupId;
 use snapin_ui::paster::{is_valid_group_id, PasterWorkspaceProxy, TOTAL_PIN_GROUPS};
 use std::time::Duration;
 use tokio::time::timeout;
@@ -23,14 +24,14 @@ pub(super) async fn switch_group(
     target_id: Option<usize>,
 ) -> DaemonResponse {
     if let Some(id) = target_id {
-        if !is_valid_group_id(id) {
+        if !is_valid_group_id(GroupId::new(id)) {
             return DaemonResponse::Error(format!(
                 "非法贴图分组 ID: {id}，有效范围: 0..={}",
                 TOTAL_PIN_GROUPS.saturating_sub(1)
             ));
         }
     }
-    if let Err(error) = workspace.switch_group(target_id) {
+    if let Err(error) = workspace.switch_group(target_id.map(GroupId::new)) {
         return DaemonResponse::Error(format!("切换贴图分组失败: {error}"));
     }
     // 与 SwitchGroup 走同一个事件队列，GetStatus 会在切换完成后执行，
@@ -49,7 +50,7 @@ pub(super) async fn switch_group(
     let notification = match active_group {
         Some(group) => format!(
             "已切换至贴图组 {}/{}（ID {}）",
-            group.saturating_add(1),
+            group.get().saturating_add(1),
             TOTAL_PIN_GROUPS,
             group
         ),
@@ -63,7 +64,7 @@ pub(super) async fn switch_group(
 pub(super) async fn query(workspace: &PasterWorkspaceProxy) -> DaemonResponse {
     match timeout(STATUS_QUERY_TIMEOUT, workspace.get_status()).await {
         Ok(Ok(status)) => DaemonResponse::Status {
-            active_group: status.active_group,
+            active_group: status.active_group.get(),
             paster_count: status.paster_count,
         },
         Ok(Err(error)) => DaemonResponse::Error(format!("查询贴图状态失败: {error}")),

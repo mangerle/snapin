@@ -5,7 +5,7 @@ use super::paster_events::handle_paster_window_event;
 use super::proxy::{PasterAppEvent, WorkspaceStatus};
 use super::window_builder::create_new_paster_window;
 use super::WorkspaceRuntime;
-use crate::model::PasterId;
+use crate::model::{GroupId, PasterId};
 use crate::ports::JobId;
 use crate::snipper::window::jobs::SnipperJobSink;
 use crate::snipper::{SnipperOutcome, SnipperView};
@@ -21,8 +21,8 @@ use winit::window::WindowId;
 pub const TOTAL_PIN_GROUPS: usize = 4;
 
 /// 判断贴图分组 ID 是否落在有效范围内。
-pub fn is_valid_group_id(id: usize) -> bool {
-    id < TOTAL_PIN_GROUPS
+pub fn is_valid_group_id(id: GroupId) -> bool {
+    id.get() < TOTAL_PIN_GROUPS
 }
 
 /// 处理工作区收到的自定义指令
@@ -115,7 +115,7 @@ fn toggle_group_visibility(runtime: &mut WorkspaceRuntime) {
 }
 
 /// 切换活动分组，同步窗口可见性并持久化分组选择。
-fn switch_group(target: Option<usize>, runtime: &mut WorkspaceRuntime) {
+fn switch_group(target: Option<GroupId>, runtime: &mut WorkspaceRuntime) {
     let next_group = match target {
         Some(id) if is_valid_group_id(id) => id,
         Some(id) => {
@@ -125,12 +125,12 @@ fn switch_group(target: Option<usize>, runtime: &mut WorkspaceRuntime) {
             );
             return;
         }
-        None => (runtime.manager.active_group() + 1) % TOTAL_PIN_GROUPS,
+        None => GroupId::new((runtime.manager.active_group().get() + 1) % TOTAL_PIN_GROUPS),
     };
     runtime.manager.switch_group(next_group);
     let group_label = format!(
         "当前贴图组: {}/{}（ID {next_group}）",
-        next_group.saturating_add(1),
+        next_group.get().saturating_add(1),
         TOTAL_PIN_GROUPS
     );
     for inst in runtime.instances.values_mut() {
@@ -141,7 +141,7 @@ fn switch_group(target: Option<usize>, runtime: &mut WorkspaceRuntime) {
             inst.window.request_redraw();
         }
     }
-    persist_active_group(runtime, next_group);
+    persist_active_group(runtime, next_group.get());
     tracing::info!("已切换活动贴图分组至: {next_group}");
 }
 
@@ -401,9 +401,9 @@ mod tests {
     /// 分组 ID 必须落在 0..TOTAL_PIN_GROUPS，边界值不可越界
     #[test]
     fn test_group_id_validation() {
-        assert!(is_valid_group_id(0));
-        assert!(is_valid_group_id(TOTAL_PIN_GROUPS - 1));
-        assert!(!is_valid_group_id(TOTAL_PIN_GROUPS));
-        assert!(!is_valid_group_id(usize::MAX));
+        assert!(is_valid_group_id(0.into()));
+        assert!(is_valid_group_id((TOTAL_PIN_GROUPS - 1).into()));
+        assert!(!is_valid_group_id(TOTAL_PIN_GROUPS.into()));
+        assert!(!is_valid_group_id(usize::MAX.into()));
     }
 }

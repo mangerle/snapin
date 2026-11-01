@@ -19,6 +19,7 @@ pub use window_builder::PasterInstance;
 use super::manager::PasterManager;
 use super::window::jobs::PasterJobRuntime;
 use crate::error::UiError;
+use crate::model::GroupId;
 use crate::ports::{DesktopPort, MediaJobRunner, WorkspaceState, WorkspaceStateStore};
 use crate::snipper::{SnipperOutcome, SnipperView};
 use event_handler::{handle_workspace_user_event, handle_workspace_window_event};
@@ -135,7 +136,7 @@ pub fn run_paster_workspace_loop(
         })
         .active_group_id
         .min(event_handler::TOTAL_PIN_GROUPS.saturating_sub(1));
-    manager.switch_group(initial_group);
+    manager.switch_group(GroupId::new(initial_group));
 
     let event_proxy = event_loop.create_proxy();
     let proxy = PasterWorkspaceProxy::new(event_proxy.clone());

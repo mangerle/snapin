@@ -1,8 +1,8 @@
 //! 贴图工作区事件定义与线程安全代理句柄。
 
 use crate::error::UiError;
-use crate::model::PasterId;
 use crate::model::PasterItem;
+use crate::model::{GroupId, PasterId};
 use crate::ports::{JobId, MediaJobOutcome};
 use crate::snipper::window::jobs::SnipperJobKind;
 use crate::snipper::SnipperLaunch;
@@ -15,7 +15,7 @@ use winit::event_loop::EventLoopProxy;
 /// 工作区当前状态快照
 #[derive(Debug, Clone)]
 pub struct WorkspaceStatus {
-    pub active_group: usize,
+    pub active_group: GroupId,
     pub paster_count: usize,
 }
 
@@ -39,7 +39,7 @@ pub enum PasterAppEvent {
     /// 批量切换当前分组内所有贴图的显隐状态
     ToggleVisibility,
     /// 切换活动分组（若为 None 则循环轮转至下一个分组）
-    SwitchGroup(Option<usize>),
+    SwitchGroup(Option<GroupId>),
     /// 查询当前工作区运行状态
     GetStatus(oneshot::Sender<WorkspaceStatus>),
     /// 整图文字识别完成；携带 `paster_id` 以精确路由回发起窗口
@@ -172,7 +172,7 @@ impl PasterWorkspaceProxy {
     }
 
     /// 请求切换活动贴图分组
-    pub fn switch_group(&self, group_id: Option<usize>) -> Result<(), UiError> {
+    pub fn switch_group(&self, group_id: Option<GroupId>) -> Result<(), UiError> {
         self.proxy
             .send_event(PasterAppEvent::SwitchGroup(group_id))
             .map_err(|e| UiError::Window {

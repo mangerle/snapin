@@ -38,6 +38,34 @@ impl From<u64> for PasterId {
     }
 }
 
+/// 贴图分组标识。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct GroupId(usize);
+
+impl GroupId {
+    /// 构造分组标识。
+    pub const fn new(value: usize) -> Self {
+        Self(value)
+    }
+
+    /// 读取原始分组序号。
+    pub const fn get(self) -> usize {
+        self.0
+    }
+}
+
+impl std::fmt::Display for GroupId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.0)
+    }
+}
+
+impl From<usize> for GroupId {
+    fn from(value: usize) -> Self {
+        Self(value)
+    }
+}
+
 /// 单张贴图的数据上下文（像素数据由所属窗口独占）。
 #[derive(Debug)]
 pub struct PasterItem {
@@ -52,7 +80,7 @@ pub struct PasterItem {
     /// 缩放与不透明度变换
     pub transform: PasterTransform,
     /// 所属分组 ID
-    pub group_id: usize,
+    pub group_id: GroupId,
 }
 
 impl PasterItem {
@@ -69,7 +97,7 @@ impl PasterItem {
             pixmap,
             position,
             transform: PasterTransform::default(),
-            group_id: 0,
+            group_id: GroupId::default(),
         }
     }
 }
