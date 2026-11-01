@@ -268,9 +268,9 @@ mod tests {
         state.interaction.toolbar.active_tool = Some(Tool::Rect);
         state.interaction.toolbar.sub_options.filled = true;
         state.interaction.toolbar.sub_options.color = color;
-        state.interaction.pending_stroke_points.clear();
-        state.interaction.pending_stroke_points.push(start);
-        state.interaction.pending_stroke_points.push(end);
+        state.interaction.stroke.points.clear();
+        state.interaction.stroke.points.push(start);
+        state.interaction.stroke.points.push(end);
         assert!(state.commit_pending_stroke(), "矩形标注应提交成功");
         state
             .document
@@ -370,7 +370,7 @@ mod tests {
             "底图必须保持创建贴图时的原始像素"
         );
         assert!(
-            state.interaction.pending_stroke_points.is_empty(),
+            state.interaction.stroke.points.is_empty(),
             "提交后待提交点集必须清空"
         );
     }

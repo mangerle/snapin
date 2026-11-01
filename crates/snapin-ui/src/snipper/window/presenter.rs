@@ -331,10 +331,10 @@ impl SnipperPresenter {
         bg_image: &'a RgbaImage,
     ) -> SnipperCanvas<'a> {
         let pending_stroke = state.toolbar.active_tool.as_ref().and_then(|tool| {
-            if !state.pending_stroke_points.is_empty() {
+            if !state.stroke.points.is_empty() {
                 Some((
                     tool,
-                    state.pending_stroke_points.as_slice(),
+                    state.stroke.points.as_slice(),
                     state.annotations.next_badge_number(),
                 ))
             } else {

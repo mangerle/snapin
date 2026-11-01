@@ -114,7 +114,7 @@ fn test_toolbar_click_does_not_create_annotation() {
 
     let pressed = handle_left_press(&mut state, click_x, click_y, &original);
     assert!(pressed, "工具栏点击应被有效拦截消费");
-    assert!(state.pending_stroke_points.is_empty(), "不应产生待定笔触点");
+    assert!(state.stroke.points.is_empty(), "不应产生待定笔触点");
 
     let released = handle_left_release(&mut state, click_x, click_y, &original);
     assert!(released, "释放事件应被安全消费");

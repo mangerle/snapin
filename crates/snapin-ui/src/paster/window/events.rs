@@ -74,7 +74,7 @@ pub fn handle_paster_cursor_move(
 ) -> bool {
     state.viewport.cursor_pos = (pos.0 as f32, pos.1 as f32);
 
-    if state.interaction.is_drawing {
+    if state.interaction.stroke.is_drawing {
         return state.update_stroke(state.viewport.cursor_pos);
     }
 
@@ -141,8 +141,8 @@ pub fn handle_paster_mouse_button(
     let handled = match (button, button_state) {
         (MouseButton::Right, ElementState::Pressed) => {
             // 右键打开菜单前取消未完成的一笔，避免拖拽预览残留在图像上
-            state.interaction.pending_stroke_points.clear();
-            state.interaction.is_drawing = false;
+            state.interaction.stroke.points.clear();
+            state.interaction.stroke.is_drawing = false;
 
             state
                 .interaction
@@ -246,7 +246,7 @@ fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
 
 /// 左键松开：把当前笔迹提交进图像与标注历史，并清空预览状态。
 fn handle_left_release(state: &mut PasterWindowState) -> bool {
-    if !state.interaction.is_drawing {
+    if !state.interaction.stroke.is_drawing {
         return false;
     }
     state.update_stroke(state.viewport.cursor_pos);

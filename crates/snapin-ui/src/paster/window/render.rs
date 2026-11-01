@@ -151,19 +151,19 @@ pub fn render_paster_to_surface(
 /// 线宽同样随缩放放大。序号半径在工厂内部以 `stroke_width * ui_scale` 推导，
 /// 因此这里改为放大 `ui_scale` 而不是先放大线宽，避免半径夹取区间随预览偏移。
 fn render_pending_annotation_preview(state: &PasterWindowState, target: &mut Pixmap) {
-    if !state.interaction.is_drawing {
+    if !state.interaction.stroke.is_drawing {
         return;
     }
     let Some(tool) = state.interaction.toolbar.active_tool else {
         return;
     };
-    if state.interaction.pending_stroke_points.is_empty() {
+    if state.interaction.stroke.points.is_empty() {
         return;
     }
 
     let scale = state.document.item.transform.scale.max(f32::EPSILON);
-    let mut scaled_points = Vec::with_capacity(state.interaction.pending_stroke_points.len());
-    for &point in &state.interaction.pending_stroke_points {
+    let mut scaled_points = Vec::with_capacity(state.interaction.stroke.points.len());
+    for &point in &state.interaction.stroke.points {
         scaled_points.push(image_to_screen_point(point, scale));
     }
 

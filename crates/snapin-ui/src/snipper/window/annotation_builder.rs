@@ -12,7 +12,7 @@ impl<'a> AnnotationDraftParams<'a> {
     /// 从当前截图会话状态中提取草稿参数。
     pub fn from_state(state: &'a SnipperState) -> Option<Self> {
         let tool = state.toolbar.active_tool?;
-        let points = &state.pending_stroke_points;
+        let points = &state.stroke.points;
         Self::from_toolbar_and_points(
             &state.toolbar,
             tool,
@@ -29,5 +29,5 @@ pub fn commit_annotation(state: &mut SnipperState) {
             state.annotations.push(shape);
         }
     }
-    state.pending_stroke_points.clear();
+    state.stroke.points.clear();
 }

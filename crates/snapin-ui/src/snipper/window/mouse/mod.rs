@@ -50,27 +50,26 @@ pub fn handle_cursor_move(
                 *active_drag = Some(d);
                 state.toolbar.update_layout(rect, screen_w, screen_h);
                 true
-            } else if state.toolbar.active_tool.is_some() && !state.pending_stroke_points.is_empty()
-            {
+            } else if state.toolbar.active_tool.is_some() && !state.stroke.points.is_empty() {
                 let px = cx.clamp(rect.x, rect.x + rect.width);
                 let py = cy.clamp(rect.y, rect.y + rect.height);
                 let tool = state.toolbar.active_tool;
                 match tool {
                     Some(Tool::Pen) | Some(Tool::Marker) => {
-                        state.pending_stroke_points.push((px, py));
+                        state.stroke.points.push((px, py));
                     }
                     _ => {
                         let endpoint = match (state.modifiers.shift_key(), tool) {
                             (true, Some(active)) => {
-                                let start = state.pending_stroke_points[0];
+                                let start = state.stroke.points[0];
                                 constrain_with_shift(active, start, (px, py))
                             }
                             _ => (px, py),
                         };
-                        if state.pending_stroke_points.len() > 1 {
-                            state.pending_stroke_points[1] = endpoint;
+                        if state.stroke.points.len() > 1 {
+                            state.stroke.points[1] = endpoint;
                         } else {
-                            state.pending_stroke_points.push(endpoint);
+                            state.stroke.points.push(endpoint);
                         }
                     }
                 }
@@ -218,8 +217,8 @@ fn handle_locked_press(
     if rect.contains(cx, cy) {
         if state.toolbar.active_tool.is_some() {
             super::annotation_edit::clear(state);
-            state.pending_stroke_points.clear();
-            state.pending_stroke_points.push((cx, cy));
+            state.stroke.points.clear();
+            state.stroke.points.push((cx, cy));
             return true;
         }
         super::annotation_edit::clear(state);
@@ -239,7 +238,7 @@ fn handle_locked_press(
     // 点击在已有选区外部：清除当前选区，允许重新框选；工具栏随新选区重新自适应摆放
     state.toolbar.active_tool = None;
     state.toolbar.reset_manual_position();
-    state.pending_stroke_points.clear();
+    state.stroke.points.clear();
     super::annotation_edit::clear(state);
     state.selection = SelectionState::Creating {
         start: (cx, cy),
@@ -316,7 +315,7 @@ fn handle_left_release(
         SelectionState::Locked { rect, active_drag } => {
             // 若释放位置在工具栏区域内，清理暂存点并直接拦截，避免误提交标注
             if state.toolbar.contains_point(cx, cy) {
-                state.pending_stroke_points.clear();
+                state.stroke.points.clear();
                 return true;
             }
 
@@ -328,9 +327,8 @@ fn handle_left_release(
                 state.history.push(*rect);
                 state.toolbar.update_layout(rect, screen_w, screen_h);
                 true
-            } else if state.toolbar.active_tool.is_some() && !state.pending_stroke_points.is_empty()
-            {
-                state.pending_stroke_points.push((cx, cy));
+            } else if state.toolbar.active_tool.is_some() && !state.stroke.points.is_empty() {
+                state.stroke.points.push((cx, cy));
                 commit_annotation(state);
                 true
             } else {
