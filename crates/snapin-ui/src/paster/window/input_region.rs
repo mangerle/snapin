@@ -160,7 +160,7 @@ pub(crate) fn input_layout_from_state(
         image_w: state.document.item.pixmap.width() as f32 * scale,
         image_h: state.document.item.pixmap.height() as f32 * scale,
         mouse_through: state.chrome.mouse_through,
-        ui_scale: state.ui_scale,
+        ui_scale: state.viewport.ui_scale,
         toolbar_main,
         toolbar_sub,
         toolbar_dropdown,

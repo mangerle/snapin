@@ -128,7 +128,7 @@ pub fn render_paster_to_surface(
         .is_some_and(|cached| cached.layout == input_layout);
     if !cache_hit {
         let physical_rects = compute_input_rects(&input_layout);
-        let surface_rects = physical_rects_to_surface(&physical_rects, state.ui_scale);
+        let surface_rects = physical_rects_to_surface(&physical_rects, state.viewport.ui_scale);
         if let Err(e) = surface.set_input_rects(&surface_rects) {
             tracing::warn!("更新贴图窗口输入区域失败，透明空白可能拦截桌面点击: {e}");
         } else {
@@ -196,7 +196,7 @@ fn render_status_message(state: &PasterWindowState, target: &mut Pixmap, image_w
     let layout = status_badge::layout(
         message,
         image_w,
-        state.ui_scale,
+        state.viewport.ui_scale,
         status_badge::PASTER_STATUS_STYLE,
     );
     status_badge::render(

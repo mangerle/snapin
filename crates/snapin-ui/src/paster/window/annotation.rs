@@ -122,7 +122,7 @@ pub(crate) fn refresh_toolbar_layout(
     window_width: f32,
     window_height: f32,
 ) {
-    let ui_scale = state.ui_scale.max(0.1);
+    let ui_scale = state.viewport.ui_scale.max(0.1);
     state.interaction.toolbar.ui_scale = ui_scale;
 
     let scale = state.document.item.transform.scale.max(f32::EPSILON);
@@ -155,7 +155,7 @@ pub(crate) fn handle_toolbar_click(
     }
     refresh_toolbar_layout(state, window_size.0, window_size.1);
 
-    let (cx, cy) = state.cursor_pos;
+    let (cx, cy) = state.viewport.cursor_pos;
     if !state.interaction.toolbar.contains_point(cx, cy) {
         return false;
     }
@@ -190,7 +190,7 @@ fn submit_paster_ocr(state: &mut PasterWindowState) {
         state.set_status_message("请等待当前任务完成");
         return;
     }
-    let Some(runtime) = state.job_runtime.clone() else {
+    let Some(runtime) = state.services.job_runtime.clone() else {
         state.set_status_message("后台任务媒体执行器不可用");
         return;
     };
@@ -217,7 +217,7 @@ fn submit_paster_translate(state: &mut PasterWindowState) {
         state.set_status_message("请等待当前任务完成");
         return;
     }
-    let Some(runtime) = state.job_runtime.clone() else {
+    let Some(runtime) = state.services.job_runtime.clone() else {
         state.set_status_message("后台任务媒体执行器不可用");
         return;
     };
@@ -232,7 +232,7 @@ fn submit_paster_translate(state: &mut PasterWindowState) {
     match runtime.submit_translate(
         state.document.item.id,
         image,
-        state.config.translate.cover_mode,
+        state.services.config.translate.cover_mode,
     ) {
         Ok((job_id, cancel)) => {
             state.begin_job(job_id, cancel);
@@ -603,7 +603,7 @@ mod tests {
     #[test]
     fn 工具条锚定在图像下方() {
         let mut state = test_state(140, 80);
-        state.ui_scale = 1.0;
+        state.viewport.ui_scale = 1.0;
         state.chrome.show_toolbar = true;
         state.interaction.toolbar.active_tool = Some(Tool::Rect);
 

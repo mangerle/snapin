@@ -104,7 +104,7 @@ fn apply_ocr_result(state: &mut PasterWindowState, result: Result<String, String
                 state.set_status_message("未识别到文字");
                 return;
             }
-            match state.desktop.write_text_clipboard(text) {
+            match state.services.desktop.write_text_clipboard(text) {
                 Ok(()) => {
                     let chars = text.chars().count();
                     state.set_status_message(format!("已复制识别文字（{chars} 字符）"));

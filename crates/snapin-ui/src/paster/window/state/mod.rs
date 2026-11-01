@@ -7,8 +7,7 @@ use crate::paster::context_menu::ContextMenuState;
 use crate::paster::window::annotation::{
     create_paster_toolbar, screen_to_image_point, toolbar_required_extent,
 };
-use crate::paster::window::jobs::PasterJobRuntime;
-use crate::ports::{DesktopPort, NoopDesktop};
+use crate::ports::NoopDesktop;
 use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 
 mod chrome;
@@ -17,12 +16,16 @@ mod frame_cache;
 mod interaction;
 mod job_slot;
 mod jobs;
+mod services;
+mod viewport;
 
 use chrome::PasterChrome;
 use document::PasterDocument;
 use frame_cache::FrameCache;
 use interaction::PasterInteraction;
 use job_slot::PasterJobSlot;
+use services::PasterServices;
+use viewport::PasterViewport;
 
 use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::{TranslationAction, TranslationShapeItem};
@@ -43,17 +46,14 @@ pub struct PasterWindowState {
     pub(crate) document: PasterDocument,
     /// 工具栏、笔迹、文字会话与右键菜单
     pub(crate) interaction: PasterInteraction,
+    /// 配置、媒体执行器与桌面端口
+    pub(crate) services: PasterServices,
     pub should_close: bool,
     /// 窗口外观与交互开关
     pub(crate) chrome: PasterChrome,
     pub file_path: Option<PathBuf>,
-    pub cursor_pos: (f32, f32),
-    pub ui_scale: f32,
-    pub config: Arc<Config>,
-    /// 后台媒体任务运行时，工作区创建窗口时注入；测试环境中可为空
-    pub(crate) job_runtime: Option<Arc<PasterJobRuntime>>,
-    /// 桌面副作用端口：剪贴板、文件管理器等系统交互经此委托给应用层
-    pub(crate) desktop: Arc<dyn DesktopPort>,
+    /// 视口缩放与光标位置
+    pub(crate) viewport: PasterViewport,
     /// 后台媒体任务槽；窗口关闭时通过它取消在途任务
     pub(crate) job_slot: PasterJobSlot,
     /// 图像顶部状态提示及其产生时刻，超过 [`STATUS_MESSAGE_TTL`] 后自动失效
@@ -69,14 +69,11 @@ impl PasterWindowState {
         Self {
             document: PasterDocument::new(item),
             interaction: PasterInteraction::new(create_paster_toolbar()),
+            services: PasterServices::new(Arc::new(Config::default()), Arc::new(NoopDesktop)),
             should_close: false,
             chrome: PasterChrome::default(),
             file_path: None,
-            cursor_pos: (0.0, 0.0),
-            ui_scale: 1.0,
-            config: Arc::new(Config::default()),
-            job_runtime: None,
-            desktop: Arc::new(NoopDesktop),
+            viewport: PasterViewport::default(),
             job_slot: PasterJobSlot::default(),
             status_message: None,
             modifiers: ModifiersState::default(),
@@ -88,7 +85,7 @@ impl PasterWindowState {
     pub fn from_config(mut item: PasterItem, config: Arc<Config>) -> Self {
         item.transform.opacity = config.paster.initial_opacity.clamp(0.1, 1.0);
         let mut state = Self::new(item);
-        state.config = config;
+        state.services.config = config;
         state
     }
 
@@ -166,8 +163,8 @@ impl PasterWindowState {
         let new_width = (base_width * new_scale).max(20.0);
         let new_height = (base_height * new_scale).max(20.0);
         let (ratio_x, ratio_y) = zoom_anchor_ratio(
-            self.config.paster.zoom_anchor,
-            self.cursor_pos,
+            self.services.config.paster.zoom_anchor,
+            self.viewport.cursor_pos,
             old_size.width as f32,
             old_size.height as f32,
         );
@@ -475,11 +472,11 @@ pub(crate) fn apply_window_scale_resize(state: &mut PasterWindowState, window: &
     let mut new_h = (base_h * scale).max(20.0);
 
     if state.chrome.show_toolbar {
-        // 工具条度量以 state.ui_scale 为准：首次在 HiDPI 屏上打开工具条时，
+        // 工具条度量以 state.viewport.ui_scale 为准：首次在 HiDPI 屏上打开工具条时，
         // toolbar.ui_scale 可能仍是初始的 1.0，先同步避免按过期倍率扩容不足。
-        state.interaction.toolbar.ui_scale = state.ui_scale.max(0.1);
+        state.interaction.toolbar.ui_scale = state.viewport.ui_scale.max(0.1);
         let (req_w, req_h) = toolbar_required_extent(
-            state.ui_scale,
+            state.viewport.ui_scale,
             state.interaction.toolbar.main_width(),
             state.interaction.toolbar.main_height(),
         );

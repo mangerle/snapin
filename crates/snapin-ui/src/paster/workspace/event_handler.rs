@@ -88,7 +88,7 @@ pub(crate) fn handle_workspace_user_event(
 fn reload_config(new_config: Config, runtime: &mut WorkspaceRuntime) {
     runtime.cfg = Arc::new(new_config);
     for inst in runtime.instances.values_mut() {
-        inst.state.config = runtime.cfg.clone();
+        inst.state.services.config = runtime.cfg.clone();
     }
     tracing::info!("集中贴图工作区已完成全局配置热更新");
 }

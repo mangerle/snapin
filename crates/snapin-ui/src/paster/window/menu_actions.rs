@@ -66,10 +66,10 @@ pub fn copy_paster_to_clipboard(state: &mut PasterWindowState) -> bool {
     let Some(image) = paster_image(state, "复制") else {
         return false;
     };
-    match state.desktop.write_image_clipboard(&image) {
+    match state.services.desktop.write_image_clipboard(&image) {
         Ok(()) => {
             state.set_status_message("已复制图像到剪贴板");
-            state.desktop.notify_copy("贴图图像已复制到剪贴板");
+            state.services.desktop.notify_copy("贴图图像已复制到剪贴板");
             true
         }
         Err(error) => {
@@ -99,7 +99,7 @@ fn submit_paster_save(state: &mut PasterWindowState, as_dialog: bool, open_folde
         state.set_status_message("请等待当前任务完成");
         return;
     }
-    let Some(runtime) = state.job_runtime.clone() else {
+    let Some(runtime) = state.services.job_runtime.clone() else {
         state.set_status_message("后台任务媒体执行器不可用");
         return;
     };
@@ -130,7 +130,10 @@ fn submit_paster_save(state: &mut PasterWindowState, as_dialog: bool, open_folde
 pub fn open_paster_in_folder(state: &mut PasterWindowState) {
     if let Some(ref path) = state.file_path {
         if let Some(parent) = path.parent() {
-            state.desktop.open_in_file_manager(parent.to_path_buf());
+            state
+                .services
+                .desktop
+                .open_in_file_manager(parent.to_path_buf());
         }
         return;
     }
@@ -139,7 +142,7 @@ pub fn open_paster_in_folder(state: &mut PasterWindowState) {
 
 /// 从剪贴板替换或更新当前贴图内容。
 pub fn paste_from_clipboard_to_paster(state: &mut PasterWindowState, window: &Window) {
-    if let Some(img) = state.desktop.read_clipboard_image() {
+    if let Some(img) = state.services.desktop.read_clipboard_image() {
         if let Some(mut pixmap) = Pixmap::new(img.width(), img.height()) {
             pixmap.data_mut().copy_from_slice(img.as_raw());
             state.replace_pixmap(pixmap, window);
@@ -147,7 +150,7 @@ pub fn paste_from_clipboard_to_paster(state: &mut PasterWindowState, window: &Wi
         }
     }
 
-    if let Some(text) = state.desktop.read_clipboard_text() {
+    if let Some(text) = state.services.desktop.read_clipboard_text() {
         let pixmap = if let Some((r, g, b)) = crate::paster::try_parse_hex_color(&text) {
             crate::paster::render_color_swatch_card(r, g, b)
         } else {

@@ -72,10 +72,10 @@ pub fn handle_paster_cursor_move(
     pos: (f64, f64),
     window_size: (f32, f32),
 ) -> bool {
-    state.cursor_pos = (pos.0 as f32, pos.1 as f32);
+    state.viewport.cursor_pos = (pos.0 as f32, pos.1 as f32);
 
     if state.interaction.is_drawing {
-        return state.update_stroke(state.cursor_pos);
+        return state.update_stroke(state.viewport.cursor_pos);
     }
 
     let toolbar_hover_changed = if state.chrome.show_toolbar {
@@ -83,7 +83,7 @@ pub fn handle_paster_cursor_move(
         state
             .interaction
             .toolbar
-            .handle_mouse_move(state.cursor_pos.0, state.cursor_pos.1)
+            .handle_mouse_move(state.viewport.cursor_pos.0, state.viewport.cursor_pos.1)
     } else {
         false
     };
@@ -92,8 +92,8 @@ pub fn handle_paster_cursor_move(
         let items =
             ContextMenuState::build_main_items(state.chrome.show_toolbar, state.chrome.has_shadow);
         state.interaction.context_menu.handle_mouse_move(
-            state.cursor_pos.0,
-            state.cursor_pos.1,
+            state.viewport.cursor_pos.0,
+            state.viewport.cursor_pos.1,
             &items,
             state.chrome.smooth_scaling,
         )
@@ -144,7 +144,10 @@ pub fn handle_paster_mouse_button(
             state.interaction.pending_stroke_points.clear();
             state.interaction.is_drawing = false;
 
-            state.interaction.context_menu.set_ui_scale(state.ui_scale);
+            state
+                .interaction
+                .context_menu
+                .set_ui_scale(state.viewport.ui_scale);
             state.interaction.context_menu.is_open = true;
             apply_window_scale_resize(state, window);
 
@@ -154,8 +157,8 @@ pub fn handle_paster_mouse_button(
                 state.chrome.has_shadow,
             );
             state.interaction.context_menu.open_at(
-                state.cursor_pos.0,
-                state.cursor_pos.1,
+                state.viewport.cursor_pos.0,
+                state.viewport.cursor_pos.1,
                 win_size.width as f32,
                 win_size.height as f32,
                 &main_items,
@@ -177,8 +180,8 @@ fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
         let main_items =
             ContextMenuState::build_main_items(state.chrome.show_toolbar, state.chrome.has_shadow);
         let action = state.interaction.context_menu.handle_click(
-            state.cursor_pos.0,
-            state.cursor_pos.1,
+            state.viewport.cursor_pos.0,
+            state.viewport.cursor_pos.1,
             &main_items,
             state.chrome.smooth_scaling,
         );
@@ -203,16 +206,16 @@ fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
 
     // 文字工具在图像内按下时开启 IME 输入会话，而不是走拖拽笔迹路径
     if state.interaction.toolbar.active_tool == Some(Tool::Text)
-        && state.screen_point_inside_image(state.cursor_pos)
+        && state.screen_point_inside_image(state.viewport.cursor_pos)
     {
-        return state.begin_text_session(state.cursor_pos);
+        return state.begin_text_session(state.viewport.cursor_pos);
     }
 
     // 有激活工具且按下点在贴图图像内：开始一笔，不触发窗口拖动与双击动作
     if state.interaction.toolbar.active_tool.is_some()
-        && state.screen_point_inside_image(state.cursor_pos)
+        && state.screen_point_inside_image(state.viewport.cursor_pos)
     {
-        state.begin_stroke(state.cursor_pos);
+        state.begin_stroke(state.viewport.cursor_pos);
         return true;
     }
 
@@ -220,7 +223,7 @@ fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
     if let Some(prev) = state.interaction.last_click_time {
         if now.duration_since(prev).as_millis() < 300 {
             state.interaction.last_click_time = None;
-            match state.config.paster.double_click_action {
+            match state.services.config.paster.double_click_action {
                 DoubleClickAction::CopyAndClose => {
                     if copy_paster_to_clipboard(state) {
                         state.should_close = true;
@@ -246,7 +249,7 @@ fn handle_left_release(state: &mut PasterWindowState) -> bool {
     if !state.interaction.is_drawing {
         return false;
     }
-    state.update_stroke(state.cursor_pos);
+    state.update_stroke(state.viewport.cursor_pos);
     state.commit_pending_stroke();
     // 即使空笔迹被丢弃也要重绘一次，确保画布上的拖拽预览被清掉
     true
