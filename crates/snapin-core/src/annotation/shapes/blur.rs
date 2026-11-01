@@ -6,7 +6,21 @@
 use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect, SizeParam};
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use tiny_skia::PixmapMut;
+
+/// 模糊绘制复用缓冲，避免每次撤销/重做都分配四份区域大小的像素内存。
+#[derive(Default)]
+struct BlurScratch {
+    region: Vec<u8>,
+    blurred: Vec<u8>,
+    current: Vec<u8>,
+    scratch: Vec<u8>,
+}
+
+thread_local! {
+    static BLUR_SCRATCH: RefCell<BlurScratch> = RefCell::new(BlurScratch::default());
+}
 
 /// 局部模糊动作
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -33,24 +47,40 @@ impl BlurAction {
         let radius = self.radius.clamp(1, 50) as usize;
         let pixmap_width = pixmap.width() as usize;
         let row_bytes = width * 4;
-        let mut region = Vec::with_capacity(row_bytes * height);
-        {
-            let data = pixmap.data_mut();
-            for y in top..bottom {
-                let start = (y * pixmap_width + left) * 4;
-                region.extend_from_slice(&data[start..start + row_bytes]);
+        let region_len = row_bytes * height;
+
+        BLUR_SCRATCH.with(|cell| {
+            let mut scratch = cell.borrow_mut();
+            let BlurScratch {
+                region,
+                blurred,
+                current,
+                scratch: work,
+            } = &mut *scratch;
+
+            region.clear();
+            region.resize(region_len, 0);
+            {
+                let data = pixmap.data_mut();
+                for (row, y) in (top..bottom).enumerate() {
+                    let start = (y * pixmap_width + left) * 4;
+                    let target = row * row_bytes;
+                    region[target..target + row_bytes]
+                        .copy_from_slice(&data[start..start + row_bytes]);
+                }
             }
-        }
 
-        let mut blurred = vec![0u8; region.len()];
-        box_blur_rgba(&region, &mut blurred, width, height, radius);
+            blurred.clear();
+            blurred.resize(region_len, 0);
+            box_blur_rgba_with_scratch(region, blurred, width, height, radius, current, work);
 
-        let data = pixmap.data_mut();
-        for (row, y) in (top..bottom).enumerate() {
-            let start = (y * pixmap_width + left) * 4;
-            data[start..start + row_bytes]
-                .copy_from_slice(&blurred[row * row_bytes..(row + 1) * row_bytes]);
-        }
+            let data = pixmap.data_mut();
+            for (row, y) in (top..bottom).enumerate() {
+                let start = (y * pixmap_width + left) * 4;
+                data[start..start + row_bytes]
+                    .copy_from_slice(&blurred[row * row_bytes..(row + 1) * row_bytes]);
+            }
+        });
     }
 
     pub(crate) fn adjust_size(&mut self, param: SizeParam) {
@@ -73,21 +103,31 @@ impl BlurAction {
     }
 }
 
-/// 对 RGBA 缓冲区执行两轮水平/垂直盒式模糊。
-fn box_blur_rgba(src: &[u8], dst: &mut [u8], width: usize, height: usize, radius: usize) {
+/// 使用调用方提供的缓冲执行盒式模糊，避免高频重放时反复分配。
+fn box_blur_rgba_with_scratch(
+    src: &[u8],
+    dst: &mut [u8],
+    width: usize,
+    height: usize,
+    radius: usize,
+    current: &mut Vec<u8>,
+    scratch: &mut Vec<u8>,
+) {
     debug_assert_eq!(src.len(), dst.len());
     if radius == 0 || width == 0 || height == 0 {
         dst.copy_from_slice(src);
         return;
     }
 
-    let mut current = src.to_vec();
-    let mut scratch = vec![0u8; src.len()];
+    current.clear();
+    current.extend_from_slice(src);
+    scratch.clear();
+    scratch.resize(src.len(), 0);
     for _ in 0..2 {
-        blur_pass(&current, &mut scratch, width, height, radius, true);
-        blur_pass(&scratch, &mut current, width, height, radius, false);
+        blur_pass(current, scratch, width, height, radius, true);
+        blur_pass(scratch, current, width, height, radius, false);
     }
-    dst.copy_from_slice(&current);
+    dst.copy_from_slice(current);
 }
 
 /// 单方向盒式模糊；`horizontal` 为 false 时按列处理。
@@ -187,7 +227,9 @@ mod tests {
         src[center + 2] = 0;
 
         let mut dst = vec![0u8; src.len()];
-        box_blur_rgba(&src, &mut dst, width, height, 2);
+        let mut current = Vec::new();
+        let mut scratch = Vec::new();
+        box_blur_rgba_with_scratch(&src, &mut dst, width, height, 2, &mut current, &mut scratch);
 
         assert!(
             dst[center] < 255,
