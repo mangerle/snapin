@@ -7,14 +7,41 @@
 use snapin_runtime::{TaskPool, TaskRuntime};
 use std::ffi::{OsStr, OsString};
 use std::process::Stdio;
+use std::time::Duration;
+
+/// 单个外部系统命令的最长等待时间，超时后强制终止，防止挂死进程永久占用任务名额。
+const SYSTEM_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// 停用 systemd 用户服务以防系统重启守活。
-pub fn stop_systemd_service() {
+///
+/// 该调用位于异步退出路径，必须使用 tokio 进程并设置超时；超时后强杀
+/// `systemctl` 本身，避免退出流程被系统总线卡住。
+pub async fn stop_systemd_service() {
     #[cfg(target_os = "linux")]
     {
-        let _ = std::process::Command::new("systemctl")
+        let spawned = tokio::process::Command::new("systemctl")
             .args(["--user", "stop", "snapin"])
-            .output();
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn();
+        match spawned {
+            Ok(mut child) => {
+                match tokio::time::timeout(Duration::from_secs(15), child.wait()).await {
+                    Ok(Ok(status)) if status.success() => {}
+                    Ok(Ok(status)) => {
+                        tracing::warn!("停止 systemd 用户服务返回非零状态: {status}");
+                    }
+                    Ok(Err(error)) => tracing::warn!("等待 systemd 停止命令失败: {error}"),
+                    Err(_) => {
+                        tracing::warn!("等待 systemd 停止命令超时，强制终止");
+                        let _ = child.kill().await;
+                    }
+                }
+            }
+            Err(error) => tracing::warn!("无法执行 systemctl --user stop snapin: {error}"),
+        }
     }
 }
 
@@ -43,13 +70,29 @@ pub fn spawn_detached_system_command<P: AsRef<OsStr>>(program: &str, args: &[P])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
+            .kill_on_drop(true)
             .spawn();
         match spawned {
-            Ok(mut child) => {
-                if let Err(error) = child.wait().await {
+            Ok(mut child) => match tokio::time::timeout(SYSTEM_COMMAND_TIMEOUT, child.wait()).await
+            {
+                Ok(Ok(status)) => {
+                    if !status.success() {
+                        tracing::warn!("系统子进程退出码非零 [{program}]，状态: {status}");
+                    }
+                }
+                Ok(Err(error)) => {
                     tracing::warn!("等待系统子进程退出失败 [{program}]: {error}");
                 }
-            }
+                Err(_) => {
+                    tracing::warn!(
+                        "系统子进程等待超时（{} 秒），强制终止 [{program}]",
+                        SYSTEM_COMMAND_TIMEOUT.as_secs()
+                    );
+                    if let Err(error) = child.kill().await {
+                        tracing::warn!("强制终止系统子进程失败 [{program}]: {error}");
+                    }
+                }
+            },
             Err(error) => tracing::warn!("派生后台系统子进程失败 [{program}]: {error}"),
         }
     }) {

@@ -14,7 +14,7 @@ pub async fn exit_snapin_application() -> Result<()> {
     tracing::info!("正在停止 Snapin 后台服务...");
 
     // 1. 停止 systemd 用户服务以防被系统重启守活
-    stop_systemd_service();
+    stop_systemd_service().await;
 
     // 2. 异步通过 IPC 请求守护进程平滑停机（守护进程退出时 SNI 托盘自动析构）
     if let Err(e) = send_request_to_daemon(&DaemonRequest::Shutdown).await {
