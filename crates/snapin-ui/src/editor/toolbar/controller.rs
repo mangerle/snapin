@@ -9,7 +9,7 @@ use super::layout::{
     calculate_main_layout, calculate_sub_layout, SubControl, SubDropdown, SubLayout,
 };
 use super::metrics;
-use super::{Toolbar, ToolbarItem};
+use super::{Tool, Toolbar, ToolbarAction, ToolbarItem};
 use crate::geometry::Rect;
 use snapin_core::annotation::{ArrowStyle, BadgeStyle, LineStyle};
 
@@ -172,7 +172,7 @@ impl Toolbar {
     }
 
     /// 切换当前工具并收敛下拉菜单状态
-    fn set_active_tool(&mut self, tool: Option<ToolbarItem>) {
+    fn set_active_tool(&mut self, tool: Option<Tool>) {
         if self.active_tool != tool {
             self.open_dropdown = None;
             self.dropdown_hover = None;
@@ -241,8 +241,11 @@ impl Toolbar {
         }
     }
 
-    /// 点击项目切换工具、调整样式或触发动作
-    pub fn handle_click(&mut self, px: f32, py: f32) -> Option<ToolbarItem> {
+    /// 点击项目切换工具、调整样式或返回一次性动作。
+    ///
+    /// 工具点击只更新 `active_tool` 并返回 `None`；动作点击不改变激活工具，
+    /// 返回 [`ToolbarAction`] 交由宿主派发，避免把“保持激活”与“执行一次”混为一谈。
+    pub fn handle_click(&mut self, px: f32, py: f32) -> Option<ToolbarAction> {
         // 1. 下拉菜单优先：命中选项行直接应用；点在面板空白处吞掉；点在面板外则先收起再继续
         let dropdown_row = self
             .sub_layout
@@ -268,39 +271,24 @@ impl Toolbar {
         // 2. 主栏按钮
         if let Some(item) = self.hit_test_main(px, py) {
             match item {
-                ToolbarItem::ToolRect => {
+                ToolbarItem::Tool(Tool::Rect) => {
                     // 形状按钮只做开合：点击选中矩形（默认形状），再点取消。
                     // 椭圆是同一个工具的第二形态，只能从二级属性栏显式选择——
                     // 旧实现在此循环"矩形→椭圆→关闭"，导致用户想点开选项时反而被切成椭圆。
-                    let shape_active = matches!(
-                        self.active_tool,
-                        Some(ToolbarItem::ToolRect | ToolbarItem::ToolEllipse)
-                    );
-                    self.set_active_tool(if shape_active {
-                        None
-                    } else {
-                        Some(ToolbarItem::ToolRect)
-                    });
-                    return self.active_tool;
+                    let shape_active = matches!(self.active_tool, Some(Tool::Rect | Tool::Ellipse));
+                    self.set_active_tool(if shape_active { None } else { Some(Tool::Rect) });
+                    return None;
                 }
-                ToolbarItem::ToolEllipse
-                | ToolbarItem::ToolArrow
-                | ToolbarItem::ToolPen
-                | ToolbarItem::ToolMarker
-                | ToolbarItem::ToolText
-                | ToolbarItem::ToolBadge
-                | ToolbarItem::ToolMosaic
-                | ToolbarItem::ToolBlur
-                | ToolbarItem::ToolSpotlight => {
-                    let next = if self.active_tool == Some(item) {
+                ToolbarItem::Tool(tool) => {
+                    let next = if self.active_tool == Some(tool) {
                         None
                     } else {
-                        Some(item)
+                        Some(tool)
                     };
                     self.set_active_tool(next);
-                    return self.active_tool;
+                    return None;
                 }
-                action => return Some(action),
+                ToolbarItem::Action(action) => return Some(action),
             }
         }
 
@@ -310,8 +298,8 @@ impl Toolbar {
             .as_ref()
             .and_then(|layout| layout.hit(px, py));
         match control {
-            Some(SubControl::ShapeRect) => self.set_active_tool(Some(ToolbarItem::ToolRect)),
-            Some(SubControl::ShapeEllipse) => self.set_active_tool(Some(ToolbarItem::ToolEllipse)),
+            Some(SubControl::ShapeRect) => self.set_active_tool(Some(Tool::Rect)),
+            Some(SubControl::ShapeEllipse) => self.set_active_tool(Some(Tool::Ellipse)),
             Some(SubControl::Stroke(level)) => {
                 self.sub_options.stroke_width = level;
                 self.sub_options.custom_stroke_width = level.to_pixel();

@@ -3,9 +3,7 @@
 //! 主栏根据选区与屏幕边界自适应定位；二级栏按当前工具的可用选项生成控件序列，
 //! 控件坐标只在此处计算一次，渲染与命中测试共用同一份结果，避免两处各写一套坐标而漂移。
 
-use crate::editor::toolbar::items::{
-    preset_colors, StrokeWidthLevel, ToolbarItem, CORNER_RADIUS_PRESETS,
-};
+use crate::editor::toolbar::items::{preset_colors, StrokeWidthLevel, Tool, CORNER_RADIUS_PRESETS};
 use crate::editor::toolbar::metrics::{button_size, padding};
 use crate::geometry::Rect;
 
@@ -162,7 +160,7 @@ impl EntryCursor<'_> {
 /// 每种工具只暴露与之相关的选项：几何形状提供矩形/椭圆、线型、填充与圆角；
 /// 序号提供底板样式；其余画笔类工具只保留线宽与颜色。
 fn build_entries(
-    active_tool: ToolbarItem,
+    active_tool: Tool,
     origin_x: f32,
     center_y: f32,
     s: f32,
@@ -175,10 +173,7 @@ fn build_entries(
         scale: s,
     };
 
-    let is_geo = matches!(
-        active_tool,
-        ToolbarItem::ToolRect | ToolbarItem::ToolEllipse
-    );
+    let is_geo = matches!(active_tool, Tool::Rect | Tool::Ellipse);
     if is_geo {
         cursor.push(Some(SubControl::ShapeRect), 26.0 * s);
         cursor.push(Some(SubControl::ShapeEllipse), 26.0 * s);
@@ -197,24 +192,24 @@ fn build_entries(
         cursor.push(None, 16.0 * s);
         cursor.push(Some(SubControl::LineStyle), 52.0 * s);
         cursor.push(Some(SubControl::FillToggle), 28.0 * s);
-        if active_tool == ToolbarItem::ToolRect {
+        if active_tool == Tool::Rect {
             cursor.push(Some(SubControl::CornerRadius), 44.0 * s);
         }
     }
 
-    if active_tool == ToolbarItem::ToolBadge {
+    if active_tool == Tool::Badge {
         cursor.push(None, 16.0 * s);
         cursor.push(Some(SubControl::BadgeStyle), 44.0 * s);
     }
 
-    if active_tool == ToolbarItem::ToolArrow {
+    if active_tool == Tool::Arrow {
         cursor.push(None, 16.0 * s);
         cursor.push(Some(SubControl::ArrowStyle), 52.0 * s);
     }
 
     cursor.push(None, 16.0 * s);
     // 模糊工具只使用粗细档位调节半径，颜色与模糊无关。
-    if active_tool != ToolbarItem::ToolBlur {
+    if active_tool != Tool::Blur {
         for (index, _) in preset_colors().iter().enumerate() {
             cursor.push(Some(SubControl::Color(index)), 26.0 * s);
         }
@@ -227,7 +222,7 @@ fn build_entries(
 /// 计算二级属性栏及其下拉菜单布局
 pub(crate) fn calculate_sub_layout(
     main_rect: &Rect,
-    active_tool: Option<ToolbarItem>,
+    active_tool: Option<Tool>,
     open_dropdown: Option<SubDropdown>,
     screen_w: f32,
     screen_h: f32,
@@ -238,7 +233,7 @@ pub(crate) fn calculate_sub_layout(
         return None;
     }
     // 聚光灯没有可调参数，不显示空的二级属性栏。
-    if active_tool == ToolbarItem::ToolSpotlight {
+    if active_tool == Tool::Spotlight {
         return None;
     }
 
@@ -361,15 +356,8 @@ mod tests {
     fn test_sub_controls_follow_active_tool() {
         let main = main_rect();
 
-        let rect_layout = calculate_sub_layout(
-            &main,
-            Some(ToolbarItem::ToolRect),
-            None,
-            1920.0,
-            1080.0,
-            1.0,
-        )
-        .expect("矩形工具应生成二级栏");
+        let rect_layout = calculate_sub_layout(&main, Some(Tool::Rect), None, 1920.0, 1080.0, 1.0)
+            .expect("矩形工具应生成二级栏");
         assert!(rect_layout
             .entries
             .iter()
@@ -379,29 +367,17 @@ mod tests {
             .iter()
             .any(|e| e.control == Some(SubControl::FillToggle)));
 
-        let ellipse_layout = calculate_sub_layout(
-            &main,
-            Some(ToolbarItem::ToolEllipse),
-            None,
-            1920.0,
-            1080.0,
-            1.0,
-        )
-        .expect("椭圆工具应生成二级栏");
+        let ellipse_layout =
+            calculate_sub_layout(&main, Some(Tool::Ellipse), None, 1920.0, 1080.0, 1.0)
+                .expect("椭圆工具应生成二级栏");
         assert!(!ellipse_layout
             .entries
             .iter()
             .any(|e| e.control == Some(SubControl::CornerRadius)));
 
-        let badge_layout = calculate_sub_layout(
-            &main,
-            Some(ToolbarItem::ToolBadge),
-            None,
-            1920.0,
-            1080.0,
-            1.0,
-        )
-        .expect("序号工具应生成二级栏");
+        let badge_layout =
+            calculate_sub_layout(&main, Some(Tool::Badge), None, 1920.0, 1080.0, 1.0)
+                .expect("序号工具应生成二级栏");
         assert!(badge_layout
             .entries
             .iter()
@@ -415,15 +391,9 @@ mod tests {
     /// 控件热区必须落在面板内且互不重叠，面板宽度应覆盖到最后一个控件
     #[test]
     fn test_sub_layout_hit_areas_are_inside_panel_and_disjoint() {
-        let layout = calculate_sub_layout(
-            &main_rect(),
-            Some(ToolbarItem::ToolRect),
-            None,
-            1920.0,
-            1080.0,
-            1.0,
-        )
-        .expect("应生成二级栏");
+        let layout =
+            calculate_sub_layout(&main_rect(), Some(Tool::Rect), None, 1920.0, 1080.0, 1.0)
+                .expect("应生成二级栏");
 
         let interactive: Vec<&Rect> = layout
             .entries
@@ -456,7 +426,7 @@ mod tests {
     fn test_dropdown_rows_stay_inside_panel() {
         let layout = calculate_sub_layout(
             &main_rect(),
-            Some(ToolbarItem::ToolRect),
+            Some(Tool::Rect),
             Some(SubDropdown::Line),
             1920.0,
             1080.0,

@@ -6,7 +6,7 @@ pub mod tools;
 
 pub use primitives::{add_round_rect, make_paint};
 
-use super::items::ToolbarItem;
+use super::items::{Tool, ToolbarAction, ToolbarItem};
 use crate::geometry::Rect;
 use tiny_skia::{Color, PixmapMut, Stroke};
 
@@ -29,32 +29,60 @@ pub fn render_item_icon(
     };
 
     match item {
-        ToolbarItem::ToolRect => tools::render_icon_rect(pixmap, cx, cy, s, &paint, &stroke),
-        ToolbarItem::ToolArrow => {
+        ToolbarItem::Tool(Tool::Rect) => {
+            tools::render_icon_rect(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Tool(Tool::Arrow) => {
             tools::render_icon_arrow(pixmap, cx, cy, s, active_color, &paint, &stroke)
         }
-        ToolbarItem::ToolPen => tools::render_icon_pen(pixmap, cx, cy, s, &paint, &stroke),
-        ToolbarItem::ToolMarker => tools::render_icon_marker(pixmap, cx, cy, s, &paint, &stroke),
-        ToolbarItem::ToolMosaic => tools::render_icon_mosaic(pixmap, cx, cy, s, &paint, &stroke),
-        ToolbarItem::ToolBlur => tools::render_icon_blur(pixmap, cx, cy, s, &paint, &stroke),
-        ToolbarItem::ToolSpotlight => {
+        ToolbarItem::Tool(Tool::Pen) => tools::render_icon_pen(pixmap, cx, cy, s, &paint, &stroke),
+        ToolbarItem::Tool(Tool::Marker) => {
+            tools::render_icon_marker(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Tool(Tool::Mosaic) => {
+            tools::render_icon_mosaic(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Tool(Tool::Blur) => {
+            tools::render_icon_blur(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Tool(Tool::Spotlight) => {
             tools::render_icon_spotlight(pixmap, cx, cy, s, &paint, &stroke)
         }
-        ToolbarItem::ToolText => tools::render_icon_text(pixmap, cx, cy, s, &paint, &stroke),
-        ToolbarItem::ToolBadge => tools::render_icon_badge(pixmap, cx, cy, s, &paint, &stroke),
-        ToolbarItem::ActionUndo => actions::render_icon_undo(pixmap, cx, cy, s, &paint, &stroke),
-        ToolbarItem::ActionRedo => actions::render_icon_redo(pixmap, cx, cy, s, &paint, &stroke),
-        ToolbarItem::ActionClose => actions::render_icon_close(pixmap, cx, cy, s, &paint, &stroke),
-        ToolbarItem::ActionPin => actions::render_icon_pin(pixmap, cx, cy, s, &paint, &stroke),
-        ToolbarItem::ActionSave => actions::render_icon_save(pixmap, cx, cy, s, &paint, &stroke),
-        ToolbarItem::ActionCopy => actions::render_icon_copy(pixmap, cx, cy, s, &paint, &stroke),
-        ToolbarItem::ActionOcr => actions::render_icon_ocr(pixmap, cx, cy, s, &paint, &stroke),
-        ToolbarItem::ActionTranslate => {
+        ToolbarItem::Tool(Tool::Text) => {
+            tools::render_icon_text(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Tool(Tool::Badge) => {
+            tools::render_icon_badge(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Action(ToolbarAction::Undo) => {
+            actions::render_icon_undo(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Action(ToolbarAction::Redo) => {
+            actions::render_icon_redo(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Action(ToolbarAction::Close) => {
+            actions::render_icon_close(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Action(ToolbarAction::Pin) => {
+            actions::render_icon_pin(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Action(ToolbarAction::Save) => {
+            actions::render_icon_save(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Action(ToolbarAction::Copy) => {
+            actions::render_icon_copy(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Action(ToolbarAction::Ocr) => {
+            actions::render_icon_ocr(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Action(ToolbarAction::Translate) => {
             actions::render_icon_translate(pixmap, cx, cy, s, &paint, &stroke)
         }
-        ToolbarItem::ActionMouseThrough => {
+        ToolbarItem::Action(ToolbarAction::MouseThrough) => {
             actions::render_icon_mouse_through(pixmap, cx, cy, s, &paint, &stroke)
         }
-        ToolbarItem::ToolEllipse => tools::render_icon_ellipse(pixmap, cx, cy, s, &paint, &stroke),
+        ToolbarItem::Tool(Tool::Ellipse) => {
+            tools::render_icon_ellipse(pixmap, cx, cy, s, &paint, &stroke)
+        }
     }
 }

@@ -2,7 +2,7 @@
 
 use crate::editor::annotation_builder::{build_shape, AnnotationDraftParams};
 use crate::editor::text_input::TextInputSession;
-use crate::editor::toolbar::{Toolbar, ToolbarItem};
+use crate::editor::toolbar::{Tool, Toolbar};
 use crate::model::PasterItem;
 use crate::paster::context_menu::ContextMenuState;
 use crate::paster::window::annotation::{
@@ -320,7 +320,7 @@ impl PasterWindowState {
 
         let point = self.image_point(screen_pos);
         match tool {
-            ToolbarItem::ToolPen | ToolbarItem::ToolMarker => {
+            Tool::Pen | Tool::Marker => {
                 if self.pending_stroke_points.last() != Some(&point) {
                     self.pending_stroke_points.push(point);
                 }

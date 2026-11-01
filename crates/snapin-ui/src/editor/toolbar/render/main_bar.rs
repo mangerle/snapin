@@ -1,7 +1,7 @@
 //! 主工具栏与拖动手柄绘制。
 
 use super::super::icons::{make_paint, render_item_icon};
-use super::super::items::ToolbarItem;
+use super::super::items::{Tool, ToolbarAction, ToolbarItem};
 use super::super::metrics::{
     button_size, divider_width, drag_handle_width, has_separator_before, padding, spacing,
 };
@@ -56,12 +56,12 @@ pub(super) fn render_main_buttons(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
             height: btn_size,
         };
 
-        let is_geometric_slot = item == ToolbarItem::ToolRect;
+        let is_geometric_slot = item == ToolbarItem::Tool(Tool::Rect);
         let is_active = if is_geometric_slot {
-            toolbar.active_tool == Some(ToolbarItem::ToolRect)
-                || toolbar.active_tool == Some(ToolbarItem::ToolEllipse)
+            matches!(toolbar.active_tool, Some(Tool::Rect | Tool::Ellipse))
         } else {
-            toolbar.active_tool == Some(item)
+            item.as_tool()
+                .is_some_and(|tool| toolbar.active_tool == Some(tool))
         };
         let is_hovered = toolbar.hovered_item == Some(item);
 
@@ -70,17 +70,16 @@ pub(super) fn render_main_buttons(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
             render_active_bottom_bar(pixmap, &btn_rect, s);
         } else if is_hovered {
             fill_button_highlight(pixmap, &btn_rect, Color::from_rgba8(0, 0, 0, 16), s);
-            if item == ToolbarItem::ActionSave {
+            if item == ToolbarItem::Action(ToolbarAction::Save) {
                 render_active_bottom_bar(pixmap, &btn_rect, s);
             }
         }
 
-        let display_item =
-            if is_geometric_slot && toolbar.active_tool == Some(ToolbarItem::ToolEllipse) {
-                ToolbarItem::ToolEllipse
-            } else {
-                item
-            };
+        let display_item = if is_geometric_slot && toolbar.active_tool == Some(Tool::Ellipse) {
+            ToolbarItem::Tool(Tool::Ellipse)
+        } else {
+            item
+        };
 
         render_item_icon(
             pixmap,

@@ -8,7 +8,7 @@
 use super::annotation::image_to_screen_point;
 use super::state::PasterWindowState;
 use crate::editor::text_input::TextInputSession;
-use crate::editor::toolbar::ToolbarItem;
+use crate::editor::toolbar::Tool;
 use tiny_skia::{Color, Pixmap};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::keyboard::{Key, NamedKey};
@@ -25,7 +25,7 @@ impl PasterWindowState {
     /// 若已有会话，会先按常规路径提交（空文本自动丢弃），再在新位置开启；
     /// 坐标在这里一次性换算为图像像素，后续 IME 事件与渲染都不再重复换算。
     pub(crate) fn begin_text_session(&mut self, screen_pos: (f32, f32)) -> bool {
-        if self.toolbar.active_tool != Some(ToolbarItem::ToolText) {
+        if self.toolbar.active_tool != Some(Tool::Text) {
             return false;
         }
         if !self.screen_point_inside_image(screen_pos) {
@@ -184,7 +184,7 @@ mod tests {
         let pixmap = Pixmap::new(width, height).expect("创建测试位图失败");
         let item = PasterItem::new(1, "测试贴图".to_string(), pixmap, (0, 0));
         let mut state = PasterWindowState::new(item);
-        state.toolbar.active_tool = Some(ToolbarItem::ToolText);
+        state.toolbar.active_tool = Some(Tool::Text);
         state
     }
 

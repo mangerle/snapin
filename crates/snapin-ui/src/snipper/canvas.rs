@@ -3,7 +3,7 @@
 //! 基于 tiny-skia 实现全屏暗色遮罩、选区镂空聚焦、8 手柄线框以及像素放大镜复合渲染。
 
 use crate::editor::text_input::TextInputSession;
-use crate::editor::toolbar::{Toolbar, ToolbarItem};
+use crate::editor::toolbar::{Tool, Toolbar};
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::window::annotation_builder::{render_draft_preview, AnnotationDraftParams};
@@ -15,7 +15,7 @@ use tiny_skia::{
 };
 
 /// 正在拉伸绘制中的待提交标注笔触元数据 (工具类型, 轨迹点集合, 预设色值)
-pub type PendingStroke<'a> = (&'a ToolbarItem, &'a [(f32, f32)], u32);
+pub type PendingStroke<'a> = (&'a Tool, &'a [(f32, f32)], u32);
 
 /// 选中标注的编辑框信息
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -377,7 +377,7 @@ impl<'a> SnipperCanvas<'a> {
         &self,
         pixmap: &mut PixmapMut,
         toolbar: &Toolbar,
-        tool: &ToolbarItem,
+        tool: &Tool,
         pts: &[(f32, f32)],
         badge_num: u32,
     ) {

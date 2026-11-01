@@ -6,7 +6,9 @@ pub mod selection;
 pub mod window;
 pub mod window_rect;
 
-pub use crate::editor::toolbar::{StrokeWidthLevel, SubToolOptions, Toolbar, ToolbarItem};
+pub use crate::editor::toolbar::{
+    StrokeWidthLevel, SubToolOptions, Tool, Toolbar, ToolbarAction, ToolbarItem,
+};
 pub use canvas::SnipperCanvas;
 pub use magnifier::{ColorFormat, Magnifier};
 pub use selection::{Rect, SelectionHistory, SelectionState};

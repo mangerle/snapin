@@ -1,6 +1,6 @@
 //! 可复用标注图元工厂与即时预览渲染。
 
-use crate::editor::toolbar::{Toolbar, ToolbarItem};
+use crate::editor::toolbar::{Tool, Toolbar};
 use crate::geometry::Rect;
 use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::{
@@ -12,7 +12,7 @@ use tiny_skia::{Paint, PixmapMut, Transform};
 
 /// 即时预览与提交时的几何与样式上下文参数
 pub struct AnnotationDraftParams<'a> {
-    pub tool: ToolbarItem,
+    pub tool: Tool,
     pub points: &'a [(f32, f32)],
     pub stroke_width: f32,
     pub color_rgba: (u8, u8, u8, u8),
@@ -29,14 +29,14 @@ impl<'a> AnnotationDraftParams<'a> {
     /// 从画布渲染即时上下文构建参数
     pub fn from_toolbar_and_points(
         toolbar: &Toolbar,
-        tool: ToolbarItem,
+        tool: Tool,
         points: &'a [(f32, f32)],
         badge_number: u32,
     ) -> Option<Self> {
         if points.is_empty() {
             return None;
         }
-        if tool != ToolbarItem::ToolBadge && points.len() < 2 {
+        if tool != Tool::Badge && points.len() < 2 {
             return None;
         }
 
@@ -74,7 +74,7 @@ pub fn render_draft_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapM
     let pts = params.points;
     match params.tool {
         // Pen/Marker 直接借用点集绘制，避免高频鼠标移动事件中的临时 Vec 分配。
-        ToolbarItem::ToolPen => {
+        Tool::Pen => {
             PenAction::draw_points_offset(
                 pts,
                 params.color_rgba,
@@ -84,7 +84,7 @@ pub fn render_draft_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapM
                 0.0,
             );
         }
-        ToolbarItem::ToolMarker => {
+        Tool::Marker => {
             MarkerAction::draw_points_offset(
                 pts,
                 (
@@ -100,7 +100,7 @@ pub fn render_draft_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapM
         }
         // 模糊在拖拽过程中只显示半透明占位框，避免每帧对选区做大面积卷积；
         // 提交后由图元重放执行一次真正的模糊。
-        ToolbarItem::ToolBlur => {
+        Tool::Blur => {
             draw_blur_placeholder(params, pixmap);
         }
         _ => {
@@ -128,7 +128,7 @@ fn draw_blur_placeholder(params: &AnnotationDraftParams, pixmap: &mut PixmapMut)
 pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
     let pts = params.points;
     match params.tool {
-        ToolbarItem::ToolRect => {
+        Tool::Rect => {
             let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
             Some(AnnotationShape::Rect(RectAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
@@ -139,7 +139,7 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
                 line_style: params.line_style,
             }))
         }
-        ToolbarItem::ToolEllipse => {
+        Tool::Ellipse => {
             let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
             Some(AnnotationShape::Ellipse(EllipseAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
@@ -149,19 +149,19 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
                 line_style: params.line_style,
             }))
         }
-        ToolbarItem::ToolArrow => Some(AnnotationShape::Arrow(ArrowAction {
+        Tool::Arrow => Some(AnnotationShape::Arrow(ArrowAction {
             start: pts[0],
             end: pts[pts.len() - 1],
             color: params.color_rgba,
             stroke_width: params.stroke_width,
             style: params.arrow_style,
         })),
-        ToolbarItem::ToolPen => Some(AnnotationShape::Pen(PenAction {
+        Tool::Pen => Some(AnnotationShape::Pen(PenAction {
             points: pts.to_vec(),
             color: params.color_rgba,
             stroke_width: params.stroke_width,
         })),
-        ToolbarItem::ToolMarker => Some(AnnotationShape::Marker(MarkerAction {
+        Tool::Marker => Some(AnnotationShape::Marker(MarkerAction {
             points: pts.to_vec(),
             color: (
                 params.color_rgba.0,
@@ -170,27 +170,27 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
             ),
             stroke_width: params.stroke_width * 2.0,
         })),
-        ToolbarItem::ToolMosaic => {
+        Tool::Mosaic => {
             let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
             Some(AnnotationShape::Mosaic(MosaicAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
                 cell_size: 10,
             }))
         }
-        ToolbarItem::ToolBlur => {
+        Tool::Blur => {
             let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
             Some(AnnotationShape::Blur(BlurAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
                 radius: (params.stroke_width * 2.0).clamp(4.0, 50.0) as u32,
             }))
         }
-        ToolbarItem::ToolSpotlight => {
+        Tool::Spotlight => {
             let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
             Some(AnnotationShape::Spotlight(SpotlightAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
             }))
         }
-        ToolbarItem::ToolBadge => {
+        Tool::Badge => {
             let center = pts[pts.len() - 1];
             let radius = (params.stroke_width * 3.0).clamp(10.0, 48.0) * params.ui_scale;
             Some(AnnotationShape::Badge(BadgeAction {

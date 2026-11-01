@@ -153,7 +153,7 @@ pub fn clear(state: &mut SnipperState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editor::toolbar::ToolbarItem;
+    use crate::editor::toolbar::Tool;
     use crate::snipper::selection::SelectionState;
     use snapin_core::annotation::shapes::RectAction;
     use snapin_core::annotation::LineStyle;
@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn test_active_tool_still_allows_annotation_editing() {
         let mut state = state_with_rect();
-        state.toolbar.active_tool = Some(ToolbarItem::ToolPen);
+        state.toolbar.active_tool = Some(Tool::Pen);
         assert!(handle_press(&mut state, 150.0, 150.0));
         assert_eq!(state.selected_annotation, Some(0));
         assert!(matches!(

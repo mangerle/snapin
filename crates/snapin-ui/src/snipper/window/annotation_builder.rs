@@ -5,7 +5,7 @@
 
 use super::events::SnipperState;
 pub use crate::editor::annotation_builder::AnnotationDraftParams;
-use crate::editor::toolbar::ToolbarItem;
+use crate::editor::toolbar::Tool;
 
 pub use crate::editor::annotation_builder::{build_shape, render_draft_preview};
 
@@ -17,7 +17,7 @@ impl<'a> AnnotationDraftParams<'a> {
         if points.is_empty() {
             return None;
         }
-        if tool != ToolbarItem::ToolBadge && points.len() < 2 {
+        if tool != Tool::Badge && points.len() < 2 {
             return None;
         }
 

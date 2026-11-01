@@ -5,7 +5,7 @@ pub use super::state::PasterWindowState;
 use super::annotation::{handle_toolbar_click, refresh_toolbar_layout};
 use super::menu_actions::{copy_paster_to_clipboard, dispatch_menu_action, save_paster_to_disk};
 use super::state::apply_window_scale_resize;
-use crate::editor::toolbar::ToolbarItem;
+use crate::editor::toolbar::Tool;
 use crate::paster::context_menu::ContextMenuState;
 use snapin_core::config::DoubleClickAction;
 use std::time::Instant;
@@ -197,7 +197,7 @@ fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
     }
 
     // 文字工具在图像内按下时开启 IME 输入会话，而不是走拖拽笔迹路径
-    if state.toolbar.active_tool == Some(ToolbarItem::ToolText)
+    if state.toolbar.active_tool == Some(Tool::Text)
         && state.screen_point_inside_image(state.cursor_pos)
     {
         return state.begin_text_session(state.cursor_pos);

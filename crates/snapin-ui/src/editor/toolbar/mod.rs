@@ -15,7 +15,9 @@ pub mod render;
 #[cfg(test)]
 mod tests;
 
-pub use items::{preset_colors, StrokeWidthLevel, SubToolOptions, ToolbarItem};
+pub use items::{
+    preset_colors, StrokeWidthLevel, SubToolOptions, Tool, ToolbarAction, ToolbarItem,
+};
 
 use crate::geometry::Rect;
 pub(crate) use layout::SubControl;
@@ -33,7 +35,7 @@ pub struct Toolbar {
     /// 使用 `&'static` 切片是为了让工具栏保持轻量可克隆，且按钮序列在运行期恒定不变。
     pub main_items: &'static [ToolbarItem],
     /// 当前处于激活状态的标注工具 (None 表示未进入标注模式)
-    pub active_tool: Option<ToolbarItem>,
+    pub active_tool: Option<Tool>,
     /// 当前鼠标悬停的项目
     pub hovered_item: Option<ToolbarItem>,
     /// 二级属性
@@ -90,22 +92,22 @@ impl Default for Toolbar {
 impl Toolbar {
     /// 主工具列表定义 (严格对齐经典工具栏规范)
     pub const MAIN_ITEMS: &'static [ToolbarItem] = &[
-        ToolbarItem::ToolRect,        // 0: 几何形状 (矩形+椭圆)
-        ToolbarItem::ToolBadge,       // 1: 序号步骤印章 (圆圈数字1)
-        ToolbarItem::ToolArrow,       // 2: 折线箭头 (带颜色指示圆点)
-        ToolbarItem::ToolPen,         // 3: 铅笔画笔
-        ToolbarItem::ToolMarker,      // 4: 荧光记号笔
-        ToolbarItem::ToolMosaic,      // 5: 黑白四宫格马赛克
-        ToolbarItem::ToolBlur,        // 6: 局部模糊
-        ToolbarItem::ToolSpotlight,   // 7: 聚光灯遮罩
-        ToolbarItem::ToolText,        // 8: 文字 T
-        ToolbarItem::ActionUndo,      // 9: 撤销 (前置分隔线 1)
-        ToolbarItem::ActionRedo,      // 10: 重做
-        ToolbarItem::ActionOcr,       // 11: OCR 扫描提取纯文本
-        ToolbarItem::ActionTranslate, // 12: 截图原位翻译
-        ToolbarItem::ActionClose,     // 13: 关闭取消 X (前置分隔线 2)
-        ToolbarItem::ActionPin,       // 14: 贴图置顶 (图钉)
-        ToolbarItem::ActionSave,      // 15: 保存文件 (软盘)
-        ToolbarItem::ActionCopy,      // 16: 复制到剪贴板 (双重叠矩形)
+        ToolbarItem::Tool(Tool::Rect),            // 0: 几何形状 (矩形+椭圆)
+        ToolbarItem::Tool(Tool::Badge),           // 1: 序号步骤印章 (圆圈数字1)
+        ToolbarItem::Tool(Tool::Arrow),           // 2: 折线箭头 (带颜色指示圆点)
+        ToolbarItem::Tool(Tool::Pen),             // 3: 铅笔画笔
+        ToolbarItem::Tool(Tool::Marker),          // 4: 荧光记号笔
+        ToolbarItem::Tool(Tool::Mosaic),          // 5: 黑白四宫格马赛克
+        ToolbarItem::Tool(Tool::Blur),            // 6: 局部模糊
+        ToolbarItem::Tool(Tool::Spotlight),       // 7: 聚光灯遮罩
+        ToolbarItem::Tool(Tool::Text),            // 8: 文字 T
+        ToolbarItem::Action(ToolbarAction::Undo), // 9: 撤销 (前置分隔线 1)
+        ToolbarItem::Action(ToolbarAction::Redo), // 10: 重做
+        ToolbarItem::Action(ToolbarAction::Ocr),  // 11: OCR 扫描提取纯文本
+        ToolbarItem::Action(ToolbarAction::Translate), // 12: 截图原位翻译
+        ToolbarItem::Action(ToolbarAction::Close), // 13: 关闭取消 X (前置分隔线 2)
+        ToolbarItem::Action(ToolbarAction::Pin),  // 14: 贴图置顶 (图钉)
+        ToolbarItem::Action(ToolbarAction::Save), // 15: 保存文件 (软盘)
+        ToolbarItem::Action(ToolbarAction::Copy), // 16: 复制到剪贴板 (双重叠矩形)
     ];
 }

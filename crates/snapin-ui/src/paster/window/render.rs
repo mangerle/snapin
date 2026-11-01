@@ -2,7 +2,7 @@
 
 use super::events::PasterWindowState;
 use crate::editor::annotation_builder::{render_draft_preview, AnnotationDraftParams};
-use crate::editor::toolbar::ToolbarItem;
+use crate::editor::toolbar::Tool;
 use crate::error::UiError;
 use crate::paster::context_menu::render::render_context_menu;
 use crate::paster::surface::PasterSurface;
@@ -161,7 +161,7 @@ fn render_pending_annotation_preview(state: &PasterWindowState, target: &mut Pix
     ) else {
         return;
     };
-    if tool == ToolbarItem::ToolBadge {
+    if tool == Tool::Badge {
         params.ui_scale *= scale;
     } else {
         params.stroke_width *= scale;

@@ -9,7 +9,7 @@ use super::widgets::{
     fill_button_highlight, fill_circle, render_arrow_preview, render_badge_style_icon,
     render_corner_radius_icon, render_divider, stroke_circle, stroke_sample,
 };
-use crate::editor::toolbar::items::ToolbarItem;
+use crate::editor::toolbar::items::Tool;
 use crate::geometry::Rect;
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
@@ -28,14 +28,14 @@ pub(super) fn render_sub_options(toolbar: &Toolbar, pixmap: &mut PixmapMut, rect
         match entry.control {
             None => render_divider(pixmap, entry.rect.x + 8.0 * s, rect.y + 8.0 * s, s),
             Some(SubControl::ShapeRect) => {
-                let active = toolbar.active_tool == Some(ToolbarItem::ToolRect);
+                let active = toolbar.active_tool == Some(Tool::Rect);
                 if active {
                     fill_button_highlight(pixmap, &entry.rect, highlight, s);
                 }
                 render_sub_shape_rect(pixmap, entry.rect.x + 12.0 * s, center_y, s, active);
             }
             Some(SubControl::ShapeEllipse) => {
-                let active = toolbar.active_tool == Some(ToolbarItem::ToolEllipse);
+                let active = toolbar.active_tool == Some(Tool::Ellipse);
                 if active {
                     fill_button_highlight(pixmap, &entry.rect, highlight, s);
                 }

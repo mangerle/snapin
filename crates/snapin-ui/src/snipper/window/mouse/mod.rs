@@ -6,7 +6,7 @@ use super::annotation_builder::commit_annotation;
 use super::events::{commit_active_text_input, handle_escape, SnipperState};
 use super::state::window_at;
 use super::types::SnipMode;
-use crate::editor::toolbar::{StrokeWidthLevel, SubControl, ToolbarItem};
+use crate::editor::toolbar::{StrokeWidthLevel, SubControl, Tool};
 use crate::snipper::selection::{DragMode, Rect, SelectionState};
 use image::RgbaImage;
 use toolbar_action::{dispatch_toolbar_action, handle_text_tool_click};
@@ -56,7 +56,7 @@ pub fn handle_cursor_move(
                 let py = cy.clamp(rect.y, rect.y + rect.height);
                 let tool = state.toolbar.active_tool;
                 match tool {
-                    Some(ToolbarItem::ToolPen) | Some(ToolbarItem::ToolMarker) => {
+                    Some(Tool::Pen) | Some(Tool::Marker) => {
                         state.pending_stroke_points.push((px, py));
                     }
                     _ => {
@@ -85,22 +85,19 @@ pub fn handle_cursor_move(
 /// 按住 Shift 时的等比约束：矩形/椭圆取正方形，箭头吸附到 45° 的整数倍方向。
 ///
 /// 起点保持不变，终点随约束移动；矩形取两次位移中较大的边长，保证拖拽方向与用户意图一致。
-fn constrain_with_shift(tool: ToolbarItem, start: (f32, f32), current: (f32, f32)) -> (f32, f32) {
+fn constrain_with_shift(tool: Tool, start: (f32, f32), current: (f32, f32)) -> (f32, f32) {
     let (x0, y0) = start;
     let (mut x, mut y) = current;
     let dx = x - x0;
     let dy = y - y0;
 
     match tool {
-        ToolbarItem::ToolRect
-        | ToolbarItem::ToolEllipse
-        | ToolbarItem::ToolBlur
-        | ToolbarItem::ToolSpotlight => {
+        Tool::Rect | Tool::Ellipse | Tool::Blur | Tool::Spotlight => {
             let side = dx.abs().max(dy.abs());
             x = x0 + side * dx.signum();
             y = y0 + side * dy.signum();
         }
-        ToolbarItem::ToolArrow => {
+        Tool::Arrow => {
             let length = (dx * dx + dy * dy).sqrt();
             if length > 0.5 {
                 let step = std::f32::consts::FRAC_PI_4;
@@ -200,7 +197,7 @@ fn handle_locked_press(
         return true;
     }
 
-    if state.toolbar.active_tool == Some(ToolbarItem::ToolText) {
+    if state.toolbar.active_tool == Some(Tool::Text) {
         return handle_text_tool_click(state, cx, cy);
     }
 
@@ -369,7 +366,7 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
     }
 
     // 矩形工具下，光标悬停在圆角控件上时，滚轮改为连续调节圆角半径
-    let over_corner_radius = state.toolbar.active_tool == Some(ToolbarItem::ToolRect)
+    let over_corner_radius = state.toolbar.active_tool == Some(Tool::Rect)
         && state
             .toolbar
             .sub_layout()
@@ -385,8 +382,8 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
         return true;
     }
 
-    let is_text_mode = state.toolbar.active_tool == Some(ToolbarItem::ToolText)
-        || state.active_text_input.is_some();
+    let is_text_mode =
+        state.toolbar.active_tool == Some(Tool::Text) || state.active_text_input.is_some();
 
     if is_text_mode {
         let step = if delta_y > 0.0 { 2.0 } else { -2.0 };

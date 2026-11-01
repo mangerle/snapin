@@ -2,7 +2,7 @@
 //!
 //! 布局计算、命中测试与光栅化渲染共用同一组常量，避免三处硬编码漂移。
 
-use super::items::ToolbarItem;
+use super::items::{ToolbarAction, ToolbarItem};
 
 /// 按钮边长
 pub(crate) fn button_size(scale: f32) -> f32 {
@@ -38,7 +38,10 @@ pub(crate) fn has_separator_before(items: &[ToolbarItem], index: usize) -> bool 
     index > 0
         && matches!(
             items.get(index),
-            Some(ToolbarItem::ActionUndo | ToolbarItem::ActionClose)
+            Some(
+                ToolbarItem::Action(ToolbarAction::Undo)
+                    | ToolbarItem::Action(ToolbarAction::Close)
+            )
         )
 }
 
@@ -48,7 +51,12 @@ fn separator_count(items: &[ToolbarItem]) -> usize {
         .iter()
         .enumerate()
         .filter(|(index, item)| {
-            *index > 0 && matches!(item, ToolbarItem::ActionUndo | ToolbarItem::ActionClose)
+            *index > 0
+                && matches!(
+                    item,
+                    ToolbarItem::Action(ToolbarAction::Undo)
+                        | ToolbarItem::Action(ToolbarAction::Close)
+                )
         })
         .count()
 }

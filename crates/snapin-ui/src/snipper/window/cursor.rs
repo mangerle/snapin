@@ -162,7 +162,7 @@ mod tests {
             },
             active_drag: None,
         };
-        state.toolbar.active_tool = Some(crate::editor::toolbar::ToolbarItem::ToolRect);
+        state.toolbar.active_tool = Some(crate::editor::toolbar::Tool::Rect);
         assert_eq!(desired_cursor_icon(&state), CursorIcon::Crosshair);
     }
 

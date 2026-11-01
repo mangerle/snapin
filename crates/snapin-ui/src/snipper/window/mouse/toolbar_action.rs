@@ -4,44 +4,46 @@ use super::super::actions::{handle_action_copy, handle_action_pin, handle_action
 use super::super::events::{commit_active_text_input, SnipperState};
 use super::super::types::SnipperOutcome;
 use crate::editor::text_input::TextInputSession;
-use crate::editor::toolbar::ToolbarItem;
+use crate::editor::toolbar::ToolbarAction;
 use crate::snipper::selection::SelectionState;
 use image::RgbaImage;
 
-/// 执行工具栏动作派发
+/// 执行工具栏一次性动作；返回是否需要重绘。
+///
+/// `MouseThrough` 只属于贴图窗口工具栏，截图侧收到时按无操作处理。
 pub fn dispatch_toolbar_action(
     state: &mut SnipperState,
-    item: ToolbarItem,
+    action: ToolbarAction,
     original_rgba: &RgbaImage,
 ) -> bool {
-    match item {
-        ToolbarItem::ActionUndo => state.annotations.undo(),
-        ToolbarItem::ActionRedo => state.annotations.redo(),
-        ToolbarItem::ActionCopy => {
+    match action {
+        ToolbarAction::Undo => state.annotations.undo(),
+        ToolbarAction::MouseThrough => true,
+        ToolbarAction::Redo => state.annotations.redo(),
+        ToolbarAction::Copy => {
             handle_action_copy(state, original_rgba);
             true
         }
-        ToolbarItem::ActionSave => {
+        ToolbarAction::Save => {
             handle_action_save(state, original_rgba);
             true
         }
-        ToolbarItem::ActionPin => {
+        ToolbarAction::Pin => {
             handle_action_pin(state, original_rgba);
             true
         }
-        ToolbarItem::ActionOcr => {
+        ToolbarAction::Ocr => {
             super::super::actions::handle_action_ocr(state, original_rgba);
             true
         }
-        ToolbarItem::ActionTranslate => {
+        ToolbarAction::Translate => {
             super::super::actions::handle_action_translate(state, original_rgba);
             true
         }
-        ToolbarItem::ActionClose => {
+        ToolbarAction::Close => {
             state.outcome = Some(SnipperOutcome::Cancelled);
             true
         }
-        _ => true,
     }
 }
 

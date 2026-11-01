@@ -3,47 +3,81 @@
 use snapin_core::annotation::{ArrowStyle, BadgeStyle, LineStyle};
 use tiny_skia::Color;
 
-/// 工具栏主按钮动作与工具定义
+/// 可激活的标注工具。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tool {
+    /// 矩形或椭圆标注
+    Rect,
+    /// 椭圆标注
+    Ellipse,
+    /// 箭头标注
+    Arrow,
+    /// 自由画笔
+    Pen,
+    /// 荧光记号笔
+    Marker,
+    /// 文本输入
+    Text,
+    /// 步骤数字序号气泡
+    Badge,
+    /// 马赛克打码
+    Mosaic,
+    /// 局部高斯模糊遮挡
+    Blur,
+    /// 聚光灯遮罩
+    Spotlight,
+}
+
+/// 工具栏一次性命令动作。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolbarAction {
+    /// 撤销上一步
+    Undo,
+    /// 重做
+    Redo,
+    /// OCR 文字识别并复制到剪贴板
+    Ocr,
+    /// 截图原位翻译
+    Translate,
+    /// 切换贴图鼠标穿透（仅贴图工具栏使用）
+    MouseThrough,
+    /// 贴图置顶到屏幕 (F3)
+    Pin,
+    /// 复制到剪贴板并退出
+    Copy,
+    /// 保存为图片文件
+    Save,
+    /// 取消并关闭截图
+    Close,
+}
+
+/// 工具栏主按钮：工具激活与一次性动作在类型层面分离。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolbarItem {
-    /// 矩形标注
-    ToolRect,
-    /// 椭圆与圆形标注
-    ToolEllipse,
-    /// 箭头标注
-    ToolArrow,
-    /// 自由画笔
-    ToolPen,
-    /// 荧光记号笔
-    ToolMarker,
-    /// 文本输入
-    ToolText,
-    /// 步骤数字序号气泡
-    ToolBadge,
-    /// 马赛克打码
-    ToolMosaic,
-    /// 局部高斯模糊遮挡
-    ToolBlur,
-    /// 聚光灯遮罩
-    ToolSpotlight,
-    /// 撤销上一步
-    ActionUndo,
-    /// 重做
-    ActionRedo,
-    /// OCR 文字识别并复制到剪贴板
-    ActionOcr,
-    /// 截图原位翻译
-    ActionTranslate,
-    /// 切换贴图鼠标穿透（仅贴图工具栏使用）
-    ActionMouseThrough,
-    /// 贴图置顶到屏幕 (F3)
-    ActionPin,
-    /// 复制到剪贴板并退出
-    ActionCopy,
-    /// 保存为图片文件
-    ActionSave,
-    /// 取消并关闭截图
-    ActionClose,
+    /// 可保持激活状态的标注工具
+    Tool(Tool),
+    /// 点击即执行的命令动作
+    Action(ToolbarAction),
+}
+
+impl ToolbarItem {
+    /// 构造工具按钮。
+    pub const fn tool(tool: Tool) -> Self {
+        Self::Tool(tool)
+    }
+
+    /// 构造动作按钮。
+    pub const fn action(action: ToolbarAction) -> Self {
+        Self::Action(action)
+    }
+
+    /// 提取工具；动作按钮返回 `None`。
+    pub const fn as_tool(self) -> Option<Tool> {
+        match self {
+            Self::Tool(tool) => Some(tool),
+            Self::Action(_) => None,
+        }
+    }
 }
 
 /// 笔刷粗细预设档位
@@ -127,4 +161,39 @@ pub fn preset_colors() -> [Color; 6] {
         Color::from_rgba8(255, 255, 255, 255), // 白
         Color::from_rgba8(24, 24, 27, 255),    // 黑
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 工具只在点击后保持激活，动作只执行一次，二者不得混用同一语义。
+    #[test]
+    fn test_toolbar_item_separates_tools_and_actions() {
+        let tool = ToolbarItem::tool(Tool::Pen);
+        assert_eq!(tool.as_tool(), Some(Tool::Pen));
+        assert_eq!(
+            ToolbarItem::tool(Tool::Ellipse).as_tool(),
+            Some(Tool::Ellipse)
+        );
+
+        let action = ToolbarItem::action(ToolbarAction::Undo);
+        assert_eq!(action.as_tool(), None);
+        assert_eq!(ToolbarItem::action(ToolbarAction::Close).as_tool(), None);
+    }
+
+    /// 主栏必须同时包含可激活工具与一次性动作，且动作不会成为激活态。
+    #[test]
+    fn test_main_items_contain_both_tools_and_actions() {
+        let tool_count = crate::editor::toolbar::Toolbar::MAIN_ITEMS
+            .iter()
+            .filter(|item| item.as_tool().is_some())
+            .count();
+        let action_count = crate::editor::toolbar::Toolbar::MAIN_ITEMS
+            .iter()
+            .filter(|item| matches!(item, ToolbarItem::Action(_)))
+            .count();
+        assert_eq!(tool_count, 9);
+        assert_eq!(action_count, 8);
+    }
 }

@@ -9,4 +9,4 @@ pub mod text_input;
 pub mod toolbar;
 
 pub use text_input::TextInputSession;
-pub use toolbar::{Toolbar, ToolbarItem};
+pub use toolbar::{Tool, Toolbar, ToolbarAction, ToolbarItem};

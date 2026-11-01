@@ -6,7 +6,7 @@
 use super::jobs::pixmap_to_rgba_image;
 use super::menu_actions::{copy_paster_to_clipboard, save_paster_to_disk};
 use super::state::PasterWindowState;
-use crate::editor::toolbar::{Toolbar, ToolbarItem};
+use crate::editor::toolbar::{Tool, Toolbar, ToolbarAction, ToolbarItem};
 use winit::window::Window;
 
 /// 贴图窗口主栏按钮序列：绘制工具、撤销/重做、整图识别/翻译与贴图动作。
@@ -18,23 +18,23 @@ use winit::window::Window;
 ///
 /// [`TextInputSession`]: crate::editor::text_input::TextInputSession
 pub const PASTER_MAIN_ITEMS: &[ToolbarItem] = &[
-    ToolbarItem::ToolRect,
-    ToolbarItem::ToolBadge,
-    ToolbarItem::ToolArrow,
-    ToolbarItem::ToolPen,
-    ToolbarItem::ToolMarker,
-    ToolbarItem::ToolMosaic,
-    ToolbarItem::ToolBlur,
-    ToolbarItem::ToolSpotlight,
-    ToolbarItem::ToolText,
-    ToolbarItem::ActionUndo,
-    ToolbarItem::ActionRedo,
-    ToolbarItem::ActionOcr,
-    ToolbarItem::ActionTranslate,
-    ToolbarItem::ActionMouseThrough,
-    ToolbarItem::ActionClose,
-    ToolbarItem::ActionSave,
-    ToolbarItem::ActionCopy,
+    ToolbarItem::Tool(Tool::Rect),
+    ToolbarItem::Tool(Tool::Badge),
+    ToolbarItem::Tool(Tool::Arrow),
+    ToolbarItem::Tool(Tool::Pen),
+    ToolbarItem::Tool(Tool::Marker),
+    ToolbarItem::Tool(Tool::Mosaic),
+    ToolbarItem::Tool(Tool::Blur),
+    ToolbarItem::Tool(Tool::Spotlight),
+    ToolbarItem::Tool(Tool::Text),
+    ToolbarItem::Action(ToolbarAction::Undo),
+    ToolbarItem::Action(ToolbarAction::Redo),
+    ToolbarItem::Action(ToolbarAction::Ocr),
+    ToolbarItem::Action(ToolbarAction::Translate),
+    ToolbarItem::Action(ToolbarAction::MouseThrough),
+    ToolbarItem::Action(ToolbarAction::Close),
+    ToolbarItem::Action(ToolbarAction::Save),
+    ToolbarItem::Action(ToolbarAction::Copy),
 ];
 
 /// 几何工具属性栏的保守预留宽度（界面像素）。
@@ -161,23 +161,23 @@ pub(crate) fn handle_toolbar_click(
 
     if let Some(item) = state.toolbar.handle_click(cx, cy) {
         match item {
-            ToolbarItem::ActionUndo => {
+            ToolbarAction::Undo => {
                 state.undo_annotation();
             }
-            ToolbarItem::ActionRedo => {
+            ToolbarAction::Redo => {
                 state.redo_annotation();
             }
-            ToolbarItem::ActionOcr => submit_paster_ocr(state),
-            ToolbarItem::ActionTranslate => submit_paster_translate(state),
-            ToolbarItem::ActionMouseThrough => {
+            ToolbarAction::Ocr => submit_paster_ocr(state),
+            ToolbarAction::Translate => submit_paster_translate(state),
+            ToolbarAction::MouseThrough => {
                 state.set_mouse_through(!state.mouse_through, window);
             }
-            ToolbarItem::ActionCopy => {
+            ToolbarAction::Copy => {
                 copy_paster_to_clipboard(state);
             }
-            ToolbarItem::ActionSave => save_paster_to_disk(state),
-            ToolbarItem::ActionClose => state.should_close = true,
-            _ => {}
+            ToolbarAction::Save => save_paster_to_disk(state),
+            ToolbarAction::Close => state.should_close = true,
+            ToolbarAction::Pin => {}
         }
     }
     true
@@ -260,7 +260,7 @@ mod tests {
         end: (f32, f32),
         color: Color,
     ) -> AnnotationShape {
-        state.toolbar.active_tool = Some(ToolbarItem::ToolRect);
+        state.toolbar.active_tool = Some(Tool::Rect);
         state.toolbar.sub_options.filled = true;
         state.toolbar.sub_options.color = color;
         state.pending_stroke_points.clear();
@@ -337,7 +337,7 @@ mod tests {
         let mut state = test_state(100, 80);
         let original = state.item.pixmap.data().to_vec();
 
-        state.toolbar.active_tool = Some(ToolbarItem::ToolPen);
+        state.toolbar.active_tool = Some(Tool::Pen);
         state.toolbar.sub_options.custom_stroke_width = 4.0;
         assert!(state.begin_stroke((10.0, 10.0)));
         assert!(state.update_stroke((80.0, 60.0)));
@@ -409,57 +409,69 @@ mod tests {
     #[test]
     fn 贴图主栏包含动作按钮且排除截图专属项() {
         let expected = [
-            ToolbarItem::ToolRect,
-            ToolbarItem::ToolBadge,
-            ToolbarItem::ToolArrow,
-            ToolbarItem::ToolPen,
-            ToolbarItem::ToolMarker,
-            ToolbarItem::ToolMosaic,
-            ToolbarItem::ToolBlur,
-            ToolbarItem::ToolSpotlight,
-            ToolbarItem::ToolText,
-            ToolbarItem::ActionUndo,
-            ToolbarItem::ActionRedo,
-            ToolbarItem::ActionOcr,
-            ToolbarItem::ActionTranslate,
-            ToolbarItem::ActionMouseThrough,
-            ToolbarItem::ActionClose,
-            ToolbarItem::ActionSave,
-            ToolbarItem::ActionCopy,
+            ToolbarItem::Tool(Tool::Rect),
+            ToolbarItem::Tool(Tool::Badge),
+            ToolbarItem::Tool(Tool::Arrow),
+            ToolbarItem::Tool(Tool::Pen),
+            ToolbarItem::Tool(Tool::Marker),
+            ToolbarItem::Tool(Tool::Mosaic),
+            ToolbarItem::Tool(Tool::Blur),
+            ToolbarItem::Tool(Tool::Spotlight),
+            ToolbarItem::Tool(Tool::Text),
+            ToolbarItem::Action(ToolbarAction::Undo),
+            ToolbarItem::Action(ToolbarAction::Redo),
+            ToolbarItem::Action(ToolbarAction::Ocr),
+            ToolbarItem::Action(ToolbarAction::Translate),
+            ToolbarItem::Action(ToolbarAction::MouseThrough),
+            ToolbarItem::Action(ToolbarAction::Close),
+            ToolbarItem::Action(ToolbarAction::Save),
+            ToolbarItem::Action(ToolbarAction::Copy),
         ];
         assert_eq!(PASTER_MAIN_ITEMS, &expected);
         assert!(
-            PASTER_MAIN_ITEMS
-                .windows(2)
-                .any(|pair| { pair == [ToolbarItem::ToolSpotlight, ToolbarItem::ToolText] }),
+            PASTER_MAIN_ITEMS.windows(2).any(|pair| {
+                pair == [
+                    ToolbarItem::Tool(Tool::Spotlight),
+                    ToolbarItem::Tool(Tool::Text),
+                ]
+            }),
             "文字工具必须紧跟效果工具"
         );
         assert!(
-            PASTER_MAIN_ITEMS
-                .windows(2)
-                .any(|pair| { pair == [ToolbarItem::ToolText, ToolbarItem::ActionUndo] }),
+            PASTER_MAIN_ITEMS.windows(2).any(|pair| {
+                pair == [
+                    ToolbarItem::Tool(Tool::Text),
+                    ToolbarItem::Action(ToolbarAction::Undo),
+                ]
+            }),
             "文字工具必须位于撤销按钮之前"
         );
         assert!(
-            PASTER_MAIN_ITEMS
-                .windows(2)
-                .any(|pair| { pair == [ToolbarItem::ActionRedo, ToolbarItem::ActionOcr] }),
+            PASTER_MAIN_ITEMS.windows(2).any(|pair| {
+                pair == [
+                    ToolbarItem::Action(ToolbarAction::Redo),
+                    ToolbarItem::Action(ToolbarAction::Ocr),
+                ]
+            }),
             "文字识别按钮必须紧跟重做按钮"
         );
         assert!(
-            PASTER_MAIN_ITEMS
-                .windows(2)
-                .any(|pair| { pair == [ToolbarItem::ActionOcr, ToolbarItem::ActionTranslate] }),
+            PASTER_MAIN_ITEMS.windows(2).any(|pair| {
+                pair == [
+                    ToolbarItem::Action(ToolbarAction::Ocr),
+                    ToolbarItem::Action(ToolbarAction::Translate),
+                ]
+            }),
             "翻译按钮必须紧跟文字识别按钮"
         );
 
         for action in [
-            ToolbarItem::ActionOcr,
-            ToolbarItem::ActionTranslate,
-            ToolbarItem::ActionMouseThrough,
-            ToolbarItem::ActionClose,
-            ToolbarItem::ActionSave,
-            ToolbarItem::ActionCopy,
+            ToolbarItem::Action(ToolbarAction::Ocr),
+            ToolbarItem::Action(ToolbarAction::Translate),
+            ToolbarItem::Action(ToolbarAction::MouseThrough),
+            ToolbarItem::Action(ToolbarAction::Close),
+            ToolbarItem::Action(ToolbarAction::Save),
+            ToolbarItem::Action(ToolbarAction::Copy),
         ] {
             assert!(
                 PASTER_MAIN_ITEMS.contains(&action),
@@ -467,11 +479,11 @@ mod tests {
             );
         }
         assert!(
-            !PASTER_MAIN_ITEMS.contains(&ToolbarItem::ActionPin),
+            !PASTER_MAIN_ITEMS.contains(&ToolbarItem::Action(ToolbarAction::Pin)),
             "贴图窗口不应出现“贴图置顶”按钮"
         );
         assert!(
-            PASTER_MAIN_ITEMS.contains(&ToolbarItem::ToolText),
+            PASTER_MAIN_ITEMS.contains(&ToolbarItem::Tool(Tool::Text)),
             "贴图主栏必须提供文字标注工具"
         );
     }
@@ -573,7 +585,7 @@ mod tests {
         let mut state = test_state(140, 80);
         state.ui_scale = 1.0;
         state.show_toolbar = true;
-        state.toolbar.active_tool = Some(ToolbarItem::ToolRect);
+        state.toolbar.active_tool = Some(Tool::Rect);
 
         refresh_toolbar_layout(&mut state, 508.0, 180.0);
 

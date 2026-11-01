@@ -76,7 +76,7 @@ fn test_mouse_wheel_continuous_stroke_width_and_retroactive_adjust() {
 #[test]
 fn test_mouse_wheel_text_mode_font_size_adjust() {
     let mut state = SnipperState::new();
-    state.toolbar.active_tool = Some(ToolbarItem::ToolText);
+    state.toolbar.active_tool = Some(Tool::Text);
     let initial_sz = state.toolbar.sub_options.font_size;
 
     // 处于文字模式，向上滚字号增大 2.0
@@ -100,7 +100,7 @@ fn test_toolbar_click_does_not_create_annotation() {
         active_drag: None,
     };
     // 激活序号印章工具
-    state.toolbar.active_tool = Some(ToolbarItem::ToolBadge);
+    state.toolbar.active_tool = Some(Tool::Badge);
     state.toolbar.update_layout(&selection, 1920.0, 1080.0);
 
     let original = RgbaImage::new(1920, 1080);
@@ -193,32 +193,32 @@ fn test_hit_test_resize_handle_starts_resizing() {
 fn test_shift_constraint_shapes_and_arrow() {
     // 矩形：取较长边构成正方形，方向保持不变
     assert_eq!(
-        constrain_with_shift(ToolbarItem::ToolRect, (10.0, 10.0), (110.0, 50.0)),
+        constrain_with_shift(Tool::Rect, (10.0, 10.0), (110.0, 50.0)),
         (110.0, 110.0)
     );
     // 反向拖拽同样成立
     assert_eq!(
-        constrain_with_shift(ToolbarItem::ToolEllipse, (110.0, 110.0), (10.0, 50.0)),
+        constrain_with_shift(Tool::Ellipse, (110.0, 110.0), (10.0, 50.0)),
         (10.0, 10.0)
     );
     // 纯水平拖拽时纵向位移为 0，正负号无定义，约定向正方向展开成正方形
     assert_eq!(
-        constrain_with_shift(ToolbarItem::ToolRect, (0.0, 0.0), (80.0, 0.0)),
+        constrain_with_shift(Tool::Rect, (0.0, 0.0), (80.0, 0.0)),
         (80.0, 80.0)
     );
 
     // 箭头：接近水平的角度吸附到 0°
-    let (ax, ay) = constrain_with_shift(ToolbarItem::ToolArrow, (0.0, 0.0), (100.0, 8.0));
+    let (ax, ay) = constrain_with_shift(Tool::Arrow, (0.0, 0.0), (100.0, 8.0));
     assert!(ay.abs() < 0.01, "接近水平的箭头应吸附为水平，实际 y={ay}");
     assert!(ax > 99.0 && ax < 102.0, "长度应保持不变，实际 x={ax}");
 
     // 箭头：约 42° 吸附到 45°，两个分量应基本相等
-    let (bx, by) = constrain_with_shift(ToolbarItem::ToolArrow, (0.0, 0.0), (100.0, 90.0));
+    let (bx, by) = constrain_with_shift(Tool::Arrow, (0.0, 0.0), (100.0, 90.0));
     assert!((bx - by).abs() < 0.5, "应吸附到 45°，实际 ({bx}, {by})");
 
     // 非几何工具不受约束
     assert_eq!(
-        constrain_with_shift(ToolbarItem::ToolPen, (0.0, 0.0), (10.0, 30.0)),
+        constrain_with_shift(Tool::Pen, (0.0, 0.0), (10.0, 30.0)),
         (10.0, 30.0)
     );
 }
