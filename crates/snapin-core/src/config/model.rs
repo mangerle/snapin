@@ -101,15 +101,26 @@ impl Config {
 /// 历史默认模板曾包含 `.png`，而保存路径又追加当前格式扩展名，导致 `.png.png`
 /// 或 `.png.jpg`。此函数在配置边界一次性归一化，兼容用户手工保留扩展名的旧模板。
 pub fn normalize_file_name_template(template: &str) -> String {
-    let trimmed = template.trim();
-    let lower = trimmed.to_ascii_lowercase();
+    // 模板只能贡献单个文件名：同时剥离 POSIX/Windows 目录分隔符，防止 `../`
+    // 或绝对路径把保存位置带出用户选择的目录。
+    let candidate = template
+        .trim()
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or_default()
+        .trim();
+    if candidate.is_empty() || candidate == "." || candidate == ".." {
+        return String::new();
+    }
+
+    let lower = candidate.to_ascii_lowercase();
     for extension in ["png", "jpg", "jpeg", "webp"] {
         let suffix = format!(".{extension}");
         if lower.ends_with(&suffix) {
-            return trimmed[..trimmed.len().saturating_sub(suffix.len())].to_string();
+            return candidate[..candidate.len().saturating_sub(suffix.len())].to_string();
         }
     }
-    trimmed.to_string()
+    candidate.to_string()
 }
 
 #[cfg(test)]

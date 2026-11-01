@@ -1,18 +1,22 @@
 //! 路径与文件名时间模板解析辅助模块。
 
 use chrono::Local;
+use snapin_core::AppPaths;
 use std::path::PathBuf;
 
-/// 将路径中的 ~ 符号安全展开为真实用户主目录
+/// 将路径开头的 `~` 展开为真实用户主目录，兼容 Unix `/` 与 Windows `\` 分隔符。
 pub fn expand_home_dir(path_str: &str) -> PathBuf {
-    if let Some(stripped) = path_str.strip_prefix("~/") {
-        if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home).join(stripped);
-        }
-    } else if path_str == "~" {
-        if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home);
-        }
+    let Some(home) = AppPaths::home_dir() else {
+        return PathBuf::from(path_str);
+    };
+    if path_str == "~" {
+        return home;
+    }
+    if let Some(stripped) = path_str
+        .strip_prefix("~/")
+        .or_else(|| path_str.strip_prefix("~\\"))
+    {
+        return home.join(stripped);
     }
     PathBuf::from(path_str)
 }
@@ -42,10 +46,17 @@ mod tests {
 
     #[test]
     fn test_expand_home_dir() {
-        let orig = "~/Pictures/Screenshots";
-        let expanded = expand_home_dir(orig);
-        if let Ok(home) = std::env::var("HOME") {
-            assert!(expanded.starts_with(home));
-        }
+        let Some(home) = AppPaths::home_dir() else {
+            return;
+        };
+        assert_eq!(
+            expand_home_dir("~/Pictures/Screenshots"),
+            home.join("Pictures/Screenshots")
+        );
+        assert_eq!(
+            expand_home_dir(r"~\Pictures\Screenshots"),
+            home.join("Pictures\\Screenshots")
+        );
+        assert_eq!(expand_home_dir("~"), home);
     }
 }

@@ -16,7 +16,12 @@ pub fn resolve_save_path(cfg: &OutputConfig) -> PathBuf {
 
     let now = Local::now();
     let template = normalize_file_name_template(&cfg.file_name_template);
-    let file_name = format_template(&template, &now);
+    let rendered = format_template(&template, &now);
+    let file_name = std::path::Path::new(&rendered)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("Snapin");
     let ext = cfg.default_format.extension();
 
     let initial_path = base_dir.join(format!("{file_name}.{ext}"));
@@ -290,6 +295,24 @@ mod template_extension_tests {
         let img = RgbaImage::from_pixel(1, 1, Rgba([1, 2, 3, 255]));
         let saved = save_image_with_config(&img, &cfg).expect("应可保存图像");
         assert_eq!(saved.extension().and_then(|ext| ext.to_str()), Some("png"));
+    }
+
+    /// 模板中的路径分隔符不得把文件写出用户选择的保存目录。
+    #[test]
+    fn test_template_path_traversal_stays_inside_save_dir() {
+        let dir = tempdir().expect("应可创建临时目录");
+        let cfg = OutputConfig {
+            quick_save_dir: dir.path().to_string_lossy().to_string(),
+            file_name_template: "../../escape_{YYYY}".to_string(),
+            default_format: ImageFormat::Png,
+            ..OutputConfig::default()
+        };
+        let path = resolve_save_path(&cfg);
+        assert_eq!(path.parent(), Some(dir.path()));
+        assert!(path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("escape_")));
     }
 
     /// 模板扩展名与输出格式不一致时，应以输出格式为准。

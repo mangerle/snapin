@@ -122,6 +122,20 @@ impl AppPaths {
         Self::runtime_dir().join("snapin.sock")
     }
 
+    /// 获取当前用户主目录；Windows 优先 `USERPROFILE`，Unix/macOS 使用 `HOME`。
+    pub fn home_dir() -> Option<PathBuf> {
+        #[cfg(target_os = "windows")]
+        {
+            std::env::var_os("USERPROFILE")
+                .map(PathBuf::from)
+                .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            std::env::var_os("HOME").map(PathBuf::from)
+        }
+    }
+
     /// 获取用户图片默认保存目录：优先操作系统图片目录，兜底当前目录
     pub fn pictures_dir() -> PathBuf {
         #[cfg(target_os = "windows")]
