@@ -37,7 +37,7 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreE
             })?;
         }
 
-        let default_config = Config::default();
+        let default_config = Config::default().sanitized();
         save_config(&default_config, &target_path)?;
         tracing::info!("未检测到配置文件，已初始化默认配置至: {:?}", target_path);
         return Ok(default_config);
@@ -52,6 +52,7 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreE
         path: target_path.to_string_lossy().to_string(),
         source: e,
     })?;
+    let config = config.sanitized();
 
     tighten_config_permissions(&target_path);
     tracing::debug!("成功加载配置文件: {:?}", target_path);
@@ -80,7 +81,9 @@ fn tighten_config_permissions(path: &Path) {
 
 /// 将内存配置结构体持久化写入指定的 TOML 文件
 pub fn save_config(config: &Config, target_path: &Path) -> Result<(), CoreError> {
-    let toml_string = toml::to_string_pretty(config)?;
+    // 保存前再次收敛外部输入，保证 UI 手工输入与历史配置都不会把越界值写回磁盘。
+    let sanitized = config.clone().sanitized();
+    let toml_string = toml::to_string_pretty(&sanitized)?;
 
     if let Some(parent) = target_path.parent() {
         if !parent.exists() {
@@ -189,5 +192,55 @@ provider = "deepl"
             .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
             .collect();
         assert!(temp_files.is_empty(), "原子写入后不得遗留临时文件");
+    }
+}
+
+#[cfg(test)]
+mod sanitize_tests {
+    use super::*;
+
+    /// 越界的数值配置必须在加载边界收敛，避免进入渲染与编码路径后触发异常。
+    #[test]
+    fn test_sanitized_clamps_out_of_range_values() {
+        let mut config = Config::default();
+        config.general.update_check_interval_hours = 0;
+        config.interface.toolbar_scale = 0.0;
+        config.interface.magnifier_scale = 0;
+        config.snip.default_stroke_width = 0.0;
+        config.snip.default_font_size = 1000.0;
+        config.paster.initial_opacity = 5.0;
+        config.output.jpeg_quality = 200;
+        config.output.quick_save_dir = "   ".to_string();
+        config.output.file_name_template = String::new();
+        config.general.custom_update_url = Some("   ".to_string());
+
+        let config = config.sanitized();
+        assert_eq!(config.general.update_check_interval_hours, 1);
+        assert_eq!(config.interface.toolbar_scale, 0.5);
+        assert_eq!(config.interface.magnifier_scale, 1);
+        assert_eq!(config.snip.default_stroke_width, 1.0);
+        assert_eq!(config.snip.default_font_size, 96.0);
+        assert_eq!(config.paster.initial_opacity, 1.0);
+        assert_eq!(config.output.jpeg_quality, 100);
+        assert_eq!(config.output.quick_save_dir, "~/Pictures/Screenshots");
+        assert_eq!(
+            config.output.file_name_template,
+            "Snapin_{YYYY}{MM}{DD}_{HH}{mm}{ss}.png"
+        );
+        assert!(config.general.custom_update_url.is_none());
+    }
+
+    /// 非有限浮点值必须回退到安全默认值，不能把 NaN 传入 clamp 或布局计算。
+    #[test]
+    fn test_sanitized_replaces_non_finite_floats() {
+        let mut config = Config::default();
+        config.interface.toolbar_scale = f32::NAN;
+        config.snip.default_stroke_width = f32::INFINITY;
+        config.paster.initial_opacity = f32::NEG_INFINITY;
+
+        let config = config.sanitized();
+        assert_eq!(config.interface.toolbar_scale, 1.0);
+        assert_eq!(config.snip.default_stroke_width, 4.0);
+        assert_eq!(config.paster.initial_opacity, 1.0);
     }
 }
