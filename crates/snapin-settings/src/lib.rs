@@ -5,11 +5,13 @@
 
 slint::include_modules!();
 
+mod config_store;
 pub mod config_sync;
 pub mod mapping;
 pub mod shortcut;
 pub mod update_controller;
 
+use config_store::ConfigStore;
 use config_sync::{extract_config_from_window, sync_config_to_window};
 
 use slint::{ComponentHandle, SharedString};
@@ -22,7 +24,8 @@ use snapin_platform::{
 };
 use snapin_runtime::TaskRuntime;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
 
 /// 偏好设置模块领域错误
@@ -88,7 +91,7 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
     let runtime = settings_runtime()?;
     let cancel = runtime.cancellation_token();
     let config = config::load_or_create_config(None)?;
-    let config_arc = Arc::new(Mutex::new(config.clone()));
+    let config_store = Arc::new(ConfigStore::new(config.clone()));
 
     // 1. 同步初始配置到 Slint 界面并确保系统全局快捷键处于激活状态
     sync_config_to_window(&window, &config);
@@ -97,12 +100,12 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
     }
 
     // 2. 注册界面交互与保存回调
-    register_callbacks(&window, config_arc.clone(), runtime.clone());
+    register_callbacks(&window, config_store.clone(), runtime.clone());
     update_controller::register_update_callbacks(
         &window,
         runtime.clone(),
         cancel.clone(),
-        config_arc.clone(),
+        config_store.clone(),
     );
 
     let run_res = window
@@ -110,7 +113,13 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
         .map_err(|e| SettingsError::RuntimeFailed(e.to_string()));
     cancel.cancel();
 
-    // 3. 设置窗口退出后，从磁盘同步最新的有效全局快捷键
+    // 3. 等待在途保存任务收尾。保存与退出路径并发读写同一份 config.toml 时，
+    // 直接读盘可能读到旧值并把它重新同步到 GNOME 快捷键。
+    if !runtime.shutdown_blocking(Duration::from_secs(5)) {
+        tracing::warn!("设置中心退出时仍有后台任务未结束，已按超时继续收尾");
+    }
+
+    // 4. 设置窗口退出后，从磁盘同步最新的有效全局快捷键
     if let Ok(latest_cfg) = config::load_or_create_config(None) {
         if let Err(e) = sync_hotkeys_to_gnome(&latest_cfg.hotkeys) {
             tracing::warn!("退出设置中心恢复系统全局快捷键失败: {e}");
@@ -135,9 +144,9 @@ fn settings_runtime() -> Result<TaskRuntime, SettingsError> {
 }
 
 /// 注册界面操作按钮回调事件
-fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>, runtime: TaskRuntime) {
+fn register_callbacks(win: &SettingsWindow, config_store: Arc<ConfigStore>, runtime: TaskRuntime) {
     let win_weak = win.as_weak();
-    let cfg_clone = config_arc.clone();
+    let cfg_clone = config_store.clone();
     let saving = Arc::new(AtomicBool::new(false));
     win.on_save_and_apply(move || {
         let Some(window) = win_weak.upgrade() else {
@@ -147,14 +156,12 @@ fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>, runt
             window.set_status_message(SharedString::from("正在保存配置，请稍候..."));
             return;
         }
-        let Ok(guard) = cfg_clone.lock() else {
-            saving.store(false, Ordering::Release);
-            window.set_status_message(SharedString::from("保存失败: 配置状态锁异常"));
-            return;
-        };
-        let mut updated = guard.clone();
-        drop(guard);
+
+        // 始终以“最近一次成功保存”的快照为基底，再叠加界面字段。
+        // 这样 UI 未暴露的 custom_update_url 等字段不会被默认值或空值覆盖。
+        let mut updated = cfg_clone.snapshot();
         extract_config_from_window(&window, &mut updated);
+        let sanitized = updated.sanitized();
 
         let config_path = match config::get_default_config_path() {
             Ok(path) => path,
@@ -170,7 +177,7 @@ fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>, runt
         window.set_status_message(SharedString::from("正在保存配置并同步系统设置..."));
 
         let win_async = win_weak.clone();
-        let config_for_task = updated.clone();
+        let config_for_task = sanitized;
         let cfg_after = cfg_clone.clone();
         let saving_after = saving.clone();
         let spawn_result = runtime.spawn(async move {
@@ -196,9 +203,10 @@ fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>, runt
                 };
                 match result {
                     Ok(Ok((config, warnings))) => {
-                        if let Ok(mut guard) = cfg_after.lock() {
-                            *guard = config;
-                        }
+                        // 落盘成功后只提交一次新快照，并把收敛后的值回填界面，
+                        // 避免“磁盘已收敛、内存与界面仍是脏值”的三方漂移。
+                        cfg_after.commit(config.clone());
+                        sync_config_to_window(&window, &config);
                         notify_daemon_reload_config();
                         if warnings.is_empty() {
                             window.set_status_message(SharedString::from(
@@ -232,11 +240,9 @@ fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>, runt
     let win_weak2 = win.as_weak();
     win.on_restore_defaults(move || {
         if let Some(w) = win_weak2.upgrade() {
-            let default_cfg = Config::default();
-            sync_config_to_window(&w, &default_cfg);
-            if let Ok(mut cfg_guard) = config_arc.lock() {
-                *cfg_guard = default_cfg;
-            }
+            // 只改界面、不提前改内存快照；保存时仍以最近一次成功配置为基底，
+            // UI 未暴露的字段因此不会被默认值静默重置。
+            sync_config_to_window(&w, &Config::default());
             w.set_status_message(SharedString::from("已还原为默认推荐配置（点击保存后生效）"));
         }
     });

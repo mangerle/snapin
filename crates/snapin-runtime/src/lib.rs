@@ -227,6 +227,14 @@ impl TaskRuntime {
         }
     }
 
+    /// 在非异步线程上同步等待停机完成，最多等待 `timeout`。
+    ///
+    /// 供事件循环退出、进程收尾等同步上下文使用；若在 Tokio 运行时内部调用
+    /// `Handle::block_on` 会 panic，因此异步任务中必须使用 [`Self::shutdown`]。
+    pub fn shutdown_blocking(&self, timeout: Duration) -> bool {
+        self.inner.handle.block_on(self.shutdown(timeout))
+    }
+
     /// 尝试获取一个并发名额；失败时给出明确容量。
     fn acquire(&self) -> Result<OwnedSemaphorePermit, TaskRuntimeError> {
         self.inner

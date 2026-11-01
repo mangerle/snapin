@@ -10,10 +10,10 @@
 //! 竞态 UI 更新。改用统一运行时后，任务准入、panic 观测与退出等待由运行时负责，
 //! 设置中心只保留“状态机 + UI 回调”。
 
+use crate::config_store::ConfigStore;
 use crate::SettingsWindow;
 use shipup::{DownloadedUpdate, Update, UpdateEvent};
 use slint::{ComponentHandle, SharedString};
-use snapin_core::config::Config;
 use snapin_daemon::{send_request_to_daemon, DaemonRequest, DaemonResponse};
 use snapin_platform::lifecycle::spawn_detached_system_command;
 use snapin_runtime::{CancellationToken, TaskRuntime};
@@ -64,7 +64,7 @@ fn format_download_speed(speed: Option<u64>, percent: Option<f32>) -> String {
 struct UpdateContext {
     runtime: TaskRuntime,
     cancel: CancellationToken,
-    config: Arc<Mutex<Config>>,
+    config: Arc<ConfigStore>,
     pending_update: Arc<Mutex<Option<Update>>>,
     downloaded_update: Arc<Mutex<Option<DownloadedUpdate>>>,
 }
@@ -73,11 +73,11 @@ struct UpdateContext {
 ///
 /// `cancel` 在设置窗口关闭时触发，所有后台任务在更新 UI 前都会检查该令牌，
 /// 避免窗口销毁后仍向 Slint 事件循环投递更新。
-pub fn register_update_callbacks(
+pub(crate) fn register_update_callbacks(
     win: &SettingsWindow,
     runtime: TaskRuntime,
     cancel: CancellationToken,
-    config: Arc<Mutex<Config>>,
+    config: Arc<ConfigStore>,
 ) {
     let context = UpdateContext {
         runtime,
@@ -119,10 +119,7 @@ fn setup_check_callback(win: &SettingsWindow, context: UpdateContext) {
         let reset_runtime = runtime.clone();
         let reset_cancel = cancel.clone();
         let spawn_result = runtime.spawn_blocking(move || {
-            let custom_url = config_snapshot
-                .lock()
-                .ok()
-                .and_then(|config| config.general.custom_update_url.clone());
+            let custom_url = config_snapshot.snapshot().general.custom_update_url.clone();
             let result = snapin_updater::check_update(custom_url.as_deref());
             if task_cancel.is_cancelled() {
                 return;
