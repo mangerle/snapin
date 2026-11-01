@@ -114,7 +114,8 @@ pub fn render_paster_to_surface(
     //    布局与光标坐标均为窗口物理像素，提交前统一换算为 Wayland surface-local 逻辑坐标。
     let input_layout = input_layout_from_state(state, width as f32, height as f32);
     let cache_hit = state
-        .input_region_cache
+        .frame_cache
+        .input_region
         .as_ref()
         .is_some_and(|cached| cached.layout == input_layout);
     if !cache_hit {
@@ -123,7 +124,7 @@ pub fn render_paster_to_surface(
         if let Err(e) = surface.set_input_rects(&surface_rects) {
             tracing::warn!("更新贴图窗口输入区域失败，透明空白可能拦截桌面点击: {e}");
         } else {
-            state.input_region_cache = Some(InputRegionCache {
+            state.frame_cache.input_region = Some(InputRegionCache {
                 layout: input_layout,
                 rects: surface_rects,
             });

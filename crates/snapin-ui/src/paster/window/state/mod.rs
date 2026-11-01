@@ -8,12 +8,16 @@ use crate::paster::context_menu::ContextMenuState;
 use crate::paster::window::annotation::{
     create_paster_toolbar, screen_to_image_point, toolbar_required_extent,
 };
-use crate::paster::window::input_region::InputRegionCache;
 use crate::paster::window::jobs::PasterJobRuntime;
-use crate::ports::{DesktopPort, JobCancel, JobId, NoopDesktop};
+use crate::ports::{DesktopPort, NoopDesktop};
 use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 
+mod frame_cache;
+mod job_slot;
 mod jobs;
+
+use frame_cache::FrameCache;
+use job_slot::PasterJobSlot;
 
 use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::{TranslationAction, TranslationShapeItem};
@@ -54,10 +58,8 @@ pub struct PasterWindowState {
     pub(crate) job_runtime: Option<Arc<PasterJobRuntime>>,
     /// 桌面副作用端口：剪贴板、文件管理器等系统交互经此委托给应用层
     pub(crate) desktop: Arc<dyn DesktopPort>,
-    /// 当前后台任务 ID；`Some` 表示有 OCR / 翻译 / 保存任务在执行
-    pending_job_id: Option<JobId>,
-    /// 当前后台任务的协作式取消闭包；窗口关闭时必须调用，避免任务继续占用资源
-    pending_job_cancel: Option<JobCancel>,
+    /// 后台媒体任务槽；窗口关闭时通过它取消在途任务
+    pub(crate) job_slot: PasterJobSlot,
     /// 图像顶部状态提示及其产生时刻，超过 [`STATUS_MESSAGE_TTL`] 后自动失效
     pub(crate) status_message: Option<(String, Instant)>,
     pub(crate) last_click_time: Option<Instant>,
@@ -69,10 +71,8 @@ pub struct PasterWindowState {
     pub(crate) is_drawing: bool,
     /// 正在编辑的文字标注会话（坐标与字号均为图像像素），无会话时为 `None`
     pub(crate) active_text_input: Option<TextInputSession>,
-    /// 渲染帧缓冲；窗口尺寸不变时复用，避免每帧重新分配整窗像素。
-    frame_pixmap: Option<Pixmap>,
-    /// 上次提交给 Wayland 的输入区域及其布局签名，布局不变时跳过 wl_region 重建。
-    pub(crate) input_region_cache: Option<InputRegionCache>,
+    /// 渲染帧缓冲与输入区域缓存；都属于可丢弃的表现层缓存
+    pub(crate) frame_cache: FrameCache,
 }
 
 impl PasterWindowState {
@@ -94,14 +94,12 @@ impl PasterWindowState {
             config: Arc::new(Config::default()),
             job_runtime: None,
             desktop: Arc::new(NoopDesktop),
-            pending_job_id: None,
-            pending_job_cancel: None,
+            job_slot: PasterJobSlot::default(),
             status_message: None,
             last_click_time: None,
             modifiers: ModifiersState::default(),
             pending_stroke_points: Vec::with_capacity(64),
-            frame_pixmap: None,
-            input_region_cache: None,
+            frame_cache: FrameCache::default(),
             is_drawing: false,
             active_text_input: None,
         }
