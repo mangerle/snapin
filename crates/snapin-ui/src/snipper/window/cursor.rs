@@ -39,7 +39,14 @@ fn desired_cursor_icon(state: &SnipperState) -> CursorIcon {
         };
     }
 
+    if state.toolbar.is_dragging() {
+        return CursorIcon::Grabbing;
+    }
+
     let (cx, cy) = (state.cursor_pos.0 as f32, state.cursor_pos.1 as f32);
+    if state.toolbar.hit_test_drag_handle(cx, cy) {
+        return CursorIcon::Grab;
+    }
     if state.toolbar.contains_point(cx, cy) {
         return CursorIcon::Default;
     }

@@ -54,6 +54,15 @@ pub struct Toolbar {
     pub(crate) dropdown_hover: Option<usize>,
     /// 屏幕物理尺寸，用于下拉菜单避让
     screen_size: (f32, f32),
+    /// 是否在主栏右端显示拖动手柄。
+    ///
+    /// 仅截图工具栏启用：截图工具栏按选区自动摆放，可能遮挡待标注区域，需要用户手动挪开；
+    /// 贴图工具栏锚定在图像下方且窗口尺寸随之计算，不提供拖动。
+    pub draggable: bool,
+    /// 用户拖动后固定的主栏左上角；`None` 表示按选区自适应摆放
+    manual_pos: Option<(f32, f32)>,
+    /// 拖动进行中时，光标相对主栏左上角的偏移；`None` 表示未在拖动
+    drag_offset: Option<(f32, f32)>,
 }
 
 impl Default for Toolbar {
@@ -75,6 +84,9 @@ impl Default for Toolbar {
             open_dropdown: None,
             dropdown_hover: None,
             screen_size: (0.0, 0.0),
+            draggable: false,
+            manual_pos: None,
+            drag_offset: None,
         }
     }
 }
@@ -101,17 +113,89 @@ impl Toolbar {
         ToolbarItem::ActionCopy,      // 16: 复制到剪贴板 (双重叠矩形)
     ];
 
-    /// 根据选区与屏幕宽高重新计算工具栏自适应摆放位置 (自适应 HiDPI 缩放)
+    /// 根据选区与屏幕宽高重新计算工具栏摆放位置 (自适应 HiDPI 缩放)。
+    ///
+    /// 用户拖动过主栏后保持其手动位置（仅夹取到屏幕内），避免调整选区时工具栏又跳回遮挡处；
+    /// 调用 [`Self::reset_manual_position`] 后恢复按选区自适应摆放。
     pub fn update_layout(&mut self, selection: &Rect, screen_w: f32, screen_h: f32) {
         self.screen_size = (screen_w, screen_h);
-        self.main_rect = calculate_main_layout(
-            selection,
-            screen_w,
-            screen_h,
-            self.ui_scale,
-            self.main_items,
-        );
+        self.main_rect = match self.manual_pos {
+            Some((x, y)) => self.clamped_main_rect(x, y),
+            None => calculate_main_layout(
+                selection,
+                screen_w,
+                screen_h,
+                self.ui_scale,
+                self.main_width(),
+            ),
+        };
         self.update_sub_rect();
+    }
+
+    /// 放弃用户拖动后的手动位置，下次布局时重新按选区自适应摆放。
+    pub fn reset_manual_position(&mut self) {
+        self.manual_pos = None;
+        self.drag_offset = None;
+    }
+
+    /// 坐标是否落在主栏右端的拖动手柄上（未启用拖动时恒为 `false`）。
+    pub fn hit_test_drag_handle(&self, px: f32, py: f32) -> bool {
+        if !self.draggable || !self.main_rect.contains(px, py) {
+            return false;
+        }
+        let s = self.ui_scale;
+        let handle_left = self.main_rect.x + self.main_rect.width
+            - metrics::padding(s)
+            - metrics::drag_handle_width(s);
+        px >= handle_left
+    }
+
+    /// 若按下位置命中拖动手柄则开始拖动，返回是否已开始。
+    ///
+    /// 开始拖动时收起下拉菜单，避免菜单停留在旧位置。
+    pub fn begin_drag(&mut self, px: f32, py: f32) -> bool {
+        if !self.hit_test_drag_handle(px, py) {
+            return false;
+        }
+        self.drag_offset = Some((px - self.main_rect.x, py - self.main_rect.y));
+        self.open_dropdown = None;
+        self.dropdown_hover = None;
+        self.update_sub_rect();
+        true
+    }
+
+    /// 拖动中跟随光标移动主栏（夹取到屏幕内），返回是否需要重绘。
+    pub fn drag_to(&mut self, px: f32, py: f32) -> bool {
+        let Some((dx, dy)) = self.drag_offset else {
+            return false;
+        };
+        self.main_rect = self.clamped_main_rect(px - dx, py - dy);
+        self.manual_pos = Some((self.main_rect.x, self.main_rect.y));
+        self.update_sub_rect();
+        true
+    }
+
+    /// 结束拖动，返回本次释放是否属于拖动操作。
+    pub fn end_drag(&mut self) -> bool {
+        self.drag_offset.take().is_some()
+    }
+
+    /// 是否正在拖动主栏
+    pub fn is_dragging(&self) -> bool {
+        self.drag_offset.is_some()
+    }
+
+    /// 以指定左上角构造主栏矩形，并夹取到屏幕范围内
+    fn clamped_main_rect(&self, x: f32, y: f32) -> Rect {
+        let width = self.main_width();
+        let height = self.main_height();
+        let (screen_w, screen_h) = self.screen_size;
+        Rect {
+            x: x.min(screen_w - width).max(0.0),
+            y: y.min(screen_h - height).max(0.0),
+            width,
+            height,
+        }
     }
 
     /// 直接指定主栏面板左上角位置，不参与选区自适应避让。
@@ -138,12 +222,17 @@ impl Toolbar {
         self.screen_size = (width, height);
     }
 
-    /// 主栏面板宽度（由当前 `main_items` 与界面缩放倍率共同决定）。
+    /// 主栏面板宽度（由当前 `main_items`、是否带拖动手柄与界面缩放倍率共同决定）。
     ///
     /// 贴图窗口需要把工具栏锚定在图像内部，必须提前知道面板宽度才能摆放；
     /// 与命中测试、渲染共用同一份度量函数，避免三处坐标漂移。
     pub(crate) fn main_width(&self) -> f32 {
-        metrics::main_toolbar_width(self.main_items, self.ui_scale)
+        let handle = if self.draggable {
+            metrics::drag_handle_width(self.ui_scale)
+        } else {
+            0.0
+        };
+        metrics::main_toolbar_width(self.main_items, self.ui_scale) + handle
     }
 
     /// 主栏面板高度（含上下内边距）。

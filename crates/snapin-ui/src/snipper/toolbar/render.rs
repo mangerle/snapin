@@ -3,7 +3,9 @@
 use super::icons::{add_round_rect, make_paint, render_item_icon};
 use super::items::{preset_colors, StrokeWidthLevel, ToolbarItem, CORNER_RADIUS_PRESETS};
 use super::layout::{DropdownLayout, SubControl, SubDropdown};
-use super::metrics::{button_size, divider_width, has_separator_before, padding, spacing};
+use super::metrics::{
+    button_size, divider_width, drag_handle_width, has_separator_before, padding, spacing,
+};
 use super::Toolbar;
 use crate::snipper::selection::Rect;
 use snapin_core::annotation::{ArrowStyle, BadgeStyle, LineStyle};
@@ -21,11 +23,39 @@ pub fn render_toolbar(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
 
     // 2. 绘制各个主按钮与矢量图标
     render_main_buttons(toolbar, pixmap);
+    if toolbar.draggable {
+        render_drag_handle(pixmap, &toolbar.main_rect, s);
+    }
 
     // 3. 绘制二级属性栏 (若激活)
     if let Some(sub_rect) = toolbar.sub_rect {
         render_panel_background(pixmap, &sub_rect, s);
         render_sub_options(toolbar, pixmap, &sub_rect);
+    }
+}
+
+/// 绘制主栏右端的拖动手柄：前置分隔线 + 2x3 抓握圆点
+fn render_drag_handle(pixmap: &mut PixmapMut, main_rect: &Rect, s: f32) {
+    let left = main_rect.x + main_rect.width - padding(s) - drag_handle_width(s);
+    render_divider(pixmap, left + 4.0 * s, main_rect.y + padding(s), s);
+
+    let center_x = left + 12.0 * s;
+    let center_y = main_rect.y + main_rect.height / 2.0;
+    let mut pb = PathBuilder::new();
+    for col in [-1.0_f32, 1.0] {
+        for row in [-1.0_f32, 0.0, 1.0] {
+            pb.push_circle(center_x + col * 2.5 * s, center_y + row * 5.0 * s, 1.4 * s);
+        }
+    }
+    if let Some(path) = pb.finish() {
+        let paint = make_paint(Color::from_rgba8(0, 0, 0, 110));
+        pixmap.fill_path(
+            &path,
+            &paint,
+            tiny_skia::FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
     }
 }
 

@@ -24,6 +24,11 @@ pub(crate) fn divider_width(scale: f32) -> f32 {
     8.0 * scale
 }
 
+/// 主栏右端拖动手柄宽度（含手柄前分隔线占位）
+pub(crate) fn drag_handle_width(scale: f32) -> f32 {
+    20.0 * scale
+}
+
 /// 指定按钮前是否需要绘制分隔线。
 ///
 /// 分隔位置直接由按钮语义决定（撤销/重做组与关闭动作之前），

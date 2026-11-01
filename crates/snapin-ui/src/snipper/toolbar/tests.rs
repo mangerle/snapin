@@ -341,3 +341,67 @@ fn test_corner_radius_dropdown_selects_preset() {
     assert_eq!(tb.sub_options.corner_radius, CORNER_RADIUS_PRESETS[1]);
     assert!(tb.open_dropdown.is_none(), "选中后菜单应收起");
 }
+
+/// 拖动手柄：命中右端手柄才能开始拖动，拖动后位置夹取到屏幕内，
+/// 调整选区时保持手动位置，重置后恢复自适应摆放
+#[test]
+fn test_drag_handle_moves_and_keeps_manual_position() {
+    let mut tb = Toolbar {
+        draggable: true,
+        ..Toolbar::default()
+    };
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 800.0,
+        height: 400.0,
+    };
+    tb.update_layout(&selection, 1920.0, 1080.0);
+    let auto_rect = tb.main_rect;
+
+    // 首个按钮不是手柄，不能开始拖动；按钮命中也不受手柄影响
+    assert!(!tb.begin_drag(auto_rect.x + 10.0, auto_rect.y + 10.0));
+    let handle_x = auto_rect.x + auto_rect.width - 10.0;
+    let handle_y = auto_rect.y + auto_rect.height / 2.0;
+    assert_eq!(tb.hit_test_main(handle_x, handle_y), None);
+
+    assert!(tb.begin_drag(handle_x, handle_y));
+    assert!(tb.is_dragging());
+    assert!(tb.drag_to(handle_x - 50.0, handle_y - 300.0));
+    assert!((tb.main_rect.x - (auto_rect.x - 50.0)).abs() < 0.01);
+    assert!((tb.main_rect.y - (auto_rect.y - 300.0)).abs() < 0.01);
+
+    // 拖出屏幕时夹取在可视范围内
+    tb.drag_to(-5000.0, -5000.0);
+    assert_eq!((tb.main_rect.x, tb.main_rect.y), (0.0, 0.0));
+    assert!(tb.end_drag());
+    assert!(!tb.end_drag(), "重复释放不应再被视为拖动");
+
+    // 选区变化时保持手动位置
+    tb.update_layout(&selection, 1920.0, 1080.0);
+    assert_eq!((tb.main_rect.x, tb.main_rect.y), (0.0, 0.0));
+
+    // 重置后恢复自适应摆放
+    tb.reset_manual_position();
+    tb.update_layout(&selection, 1920.0, 1080.0);
+    assert_eq!(tb.main_rect, auto_rect);
+}
+
+/// 未启用拖动的工具栏（贴图）不显示手柄、宽度不变
+#[test]
+fn test_drag_handle_disabled_by_default() {
+    let mut tb = Toolbar::default();
+    let width_without = tb.main_width();
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 800.0,
+        height: 400.0,
+    };
+    tb.update_layout(&selection, 1920.0, 1080.0);
+    let rect = tb.main_rect;
+    assert!(!tb.begin_drag(rect.x + rect.width - 10.0, rect.y + rect.height / 2.0));
+
+    tb.draggable = true;
+    assert!(tb.main_width() > width_without);
+}

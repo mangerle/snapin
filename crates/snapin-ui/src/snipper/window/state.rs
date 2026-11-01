@@ -54,6 +54,9 @@ pub struct SnipperState {
 
 impl SnipperState {
     pub fn new() -> Self {
+        // 截图工具栏按选区自动摆放，可能遮挡标注区域，因此启用右端拖动手柄
+        let mut toolbar = Toolbar::default();
+        toolbar.draggable = true;
         Self {
             selection: SelectionState::Idle,
             history: SelectionHistory::default(),
@@ -61,7 +64,7 @@ impl SnipperState {
             hovered_window: None,
             press_window: None,
             magnifier: Magnifier::default(),
-            toolbar: Toolbar::default(),
+            toolbar,
             annotations: AnnotationHistory::default(),
             cursor_pos: (0.0, 0.0),
             cursor_ready: false,

@@ -7,7 +7,7 @@ use crate::snipper::selection::Rect;
 use crate::snipper::toolbar::items::{
     preset_colors, StrokeWidthLevel, ToolbarItem, CORNER_RADIUS_PRESETS,
 };
-use crate::snipper::toolbar::metrics::{button_size, main_toolbar_width, padding};
+use crate::snipper::toolbar::metrics::{button_size, padding};
 
 /// 二级栏下拉菜单种类
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,16 +93,17 @@ impl SubLayout {
     }
 }
 
-/// 根据选区与屏幕宽高重新计算主工具栏在屏幕上的自适应摆放位置
+/// 根据选区与屏幕宽高重新计算主工具栏在屏幕上的自适应摆放位置。
+///
+/// `width` 由调用方给出，因为主栏是否带拖动手柄只有 `Toolbar` 自身知道。
 pub(crate) fn calculate_main_layout(
     selection: &Rect,
     screen_w: f32,
     screen_h: f32,
     ui_scale: f32,
-    items: &[ToolbarItem],
+    width: f32,
 ) -> Rect {
     let s = ui_scale;
-    let width = main_toolbar_width(items, s);
     let height = padding(s) * 2.0 + button_size(s);
 
     let mut x = (selection.x + selection.width) - width;
@@ -337,6 +338,7 @@ mod tests {
     /// 全屏选区的工具条必须回落到屏幕内，不能停到屏幕底边之外
     #[test]
     fn test_fullscreen_selection_toolbar_inside_screen() {
+        use crate::snipper::toolbar::metrics::main_toolbar_width;
         use crate::snipper::toolbar::Toolbar;
 
         let selection = Rect {
@@ -345,7 +347,8 @@ mod tests {
             width: 1920.0,
             height: 1080.0,
         };
-        let layout = calculate_main_layout(&selection, 1920.0, 1080.0, 1.0, Toolbar::MAIN_ITEMS);
+        let width = main_toolbar_width(Toolbar::MAIN_ITEMS, 1.0);
+        let layout = calculate_main_layout(&selection, 1920.0, 1080.0, 1.0, width);
 
         assert!(layout.x >= 8.0);
         assert!(layout.y >= 8.0);
