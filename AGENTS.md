@@ -151,6 +151,7 @@
 2. **静态代码分析**：执行 `cargo clippy --all-targets -- -D warnings`，必须做到**零警告**通过，严禁随意添加 `#[allow(...)]` 绕过检查。
 3. **编译与语法检查**：执行 `cargo check --all-targets` 确保编译无误。
 4. **功能与回归测试**：若改动涉及核心业务逻辑、状态转换或数据处理，必须执行 `cargo test` 确保所有单元测试与集成测试全部通过。
+5. **三端编译校验**：涉及平台条件编译、依赖特性或公开 API 变更时，必须分别面向 Linux、Windows 与 macOS 执行 `cargo check`（例如 `x86_64-unknown-linux-gnu`、`x86_64-pc-windows-gnu` 或 `x86_64-pc-windows-msvc`、`x86_64-apple-darwin`，以本机实际安装的目标为准）。任一目标因缺少系统 SDK 或交叉工具链无法执行时，必须在汇报中明确说明未验证的平台、原因及已完成的静态排查，严禁默认忽略跨平台编译风险。
 
 ### 2. 代码自检逐项核对清单 (Self-Review Checklist)
 在每次完成代码修改前，必须逐项对照以下清单进行强制自检：
