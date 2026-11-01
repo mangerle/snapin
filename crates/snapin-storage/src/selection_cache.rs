@@ -49,6 +49,7 @@ fn save_last_selection_in(cache_dir: &std::path::Path, rect: (f32, f32, f32, f32
     if !record.is_valid() {
         return;
     }
+    let _ = std::fs::create_dir_all(cache_dir);
     let toml_path = cache_dir.join("last_selection.toml");
     if let Ok(toml_content) = toml::to_string(&record) {
         let _ = std::fs::write(toml_path, toml_content);
