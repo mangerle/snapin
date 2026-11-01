@@ -174,8 +174,9 @@ impl EngineInner {
 
         let mut blocks: Vec<OcrTextBlock> = Vec::with_capacity(boxes.len());
         let rec_started = Instant::now();
+        let mut skipped_lines = 0usize;
 
-        for detected in &boxes {
+        for (index, detected) in boxes.iter().enumerate() {
             let Some(cropped) = crop_box(image, detected.bbox) else {
                 continue;
             };
@@ -186,43 +187,27 @@ impl EngineInner {
                 cropped
             };
 
-            let (chw, rec_width, rec_height) =
-                preprocess_recognition_image(&cropped, &self.rec_preprocess);
-            if chw.is_empty() {
-                continue;
-            }
-
-            let rec_tensor =
-                Tensor::from_array((vec![1_i64, 3, rec_height as i64, rec_width as i64], chw))
-                    .map_err(|error| inference_error("rec_input", error))?;
-
-            let rec_outputs = sessions
-                .rec
-                .run(ort::inputs![rec_tensor])
-                .map_err(|error| inference_error("rec_run", error))?;
-            let rec_output = rec_outputs
-                .get("fetch_name_0")
-                .ok_or_else(|| missing_output_error("rec_run", "fetch_name_0"))?;
-            let (rec_shape, logits) = rec_output
-                .try_extract_tensor::<f32>()
-                .map_err(|error| inference_error("rec_output", error))?;
-
-            if rec_shape.len() != 3 {
-                return Err(ServiceError::InferenceError {
-                    stage: "rec_output".to_string(),
-                    reason: format!("识别模型输出维度异常: {:?}", rec_shape),
-                });
-            }
-
-            let sequence_len = rec_shape[1] as usize;
-            let class_count = rec_shape[2] as usize;
-            let (text, confidence) =
-                ctc_greedy_decode(logits, sequence_len, class_count, &self.dict);
-
-            let text = text.trim().to_string();
-            if text.is_empty() {
-                continue;
-            }
+            let (text, confidence) = match recognize_text_line(
+                &mut sessions.rec,
+                &cropped,
+                &self.rec_preprocess,
+                &self.dict,
+            ) {
+                Ok(Some(decoded)) => decoded,
+                Ok(None) => continue,
+                Err(error) => {
+                    // 单行推理失败属于局部异常：跳过该行继续处理其余文本框，
+                    // 避免一个异常框让整张截图的识别结果全部作废。
+                    skipped_lines += 1;
+                    tracing::warn!(
+                        "单行文本识别失败，已跳过该行，文本框序号: {}，区域: {:?}，原因: {}",
+                        index,
+                        detected.bbox,
+                        error
+                    );
+                    continue;
+                }
+            };
 
             let bg_color = estimate_dominant_background_color(image, detected.bbox);
             let text_color = get_contrasting_text_color(bg_color);
@@ -230,6 +215,15 @@ impl EngineInner {
             block.bg_color = bg_color;
             block.text_color = text_color;
             blocks.push(block);
+        }
+
+        if skipped_lines > 0 {
+            tracing::warn!(
+                "本次识别跳过 {} / {} 行失败文本，返回 {} 个有效文本块",
+                skipped_lines,
+                boxes.len(),
+                blocks.len()
+            );
         }
 
         tracing::debug!(
@@ -241,6 +235,57 @@ impl EngineInner {
 
         Ok(OcrResult::from_blocks(blocks))
     }
+}
+
+/// 对单个文本框裁剪图执行一次识别推理，返回去空白后的文本与平均置信度。
+///
+/// 返回 `Ok(None)` 表示预处理后没有可用像素或解码结果为空，属于可正常跳过的
+/// 情况；返回 `Err` 表示本次推理在输入构造、执行或输出解析环节失败，由调用方
+/// 决定是否降级。
+///
+/// # Errors
+///
+/// 当输入张量构造失败、ONNX Runtime 推理失败、输出名称缺失、输出张量解析失败，
+/// 或输出维度不是 `[1, 序列长度, 类别数]` 时返回 [`ServiceError::InferenceError`]。
+fn recognize_text_line(
+    session: &mut Session,
+    cropped: &RgbaImage,
+    params: &PreprocessParams,
+    dict: &[String],
+) -> Result<Option<(String, f32)>, ServiceError> {
+    let (chw, rec_width, rec_height) = preprocess_recognition_image(cropped, params);
+    if chw.is_empty() {
+        return Ok(None);
+    }
+
+    let rec_tensor = Tensor::from_array((vec![1_i64, 3, rec_height as i64, rec_width as i64], chw))
+        .map_err(|error| inference_error("rec_input", error))?;
+    let rec_outputs = session
+        .run(ort::inputs![rec_tensor])
+        .map_err(|error| inference_error("rec_run", error))?;
+    let rec_output = rec_outputs
+        .get("fetch_name_0")
+        .ok_or_else(|| missing_output_error("rec_run", "fetch_name_0"))?;
+    let (rec_shape, logits) = rec_output
+        .try_extract_tensor::<f32>()
+        .map_err(|error| inference_error("rec_output", error))?;
+
+    if rec_shape.len() != 3 {
+        return Err(ServiceError::InferenceError {
+            stage: "rec_output".to_string(),
+            reason: format!("识别模型输出维度异常: {:?}", rec_shape),
+        });
+    }
+
+    let sequence_len = rec_shape[1] as usize;
+    let class_count = rec_shape[2] as usize;
+    let (text, confidence) = ctc_greedy_decode(logits, sequence_len, class_count, dict);
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some((text, confidence)))
 }
 
 /// 构建单个 ONNX 推理会话。
