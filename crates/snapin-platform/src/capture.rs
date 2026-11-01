@@ -6,6 +6,13 @@
 
 use crate::error::PlatformError;
 use image::RgbaImage;
+use std::time::Duration;
+
+/// 原生抓屏或解码任务的最长等待时间，避免 macOS 权限弹窗或驱动挂起拖死整条流程。
+const CAPTURE_TIMEOUT: Duration = Duration::from_secs(15);
+/// 单张全屏 PNG 文件的最大字节数，防止异常文件一次性读入造成内存压力。
+#[cfg(target_os = "linux")]
+const MAX_SCREENSHOT_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
 #[cfg(target_os = "linux")]
 use crate::{
@@ -75,6 +82,22 @@ async fn capture_via_extension() -> Result<RgbaImage, PlatformError> {
         });
     }
 
+    let metadata = tokio::fs::metadata(&target_path)
+        .await
+        .map_err(|source| PlatformError::Io {
+            path: target_str.clone(),
+            source,
+        })?;
+    if metadata.len() > MAX_SCREENSHOT_FILE_BYTES {
+        let _ = tokio::fs::remove_file(&target_path).await;
+        return Err(PlatformError::Capture {
+            message: format!(
+                "GNOME 扩展导出的截图文件过大，大小: {} 字节，上限: {MAX_SCREENSHOT_FILE_BYTES} 字节",
+                metadata.len()
+            ),
+        });
+    }
+
     let file_bytes = tokio::fs::read(&target_path)
         .await
         .map_err(|source| PlatformError::Io {
@@ -85,14 +108,20 @@ async fn capture_via_extension() -> Result<RgbaImage, PlatformError> {
     // 读取完成后立即清理临时文件
     let _ = tokio::fs::remove_file(&target_path).await;
 
-    tokio::task::spawn_blocking(move || {
-        image::load_from_memory(&file_bytes)
-            .map(|dynamic_img| dynamic_img.to_rgba8())
-            .map_err(|e| PlatformError::ImageDecode {
-                message: format!("从扩展导出的 PNG 图像解码失败: {e}"),
-            })
-    })
+    tokio::time::timeout(
+        CAPTURE_TIMEOUT,
+        tokio::task::spawn_blocking(move || {
+            image::load_from_memory(&file_bytes)
+                .map(|dynamic_img| dynamic_img.to_rgba8())
+                .map_err(|e| PlatformError::ImageDecode {
+                    message: format!("从扩展导出的 PNG 图像解码失败: {e}"),
+                })
+        }),
+    )
     .await
+    .map_err(|_| PlatformError::Capture {
+        message: format!("扩展截图解码超时（{} 秒）", CAPTURE_TIMEOUT.as_secs()),
+    })?
     .map_err(|error| PlatformError::Capture {
         message: format!("扩展截图解码任务异常: {error}"),
     })?
@@ -101,84 +130,90 @@ async fn capture_via_extension() -> Result<RgbaImage, PlatformError> {
 /// Windows / macOS 平台专用抓屏逻辑：基于 xcap 抓取主屏幕或多屏合成
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 async fn capture_xcap() -> Result<RgbaImage, PlatformError> {
-    tokio::task::spawn_blocking(|| {
-        let monitors = xcap::Monitor::all().map_err(|e| PlatformError::Capture {
-            message: format!("获取物理显示器列表失败: {e}"),
-        })?;
+    tokio::time::timeout(
+        CAPTURE_TIMEOUT,
+        tokio::task::spawn_blocking(|| {
+            let monitors = xcap::Monitor::all().map_err(|e| PlatformError::Capture {
+                message: format!("获取物理显示器列表失败: {e}"),
+            })?;
 
-        if monitors.is_empty() {
-            return Err(PlatformError::Capture {
-                message: "未检测到任何可用的物理显示器".to_string(),
-            });
-        }
+            if monitors.is_empty() {
+                return Err(PlatformError::Capture {
+                    message: "未检测到任何可用的物理显示器".to_string(),
+                });
+            }
 
-        // 单显示器场景：直接极速捕获并转换
-        if monitors.len() == 1 {
-            let captured = monitors[0].capture_image().map_err(|e| {
-                #[cfg(target_os = "macos")]
+            // 单显示器场景：直接极速捕获并转换
+            if monitors.len() == 1 {
+                let captured = monitors[0].capture_image().map_err(|e| {
+                    #[cfg(target_os = "macos")]
                 let hint =
                     "（请检查是否已在“系统设置 -> 隐私与安全性 -> 屏幕录制”中授予 Snapin 权限）";
-                #[cfg(not(target_os = "macos"))]
-                let hint = "";
-                PlatformError::Capture {
-                    message: format!("显示器捕获失败: {e}{hint}"),
-                }
-            })?;
-            let width = captured.width();
-            let height = captured.height();
-            let raw_pixels = captured.into_raw();
-            return RgbaImage::from_raw(width, height, raw_pixels).ok_or_else(|| {
-                PlatformError::Capture {
-                    message: "显示器捕获像素缓冲区转换为图像失败".to_string(),
-                }
-            });
-        }
-
-        // 多显示器场景：计算包围整个虚拟桌面的联合边界
-        let mut min_x = i32::MAX;
-        let mut min_y = i32::MAX;
-        let mut max_x = i32::MIN;
-        let mut max_y = i32::MIN;
-
-        let mut monitor_frames = Vec::with_capacity(monitors.len());
-        for m in &monitors {
-            let x = m.x().unwrap_or(0);
-            let y = m.y().unwrap_or(0);
-            let w = m.width().unwrap_or(0);
-            let h = m.height().unwrap_or(0);
-            min_x = min_x.min(x);
-            min_y = min_y.min(y);
-            max_x = max_x.max(x + w as i32);
-            max_y = max_y.max(y + h as i32);
-
-            let frame = m.capture_image().map_err(|e| PlatformError::Capture {
-                message: format!(
-                    "多屏环境中捕获显示器 {} 失败: {e}",
-                    m.name().unwrap_or_else(|_| "未知".to_string())
-                ),
-            })?;
-            let fw = frame.width();
-            let fh = frame.height();
-            let raw = frame.into_raw();
-            if let Some(rgba_frame) = RgbaImage::from_raw(fw, fh, raw) {
-                monitor_frames.push((x, y, rgba_frame));
+                    #[cfg(not(target_os = "macos"))]
+                    let hint = "";
+                    PlatformError::Capture {
+                        message: format!("显示器捕获失败: {e}{hint}"),
+                    }
+                })?;
+                let width = captured.width();
+                let height = captured.height();
+                let raw_pixels = captured.into_raw();
+                return RgbaImage::from_raw(width, height, raw_pixels).ok_or_else(|| {
+                    PlatformError::Capture {
+                        message: "显示器捕获像素缓冲区转换为图像失败".to_string(),
+                    }
+                });
             }
-        }
 
-        let total_w = (max_x - min_x).max(1) as u32;
-        let total_h = (max_y - min_y).max(1) as u32;
-        let mut combined = RgbaImage::new(total_w, total_h);
+            // 多显示器场景：计算包围整个虚拟桌面的联合边界
+            let mut min_x = i32::MAX;
+            let mut min_y = i32::MAX;
+            let mut max_x = i32::MIN;
+            let mut max_y = i32::MIN;
 
-        // 将每个显示器捕获的帧写入合成虚拟桌面
-        for (x, y, frame) in monitor_frames {
-            let offset_x = (x - min_x) as u32;
-            let offset_y = (y - min_y) as u32;
-            image::imageops::overlay(&mut combined, &frame, offset_x.into(), offset_y.into());
-        }
+            let mut monitor_frames = Vec::with_capacity(monitors.len());
+            for m in &monitors {
+                let x = m.x().unwrap_or(0);
+                let y = m.y().unwrap_or(0);
+                let w = m.width().unwrap_or(0);
+                let h = m.height().unwrap_or(0);
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x + w as i32);
+                max_y = max_y.max(y + h as i32);
 
-        Ok(combined)
-    })
+                let frame = m.capture_image().map_err(|e| PlatformError::Capture {
+                    message: format!(
+                        "多屏环境中捕获显示器 {} 失败: {e}",
+                        m.name().unwrap_or_else(|_| "未知".to_string())
+                    ),
+                })?;
+                let fw = frame.width();
+                let fh = frame.height();
+                let raw = frame.into_raw();
+                if let Some(rgba_frame) = RgbaImage::from_raw(fw, fh, raw) {
+                    monitor_frames.push((x, y, rgba_frame));
+                }
+            }
+
+            let total_w = (max_x - min_x).max(1) as u32;
+            let total_h = (max_y - min_y).max(1) as u32;
+            let mut combined = RgbaImage::new(total_w, total_h);
+
+            // 将每个显示器捕获的帧写入合成虚拟桌面
+            for (x, y, frame) in monitor_frames {
+                let offset_x = (x - min_x) as u32;
+                let offset_y = (y - min_y) as u32;
+                image::imageops::overlay(&mut combined, &frame, offset_x.into(), offset_y.into());
+            }
+
+            Ok(combined)
+        }),
+    )
     .await
+    .map_err(|_| PlatformError::Capture {
+        message: format!("屏幕捕获任务超时（{} 秒）", CAPTURE_TIMEOUT.as_secs()),
+    })?
     .map_err(|e| PlatformError::Capture {
         message: format!("异步调度抓屏任务失败: {e}"),
     })?

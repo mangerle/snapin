@@ -16,6 +16,9 @@ use snapin_ui::snipper::{SnipperLaunch, SnipperOutcome, SnipperRuntime, WindowRe
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// 全屏快照捕获的端到端上限
+const SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(20);
+
 /// 获取全屏快照（跨平台调度：Linux 优先扩展零白闪/Portal 降级，Windows/macOS 走原生捕获）。
 ///
 /// # Errors
@@ -23,8 +26,9 @@ use std::time::{Duration, Instant};
 /// 平台截屏通道不可用、超时或图像解码失败时返回错误。
 pub async fn acquire_screen_snapshot() -> Result<image::RgbaImage> {
     let t_start = Instant::now();
-    let rgba = capture_fullscreen_snapshot()
+    let rgba = tokio::time::timeout(SCREENSHOT_TIMEOUT, capture_fullscreen_snapshot())
         .await
+        .context("屏幕快照捕获超时")?
         .context("屏幕快照捕获失败")?;
 
     tracing::info!(
