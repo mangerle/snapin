@@ -6,13 +6,17 @@ use std::ffi::{OsStr, OsString};
 use std::process::{Command, Stdio};
 /// 停止 systemd 用户服务以防被系统重启守活
 pub fn stop_systemd_service() {
-    let _ = Command::new("systemctl")
-        .args(["--user", "stop", "snapin"])
-        .output();
+    #[cfg(target_os = "linux")]
+    {
+        let _ = Command::new("systemctl")
+            .args(["--user", "stop", "snapin"])
+            .output();
+    }
 }
 
 /// 启用配套 GNOME Shell 扩展并自动收割子进程状态，杜绝僵尸进程
 pub fn enable_gnome_extension() {
+    #[cfg(target_os = "linux")]
     spawn_detached_system_command("gnome-extensions", &["enable", "snapin@wangle.local"]);
 }
 
@@ -63,7 +67,18 @@ pub fn spawn_detached_system_command<P: AsRef<OsStr>>(program: &str, args: &[P])
 /// 在系统文件管理器中打开指定目录或文件并自动收割子进程，杜绝僵尸进程
 pub fn open_path_in_file_manager<P: AsRef<std::path::Path>>(path: P) {
     let p = path.as_ref().to_path_buf();
-    spawn_detached_system_command("xdg-open", &[p.as_os_str()]);
+    #[cfg(target_os = "windows")]
+    {
+        spawn_detached_system_command("explorer", &[p.as_os_str()]);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        spawn_detached_system_command("open", &[p.as_os_str()]);
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        spawn_detached_system_command("xdg-open", &[p.as_os_str()]);
+    }
 }
 
 #[cfg(test)]

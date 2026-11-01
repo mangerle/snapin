@@ -4,6 +4,7 @@ use super::codec::{read_framed_message, write_framed_message};
 use super::protocol::{get_socket_path, DaemonRequest, DaemonResponse, IPC_TIMEOUT};
 use crate::error::DaemonError;
 use std::path::Path;
+#[cfg(unix)]
 use tokio::net::UnixStream;
 use tokio::time::timeout;
 
@@ -19,7 +20,17 @@ pub async fn send_request_to_daemon(
     send_request_to_path(&socket_path, request).await
 }
 
+#[cfg(windows)]
+pub(crate) fn windows_pipe_name(socket_path: &Path) -> String {
+    let stem = socket_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("snapin");
+    format!(r"\\.\pipe\{stem}-ipc")
+}
+
 /// 向指定路径的套接字发送请求并等待响应（便于单元测试隔离）
+#[cfg(unix)]
 pub async fn send_request_to_path(
     socket_path: &Path,
     request: &DaemonRequest,
@@ -60,6 +71,44 @@ pub async fn send_request_to_path(
         Ok(res) => res.map(Some),
         Err(_) => Err(DaemonError::Socket {
             socket_path: socket_path.to_string_lossy().to_string(),
+            message: "等待守护进程响应超时".to_string(),
+        }),
+    }
+}
+
+/// 向指定命名管道发送请求并等待响应（Windows 平台实现）
+#[cfg(windows)]
+pub async fn send_request_to_path(
+    socket_path: &Path,
+    request: &DaemonRequest,
+) -> Result<Option<DaemonResponse>, DaemonError> {
+    use tokio::net::windows::named_pipe::ClientOptions;
+
+    let pipe_name = windows_pipe_name(socket_path);
+    let client = match ClientOptions::new().open(&pipe_name) {
+        Ok(client) => client,
+        Err(e) if e.raw_os_error() == Some(2) => {
+            // ERROR_FILE_NOT_FOUND 表示无服务监听管道
+            return Ok(None);
+        }
+        Err(e) => {
+            return Err(DaemonError::Socket {
+                socket_path: pipe_name,
+                message: format!("连接守护进程命名管道失败: {e}"),
+            });
+        }
+    };
+
+    let mut stream = client;
+    let send_fut = async {
+        write_framed_message(&mut stream, request).await?;
+        read_framed_message::<_, DaemonResponse>(&mut stream).await
+    };
+
+    match timeout(IPC_TIMEOUT, send_fut).await {
+        Ok(res) => res.map(Some),
+        Err(_) => Err(DaemonError::Socket {
+            socket_path: pipe_name,
             message: "等待守护进程响应超时".to_string(),
         }),
     }

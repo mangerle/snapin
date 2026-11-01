@@ -8,6 +8,7 @@
 #[cfg(target_os = "linux")]
 use crate::dbus_session::get_session_connection;
 use std::sync::{Arc, OnceLock, RwLock};
+#[cfg(target_os = "linux")]
 use std::time::Duration;
 
 /// 系统底层平台能力快照

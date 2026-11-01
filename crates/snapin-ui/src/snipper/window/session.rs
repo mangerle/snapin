@@ -15,7 +15,10 @@ use std::sync::{Arc, Mutex};
 use winit::dpi::PhysicalSize;
 use winit::event::Event;
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
+#[cfg(target_os = "linux")]
 use winit::platform::wayland::EventLoopBuilderExtWayland;
+#[cfg(target_os = "windows")]
+use winit::platform::windows::EventLoopBuilderExtWindows;
 use winit::window::{Fullscreen, WindowBuilder};
 
 /// 全屏截图交互会话：纳管物理窗口构建、事件循环与会话生命周期
@@ -45,7 +48,11 @@ impl SnipperSession {
 
     /// 启动全屏截图窗口并进入交互事件循环，直到用户确认或取消
     pub fn run(self) -> Result<Option<SnipperOutcome>, UiError> {
+        #[allow(unused_mut)]
         let mut builder = EventLoopBuilder::<SnipperUserEvent>::with_user_event();
+        #[cfg(target_os = "linux")]
+        builder.with_any_thread(true);
+        #[cfg(target_os = "windows")]
         builder.with_any_thread(true);
         let event_loop = builder.build().map_err(|e| UiError::Window {
             message: format!("构建截图事件循环失败: {e}"),

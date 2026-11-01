@@ -23,7 +23,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use winit::event::Event;
 use winit::event_loop::{ControlFlow, EventLoop, EventLoopBuilder};
+#[cfg(target_os = "linux")]
 use winit::platform::wayland::EventLoopBuilderExtWayland;
+#[cfg(target_os = "windows")]
+use winit::platform::windows::EventLoopBuilderExtWindows;
 use winit::window::WindowId;
 
 /// 贴图工作区事件循环持有的全部长生命周期资源。
@@ -44,7 +47,11 @@ pub(crate) struct WorkspaceRuntime {
 /// 创建集中多窗口贴图工作区事件循环与配套代理
 pub fn create_paster_workspace(
 ) -> Result<(EventLoop<PasterAppEvent>, PasterWorkspaceProxy), UiError> {
+    #[allow(unused_mut)]
     let mut builder = EventLoopBuilder::<PasterAppEvent>::with_user_event();
+    #[cfg(target_os = "linux")]
+    builder.with_any_thread(true);
+    #[cfg(target_os = "windows")]
     builder.with_any_thread(true);
     let event_loop = builder.build().map_err(|e| UiError::Window {
         message: format!("创建集中多窗口贴图工作区事件循环失败: {e}"),

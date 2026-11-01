@@ -171,76 +171,86 @@ pub fn hotkey_to_accelerator(hotkey: &Hotkey) -> String {
 
 /// 自动在 GNOME 设置中注册或更新 Snapin 快捷键
 pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError> {
-    tracing::info!("正在向 GNOME 系统注册/同步自定义快捷键...");
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = config;
+        return Ok(());
+    }
 
-    let base_path = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
-    let snip_path = format!("{base_path}/snapin-snip/");
-    let translate_path = format!("{base_path}/snapin-translate/");
-    let paste_path = format!("{base_path}/snapin-paste/");
-    let toggle_path = format!("{base_path}/snapin-toggle/");
-    let switch_path = format!("{base_path}/snapin-switch-group/");
+    #[cfg(target_os = "linux")]
+    {
+        tracing::info!("正在向 GNOME 系统注册/同步自定义快捷键...");
 
-    ensure_custom_keybindings_registered(&[
-        &snip_path,
-        &translate_path,
-        &paste_path,
-        &toggle_path,
-        &switch_path,
-    ])?;
+        let base_path = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
+        let snip_path = format!("{base_path}/snapin-snip/");
+        let translate_path = format!("{base_path}/snapin-translate/");
+        let paste_path = format!("{base_path}/snapin-paste/");
+        let toggle_path = format!("{base_path}/snapin-toggle/");
+        let switch_path = format!("{base_path}/snapin-switch-group/");
 
-    let current_exe = get_snapin_executable_path();
+        ensure_custom_keybindings_registered(&[
+            &snip_path,
+            &translate_path,
+            &paste_path,
+            &toggle_path,
+            &switch_path,
+        ])?;
 
-    let snip_schema =
-        format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{snip_path}");
-    let snip_cmd = format!("{current_exe} snip");
-    let snip_binding = hotkey_to_gnome_accelerator(&config.snip);
+        let current_exe = get_snapin_executable_path();
 
-    let translate_schema =
-        format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{translate_path}");
-    let translate_cmd = format!("{current_exe} snip --translate");
-    let translate_binding = hotkey_to_gnome_accelerator(&config.translate);
+        let snip_schema =
+            format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{snip_path}");
+        let snip_cmd = format!("{current_exe} snip");
+        let snip_binding = hotkey_to_gnome_accelerator(&config.snip);
 
-    let paste_schema =
-        format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{paste_path}");
-    let paste_cmd = format!("{current_exe} paste");
-    let paste_binding = hotkey_to_gnome_accelerator(&config.paste);
+        let translate_schema = format!(
+            "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{translate_path}"
+        );
+        let translate_cmd = format!("{current_exe} snip --translate");
+        let translate_binding = hotkey_to_gnome_accelerator(&config.translate);
 
-    let toggle_schema =
-        format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{toggle_path}");
-    let toggle_cmd = format!("{current_exe} toggle");
-    let toggle_binding = hotkey_to_gnome_accelerator(&config.toggle_pasters);
+        let paste_schema =
+            format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{paste_path}");
+        let paste_cmd = format!("{current_exe} paste");
+        let paste_binding = hotkey_to_gnome_accelerator(&config.paste);
 
-    let switch_schema =
-        format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{switch_path}");
-    let switch_cmd = format!("{current_exe} switch-group");
-    let switch_binding = hotkey_to_gnome_accelerator(&config.switch_group);
+        let toggle_schema =
+            format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{toggle_path}");
+        let toggle_cmd = format!("{current_exe} toggle");
+        let toggle_binding = hotkey_to_gnome_accelerator(&config.toggle_pasters);
 
-    let batch_items = [
-        (snip_schema.as_str(), "name", "Snapin 区域截图"),
-        (snip_schema.as_str(), "command", snip_cmd.as_str()),
-        (snip_schema.as_str(), "binding", snip_binding.as_str()),
-        (translate_schema.as_str(), "name", "Snapin 截图翻译"),
-        (translate_schema.as_str(), "command", translate_cmd.as_str()),
-        (
-            translate_schema.as_str(),
-            "binding",
-            translate_binding.as_str(),
-        ),
-        (paste_schema.as_str(), "name", "Snapin 贴图"),
-        (paste_schema.as_str(), "command", paste_cmd.as_str()),
-        (paste_schema.as_str(), "binding", paste_binding.as_str()),
-        (toggle_schema.as_str(), "name", "Snapin 隐藏/显示贴图"),
-        (toggle_schema.as_str(), "command", toggle_cmd.as_str()),
-        (toggle_schema.as_str(), "binding", toggle_binding.as_str()),
-        (switch_schema.as_str(), "name", "Snapin 切换贴图组"),
-        (switch_schema.as_str(), "command", switch_cmd.as_str()),
-        (switch_schema.as_str(), "binding", switch_binding.as_str()),
-    ];
+        let switch_schema =
+            format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{switch_path}");
+        let switch_cmd = format!("{current_exe} switch-group");
+        let switch_binding = hotkey_to_gnome_accelerator(&config.switch_group);
 
-    execute_gsettings_batch(&batch_items);
+        let batch_items = [
+            (snip_schema.as_str(), "name", "Snapin 区域截图"),
+            (snip_schema.as_str(), "command", snip_cmd.as_str()),
+            (snip_schema.as_str(), "binding", snip_binding.as_str()),
+            (translate_schema.as_str(), "name", "Snapin 截图翻译"),
+            (translate_schema.as_str(), "command", translate_cmd.as_str()),
+            (
+                translate_schema.as_str(),
+                "binding",
+                translate_binding.as_str(),
+            ),
+            (paste_schema.as_str(), "name", "Snapin 贴图"),
+            (paste_schema.as_str(), "command", paste_cmd.as_str()),
+            (paste_schema.as_str(), "binding", paste_binding.as_str()),
+            (toggle_schema.as_str(), "name", "Snapin 隐藏/显示贴图"),
+            (toggle_schema.as_str(), "command", toggle_cmd.as_str()),
+            (toggle_schema.as_str(), "binding", toggle_binding.as_str()),
+            (switch_schema.as_str(), "name", "Snapin 切换贴图组"),
+            (switch_schema.as_str(), "command", switch_cmd.as_str()),
+            (switch_schema.as_str(), "binding", switch_binding.as_str()),
+        ];
 
-    tracing::info!("GNOME 快捷键同步完成");
-    Ok(())
+        execute_gsettings_batch(&batch_items);
+
+        tracing::info!("GNOME 快捷键同步完成");
+        Ok(())
+    }
 }
 
 /// 临时清空 Snapin 在 GNOME 中的快捷键绑定，避免在设置中心录制按键时被系统全局拦截

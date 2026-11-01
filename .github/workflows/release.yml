@@ -147,14 +147,16 @@ jobs:
 
       - name: 使用 cargo-packager 构建 Windows NSIS 安装包与便携包
         run: |
-          cargo packager --release -p snapin --target ${{ matrix.target }} --formats nsis,zip
+          cargo packager --release -p snapin --target ${{ matrix.target }} --formats nsis
+          Compress-Archive -Path "target/${{ matrix.target }}/release/snapin.exe" -DestinationPath "target/${{ matrix.target }}/release/snapin_windows_${{ matrix.arch }}.zip"
 
       - name: 上传 Windows 构建产物
         uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.arch }}-artifacts
           path: |
-            target/${{ matrix.target }}/release/*.exe
+            target/${{ matrix.target }}/release/*setup*.exe
+            target/${{ matrix.target }}/release/**/*.exe
             target/${{ matrix.target }}/release/*.zip
 
   build-macos:
@@ -186,7 +188,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-artifacts
-          path: target/release/*.dmg
+          path: |
+            target/release/*.dmg
+            target/release/**/*.dmg
 
   publish-release:
     name: 汇总发布 GitHub Release
@@ -247,10 +251,14 @@ jobs:
           echo -n "$SHIPUP_PRIVATE_KEY" > "$KEY_FILE"
           chmod 600 "$KEY_FILE"
 
-          NOTES_ARG=()
+          CHANGELOG_CONTENT=""
           if [ -f "RELEASE_CHANGELOG.md" ]; then
-            NOTES_ARG=(--notes-file "RELEASE_CHANGELOG.md")
+            CHANGELOG_CONTENT="$(cat RELEASE_CHANGELOG.md)"
           fi
+          if [ -z "$CHANGELOG_CONTENT" ]; then
+            CHANGELOG_CONTENT="Snapin v${CLEAN_VERSION} 发布"
+          fi
+          NOTES_ARG=(--notes "$CHANGELOG_CONTENT")
 
           for file in release-files/*; do
             [ -f "$file" ] || continue

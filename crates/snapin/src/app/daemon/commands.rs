@@ -33,6 +33,8 @@ const PLACEMENT_CONFIRM_INTERVAL: Duration = Duration::from_millis(40);
 /// 这里采用「先登记坐标、再创建窗口」的次序，扩展会把尚未映射的请求挂起，
 /// 待 `window-created` 触发时立即生效，从而彻底消除窗口映射与放置调用之间的竞态。
 /// 放置失败只影响窗口落点、不影响贴图内容本身，属可降级路径，故仅记录日志而不改写响应结果。
+/// 向配套 GNOME 扩展登记贴图窗口的精确放置坐标（仅 Linux Wayland 生效）
+#[cfg(target_os = "linux")]
 async fn register_paster_placement(title: &str, x: i32, y: i32) {
     match timeout(
         PLACEMENT_TIMEOUT,
@@ -46,11 +48,12 @@ async fn register_paster_placement(title: &str, x: i32, y: i32) {
     }
 }
 
-/// 在窗口投递之后确认放置已真正生效。
-///
-/// 扩展在 window-created 时按登记坐标移动，但那次移动发生在窗口映射之前，会被 Mutter 的初始摆放
-/// 覆盖（实测窗口仍停在左上角）。窗口投递到工作区后这里持续轮询：一旦扩展报告命中窗口
-/// （返回 true），说明移动已下发到已存在的窗口；超过时限仍无命中只告警，不阻塞指令响应。
+/// 非 Linux 平台无需 GNOME 扩展介入绝对定位，客户端已自控窗口位置
+#[cfg(not(target_os = "linux"))]
+async fn register_paster_placement(_title: &str, _x: i32, _y: i32) {}
+
+/// 在窗口投递之后确认放置已真正生效（仅 Linux Wayland 生效）
+#[cfg(target_os = "linux")]
 async fn confirm_paster_placement(title: &str, x: i32, y: i32) {
     let deadline = tokio::time::Instant::now() + PLACEMENT_CONFIRM_WINDOW;
     loop {
@@ -85,6 +88,10 @@ async fn confirm_paster_placement(title: &str, x: i32, y: i32) {
         tokio::time::sleep(PLACEMENT_CONFIRM_INTERVAL).await;
     }
 }
+
+/// 非 Linux 平台无需 GNOME 扩展确认放置
+#[cfg(not(target_os = "linux"))]
+async fn confirm_paster_placement(_title: &str, _x: i32, _y: i32) {}
 
 /// 处理单条守护进程指令
 pub async fn handle_command(

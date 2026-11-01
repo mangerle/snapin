@@ -48,6 +48,7 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
     let window = SettingsWindow::new().map_err(|e| SettingsError::InitFailed(e.to_string()))?;
 
     // 设置 Wayland XDG 应用标识，使 Dock 栏与 Alt-Tab 匹配矢量图标
+    #[cfg(target_os = "linux")]
     let _ = slint::set_xdg_app_id("snapin");
 
     window
@@ -56,11 +57,15 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
     window.set_app_version(SharedString::from(env!("CARGO_PKG_VERSION")));
 
     let caps = get_platform_capabilities();
+    #[cfg(target_os = "linux")]
     let status_text = if caps.gnome_extension_active {
         "GNOME Shell 窗口特权扩展已在线运行（贴图可强制置顶并精确落位）"
     } else {
         "GNOME Shell 窗口特权扩展未激活（贴图无法强制置顶与精确落位）"
     };
+    #[cfg(not(target_os = "linux"))]
+    let status_text = "系统原生置顶与热键驱动已就绪";
+
     window.set_extension_status_text(SharedString::from(status_text));
 
     // 注册全局快捷键按键捕获与格式化回调

@@ -19,6 +19,9 @@ pub mod window;
 #[cfg(target_os = "linux")]
 pub(crate) mod dbus_session;
 
+#[cfg(not(target_os = "linux"))]
+pub mod dialog;
+
 pub use autostart::sync_autostart;
 pub use capabilities::{
     get_platform_capabilities, init_platform_capabilities, refresh_platform_capabilities,
@@ -35,6 +38,27 @@ pub use window::WindowRect;
 #[cfg(target_os = "linux")]
 pub use extension_client::{capture_fullscreen_extension, list_windows, place_paster_window};
 
+#[cfg(not(target_os = "linux"))]
+pub async fn place_paster_window(
+    _title: &str,
+    _x: i32,
+    _y: i32,
+) -> Result<bool, error::PlatformError> {
+    Ok(false)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub async fn capture_fullscreen_extension(
+    _target_path: &str,
+) -> Result<bool, error::PlatformError> {
+    Ok(false)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub async fn list_windows() -> Result<Vec<window::WindowRect>, error::PlatformError> {
+    Ok(vec![])
+}
+
 pub use hotkey_manager::{
     hotkey_to_gnome_accelerator, suspend_hotkeys_for_settings, sync_global_hotkeys,
     sync_hotkeys_to_gnome, HotkeyAction, PlatformHotkeyListener,
@@ -45,6 +69,8 @@ pub use lifecycle::{
 };
 pub use notification::send_desktop_notification;
 
+#[cfg(not(target_os = "linux"))]
+pub use dialog::pick_save_path;
 #[cfg(target_os = "linux")]
 pub use portal::{capture_fullscreen_portal, ensure_portal_screenshot_permission, pick_save_path};
 pub use storage::{

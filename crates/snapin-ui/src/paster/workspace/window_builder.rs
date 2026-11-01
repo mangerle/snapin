@@ -9,7 +9,6 @@ use crate::paster::surface::PasterSurface;
 use std::sync::Arc;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::EventLoopWindowTarget;
-use winit::platform::wayland::WindowBuilderExtWayland;
 use winit::window::{Window, WindowBuilder, WindowLevel};
 
 /// 单个受管贴图窗口的运行时物理实例
@@ -33,20 +32,24 @@ pub(crate) fn create_new_paster_window(
     let initial_h = item.pixmap.height();
     let (init_x, init_y) = item.position;
 
-    let window = Arc::new(
-        WindowBuilder::new()
-            .with_name("snapin-pin", "snapin-pin")
-            .with_title(&title)
-            .with_decorations(false)
-            .with_transparent(true)
-            .with_window_level(WindowLevel::AlwaysOnTop)
-            .with_inner_size(PhysicalSize::new(initial_w, initial_h))
-            .with_position(PhysicalPosition::new(init_x, init_y))
-            .build(elwt)
-            .map_err(|e| UiError::Window {
-                message: format!("创建集中工作区贴图窗口失败: {e}"),
-            })?,
-    );
+    #[allow(unused_mut)]
+    let mut builder = WindowBuilder::new()
+        .with_title(&title)
+        .with_decorations(false)
+        .with_transparent(true)
+        .with_window_level(WindowLevel::AlwaysOnTop)
+        .with_inner_size(PhysicalSize::new(initial_w, initial_h))
+        .with_position(PhysicalPosition::new(init_x, init_y));
+
+    #[cfg(target_os = "linux")]
+    {
+        use winit::platform::wayland::WindowBuilderExtWayland;
+        builder = builder.with_name("snapin-pin", "snapin-pin");
+    }
+
+    let window = Arc::new(builder.build(elwt).map_err(|e| UiError::Window {
+        message: format!("创建集中工作区贴图窗口失败: {e}"),
+    })?);
 
     // 图形表面优先走支持透明像素的 ARGB8888 共享内存通路，失败时内部回退 softbuffer
     let surface = PasterSurface::new(window.clone())?;
