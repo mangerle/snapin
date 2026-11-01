@@ -8,6 +8,7 @@ use thiserror::Error;
 
 /// 自更新领域错误。
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum UpdaterError {
     /// 更新器构建、检查、下载或崩溃回滚失败
     #[error("自更新操作失败，原因: {reason}")]

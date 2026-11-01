@@ -6,6 +6,7 @@ use thiserror::Error;
 
 /// 守护进程与 IPC 领域错误枚举
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum DaemonError {
     /// Unix Domain Socket 套接字通信或绑定异常
     #[error("单实例 IPC 套接字通信异常，套接字路径: {socket_path}，原因: {message}")]

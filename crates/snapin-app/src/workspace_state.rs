@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use snapin_core::AppPaths;
 use snapin_ui::paster::TOTAL_PIN_GROUPS;
-use snapin_ui::{PortError, WorkspaceState, WorkspaceStateStore};
+use snapin_ui::{PortError, PortErrorKind, WorkspaceState, WorkspaceStateStore};
 use std::path::{Path, PathBuf};
 
 /// 状态文件中的持久化结构，字段全部带默认值以兼容未来扩展。
@@ -83,13 +83,15 @@ impl AppWorkspaceStateStore {
 
 impl WorkspaceStateStore for AppWorkspaceStateStore {
     fn load(&self) -> Result<WorkspaceState, PortError> {
-        self.load_file()
-            .map_err(|error| PortError::new("读取工作区状态", format!("{error:#}")))
+        self.load_file().map_err(|error| {
+            PortError::with_kind(PortErrorKind::Io, "读取工作区状态", format!("{error:#}"))
+        })
     }
 
     fn save(&self, state: WorkspaceState) -> Result<(), PortError> {
-        self.save_file(state)
-            .map_err(|error| PortError::new("保存工作区状态", format!("{error:#}")))
+        self.save_file(state).map_err(|error| {
+            PortError::with_kind(PortErrorKind::Io, "保存工作区状态", format!("{error:#}"))
+        })
     }
 }
 

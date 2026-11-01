@@ -30,6 +30,7 @@ use thiserror::Error;
 
 /// 偏好设置模块领域错误
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum SettingsError {
     /// 设置窗口初始化失败
     #[error("初始化设置中心图形窗口失败: {0}")]

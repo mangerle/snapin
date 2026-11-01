@@ -27,7 +27,9 @@ mod worker;
 use crate::config::{config_snapshot, SharedConfig};
 use snapin_runtime::TaskPool;
 use snapin_service::ocr::LocalPpOcrEngine;
-use snapin_ui::{JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, PortError};
+use snapin_ui::{
+    JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, PortError, PortErrorKind,
+};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -78,7 +80,9 @@ impl MediaJobRunner for MediaService {
                     sink(job_id, outcome);
                 }
             })
-            .map_err(|error| PortError::new("提交媒体任务", error.to_string()))?;
+            .map_err(|error| {
+                PortError::with_kind(PortErrorKind::Busy, "提交媒体任务", error.to_string())
+            })?;
 
         Ok((
             job_id,

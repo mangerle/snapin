@@ -8,6 +8,7 @@ use thiserror::Error;
 
 /// Snapin 核心领域基础错误枚举
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum CoreError {
     /// 本地文件读取或写入 I/O 异常
     #[error("本地文件系统 I/O 操作失败，路径: {path}，原因: {source}")]

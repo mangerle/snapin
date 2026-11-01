@@ -4,6 +4,7 @@ use thiserror::Error;
 
 /// 服务层统一错误枚举
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum ServiceError {
     /// 模型文件不存在或损坏
     #[error("OCR 模型文件不存在，目标路径: {path}")]

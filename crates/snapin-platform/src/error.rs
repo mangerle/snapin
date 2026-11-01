@@ -7,6 +7,7 @@ use thiserror::Error;
 
 /// 平台抽象层领域错误枚举
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum PlatformError {
     /// XDG Desktop Portal 截屏服务请求失败
     #[error("XDG Desktop Portal 截屏服务请求失败，原因: {message}")]

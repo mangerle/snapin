@@ -8,6 +8,7 @@ use thiserror::Error;
 
 /// UI 视图与窗口渲染层领域错误枚举
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum UiError {
     /// Wayland 或底层操作系统窗口与事件循环异常
     #[error("Wayland 窗口系统异常，描述: {message}")]

@@ -4,6 +4,7 @@ use thiserror::Error;
 
 /// 图像保存与缓存持久化错误。
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum StorageError {
     /// 本地文件读取、创建或写入失败
     #[error("图像存储 I/O 操作失败，路径: {path}，原因: {source}")]

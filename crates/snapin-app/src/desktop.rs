@@ -20,7 +20,7 @@ use snapin_platform::{
 use snapin_runtime::{TaskPool, TaskRuntime};
 use snapin_storage::{load_last_selection, save_last_selection};
 use snapin_ui::snipper::Rect;
-use snapin_ui::{DesktopPort, PortError};
+use snapin_ui::{DesktopPort, PortError, PortErrorKind};
 use std::path::PathBuf;
 
 /// 桌面副作用端口实现。
@@ -51,13 +51,23 @@ impl DesktopPort for AppDesktop {
     }
 
     fn write_text_clipboard(&self, text: &str) -> Result<(), PortError> {
-        write_text_to_clipboard(text)
-            .map_err(|error| PortError::new("写入系统剪贴板", error.to_string()))
+        write_text_to_clipboard(text).map_err(|error| {
+            PortError::with_kind(
+                PortErrorKind::Unavailable,
+                "写入系统剪贴板",
+                error.to_string(),
+            )
+        })
     }
 
     fn write_image_clipboard(&self, image: &image::RgbaImage) -> Result<(), PortError> {
-        write_image_to_clipboard(image)
-            .map_err(|error| PortError::new("写入系统剪贴板", error.to_string()))
+        write_image_to_clipboard(image).map_err(|error| {
+            PortError::with_kind(
+                PortErrorKind::Unavailable,
+                "写入系统剪贴板",
+                error.to_string(),
+            )
+        })
     }
 
     fn read_clipboard_image(&self) -> Option<image::RgbaImage> {
