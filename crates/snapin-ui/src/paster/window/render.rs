@@ -9,7 +9,7 @@ use crate::paster::context_menu::render::render_context_menu;
 use crate::paster::surface::PasterSurface;
 use crate::paster::window::annotation::{image_to_screen_point, refresh_toolbar_layout};
 use crate::paster::window::input_region::{
-    compute_input_rects, input_layout_from_state, physical_rects_to_surface,
+    compute_input_rects, input_layout_from_state, physical_rects_to_surface, InputRegionCache,
 };
 use crate::paster::window::text_session::render_text_session_preview;
 use snapin_core::render::with_thread_local_text_renderer;
@@ -114,10 +114,21 @@ pub fn render_paster_to_surface(
     // 7. 透明扩窗后按当前布局声明可交互区域，避免空白区域吞掉本应落到桌面的点击。
     //    布局与光标坐标均为窗口物理像素，提交前统一换算为 Wayland surface-local 逻辑坐标。
     let input_layout = input_layout_from_state(state, width as f32, height as f32);
-    let physical_rects = compute_input_rects(&input_layout);
-    let surface_rects = physical_rects_to_surface(&physical_rects, state.ui_scale);
-    if let Err(e) = surface.set_input_rects(&surface_rects) {
-        tracing::warn!("更新贴图窗口输入区域失败，透明空白可能拦截桌面点击: {e}");
+    let cache_hit = state
+        .input_region_cache
+        .as_ref()
+        .is_some_and(|cached| cached.layout == input_layout);
+    if !cache_hit {
+        let physical_rects = compute_input_rects(&input_layout);
+        let surface_rects = physical_rects_to_surface(&physical_rects, state.ui_scale);
+        if let Err(e) = surface.set_input_rects(&surface_rects) {
+            tracing::warn!("更新贴图窗口输入区域失败，透明空白可能拦截桌面点击: {e}");
+        } else {
+            state.input_region_cache = Some(InputRegionCache {
+                layout: input_layout,
+                rects: surface_rects,
+            });
+        }
     }
 
     // 8. 提交渲染至共享内存表面呈现（ARGB 通路下未被内容覆盖的像素保持透明）

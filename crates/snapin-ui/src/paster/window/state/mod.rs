@@ -8,6 +8,7 @@ use crate::paster::context_menu::ContextMenuState;
 use crate::paster::window::annotation::{
     create_paster_toolbar, screen_to_image_point, toolbar_required_extent,
 };
+use crate::paster::window::input_region::InputRegionCache;
 use crate::paster::window::jobs::PasterJobRuntime;
 use crate::ports::{DesktopPort, JobId, NoopDesktop};
 
@@ -64,6 +65,8 @@ pub struct PasterWindowState {
     pub(crate) active_text_input: Option<TextInputSession>,
     /// 渲染帧缓冲；窗口尺寸不变时复用，避免每帧重新分配整窗像素。
     frame_pixmap: Option<Pixmap>,
+    /// 上次提交给 Wayland 的输入区域及其布局签名，布局不变时跳过 wl_region 重建。
+    pub(crate) input_region_cache: Option<InputRegionCache>,
 }
 
 impl PasterWindowState {
@@ -90,6 +93,7 @@ impl PasterWindowState {
             last_click_time: None,
             pending_stroke_points: Vec::with_capacity(64),
             frame_pixmap: None,
+            input_region_cache: None,
             is_drawing: false,
             active_text_input: None,
         }

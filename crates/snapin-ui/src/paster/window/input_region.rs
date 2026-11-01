@@ -13,7 +13,7 @@ use crate::paster::context_menu::ContextMenuState;
 const CONTEXT_SUBMENU_WIDTH: f32 = 160.0;
 
 /// 输入区域计算所需的布局快照，所有矩形均使用窗口物理像素坐标。
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) struct InputRegionLayout {
     /// 窗口物理宽度
     pub window_w: f32,
@@ -25,6 +25,8 @@ pub(crate) struct InputRegionLayout {
     pub image_h: f32,
     /// 鼠标穿透开启时图像不参与输入命中
     pub mouse_through: bool,
+    /// 物理像素到 surface-local 坐标的缩放因子
+    pub ui_scale: f32,
     /// 工具条主栏面板（工具条显示时存在）
     pub toolbar_main: Option<Rect>,
     /// 工具条二级属性栏面板（已展开时存在）
@@ -35,6 +37,15 @@ pub(crate) struct InputRegionLayout {
     pub context_menu: Option<Rect>,
     /// 右键菜单二级子菜单面板（已展开时存在）
     pub context_submenu: Option<Rect>,
+}
+
+/// 已提交给合成器的输入区域缓存：布局签名与换算后的 surface-local 矩形。
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct InputRegionCache {
+    /// 生成矩形时的布局快照
+    pub layout: InputRegionLayout,
+    /// 已提交的 surface-local 矩形
+    pub rects: Vec<(i32, i32, i32, i32)>,
 }
 
 /// 计算窗口可交互区域矩形列表（窗口物理像素）。
@@ -149,6 +160,7 @@ pub(crate) fn input_layout_from_state(
         image_w: state.item.pixmap.width() as f32 * scale,
         image_h: state.item.pixmap.height() as f32 * scale,
         mouse_through: state.mouse_through,
+        ui_scale: state.ui_scale,
         toolbar_main,
         toolbar_sub,
         toolbar_dropdown,
