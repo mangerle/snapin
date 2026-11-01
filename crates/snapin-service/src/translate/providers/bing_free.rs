@@ -12,7 +12,7 @@
 use crate::error::ServiceError;
 use crate::translate::config::TranslateProvider;
 use crate::translate::engine::Translator;
-use crate::translate::http::{network_error, shared_client};
+use crate::translate::http::{check_status, network_error, read_limited_body, shared_client};
 use crate::translate::language::normalize_language;
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
@@ -83,10 +83,12 @@ impl BingFreeTranslator {
         // 页面可能按出口地区重定向（如 www → cn），翻译请求必须跟随到同一区域域名
         let endpoint = regional_endpoint(response.url(), &self.endpoint);
         let referer = response.url().to_string();
-        let html = response
-            .text()
-            .await
-            .map_err(|error| network_error("bing_free", error))?;
+        check_status("bing_free", &response)?;
+        let body = read_limited_body("bing_free", response).await?;
+        let html = String::from_utf8(body).map_err(|error| ServiceError::ResponseFormat {
+            provider: "bing_free".to_string(),
+            message: format!("必应翻译页面不是合法 UTF-8: {error}"),
+        })?;
 
         let ig = extract_between(&html, "IG:\"", '"').ok_or_else(|| ServiceError::ApiError {
             provider: "bing_free".to_string(),
@@ -141,6 +143,16 @@ impl BingFreeTranslator {
         if trimmed.is_empty() {
             return Ok(String::new());
         }
+        if trimmed.len() > 5_000 {
+            return Err(ServiceError::ApiError {
+                provider: "bing_free".to_string(),
+                code: "TEXT_TOO_LONG".to_string(),
+                message: format!(
+                    "必应免费通道单条文本不能超过 5000 字节，实际: {} 字节",
+                    trimmed.len()
+                ),
+            });
+        }
 
         let url = format!(
             "{}?isVertical=1&IG={}&IID={BING_IID}",
@@ -164,19 +176,9 @@ impl BingFreeTranslator {
             .await
             .map_err(|error| network_error("bing_free", error))?;
 
-        if !response.status().is_success() {
-            return Err(ServiceError::ApiError {
-                provider: "bing_free".to_string(),
-                code: response.status().to_string(),
-                message: "请求必应翻译接口被拦截或限流".to_string(),
-            });
-        }
-
-        let body = response
-            .text()
-            .await
-            .map_err(|error| network_error("bing_free", error))?;
-        let json: Value = serde_json::from_str(&body).map_err(|_| ServiceError::ApiError {
+        check_status("bing_free", &response)?;
+        let body = read_limited_body("bing_free", response).await?;
+        let json: Value = serde_json::from_slice(&body).map_err(|_| ServiceError::ApiError {
             provider: "bing_free".to_string(),
             code: "NON_JSON_RESPONSE".to_string(),
             message: "必应翻译接口返回了非 JSON 响应（常见于浏览器风控页），当前网络无法使用必应免费通道，建议改用谷歌免费通道".to_string(),

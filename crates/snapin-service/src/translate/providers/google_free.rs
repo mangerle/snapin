@@ -7,9 +7,10 @@
 //! 接口支持一次请求携带多个 `q` 参数完成批量翻译，无需逐条并发发起请求。
 
 use crate::error::ServiceError;
+use crate::translate::batch::{plan_batches, BatchLimits};
 use crate::translate::config::TranslateProvider;
 use crate::translate::engine::Translator;
-use crate::translate::http::{network_error, shared_client};
+use crate::translate::http::{check_status, network_error, read_limited_body, shared_client};
 use crate::translate::language::normalize_language;
 use async_trait::async_trait;
 use reqwest::Client;
@@ -60,33 +61,37 @@ impl GoogleFreeTranslator {
         }
     }
 
-    /// 向单个端点发起批量翻译请求，并校验返回条数与内容。
+    /// 向单个端点发起一批文本的翻译请求，并校验返回条数与内容。
     async fn request_endpoint(
         &self,
         endpoint: &str,
-        params: &[(&str, &str)],
-        expected: usize,
+        texts: &[String],
+        source_lang: &str,
+        target_lang: &str,
     ) -> Result<Vec<String>, ServiceError> {
+        let mut params: Vec<(&str, &str)> = Vec::with_capacity(texts.len() + 3);
+        params.push(("client", GOOGLE_CLIENT));
+        params.push(("sl", source_lang));
+        params.push(("tl", target_lang));
+        for text in texts {
+            params.push(("q", text.as_str()));
+        }
+
         let response = self
             .client
             .get(endpoint)
-            .query(params)
+            .query(&params)
             .send()
             .await
             .map_err(|error| network_error("google_free", error))?;
+        check_status("google_free", &response)?;
 
-        if !response.status().is_success() {
-            return Err(ServiceError::ApiError {
+        let body = read_limited_body("google_free", response).await?;
+        let payload: Value =
+            serde_json::from_slice(&body).map_err(|error| ServiceError::ResponseFormat {
                 provider: "google_free".to_string(),
-                code: response.status().to_string(),
-                message: "请求谷歌免费翻译接口失败，可能被出口网络策略拦截".to_string(),
-            });
-        }
-
-        let payload: Value = response
-            .json()
-            .await
-            .map_err(|error| network_error("google_free", error))?;
+                message: format!("无法解析谷歌翻译 JSON 响应: {error}"),
+            })?;
 
         let items = payload.as_array().ok_or_else(|| ServiceError::ApiError {
             provider: "google_free".to_string(),
@@ -95,13 +100,14 @@ impl GoogleFreeTranslator {
         })?;
 
         let results: Vec<String> = items.iter().map(extract_translation).collect();
-        if results.len() != expected {
+        if results.len() != texts.len() {
             return Err(ServiceError::ApiError {
                 provider: "google_free".to_string(),
                 code: "RESULT_COUNT_MISMATCH".to_string(),
                 message: format!(
-                    "谷歌翻译返回 {} 条译文，与请求 {expected} 条不一致",
-                    results.len()
+                    "谷歌翻译返回 {} 条译文，与请求 {} 条不一致",
+                    results.len(),
+                    texts.len()
                 ),
             });
         }
@@ -114,6 +120,40 @@ impl GoogleFreeTranslator {
         }
 
         Ok(results)
+    }
+
+    /// 对一批文本按端点顺序尝试，全部端点失败时返回首个错误。
+    async fn request_batch(
+        &self,
+        texts: &[String],
+        source_lang: &str,
+        target_lang: &str,
+    ) -> Result<Vec<String>, ServiceError> {
+        let mut first_error: Option<ServiceError> = None;
+        for endpoint in &self.endpoints {
+            match self
+                .request_endpoint(endpoint, texts, source_lang, target_lang)
+                .await
+            {
+                Ok(results) => return Ok(results),
+                Err(error) => {
+                    if first_error.is_some() {
+                        tracing::warn!("谷歌翻译备用端点同样失败，端点: {endpoint}，原因: {error}");
+                    } else {
+                        tracing::debug!(
+                            "谷歌翻译端点请求失败，尝试备用端点: {endpoint}，原因: {error}"
+                        );
+                    }
+                    first_error.get_or_insert(error);
+                }
+            }
+        }
+
+        Err(first_error.unwrap_or_else(|| ServiceError::ApiError {
+            provider: "google_free".to_string(),
+            code: "NO_ENDPOINT".to_string(),
+            message: "谷歌免费翻译没有配置任何可用端点".to_string(),
+        }))
     }
 }
 
@@ -136,38 +176,16 @@ impl Translator for GoogleFreeTranslator {
         let source_lang = normalize_language(TranslateProvider::GoogleFree, from).to_string();
         let target_lang = normalize_language(TranslateProvider::GoogleFree, to).to_string();
 
-        let mut params: Vec<(&str, &str)> = vec![
-            ("client", GOOGLE_CLIENT),
-            ("sl", source_lang.as_str()),
-            ("tl", target_lang.as_str()),
-        ];
-        for text in texts {
-            params.push(("q", text.as_str()));
+        // 免费接口把全部文本放进 URL 查询串；按字节预算分批，避免长文档触发 414。
+        let limits = BatchLimits::new(20, 2_000, 1_500);
+        let mut results = Vec::with_capacity(texts.len());
+        for batch in plan_batches(texts, limits) {
+            results.extend(
+                self.request_batch(batch, &source_lang, &target_lang)
+                    .await?,
+            );
         }
-
-        let mut first_error: Option<ServiceError> = None;
-        for endpoint in &self.endpoints {
-            match self.request_endpoint(endpoint, &params, texts.len()).await {
-                Ok(results) => return Ok(results),
-                Err(error) => {
-                    if first_error.is_some() {
-                        tracing::warn!("谷歌翻译备用端点同样失败，端点: {endpoint}，原因: {error}");
-                    } else {
-                        tracing::debug!(
-                            "谷歌翻译端点请求失败，尝试备用端点: {endpoint}，原因: {error}"
-                        );
-                    }
-                    first_error.get_or_insert(error);
-                }
-            }
-        }
-
-        // 端点列表由构造函数保证非空；此兜底仅防御未来新增的空配置构造路径
-        Err(first_error.unwrap_or_else(|| ServiceError::ApiError {
-            provider: "google_free".to_string(),
-            code: "NO_ENDPOINT".to_string(),
-            message: "谷歌免费翻译没有配置任何可用端点".to_string(),
-        }))
+        Ok(results)
     }
 }
 

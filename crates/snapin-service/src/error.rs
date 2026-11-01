@@ -21,6 +21,24 @@ pub enum ServiceError {
     #[error("服务请求网络异常，服务商: {provider}，原因: {message}")]
     NetworkError { provider: String, message: String },
 
+    /// 服务商限流或配额耗尽
+    #[error("服务商限流，服务商: {provider}，建议等待: {retry_after_secs:?} 秒")]
+    RateLimited {
+        provider: String,
+        retry_after_secs: Option<u64>,
+    },
+
+    /// 响应体超过安全上限
+    #[error("服务商响应体过大，服务商: {provider}，上限: {limit_bytes} 字节")]
+    ResponseTooLarge {
+        provider: String,
+        limit_bytes: usize,
+    },
+
+    /// 响应格式不符合预期
+    #[error("服务商响应格式异常，服务商: {provider}，原因: {message}")]
+    ResponseFormat { provider: String, message: String },
+
     /// 第三方 API 响应解析或返回业务错误
     #[error("服务商业务报错，服务商: {provider}，错误码: {code}，详情: {message}")]
     ApiError {
@@ -39,4 +57,14 @@ pub enum ServiceError {
         path: String,
         source: std::io::Error,
     },
+}
+
+impl ServiceError {
+    /// 是否为可安全重试的瞬时故障。
+    ///
+    /// 业务错误、凭据缺失与响应格式错误重试不会改变结果；只有网络抖动、
+    /// 限流与超时值得在退避后重试。
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, Self::NetworkError { .. } | Self::RateLimited { .. })
+    }
 }

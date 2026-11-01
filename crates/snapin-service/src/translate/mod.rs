@@ -1,5 +1,6 @@
 //! 机器翻译与多语言转换服务模块。
 
+pub(crate) mod batch;
 pub mod config;
 pub mod engine;
 pub mod http;

@@ -372,14 +372,10 @@ async fn test_bing_free_reports_http_status_when_blocked() {
         .await
         .expect_err("限流状态码必须转换为错误");
     match error {
-        ServiceError::ApiError { provider, code, .. } => {
+        ServiceError::RateLimited { provider, .. } => {
             assert_eq!(provider, "bing_free");
-            assert!(
-                code.starts_with("429"),
-                "错误码应携带限流状态码，实际: {code}"
-            );
         }
-        other => panic!("应返回服务商业务错误，实际: {other:?}"),
+        other => panic!("429 应返回可重试的限流错误，实际: {other:?}"),
     }
 }
 
