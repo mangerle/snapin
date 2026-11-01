@@ -273,8 +273,8 @@ impl PasterWindowState {
         if !visible {
             self.commit_text_session();
             self.interaction.toolbar.active_tool = None;
-            self.interaction.pending_stroke_points.clear();
-            self.interaction.is_drawing = false;
+            self.interaction.stroke.points.clear();
+            self.interaction.stroke.is_drawing = false;
         }
         apply_window_scale_resize(self, window);
     }
@@ -299,8 +299,8 @@ impl PasterWindowState {
             }
             self.cancel_text_session();
             window.set_ime_allowed(false);
-            self.interaction.pending_stroke_points.clear();
-            self.interaction.is_drawing = false;
+            self.interaction.stroke.points.clear();
+            self.interaction.stroke.is_drawing = false;
             self.interaction.context_menu.close();
             self.set_status_message("鼠标穿透已开启，点击工具条上的穿透按钮恢复");
         } else {
@@ -326,37 +326,38 @@ impl PasterWindowState {
         if self.interaction.toolbar.active_tool.is_none() {
             return false;
         }
-        self.interaction.pending_stroke_points.clear();
+        self.interaction.stroke.points.clear();
         self.interaction
-            .pending_stroke_points
+            .stroke
+            .points
             .push(self.image_point(screen_pos));
-        self.interaction.is_drawing = true;
+        self.interaction.stroke.is_drawing = true;
         true
     }
 
     /// 拖动中更新当前笔迹：画笔/荧光笔追加连续点，其余图元只保留起点与最新终点。
     pub(crate) fn update_stroke(&mut self, screen_pos: (f32, f32)) -> bool {
-        if !self.interaction.is_drawing {
+        if !self.interaction.stroke.is_drawing {
             return false;
         }
         let Some(tool) = self.interaction.toolbar.active_tool else {
-            self.interaction.pending_stroke_points.clear();
-            self.interaction.is_drawing = false;
+            self.interaction.stroke.points.clear();
+            self.interaction.stroke.is_drawing = false;
             return false;
         };
 
         let point = self.image_point(screen_pos);
         match tool {
             Tool::Pen | Tool::Marker => {
-                if self.interaction.pending_stroke_points.last() != Some(&point) {
-                    self.interaction.pending_stroke_points.push(point);
+                if self.interaction.stroke.points.last() != Some(&point) {
+                    self.interaction.stroke.points.push(point);
                 }
             }
             _ => {
-                if self.interaction.pending_stroke_points.len() > 1 {
-                    self.interaction.pending_stroke_points[1] = point;
+                if self.interaction.stroke.points.len() > 1 {
+                    self.interaction.stroke.points[1] = point;
                 } else {
-                    self.interaction.pending_stroke_points.push(point);
+                    self.interaction.stroke.points.push(point);
                 }
             }
         }
@@ -368,9 +369,9 @@ impl PasterWindowState {
     /// 先绘制像素再入历史：复制图像、图像另存为都直接读取 `item.pixmap`，
     /// 因此天然携带已提交的标注；撤销/重做则依赖底图与历史重放恢复。
     pub(crate) fn commit_pending_stroke(&mut self) -> bool {
-        self.interaction.is_drawing = false;
+        self.interaction.stroke.is_drawing = false;
         let Some(tool) = self.interaction.toolbar.active_tool else {
-            self.interaction.pending_stroke_points.clear();
+            self.interaction.stroke.points.clear();
             return false;
         };
 
@@ -378,12 +379,12 @@ impl PasterWindowState {
             let params = AnnotationDraftParams::from_toolbar_and_points(
                 &self.interaction.toolbar,
                 tool,
-                &self.interaction.pending_stroke_points,
+                &self.interaction.stroke.points,
                 self.document.annotations.next_badge_number(),
             );
             params.and_then(|params| build_shape(&params))
         };
-        self.interaction.pending_stroke_points.clear();
+        self.interaction.stroke.points.clear();
 
         let Some(shape) = shape else {
             return false;
@@ -452,8 +453,8 @@ impl PasterWindowState {
     fn reset_annotation_baseline(&mut self) {
         self.document.base_pixmap = None;
         self.document.annotations.clear();
-        self.interaction.pending_stroke_points.clear();
-        self.interaction.is_drawing = false;
+        self.interaction.stroke.points.clear();
+        self.interaction.stroke.is_drawing = false;
         // 坐标系已失效，进行中的文字会话不能再落到新底图上
         self.interaction.active_text_input = None;
     }

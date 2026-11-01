@@ -3,6 +3,7 @@
 use super::annotation_edit::AnnotationDrag;
 use super::jobs::{SnipperJobKind, SnipperJobRuntime};
 use super::types::{SnipMode, SnipperOutcome};
+use crate::editor::stroke_session::StrokeSession;
 use crate::editor::text_input::TextInputSession;
 use crate::editor::toolbar::Toolbar;
 use crate::model::ShapeId;
@@ -35,7 +36,7 @@ pub struct SnipperState {
     /// 当前窗口光标形状；用于避免鼠标移动时重复提交相同的系统光标设置
     pub cursor_icon: CursorIcon,
     pub modifiers: ModifiersState,
-    pub pending_stroke_points: Vec<(f32, f32)>,
+    pub stroke: StrokeSession,
     pub active_text_input: Option<TextInputSession>,
     /// 当前选中的已提交标注在历史栈中的索引
     pub selected_annotation: Option<ShapeId>,
@@ -84,7 +85,7 @@ impl SnipperState {
             cursor_ready: false,
             cursor_icon: CursorIcon::Default,
             modifiers: ModifiersState::default(),
-            pending_stroke_points: Vec::with_capacity(64),
+            stroke: StrokeSession::new(),
             active_text_input: None,
             selected_annotation: None,
             annotation_drag: None,
