@@ -45,9 +45,9 @@ pub fn render_paster_to_surface(
     // 右键菜单放不下时窗口会被临时撑大：ARGB8888 通路下扩容区域本就是全透明像素，无需涂抹
     // （涂抹反而会遮掉透明效果）；只有回退到无 alpha 的 softbuffer 通路（Xrgb8888）时，
     // 未被内容覆盖的区域若不涂抹就会呈现纯黑，因此仅在回退通路上铺一层与菜单卡片一致的浅色底。
-    let scale = state.item.transform.scale;
-    let scaled_w = (state.item.pixmap.width() as f32 * scale).max(1.0);
-    let scaled_h = (state.item.pixmap.height() as f32 * scale).max(1.0);
+    let scale = state.document.item.transform.scale;
+    let scaled_w = (state.document.item.pixmap.width() as f32 * scale).max(1.0);
+    let scaled_h = (state.document.item.pixmap.height() as f32 * scale).max(1.0);
     let window_exceeds_image = (width as f32) > scaled_w + 0.5 || (height as f32) > scaled_h + 0.5;
     if needs_opaque_backdrop(
         surface.supports_transparency(),
@@ -67,13 +67,13 @@ pub fn render_paster_to_surface(
     };
 
     let paint = PixmapPaint {
-        opacity: state.item.transform.opacity,
+        opacity: state.document.item.transform.opacity,
         quality,
         ..Default::default()
     };
 
     // 2. 光栅化贴图图像本体
-    target_pixmap.draw_pixmap(0, 0, state.item.pixmap.as_ref(), &paint, tf, None);
+    target_pixmap.draw_pixmap(0, 0, state.document.item.pixmap.as_ref(), &paint, tf, None);
 
     // 3. 绘制拖拽中的标注预览与文字输入框：位于图像之上、边框与工具栏之下
     render_pending_annotation_preview(state, &mut target_pixmap);
@@ -158,7 +158,7 @@ fn render_pending_annotation_preview(state: &PasterWindowState, target: &mut Pix
         return;
     }
 
-    let scale = state.item.transform.scale.max(f32::EPSILON);
+    let scale = state.document.item.transform.scale.max(f32::EPSILON);
     let mut scaled_points = Vec::with_capacity(state.pending_stroke_points.len());
     for &point in &state.pending_stroke_points {
         scaled_points.push(image_to_screen_point(point, scale));
@@ -168,7 +168,7 @@ fn render_pending_annotation_preview(state: &PasterWindowState, target: &mut Pix
         &state.toolbar,
         tool,
         &scaled_points,
-        state.annotations.next_badge_number(),
+        state.document.annotations.next_badge_number(),
     ) else {
         return;
     };

@@ -49,7 +49,7 @@ pub fn dispatch_menu_action(state: &mut PasterWindowState, action: MenuItemId, w
 
 /// 将当前贴图转换为 RGBA 图像，失败时写入状态提示并返回 `None`。
 fn paster_image(state: &mut PasterWindowState, operation: &str) -> Option<RgbaImage> {
-    match pixmap_to_rgba_image(&state.item.pixmap) {
+    match pixmap_to_rgba_image(&state.document.item.pixmap) {
         Ok(image) => Some(image),
         Err(message) => {
             state.set_status_message(format!("读取贴图像素失败，无法{operation}: {message}"));
@@ -107,7 +107,7 @@ fn submit_paster_save(state: &mut PasterWindowState, as_dialog: bool, open_folde
         return;
     };
 
-    match runtime.submit_save(state.item.id, image, as_dialog, open_folder_after) {
+    match runtime.submit_save(state.document.item.id, image, as_dialog, open_folder_after) {
         Ok((job_id, cancel)) => {
             state.begin_job(job_id, cancel);
             state.set_status_message(if as_dialog {

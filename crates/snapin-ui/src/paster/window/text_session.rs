@@ -51,8 +51,8 @@ impl PasterWindowState {
             return false;
         };
         self.ensure_base_pixmap();
-        shape.draw(&mut self.item.pixmap.as_mut());
-        self.annotations.push(shape);
+        shape.draw(&mut self.document.item.pixmap.as_mut());
+        self.document.annotations.push(shape);
         true
     }
 
@@ -118,7 +118,7 @@ pub(crate) fn render_text_session_preview(state: &PasterWindowState, target: &mu
     let Some(session) = &state.active_text_input else {
         return;
     };
-    let scale = state.item.transform.scale.max(f32::EPSILON);
+    let scale = state.document.item.transform.scale.max(f32::EPSILON);
     session.render_scaled(&mut target.as_mut(), scale, true);
 }
 
@@ -141,7 +141,7 @@ pub(crate) fn refresh_ime_cursor_area(state: &PasterWindowState, window: &Window
     let Some(session) = &state.active_text_input else {
         return;
     };
-    let scale = state.item.transform.scale.max(f32::EPSILON);
+    let scale = state.document.item.transform.scale.max(f32::EPSILON);
     let (x, y) = image_to_screen_point(session.pos, scale);
     let font_size = (session.font_size * scale).max(8.0);
     window.set_ime_cursor_area(
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn 提交文字会话会写入图像并记录历史() {
         let mut state = text_state(200, 100);
-        let original = state.item.pixmap.data().to_vec();
+        let original = state.document.item.pixmap.data().to_vec();
 
         assert!(state.begin_text_session((10.0, 10.0)));
         state
@@ -193,17 +193,17 @@ mod tests {
         assert!(state.commit_text_session(), "非空文本应成功提交");
         assert!(state.active_text_input.is_none(), "提交后会话必须结束");
         assert_eq!(
-            state.annotations.undo_stack().len(),
+            state.document.annotations.undo_stack().len(),
             1,
             "提交后撤销栈长度应为 1"
         );
         assert_ne!(
-            state.item.pixmap.data(),
+            state.document.item.pixmap.data(),
             original.as_slice(),
             "提交后展示图像必须被修改"
         );
 
-        match &state.annotations.undo_stack()[0] {
+        match &state.document.annotations.undo_stack()[0] {
             AnnotationShape::Text(action) => {
                 assert_eq!(action.text, "文字标注");
                 assert_eq!(action.pos, (10.0, 10.0), "坐标必须使用图像像素");
@@ -213,7 +213,7 @@ mod tests {
 
         assert!(state.undo_annotation(), "文字图元应支持撤销");
         assert_eq!(
-            state.item.pixmap.data(),
+            state.document.item.pixmap.data(),
             original.as_slice(),
             "撤销后必须精确恢复底图"
         );
@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn 取消文字会话不产生图元() {
         let mut state = text_state(120, 80);
-        let original = state.item.pixmap.data().to_vec();
+        let original = state.document.item.pixmap.data().to_vec();
 
         assert!(state.begin_text_session((20.0, 20.0)));
         state
@@ -235,11 +235,11 @@ mod tests {
 
         assert!(state.active_text_input.is_none());
         assert!(
-            state.annotations.undo_stack().is_empty(),
+            state.document.annotations.undo_stack().is_empty(),
             "取消后不得入历史"
         );
         assert_eq!(
-            state.item.pixmap.data(),
+            state.document.item.pixmap.data(),
             original.as_slice(),
             "取消后展示图像必须保持不变"
         );
@@ -249,21 +249,21 @@ mod tests {
     #[test]
     fn 空文本提交不产生图元() {
         let mut state = text_state(120, 80);
-        let original = state.item.pixmap.data().to_vec();
+        let original = state.document.item.pixmap.data().to_vec();
 
         assert!(state.begin_text_session((20.0, 20.0)));
         assert!(!state.commit_text_session(), "空文本不应产生图元");
 
         assert!(state.active_text_input.is_none());
-        assert!(state.annotations.undo_stack().is_empty());
-        assert_eq!(state.item.pixmap.data(), original.as_slice());
+        assert!(state.document.annotations.undo_stack().is_empty());
+        assert_eq!(state.document.item.pixmap.data(), original.as_slice());
     }
 
     /// 屏幕点击点必须按当前缩放换算为图像坐标
     #[test]
     fn 文字会话坐标按缩放换算() {
         let mut state = text_state(200, 100);
-        state.item.transform.scale = 1.0;
+        state.document.item.transform.scale = 1.0;
         assert!(state.begin_text_session((30.0, 20.0)));
         assert_eq!(
             state
@@ -275,7 +275,7 @@ mod tests {
         );
 
         state.cancel_text_session();
-        state.item.transform.scale = 1.67;
+        state.document.item.transform.scale = 1.67;
         assert!(state.begin_text_session((100.2, 83.5)));
         let pos = state
             .active_text_input
@@ -308,6 +308,6 @@ mod tests {
         assert!(state.handle_text_session_key(&Key::Named(NamedKey::Escape)));
         assert!(state.active_text_input.is_none());
         assert!(!state.should_close, "Esc 取消会话时不得关闭贴图");
-        assert!(state.annotations.undo_stack().is_empty());
+        assert!(state.document.annotations.undo_stack().is_empty());
     }
 }

@@ -98,7 +98,7 @@ fn toggle_group_visibility(runtime: &mut WorkspaceRuntime) {
     let new_visible = runtime.manager.toggle_current_group_visibility();
     let active = runtime.manager.active_group();
     for inst in runtime.instances.values_mut() {
-        if inst.state.item.group_id == active {
+        if inst.state.document.item.group_id == active {
             inst.window.set_visible(new_visible);
         }
     }
@@ -132,7 +132,7 @@ fn switch_group(target: Option<GroupId>, runtime: &mut WorkspaceRuntime) {
         TOTAL_PIN_GROUPS
     );
     for inst in runtime.instances.values_mut() {
-        let visible = inst.state.item.group_id == next_group;
+        let visible = inst.state.document.item.group_id == next_group;
         inst.window.set_visible(visible);
         if visible {
             inst.state.set_status_message(group_label.clone());

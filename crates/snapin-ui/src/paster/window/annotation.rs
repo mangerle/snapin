@@ -125,8 +125,8 @@ pub(crate) fn refresh_toolbar_layout(
     let ui_scale = state.ui_scale.max(0.1);
     state.toolbar.ui_scale = ui_scale;
 
-    let scale = state.item.transform.scale.max(f32::EPSILON);
-    let scaled_h = (state.item.pixmap.height() as f32 * scale).max(1.0);
+    let scale = state.document.item.transform.scale.max(f32::EPSILON);
+    let scaled_h = (state.document.item.pixmap.height() as f32 * scale).max(1.0);
     let margin = 8.0 * ui_scale;
     let bar_x = margin;
     // 工具条紧贴图像下边缘，只留一个 margin；二级栏需要时浮在主栏上方
@@ -193,7 +193,7 @@ fn submit_paster_ocr(state: &mut PasterWindowState) {
         state.set_status_message("后台任务媒体执行器不可用");
         return;
     };
-    let image = match pixmap_to_rgba_image(&state.item.pixmap) {
+    let image = match pixmap_to_rgba_image(&state.document.item.pixmap) {
         Ok(image) => image,
         Err(message) => {
             state.set_status_message(format!("读取贴图像素失败: {message}"));
@@ -201,7 +201,7 @@ fn submit_paster_ocr(state: &mut PasterWindowState) {
         }
     };
 
-    match runtime.submit_ocr(state.item.id, image) {
+    match runtime.submit_ocr(state.document.item.id, image) {
         Ok((job_id, cancel)) => {
             state.begin_job(job_id, cancel);
             state.set_status_message("正在识别文字...");
@@ -220,7 +220,7 @@ fn submit_paster_translate(state: &mut PasterWindowState) {
         state.set_status_message("后台任务媒体执行器不可用");
         return;
     };
-    let image = match pixmap_to_rgba_image(&state.item.pixmap) {
+    let image = match pixmap_to_rgba_image(&state.document.item.pixmap) {
         Ok(image) => image,
         Err(message) => {
             state.set_status_message(format!("读取贴图像素失败: {message}"));
@@ -228,7 +228,11 @@ fn submit_paster_translate(state: &mut PasterWindowState) {
         }
     };
 
-    match runtime.submit_translate(state.item.id, image, state.config.translate.cover_mode) {
+    match runtime.submit_translate(
+        state.document.item.id,
+        image,
+        state.config.translate.cover_mode,
+    ) {
         Ok((job_id, cancel)) => {
             state.begin_job(job_id, cancel);
             state.set_status_message("正在翻译文字...");
@@ -268,6 +272,7 @@ mod tests {
         state.pending_stroke_points.push(end);
         assert!(state.commit_pending_stroke(), "矩形标注应提交成功");
         state
+            .document
             .annotations
             .undo_stack()
             .last()
@@ -335,7 +340,7 @@ mod tests {
     #[test]
     fn 提交一笔会写入图像并记录历史() {
         let mut state = test_state(100, 80);
-        let original = state.item.pixmap.data().to_vec();
+        let original = state.document.item.pixmap.data().to_vec();
 
         state.toolbar.active_tool = Some(Tool::Pen);
         state.toolbar.sub_options.custom_stroke_width = 4.0;
@@ -344,17 +349,22 @@ mod tests {
         assert!(state.commit_pending_stroke());
 
         assert_eq!(
-            state.annotations.undo_stack().len(),
+            state.document.annotations.undo_stack().len(),
             1,
             "提交一笔后撤销栈长度应为 1"
         );
         assert_ne!(
-            state.item.pixmap.data(),
+            state.document.item.pixmap.data(),
             original.as_slice(),
             "提交一笔后展示图像必须被修改"
         );
         assert_eq!(
-            state.base_pixmap.as_ref().expect("标注后应有底图").data(),
+            state
+                .document
+                .base_pixmap
+                .as_ref()
+                .expect("标注后应有底图")
+                .data(),
             original.as_slice(),
             "底图必须保持创建贴图时的原始像素"
         );
@@ -381,25 +391,25 @@ mod tests {
             (56.0, 56.0),
             Color::from_rgba8(59, 130, 246, 255),
         );
-        let two_stroke_pixels = state.item.pixmap.data().to_vec();
-        assert_eq!(state.annotations.undo_stack().len(), 2);
+        let two_stroke_pixels = state.document.item.pixmap.data().to_vec();
+        assert_eq!(state.document.annotations.undo_stack().len(), 2);
 
         assert!(state.undo_annotation(), "存在两笔标注时应允许撤销");
-        assert_eq!(state.annotations.undo_stack().len(), 1);
+        assert_eq!(state.document.annotations.undo_stack().len(), 1);
 
         // 期望图：透明底图上仅重放第一笔
         let mut expected = Pixmap::new(64, 64).expect("创建期望位图失败");
         first_shape.draw(&mut expected.as_mut());
         assert_eq!(
-            state.item.pixmap.data(),
+            state.document.item.pixmap.data(),
             expected.data(),
             "撤销后图像应等价于只画第一笔"
         );
 
         assert!(state.redo_annotation(), "存在被撤销的标注时应允许重做");
-        assert_eq!(state.annotations.undo_stack().len(), 2);
+        assert_eq!(state.document.annotations.undo_stack().len(), 2);
         assert_eq!(
-            state.item.pixmap.data(),
+            state.document.item.pixmap.data(),
             two_stroke_pixels.as_slice(),
             "重做后图像应恢复两笔标注"
         );
@@ -492,8 +502,11 @@ mod tests {
     #[test]
     fn 翻译结果注入可从底图撤销() {
         let mut state = test_state(120, 80);
-        let original_item_pixels = state.item.pixmap.data().to_vec();
-        assert!(state.base_pixmap.is_none(), "未产生标注时不应提前复制底图");
+        let original_item_pixels = state.document.item.pixmap.data().to_vec();
+        assert!(
+            state.document.base_pixmap.is_none(),
+            "未产生标注时不应提前复制底图"
+        );
 
         let items = vec![
             TranslationShapeItem {
@@ -520,6 +533,7 @@ mod tests {
         assert_eq!(injected, 2, "应报告注入了两段翻译");
         assert_eq!(
             state
+                .document
                 .base_pixmap
                 .as_ref()
                 .expect("产生标注后应捕获底图")
@@ -528,20 +542,20 @@ mod tests {
             "底图必须保持为标注前像素"
         );
         assert_eq!(
-            state.annotations.undo_stack().len(),
+            state.document.annotations.undo_stack().len(),
             1,
             "整图翻译应作为一条复合标注进入历史"
         );
         assert_ne!(
-            state.item.pixmap.data(),
+            state.document.item.pixmap.data(),
             original_item_pixels.as_slice(),
             "翻译注入后展示图像必须与底图不同"
         );
 
         assert!(state.undo_annotation(), "翻译标注应支持撤销");
-        assert_eq!(state.annotations.undo_stack().len(), 0);
+        assert_eq!(state.document.annotations.undo_stack().len(), 0);
         assert_eq!(
-            state.item.pixmap.data(),
+            state.document.item.pixmap.data(),
             original_item_pixels.as_slice(),
             "撤销翻译后必须精确恢复底图"
         );

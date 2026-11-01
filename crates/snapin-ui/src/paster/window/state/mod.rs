@@ -13,22 +13,22 @@ use crate::ports::{DesktopPort, NoopDesktop};
 use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 
 mod chrome;
+mod document;
 mod frame_cache;
 mod job_slot;
 mod jobs;
 
 use chrome::PasterChrome;
+use document::PasterDocument;
 use frame_cache::FrameCache;
 use job_slot::PasterJobSlot;
 
 use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::{TranslationAction, TranslationShapeItem};
-use snapin_core::annotation::AnnotationHistory;
 use snapin_core::config::{Config, ZoomAnchor};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tiny_skia::Pixmap;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::keyboard::ModifiersState;
 use winit::window::Window;
@@ -38,11 +38,8 @@ pub(crate) const STATUS_MESSAGE_TTL: Duration = Duration::from_secs(3);
 
 /// 贴图窗口运行时状态
 pub struct PasterWindowState {
-    pub item: PasterItem,
-    /// 撤销/重做所需的原始底图；无标注时不复制，首次标注时才从当前图像生成
-    pub base_pixmap: Option<Pixmap>,
-    /// 已提交标注图元的撤销/重做历史（坐标为图像像素坐标）
-    pub annotations: AnnotationHistory,
+    /// 贴图内容文档：图像、底图与标注历史
+    pub(crate) document: PasterDocument,
     /// 贴图标注工具栏（主栏按钮集由 `PASTER_MAIN_ITEMS` 指定）
     pub toolbar: Toolbar,
     pub should_close: bool,
@@ -77,9 +74,7 @@ pub struct PasterWindowState {
 impl PasterWindowState {
     pub fn new(item: PasterItem) -> Self {
         Self {
-            item,
-            base_pixmap: None,
-            annotations: AnnotationHistory::default(),
+            document: PasterDocument::new(item),
             toolbar: create_paster_toolbar(),
             should_close: false,
             chrome: PasterChrome::default(),
@@ -111,8 +106,9 @@ impl PasterWindowState {
 
     /// 顺时针旋转 90 度并同步调整物理窗口尺寸
     pub fn rotate_cw(&mut self, window: &Window) -> bool {
-        if let Some(rotated) = crate::model::transform::rotate_pixmap_cw(&self.item.pixmap) {
-            self.item.pixmap = rotated;
+        if let Some(rotated) = crate::model::transform::rotate_pixmap_cw(&self.document.item.pixmap)
+        {
+            self.document.item.pixmap = rotated;
             self.reset_annotation_baseline();
             apply_window_scale_resize(self, window);
             true
@@ -123,8 +119,10 @@ impl PasterWindowState {
 
     /// 逆时针旋转 90 度并同步调整物理窗口尺寸
     pub fn rotate_ccw(&mut self, window: &Window) -> bool {
-        if let Some(rotated) = crate::model::transform::rotate_pixmap_ccw(&self.item.pixmap) {
-            self.item.pixmap = rotated;
+        if let Some(rotated) =
+            crate::model::transform::rotate_pixmap_ccw(&self.document.item.pixmap)
+        {
+            self.document.item.pixmap = rotated;
             self.reset_annotation_baseline();
             apply_window_scale_resize(self, window);
             true
@@ -135,8 +133,10 @@ impl PasterWindowState {
 
     /// 水平翻转图像
     pub fn flip_horizontal(&mut self) -> bool {
-        if let Some(flipped) = crate::model::transform::flip_pixmap_horizontal(&self.item.pixmap) {
-            self.item.pixmap = flipped;
+        if let Some(flipped) =
+            crate::model::transform::flip_pixmap_horizontal(&self.document.item.pixmap)
+        {
+            self.document.item.pixmap = flipped;
             self.reset_annotation_baseline();
             true
         } else {
@@ -146,8 +146,10 @@ impl PasterWindowState {
 
     /// 垂直翻转图像
     pub fn flip_vertical(&mut self) -> bool {
-        if let Some(flipped) = crate::model::transform::flip_pixmap_vertical(&self.item.pixmap) {
-            self.item.pixmap = flipped;
+        if let Some(flipped) =
+            crate::model::transform::flip_pixmap_vertical(&self.document.item.pixmap)
+        {
+            self.document.item.pixmap = flipped;
             self.reset_annotation_baseline();
             true
         } else {
@@ -157,22 +159,22 @@ impl PasterWindowState {
 
     /// 设置缩放比例并同步调整物理窗口尺寸
     pub fn set_scale(&mut self, scale: f32, window: &Window) {
-        self.item.transform.set_scale(scale);
+        self.document.item.transform.set_scale(scale);
         apply_window_scale_resize(self, window);
     }
 
     /// 滚轮平滑缩放，并按配置的光标/中心锚点重新定位窗口。
     pub fn zoom(&mut self, delta: f32, window: &Window) {
         let old_size = window.inner_size();
-        let old_scale = self.item.transform.scale;
-        self.item.transform.zoom(delta);
-        let new_scale = self.item.transform.scale;
+        let old_scale = self.document.item.transform.scale;
+        self.document.item.transform.zoom(delta);
+        let new_scale = self.document.item.transform.scale;
         if (new_scale - old_scale).abs() < f32::EPSILON {
             return;
         }
 
-        let base_width = self.item.pixmap.width() as f32;
-        let base_height = self.item.pixmap.height() as f32;
+        let base_width = self.document.item.pixmap.width() as f32;
+        let base_height = self.document.item.pixmap.height() as f32;
         let new_width = (base_width * new_scale).max(20.0);
         let new_height = (base_height * new_scale).max(20.0);
         let (ratio_x, ratio_y) = zoom_anchor_ratio(
@@ -206,7 +208,7 @@ impl PasterWindowState {
 
     /// 微调不透明度
     pub fn adjust_opacity(&mut self, delta: f32) {
-        self.item.transform.adjust_opacity(delta);
+        self.document.item.transform.adjust_opacity(delta);
     }
 
     /// 设置图像顶部状态提示，有效期从当前时刻开始计算。
@@ -254,7 +256,8 @@ impl PasterWindowState {
         }
         let count = items.len();
         self.ensure_base_pixmap();
-        self.annotations
+        self.document
+            .annotations
             .push(AnnotationShape::Translation(TranslationAction::new(items)));
         self.rebuild_item_pixmap();
         count
@@ -262,7 +265,7 @@ impl PasterWindowState {
 
     /// 更新贴图像素内容并同步调整物理窗口尺寸
     pub fn replace_pixmap(&mut self, pixmap: tiny_skia::Pixmap, window: &Window) {
-        self.item.pixmap = pixmap;
+        self.document.item.pixmap = pixmap;
         // 新图像意味着旧标注的坐标体系已完全失效，必须连同历史一起重置
         self.reset_annotation_baseline();
         apply_window_scale_resize(self, window);
@@ -327,9 +330,9 @@ impl PasterWindowState {
     pub(crate) fn screen_point_inside_image(&self, pos: (f32, f32)) -> bool {
         crate::paster::window::annotation::is_point_inside_image(
             pos,
-            self.item.transform.scale,
-            self.item.pixmap.width(),
-            self.item.pixmap.height(),
+            self.document.item.transform.scale,
+            self.document.item.pixmap.width(),
+            self.document.item.pixmap.height(),
         )
     }
 
@@ -390,7 +393,7 @@ impl PasterWindowState {
                 &self.toolbar,
                 tool,
                 &self.pending_stroke_points,
-                self.annotations.next_badge_number(),
+                self.document.annotations.next_badge_number(),
             );
             params.and_then(|params| build_shape(&params))
         };
@@ -400,14 +403,14 @@ impl PasterWindowState {
             return false;
         };
         self.ensure_base_pixmap();
-        shape.draw(&mut self.item.pixmap.as_mut());
-        self.annotations.push(shape);
+        shape.draw(&mut self.document.item.pixmap.as_mut());
+        self.document.annotations.push(shape);
         true
     }
 
     /// 撤销上一笔标注并基于底图重放剩余图元。
     pub fn undo_annotation(&mut self) -> bool {
-        if self.annotations.undo() {
+        if self.document.annotations.undo() {
             self.rebuild_item_pixmap();
             true
         } else {
@@ -417,7 +420,7 @@ impl PasterWindowState {
 
     /// 重做下一笔标注并基于底图重放全部生效图元。
     pub fn redo_annotation(&mut self) -> bool {
-        if self.annotations.redo() {
+        if self.document.annotations.redo() {
             self.rebuild_item_pixmap();
             true
         } else {
@@ -429,30 +432,30 @@ impl PasterWindowState {
     pub(crate) fn image_point(&self, screen_pos: (f32, f32)) -> (f32, f32) {
         screen_to_image_point(
             screen_pos,
-            self.item.transform.scale,
-            self.item.pixmap.width(),
-            self.item.pixmap.height(),
+            self.document.item.transform.scale,
+            self.document.item.pixmap.width(),
+            self.document.item.pixmap.height(),
         )
     }
 
     /// 从原始底图重建展示图像，并按顺序重放当前生效的标注。
     fn rebuild_item_pixmap(&mut self) {
-        let Some(base) = self.base_pixmap.as_ref() else {
+        let Some(base) = self.document.base_pixmap.as_ref() else {
             return;
         };
         let mut pixmap = base.clone();
-        self.annotations.replay_all(&mut pixmap.as_mut());
-        self.item.pixmap = pixmap;
-        if !self.annotations.can_undo() && !self.annotations.can_redo() {
+        self.document.annotations.replay_all(&mut pixmap.as_mut());
+        self.document.item.pixmap = pixmap;
+        if !self.document.annotations.can_undo() && !self.document.annotations.can_redo() {
             // 历史已空，底图与当前图完全一致，释放副本回到单图状态。
-            self.base_pixmap = None;
+            self.document.base_pixmap = None;
         }
     }
 
     /// 首次产生标注前捕获底图，避免所有贴图窗口无条件持有第二份完整像素。
     pub(crate) fn ensure_base_pixmap(&mut self) {
-        if self.base_pixmap.is_none() {
-            self.base_pixmap = Some(self.item.pixmap.clone());
+        if self.document.base_pixmap.is_none() {
+            self.document.base_pixmap = Some(self.document.item.pixmap.clone());
         }
     }
 
@@ -461,8 +464,8 @@ impl PasterWindowState {
     /// 旋转/翻转/替换图像会改变像素坐标体系，历史图元在新坐标系中已失去意义
     /// （特别是旋转会交换宽高），因此必须整体重置而不能保留撤销记录。
     fn reset_annotation_baseline(&mut self) {
-        self.base_pixmap = None;
-        self.annotations.clear();
+        self.document.base_pixmap = None;
+        self.document.annotations.clear();
         self.pending_stroke_points.clear();
         self.is_drawing = false;
         // 坐标系已失效，进行中的文字会话不能再落到新底图上
@@ -476,9 +479,9 @@ impl PasterWindowState {
 /// 高度叠加属性栏预留、主栏高度与上下边距。扩容区域在 ARGB8888 通路上是透明的，
 /// 因此不会影响贴图观感；右键菜单所需尺寸与之取最大值，两者互不覆盖。
 pub(crate) fn apply_window_scale_resize(state: &mut PasterWindowState, window: &Window) {
-    let base_w = state.item.pixmap.width() as f32;
-    let base_h = state.item.pixmap.height() as f32;
-    let scale = state.item.transform.scale;
+    let base_w = state.document.item.pixmap.width() as f32;
+    let base_h = state.document.item.pixmap.height() as f32;
+    let scale = state.document.item.transform.scale;
     let mut new_w = (base_w * scale).max(20.0);
     let mut new_h = (base_h * scale).max(20.0);
 
@@ -539,6 +542,7 @@ pub(crate) fn zoom_anchor_ratio(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tiny_skia::Pixmap;
 
     /// 构造一张最小的测试贴图状态
     fn test_state() -> PasterWindowState {
