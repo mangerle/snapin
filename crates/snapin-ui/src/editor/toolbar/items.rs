@@ -56,7 +56,11 @@ pub struct ToolDescriptor {
     pub color_palette: bool,
 }
 
-/// 工具描述表；新增工具时在此补齐一条并同步图标/主栏顺序。
+/// 工具描述表；新增工具时在此补齐一条并同步图标。
+///
+/// 主栏按钮顺序仍由截图/贴图各自的显式序列维护：两套工具栏的动作集合不同，
+/// 直接由描述表推导会迫使动作也进入工具模型，反而把命令与工具耦合得更紧。
+/// 描述表负责控件组合与几何入口等行为差异，按钮顺序作为可见 UX 契约显式列出。
 pub const TOOL_DESCRIPTORS: &[ToolDescriptor] = &[
     ToolDescriptor {
         tool: Tool::Rect,
