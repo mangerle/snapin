@@ -17,8 +17,8 @@ use snapin_core::config::{self, Config};
 use snapin_core::error::CoreError;
 use snapin_daemon::notify_daemon_reload_config;
 use snapin_platform::{
-    get_platform_capabilities, open_path_in_file_manager, suspend_hotkeys_for_settings,
-    sync_autostart, sync_hotkeys_to_gnome, PlatformError,
+    get_platform_capabilities, open_path_in_file_manager, sync_autostart, sync_hotkeys_to_gnome,
+    PlatformError,
 };
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
@@ -85,16 +85,11 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
     register_callbacks(&window, config_arc);
     update_controller::register_update_callbacks(&window);
 
-    // 3. 临时挂起 Snapin 系统全局快捷键，确保录制时按键不被系统拦截触发
-    if let Err(e) = suspend_hotkeys_for_settings() {
-        tracing::warn!("进入设置中心临时挂起系统全局快捷键失败: {e}");
-    }
-
     let run_res = window
         .run()
         .map_err(|e| SettingsError::RuntimeFailed(e.to_string()));
 
-    // 4. 设置窗口退出后，从磁盘恢复最新的有效全局快捷键
+    // 3. 设置窗口退出后，从磁盘同步最新的有效全局快捷键
     if let Ok(latest_cfg) = config::load_or_create_config(None) {
         if let Err(e) = sync_hotkeys_to_gnome(&latest_cfg.hotkeys) {
             tracing::warn!("退出设置中心恢复系统全局快捷键失败: {e}");
