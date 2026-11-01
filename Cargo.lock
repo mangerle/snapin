@@ -6039,7 +6039,6 @@ dependencies = [
 name = "snapin-core"
 version = "1.2.0"
 dependencies = [
- "bytemuck",
  "cosmic-text",
  "rustix 0.38.44",
  "serde",
