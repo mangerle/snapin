@@ -4,6 +4,7 @@ use super::super::window::events::PasterWindowState;
 use super::proxy::PasterAppEvent;
 use super::WorkspaceRuntime;
 use crate::error::UiError;
+use crate::model::PasterId;
 use crate::model::PasterItem;
 use crate::paster::surface::PasterSurface;
 use std::sync::Arc;
@@ -13,7 +14,7 @@ use winit::window::{Window, WindowBuilder, WindowLevel};
 
 /// 单个受管贴图窗口的运行时物理实例
 pub struct PasterInstance {
-    pub item_id: u64,
+    pub item_id: PasterId,
     pub window: Arc<Window>,
     pub surface: PasterSurface,
     pub state: PasterWindowState,

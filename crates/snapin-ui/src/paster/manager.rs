@@ -3,10 +3,12 @@
 //! 管理器只维护贴图 ID、分组与可见性等轻量元数据，不持有像素缓冲区，
 //! 像素数据由各贴图窗口独占，避免每张图在窗口与管理器之间发生多次深拷贝。
 
+use crate::model::PasterId;
+
 /// 单张贴图的元数据条目
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PasterEntry {
-    id: u64,
+    id: PasterId,
     group_id: usize,
     is_visible: bool,
 }
@@ -25,7 +27,7 @@ impl PasterManager {
     }
 
     /// 登记一张新贴图；ID 重复时返回 `false`，可见性由当前活动分组决定。
-    pub fn add_entry(&mut self, id: u64, group_id: usize) -> bool {
+    pub fn add_entry(&mut self, id: PasterId, group_id: usize) -> bool {
         if self.entries.iter().any(|entry| entry.id == id) {
             return false;
         }
@@ -63,7 +65,7 @@ impl PasterManager {
     }
 
     /// 移除指定 ID 的贴图元数据。
-    pub fn remove_paster(&mut self, id: u64) -> bool {
+    pub fn remove_paster(&mut self, id: PasterId) -> bool {
         let Some(index) = self.entries.iter().position(|entry| entry.id == id) else {
             return false;
         };
@@ -87,12 +89,12 @@ mod tests {
     #[test]
     fn test_paster_grouping_and_toggle() {
         let mut manager = PasterManager::default();
-        assert!(manager.add_entry(1, 0));
+        assert!(manager.add_entry(1.into(), 0));
         assert_eq!(manager.count_in_active_group(), 1);
 
         manager.switch_group(1);
         assert_eq!(manager.count_in_active_group(), 0);
-        assert!(manager.add_entry(2, 1));
+        assert!(manager.add_entry(2.into(), 1));
         assert_eq!(manager.count_in_active_group(), 1);
 
         manager.switch_group(0);
@@ -101,15 +103,15 @@ mod tests {
         assert!(!manager.toggle_current_group_visibility());
         assert!(manager.toggle_current_group_visibility());
 
-        assert!(manager.remove_paster(1));
+        assert!(manager.remove_paster(1.into()));
         assert_eq!(manager.count_in_active_group(), 0);
     }
 
     #[test]
     fn test_duplicate_id_is_rejected() {
         let mut manager = PasterManager::default();
-        assert!(manager.add_entry(7, 0));
-        assert!(!manager.add_entry(7, 0));
+        assert!(manager.add_entry(7.into(), 0));
+        assert!(!manager.add_entry(7.into(), 0));
         assert_eq!(manager.count_in_active_group(), 1);
     }
 }

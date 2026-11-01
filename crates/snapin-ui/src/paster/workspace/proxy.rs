@@ -1,6 +1,7 @@
 //! 贴图工作区事件定义与线程安全代理句柄。
 
 use crate::error::UiError;
+use crate::model::PasterId;
 use crate::model::PasterItem;
 use crate::ports::{JobId, MediaJobOutcome};
 use crate::snipper::window::jobs::SnipperJobKind;
@@ -43,19 +44,19 @@ pub enum PasterAppEvent {
     GetStatus(oneshot::Sender<WorkspaceStatus>),
     /// 整图文字识别完成；携带 `paster_id` 以精确路由回发起窗口
     OcrFinished {
-        paster_id: u64,
+        paster_id: PasterId,
         job_id: JobId,
         result: Result<String, String>,
     },
     /// 整图翻译完成；携带 `paster_id` 以精确路由回发起窗口
     TranslateFinished {
-        paster_id: u64,
+        paster_id: PasterId,
         job_id: JobId,
         result: Result<Vec<TranslationShapeItem>, String>,
     },
     /// 贴图保存完成：成功且用户选择路径时返回目标文件，取消时返回 `None`
     SaveFinished {
-        paster_id: u64,
+        paster_id: PasterId,
         job_id: JobId,
         result: Result<Option<PathBuf>, String>,
     },
@@ -110,7 +111,7 @@ impl PasterWorkspaceProxy {
     /// 回传整图文字识别结果。
     pub(crate) fn ocr_finished(
         &self,
-        paster_id: u64,
+        paster_id: PasterId,
         job_id: JobId,
         result: Result<String, String>,
     ) -> Result<(), UiError> {
@@ -128,7 +129,7 @@ impl PasterWorkspaceProxy {
     /// 回传整图翻译结果。
     pub(crate) fn translate_finished(
         &self,
-        paster_id: u64,
+        paster_id: PasterId,
         job_id: JobId,
         result: Result<Vec<TranslationShapeItem>, String>,
     ) -> Result<(), UiError> {
@@ -146,7 +147,7 @@ impl PasterWorkspaceProxy {
     /// 回传贴图保存结果，供工作区更新对应贴图的文件路径与状态提示。
     pub(crate) fn save_finished(
         &self,
-        paster_id: u64,
+        paster_id: PasterId,
         job_id: JobId,
         result: Result<Option<PathBuf>, String>,
     ) -> Result<(), UiError> {
