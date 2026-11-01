@@ -33,8 +33,8 @@ pub async fn capture_fullscreen_snapshot() -> Result<RgbaImage, PlatformError> {
 
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
-        Err(PlatformError::Capture {
-            message: "当前操作系统暂未支持屏幕快照捕获驱动".to_string(),
+        Err(PlatformError::Unsupported {
+            capability: "屏幕快照捕获".to_string(),
         })
     }
 }

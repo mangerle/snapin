@@ -18,7 +18,7 @@ pub mod window;
 #[cfg(target_os = "linux")]
 pub(crate) mod dbus_session;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub mod dialog;
 
 pub use autostart::sync_autostart;
@@ -37,27 +37,6 @@ pub use window::WindowRect;
 #[cfg(target_os = "linux")]
 pub use extension_client::{capture_fullscreen_extension, list_windows, place_paster_window};
 
-#[cfg(not(target_os = "linux"))]
-pub async fn place_paster_window(
-    _title: &str,
-    _x: i32,
-    _y: i32,
-) -> Result<bool, error::PlatformError> {
-    Ok(false)
-}
-
-#[cfg(not(target_os = "linux"))]
-pub async fn capture_fullscreen_extension(
-    _target_path: &str,
-) -> Result<bool, error::PlatformError> {
-    Ok(false)
-}
-
-#[cfg(not(target_os = "linux"))]
-pub async fn list_windows() -> Result<Vec<window::WindowRect>, error::PlatformError> {
-    Ok(vec![])
-}
-
 pub use hotkey_manager::{
     hotkey_to_gnome_accelerator, sync_global_hotkeys, sync_hotkeys_to_gnome, HotkeyAction,
     PlatformHotkeyListener,
@@ -68,9 +47,20 @@ pub use lifecycle::{
 };
 pub use notification::send_desktop_notification;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub use dialog::pick_save_path;
 #[cfg(target_os = "linux")]
 pub use portal::{capture_fullscreen_portal, ensure_portal_screenshot_permission, pick_save_path};
+
+/// 未接入原生保存对话框的平台显式返回不支持，而不是伪造成功空值。
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+pub async fn pick_save_path(
+    _suggested_name: &str,
+    _current_folder: Option<&std::path::Path>,
+) -> Result<Option<std::path::PathBuf>, error::PlatformError> {
+    Err(error::PlatformError::Unsupported {
+        capability: "系统保存对话框".to_string(),
+    })
+}
 pub use tray::{PlatformTray, TrayAction};
 pub use window::enumerate_visible_windows;

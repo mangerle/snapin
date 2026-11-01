@@ -36,7 +36,9 @@ pub async fn enumerate_visible_windows() -> Result<Vec<WindowRect>, PlatformErro
 
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
-        Ok(Vec::new())
+        Err(PlatformError::Unsupported {
+            capability: "可见窗口枚举".to_string(),
+        })
     }
 }
 

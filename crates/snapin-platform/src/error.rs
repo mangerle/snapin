@@ -55,6 +55,10 @@ pub enum PlatformError {
     #[error("系统全局快捷键操作失败，原因: {message}")]
     Hotkey { message: String },
 
+    /// 当前平台没有该能力
+    #[error("当前平台不支持该能力: {capability}")]
+    Unsupported { capability: String },
+
     /// 核心领域错误透明转换
     #[error(transparent)]
     Core(#[from] CoreError),

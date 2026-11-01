@@ -69,9 +69,13 @@ pub async fn send_desktop_notification(summary: &str, body: &str) -> Result<u32,
     Ok(reply.0)
 }
 
-/// 非 Linux 平台暂未接入系统原生通知中心，记录追踪日志并返回成功
+/// 非 Linux 平台暂未接入系统原生通知中心，显式返回不支持。
+///
+/// 调用方都把通知视为非关键副作用并降级为调试日志；这里不再伪造 `Ok(0)`，
+/// 避免上层误以为通知已经送达。
 #[cfg(not(target_os = "linux"))]
-pub async fn send_desktop_notification(summary: &str, body: &str) -> Result<u32, PlatformError> {
-    tracing::info!(summary = %summary, body = %body, "发送系统桌面通知");
-    Ok(0)
+pub async fn send_desktop_notification(_summary: &str, _body: &str) -> Result<u32, PlatformError> {
+    Err(PlatformError::Unsupported {
+        capability: "系统桌面通知".to_string(),
+    })
 }
