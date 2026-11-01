@@ -144,17 +144,103 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
                                     }
                                 });
                             }
+                            TrayAction::Fullscreen => {
+                                let snip_cfg = cfg.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = super::snip::run_oneshot_snip(
+                                        snip_cfg,
+                                        snapin_ui::snipper::SnipMode::Fullscreen,
+                                        0,
+                                    )
+                                    .await
+                                    {
+                                        tracing::warn!("托盘触发全屏截图失败: {e}");
+                                    }
+                                });
+                            }
+                            TrayAction::DelaySnip(seconds) => {
+                                let snip_cfg = cfg.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = super::snip::run_oneshot_snip(
+                                        snip_cfg,
+                                        snapin_ui::snipper::SnipMode::Normal,
+                                        seconds,
+                                    )
+                                    .await
+                                    {
+                                        tracing::warn!("托盘触发延时截图失败: {e}");
+                                    }
+                                });
+                            }
+                            TrayAction::PickColor => {
+                                let snip_cfg = cfg.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = super::snip::run_oneshot_snip(
+                                        snip_cfg,
+                                        snapin_ui::snipper::SnipMode::PickColor,
+                                        0,
+                                    )
+                                    .await
+                                    {
+                                        tracing::warn!("托盘触发取色器失败: {e}");
+                                    }
+                                });
+                            }
+                            TrayAction::AutoCopy => {
+                                let snip_cfg = cfg.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = super::snip::run_oneshot_snip(
+                                        snip_cfg,
+                                        snapin_ui::snipper::SnipMode::AutoCopy,
+                                        0,
+                                    )
+                                    .await
+                                    {
+                                        tracing::warn!("托盘触发截图并自动复制失败: {e}");
+                                    }
+                                });
+                            }
+                            TrayAction::CustomSnip => {
+                                let snip_cfg = cfg.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = super::snip::run_oneshot_snip(
+                                        snip_cfg,
+                                        snapin_ui::snipper::SnipMode::Custom,
+                                        0,
+                                    )
+                                    .await
+                                    {
+                                        tracing::warn!("托盘触发自定义截图失败: {e}");
+                                    }
+                                });
+                            }
                             TrayAction::Paste => {
                                 let _ = handle_command(DaemonRequest::Paste, &workspace_proxy).await;
                             }
                             TrayAction::TogglePasters => {
                                 let _ = handle_command(DaemonRequest::TogglePasters, &workspace_proxy).await;
                             }
+                            TrayAction::SwitchGroup => {
+                                let _ = handle_command(DaemonRequest::SwitchGroup(None), &workspace_proxy).await;
+                            }
+                            TrayAction::ClearHistory => {
+                                tokio::spawn(async {
+                                    if let Err(e) = super::cleaner::clear_snip_history().await {
+                                        tracing::warn!("托盘触发清空截屏历史失败: {e}");
+                                    }
+                                });
+                            }
+                            TrayAction::Preferences => {
+                                tokio::task::spawn_blocking(|| {
+                                    if let Err(e) = snapin_settings::run_settings_gui() {
+                                        tracing::warn!("托盘启动偏好设置界面失败: {e}");
+                                    }
+                                });
+                            }
                             TrayAction::Exit => {
                                 tracing::info!("托盘请求退出 Snapin，启动平滑停机流程");
                                 break;
                             }
-                            _ => {}
                         }
                     }
                 }

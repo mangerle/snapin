@@ -107,7 +107,10 @@ impl Commands {
     /// 探测会发起一次 D-Bus 往返，两条路径消费其结果：截图据此决定是否走扩展零白闪原生通道
     /// （扩展未在线时直接走 portal，避免一次注定失败的调用），设置中心据此展示扩展部署状态。
     pub fn needs_capabilities(&self) -> bool {
-        matches!(self, Self::Snip { .. } | Self::PickColor | Self::Prefs)
+        matches!(
+            self,
+            Self::Snip { .. } | Self::PickColor | Self::Prefs | Self::Daemon
+        )
     }
 }
 
@@ -166,7 +169,7 @@ mod tests {
         }
         .needs_capabilities());
         assert!(!Commands::Exit.needs_capabilities());
-        assert!(!Commands::Daemon.needs_capabilities());
+        assert!(Commands::Daemon.needs_capabilities());
     }
 
     /// 裸命令启动应被允许（用于桌面图标双击拉起常驻守护服务）
