@@ -12,7 +12,7 @@
 //! 避免截图侧与贴图侧各自维护一套 OCR/翻译缓存。
 
 use crate::paster::workspace::PasterWorkspaceProxy;
-use crate::ports::{JobCancel, MediaJob, MediaJobOutcome, MediaJobRunner, PortError};
+use crate::ports::{JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, PortError};
 use image::RgbaImage;
 use snapin_core::config::CoverMode;
 use std::sync::Arc;
@@ -66,17 +66,17 @@ impl PasterJobRuntime {
         &self,
         paster_id: u64,
         image: RgbaImage,
-    ) -> Result<JobCancel, PortError> {
+    ) -> Result<(JobId, JobCancel), PortError> {
         let proxy = self.proxy.clone();
         self.runner.submit(
             MediaJob::Ocr { image },
-            Box::new(move |outcome| {
+            Box::new(move |job_id, outcome| {
                 let result = match outcome {
                     MediaJobOutcome::Ocr { text } => Ok(text),
                     MediaJobOutcome::Failed { message } => Err(message),
                     _ => Err("文字识别返回了不匹配的结果类型".to_string()),
                 };
-                if let Err(error) = proxy.ocr_finished(paster_id, result) {
+                if let Err(error) = proxy.ocr_finished(paster_id, job_id, result) {
                     tracing::warn!("贴图工作区已关闭，文字识别结果未能回传: {error}");
                 }
             }),
@@ -93,7 +93,7 @@ impl PasterJobRuntime {
         paster_id: u64,
         image: RgbaImage,
         cover_mode: CoverMode,
-    ) -> Result<JobCancel, PortError> {
+    ) -> Result<(JobId, JobCancel), PortError> {
         let proxy = self.proxy.clone();
         self.runner.submit(
             MediaJob::Translate {
@@ -101,13 +101,13 @@ impl PasterJobRuntime {
                 origin: (0, 0),
                 cover_mode,
             },
-            Box::new(move |outcome| {
+            Box::new(move |job_id, outcome| {
                 let result = match outcome {
                     MediaJobOutcome::Translated { items } => Ok(items),
                     MediaJobOutcome::Failed { message } => Err(message),
                     _ => Err("原位翻译返回了不匹配的结果类型".to_string()),
                 };
-                if let Err(error) = proxy.translate_finished(paster_id, result) {
+                if let Err(error) = proxy.translate_finished(paster_id, job_id, result) {
                     tracing::warn!("贴图工作区已关闭，翻译结果未能回传: {error}");
                 }
             }),
@@ -125,7 +125,7 @@ impl PasterJobRuntime {
         image: RgbaImage,
         as_dialog: bool,
         open_folder_after: bool,
-    ) -> Result<JobCancel, PortError> {
+    ) -> Result<(JobId, JobCancel), PortError> {
         let proxy = self.proxy.clone();
         self.runner.submit(
             MediaJob::SavePaster {
@@ -133,14 +133,14 @@ impl PasterJobRuntime {
                 as_dialog,
                 open_folder_after,
             },
-            Box::new(move |outcome| {
+            Box::new(move |job_id, outcome| {
                 let result = match outcome {
                     MediaJobOutcome::Saved { path } => Ok(Some(path)),
                     MediaJobOutcome::SaveCancelled => Ok(None),
                     MediaJobOutcome::Failed { message } => Err(message),
                     _ => Err("保存任务返回了不匹配的结果类型".to_string()),
                 };
-                if let Err(error) = proxy.save_finished(paster_id, result) {
+                if let Err(error) = proxy.save_finished(paster_id, job_id, result) {
                     tracing::warn!("贴图工作区已关闭，保存结果未能回传: {error}");
                 }
             }),

@@ -165,10 +165,11 @@ impl SnipperView {
     /// 处理媒体任务完成事件。
     pub fn handle_job_finished(
         &mut self,
+        job_id: crate::ports::JobId,
         kind: SnipperJobKind,
         outcome: crate::ports::MediaJobOutcome,
     ) {
-        handle_job_outcome(&mut self.state, kind, outcome);
+        handle_job_outcome(&mut self.state, job_id, kind, outcome);
     }
 
     /// 取出会话结果；存在结果时会取消仍在执行的后台任务。

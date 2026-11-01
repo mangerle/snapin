@@ -26,8 +26,8 @@ mod worker;
 
 use crate::config::{config_snapshot, SharedConfig};
 use snapin_service::ocr::LocalPpOcrEngine;
-use snapin_ui::{JobCancel, MediaJob, MediaJobOutcome, MediaJobRunner, PortError};
-use std::sync::atomic::{AtomicBool, Ordering};
+use snapin_ui::{JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, PortError};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// OCR 引擎缓存；键为模型目录，初始化失败也按目录缓存，避免重复扫描。
@@ -41,6 +41,7 @@ pub(crate) struct MediaService {
     config: SharedConfig,
     runtime: snapin_runtime::TaskRuntime,
     ocr_cache: Arc<Mutex<OcrCache>>,
+    next_job_id: AtomicU64,
 }
 
 impl MediaService {
@@ -50,6 +51,7 @@ impl MediaService {
             config,
             runtime,
             ocr_cache: Arc::new(Mutex::new(OcrCache::default())),
+            next_job_id: AtomicU64::new(1),
         }
     }
 }
@@ -58,8 +60,9 @@ impl MediaJobRunner for MediaService {
     fn submit(
         &self,
         job: MediaJob,
-        sink: Box<dyn FnOnce(MediaJobOutcome) + Send>,
-    ) -> Result<JobCancel, PortError> {
+        sink: Box<dyn FnOnce(JobId, MediaJobOutcome) + Send>,
+    ) -> Result<(JobId, JobCancel), PortError> {
+        let job_id = JobId::new(self.next_job_id.fetch_add(1, Ordering::Relaxed));
         let config = config_snapshot(&self.config);
         let cancel = Arc::new(AtomicBool::new(false));
         let cancel_flag = cancel.clone();
@@ -70,11 +73,14 @@ impl MediaJobRunner for MediaService {
             .spawn(async move {
                 let outcome = worker::execute_job(job, config, cache).await;
                 if !task_cancel.load(Ordering::Acquire) {
-                    sink(outcome);
+                    sink(job_id, outcome);
                 }
             })
             .map_err(|error| PortError::new("提交媒体任务", error.to_string()))?;
 
-        Ok(Box::new(move || cancel_flag.store(true, Ordering::Release)))
+        Ok((
+            job_id,
+            Box::new(move || cancel_flag.store(true, Ordering::Release)),
+        ))
     }
 }

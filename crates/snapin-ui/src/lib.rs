@@ -13,8 +13,8 @@ pub mod surface;
 
 pub use error::UiError;
 pub use ports::{
-    ConfigStore, DesktopPort, JobCancel, MediaJob, MediaJobOutcome, MediaJobRunner, NoopDesktop,
-    PortError,
+    ConfigStore, DesktopPort, JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner,
+    NoopDesktop, PortError,
 };
 pub use surface::blit_pixmap_to_surface;
 pub use winit;

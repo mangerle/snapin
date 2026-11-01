@@ -185,7 +185,7 @@ pub(crate) fn handle_toolbar_click(
 
 /// 提交整图文字识别任务；已有任务或执行器不可用时只更新顶部提示。
 fn submit_paster_ocr(state: &mut PasterWindowState) {
-    if state.job_pending {
+    if state.has_pending_job() {
         state.set_status_message("请等待当前任务完成");
         return;
     }
@@ -202,8 +202,8 @@ fn submit_paster_ocr(state: &mut PasterWindowState) {
     };
 
     match runtime.submit_ocr(state.item.id, image) {
-        Ok(_) => {
-            state.job_pending = true;
+        Ok((job_id, _)) => {
+            state.begin_job(job_id);
             state.set_status_message("正在识别文字...");
         }
         Err(message) => state.set_status_message(format!("提交文字识别任务失败: {message}")),
@@ -212,7 +212,7 @@ fn submit_paster_ocr(state: &mut PasterWindowState) {
 
 /// 提交整图翻译任务；目标语言与背景覆盖模式取自当前配置。
 fn submit_paster_translate(state: &mut PasterWindowState) {
-    if state.job_pending {
+    if state.has_pending_job() {
         state.set_status_message("请等待当前任务完成");
         return;
     }
@@ -229,8 +229,8 @@ fn submit_paster_translate(state: &mut PasterWindowState) {
     };
 
     match runtime.submit_translate(state.item.id, image, state.config.translate.cover_mode) {
-        Ok(_) => {
-            state.job_pending = true;
+        Ok((job_id, _)) => {
+            state.begin_job(job_id);
             state.set_status_message("正在翻译文字...");
         }
         Err(message) => state.set_status_message(format!("提交翻译任务失败: {message}")),

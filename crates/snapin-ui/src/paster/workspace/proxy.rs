@@ -2,7 +2,7 @@
 
 use crate::error::UiError;
 use crate::model::PasterItem;
-use crate::ports::MediaJobOutcome;
+use crate::ports::{JobId, MediaJobOutcome};
 use crate::snipper::window::jobs::SnipperJobKind;
 use crate::snipper::SnipperLaunch;
 use snapin_core::annotation::shapes::TranslationShapeItem;
@@ -28,6 +28,8 @@ pub enum PasterAppEvent {
     OpenSnipper(Box<SnipperLaunch>),
     /// 截图覆盖层媒体任务完成
     SnipperJobFinished {
+        /// 执行器分配的任务 ID
+        job_id: JobId,
         /// 任务类型
         kind: SnipperJobKind,
         /// 任务结果
@@ -42,16 +44,19 @@ pub enum PasterAppEvent {
     /// 整图文字识别完成；携带 `paster_id` 以精确路由回发起窗口
     OcrFinished {
         paster_id: u64,
+        job_id: JobId,
         result: Result<String, String>,
     },
     /// 整图翻译完成；携带 `paster_id` 以精确路由回发起窗口
     TranslateFinished {
         paster_id: u64,
+        job_id: JobId,
         result: Result<Vec<TranslationShapeItem>, String>,
     },
     /// 贴图保存完成：成功且用户选择路径时返回目标文件，取消时返回 `None`
     SaveFinished {
         paster_id: u64,
+        job_id: JobId,
         result: Result<Option<PathBuf>, String>,
     },
     /// 请求工作区平滑停机，并在事件循环即将退出时回传确认
@@ -106,10 +111,15 @@ impl PasterWorkspaceProxy {
     pub(crate) fn ocr_finished(
         &self,
         paster_id: u64,
+        job_id: JobId,
         result: Result<String, String>,
     ) -> Result<(), UiError> {
         self.proxy
-            .send_event(PasterAppEvent::OcrFinished { paster_id, result })
+            .send_event(PasterAppEvent::OcrFinished {
+                paster_id,
+                job_id,
+                result,
+            })
             .map_err(|e| UiError::Window {
                 message: format!("向贴图工作区回传文字识别结果失败: {e}"),
             })
@@ -119,10 +129,15 @@ impl PasterWorkspaceProxy {
     pub(crate) fn translate_finished(
         &self,
         paster_id: u64,
+        job_id: JobId,
         result: Result<Vec<TranslationShapeItem>, String>,
     ) -> Result<(), UiError> {
         self.proxy
-            .send_event(PasterAppEvent::TranslateFinished { paster_id, result })
+            .send_event(PasterAppEvent::TranslateFinished {
+                paster_id,
+                job_id,
+                result,
+            })
             .map_err(|e| UiError::Window {
                 message: format!("向贴图工作区回传翻译结果失败: {e}"),
             })
@@ -132,10 +147,15 @@ impl PasterWorkspaceProxy {
     pub(crate) fn save_finished(
         &self,
         paster_id: u64,
+        job_id: JobId,
         result: Result<Option<PathBuf>, String>,
     ) -> Result<(), UiError> {
         self.proxy
-            .send_event(PasterAppEvent::SaveFinished { paster_id, result })
+            .send_event(PasterAppEvent::SaveFinished {
+                paster_id,
+                job_id,
+                result,
+            })
             .map_err(|e| UiError::Window {
                 message: format!("向贴图工作区回传保存结果失败: {e}"),
             })

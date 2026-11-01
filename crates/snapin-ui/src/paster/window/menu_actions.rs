@@ -93,7 +93,7 @@ pub fn save_paster_as(state: &mut PasterWindowState) {
 /// 保存对话框、编码落盘、通知与可选的打开目录都由应用层媒体执行器完成；
 /// 结果通过工作区用户事件按 `paster_id` 回填。
 fn submit_paster_save(state: &mut PasterWindowState, as_dialog: bool, open_folder_after: bool) {
-    if state.job_pending {
+    if state.has_pending_job() {
         state.set_status_message("请等待当前任务完成");
         return;
     }
@@ -106,8 +106,8 @@ fn submit_paster_save(state: &mut PasterWindowState, as_dialog: bool, open_folde
     };
 
     match runtime.submit_save(state.item.id, image, as_dialog, open_folder_after) {
-        Ok(_) => {
-            state.job_pending = true;
+        Ok((job_id, _)) => {
+            state.begin_job(job_id);
             state.set_status_message(if as_dialog {
                 "正在选择保存位置..."
             } else {

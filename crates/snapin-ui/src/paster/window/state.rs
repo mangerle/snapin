@@ -9,7 +9,7 @@ use crate::paster::window::annotation::{
     create_paster_toolbar, screen_to_image_point, toolbar_required_extent,
 };
 use crate::paster::window::jobs::PasterJobRuntime;
-use crate::ports::{DesktopPort, NoopDesktop};
+use crate::ports::{DesktopPort, JobId, NoopDesktop};
 use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::{TranslationAction, TranslationShapeItem};
 use snapin_core::annotation::AnnotationHistory;
@@ -48,8 +48,8 @@ pub struct PasterWindowState {
     pub(crate) job_runtime: Option<Arc<PasterJobRuntime>>,
     /// 桌面副作用端口：剪贴板、文件管理器等系统交互经此委托给应用层
     pub(crate) desktop: Arc<dyn DesktopPort>,
-    /// 是否有整图 OCR / 翻译任务正在后台执行，用于阻止重复提交
-    pub(crate) job_pending: bool,
+    /// 当前后台任务 ID；`Some` 表示有 OCR / 翻译 / 保存任务在执行
+    pending_job_id: Option<JobId>,
     /// 图像顶部状态提示及其产生时刻，超过 [`STATUS_MESSAGE_TTL`] 后自动失效
     pub(crate) status_message: Option<(String, Instant)>,
     pub(crate) last_click_time: Option<Instant>,
@@ -62,6 +62,26 @@ pub struct PasterWindowState {
 }
 
 impl PasterWindowState {
+    /// 是否有后台媒体任务正在执行。
+    pub(crate) fn has_pending_job(&self) -> bool {
+        self.pending_job_id.is_some()
+    }
+
+    /// 记录新提交的后台任务 ID。
+    pub(crate) fn begin_job(&mut self, job_id: JobId) {
+        self.pending_job_id = Some(job_id);
+    }
+
+    /// 结束匹配任务；过期任务返回 false，由调用方丢弃结果。
+    pub(crate) fn finish_job(&mut self, job_id: JobId) -> bool {
+        if self.pending_job_id == Some(job_id) {
+            self.pending_job_id = None;
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn new(item: PasterItem) -> Self {
         let base_pixmap = item.pixmap.clone();
         Self {
@@ -81,7 +101,7 @@ impl PasterWindowState {
             config: Arc::new(Config::default()),
             job_runtime: None,
             desktop: Arc::new(NoopDesktop),
-            job_pending: false,
+            pending_job_id: None,
             status_message: None,
             last_click_time: None,
             pending_stroke_points: Vec::with_capacity(64),

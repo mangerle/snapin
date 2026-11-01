@@ -115,6 +115,25 @@ pub trait ConfigStore: Send + Sync {
     fn save(&self, config: &Config) -> Result<(), PortError>;
 }
 
+/// 后台媒体任务标识。
+///
+/// 每次提交由执行器分配单调递增 ID，结果回调必须携带同一 ID；窗口据此丢弃
+/// 取消后仍可能到达的过期回调，避免旧任务覆盖新任务状态。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct JobId(u64);
+
+impl JobId {
+    /// 由执行器分配任务序号。
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    /// 读取原始序号，供日志与调试展示。
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
 /// 需要后台执行的一次性媒体任务。
 #[derive(Debug)]
 pub enum MediaJob {
@@ -191,11 +210,14 @@ pub trait MediaJobRunner: Send + Sync {
     /// # Errors
     ///
     /// 执行器已停止、队列已满或任务参数非法时返回 [`PortError`]。
+    ///
+    /// 返回的任务 ID 会原样传给结果回调；取消后执行器可以丢弃结果，但 UI 侧
+    /// 仍以 ID 校验兜底，防止竞态回传污染状态。
     fn submit(
         &self,
         job: MediaJob,
-        sink: Box<dyn FnOnce(MediaJobOutcome) + Send>,
-    ) -> Result<JobCancel, PortError>;
+        sink: Box<dyn FnOnce(JobId, MediaJobOutcome) + Send>,
+    ) -> Result<(JobId, JobCancel), PortError>;
 }
 
 /// 无操作桌面端口，供单元测试与不需要系统交互的渲染场景使用。

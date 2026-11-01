@@ -5,7 +5,7 @@ use super::jobs::{SnipperJobKind, SnipperJobRuntime};
 use super::types::{SnipMode, SnipperOutcome};
 use crate::editor::text_input::TextInputSession;
 use crate::editor::toolbar::Toolbar;
-use crate::ports::{DesktopPort, JobCancel, NoopDesktop};
+use crate::ports::{DesktopPort, JobCancel, JobId, NoopDesktop};
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionHistory, SelectionState};
 use crate::snipper::window_rect::WindowRect;
@@ -47,6 +47,8 @@ pub struct SnipperState {
     pub job_runtime: Option<Arc<SnipperJobRuntime>>,
     /// 当前正在执行的 OCR/翻译任务类型
     pub pending_job: Option<SnipperJobKind>,
+    /// 当前后台任务的执行器分配 ID，用于丢弃过期回调
+    pub pending_job_id: Option<JobId>,
     /// 当前后台任务的取消闭包
     pub pending_job_cancel: Option<JobCancel>,
     /// 桌面副作用端口：选区缓存、剪贴板等系统交互经此委托给应用层
@@ -89,6 +91,7 @@ impl SnipperState {
             status_message: None,
             job_runtime: None,
             pending_job: None,
+            pending_job_id: None,
             pending_job_cancel: None,
             desktop,
             config: Config::default(),
@@ -109,6 +112,7 @@ impl SnipperState {
             cancel();
         }
         self.pending_job = None;
+        self.pending_job_id = None;
     }
 
     /// 设置画布顶部提示信息

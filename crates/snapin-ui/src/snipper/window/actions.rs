@@ -159,8 +159,9 @@ fn dispatch_job(state: &mut SnipperState, kind: SnipperJobKind, job: MediaJob) {
     };
 
     match runtime.submit(kind, job) {
-        Ok(cancel) => {
+        Ok((job_id, cancel)) => {
             state.pending_job = Some(kind);
+            state.pending_job_id = Some(job_id);
             state.pending_job_cancel = Some(cancel);
             state.set_status_message(format!("正在执行{}...", kind.label()));
         }

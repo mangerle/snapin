@@ -5,6 +5,7 @@ use super::paster_events::handle_paster_window_event;
 use super::proxy::{PasterAppEvent, WorkspaceStatus};
 use super::window_builder::create_new_paster_window;
 use super::WorkspaceRuntime;
+use crate::ports::JobId;
 use crate::snipper::window::jobs::SnipperJobSink;
 use crate::snipper::{SnipperOutcome, SnipperView};
 use snapin_core::annotation::shapes::TranslationShapeItem;
@@ -39,9 +40,13 @@ pub(crate) fn handle_workspace_user_event(
         PasterAppEvent::OpenSnipper(launch) => {
             open_snipper(*launch, runtime, elwt);
         }
-        PasterAppEvent::SnipperJobFinished { kind, outcome } => {
+        PasterAppEvent::SnipperJobFinished {
+            job_id,
+            kind,
+            outcome,
+        } => {
             if let Some(view) = runtime.snipper.as_mut() {
-                view.handle_job_finished(kind, outcome);
+                view.handle_job_finished(job_id, kind, outcome);
                 view.request_redraw();
             }
             finish_snipper_if_ready(runtime);
@@ -55,14 +60,26 @@ pub(crate) fn handle_workspace_user_event(
             };
             let _ = responder.send(status);
         }
-        PasterAppEvent::OcrFinished { paster_id, result } => {
-            handle_ocr_finished(paster_id, result, runtime);
+        PasterAppEvent::OcrFinished {
+            paster_id,
+            job_id,
+            result,
+        } => {
+            handle_ocr_finished(paster_id, job_id, result, runtime);
         }
-        PasterAppEvent::TranslateFinished { paster_id, result } => {
-            handle_translate_finished(paster_id, result, runtime);
+        PasterAppEvent::TranslateFinished {
+            paster_id,
+            job_id,
+            result,
+        } => {
+            handle_translate_finished(paster_id, job_id, result, runtime);
         }
-        PasterAppEvent::SaveFinished { paster_id, result } => {
-            handle_save_finished(paster_id, result, runtime);
+        PasterAppEvent::SaveFinished {
+            paster_id,
+            job_id,
+            result,
+        } => {
+            handle_save_finished(paster_id, job_id, result, runtime);
         }
         PasterAppEvent::Shutdown(responder) => shutdown_workspace(runtime, responder, elwt),
     }
@@ -162,9 +179,13 @@ fn open_snipper(
     // EventLoopProxy 在 macOS 上为 Send 但不是 Sync；媒体任务线程需要共享回调，
     // 因此用短临界区互斥锁包裹代理，既满足跨线程约束又只在投递结果时短暂持锁。
     let event_proxy = Arc::new(Mutex::new(runtime.event_proxy.clone()));
-    let sink: SnipperJobSink = Arc::new(move |kind, outcome| match event_proxy.lock() {
+    let sink: SnipperJobSink = Arc::new(move |job_id, kind, outcome| match event_proxy.lock() {
         Ok(proxy) => {
-            let _ = proxy.send_event(PasterAppEvent::SnipperJobFinished { kind, outcome });
+            let _ = proxy.send_event(PasterAppEvent::SnipperJobFinished {
+                job_id,
+                kind,
+                outcome,
+            });
         }
         Err(_) => tracing::warn!("截图事件代理锁中毒，媒体任务结果未能回传"),
     });
@@ -254,6 +275,7 @@ pub(crate) fn handle_workspace_window_event(
 /// 避免表现层重复解释通知配置。
 fn handle_save_finished(
     paster_id: u64,
+    job_id: JobId,
     result: Result<Option<PathBuf>, String>,
     runtime: &mut WorkspaceRuntime,
 ) {
@@ -266,7 +288,10 @@ fn handle_save_finished(
         return;
     };
 
-    inst.state.job_pending = false;
+    if !inst.state.finish_job(job_id) {
+        tracing::debug!("丢弃过期的贴图保存结果: {job_id:?}");
+        return;
+    }
     match result {
         Ok(Some(path)) => {
             inst.state.file_path = Some(path.clone());
@@ -287,6 +312,7 @@ fn handle_save_finished(
 /// 将后台 OCR 结果回填到发起任务的贴图窗口。
 fn handle_ocr_finished(
     paster_id: u64,
+    job_id: JobId,
     result: Result<String, String>,
     runtime: &mut WorkspaceRuntime,
 ) {
@@ -299,7 +325,10 @@ fn handle_ocr_finished(
         return;
     };
 
-    inst.state.job_pending = false;
+    if !inst.state.finish_job(job_id) {
+        tracing::debug!("丢弃过期的贴图识别结果: {job_id:?}");
+        return;
+    }
     apply_ocr_result(&mut inst.state, result);
     inst.window.request_redraw();
 }
@@ -307,6 +336,7 @@ fn handle_ocr_finished(
 /// 将后台翻译结果注入发起任务的贴图窗口标注历史并重建展示图像。
 fn handle_translate_finished(
     paster_id: u64,
+    job_id: JobId,
     result: Result<Vec<TranslationShapeItem>, String>,
     runtime: &mut WorkspaceRuntime,
 ) {
@@ -319,7 +349,10 @@ fn handle_translate_finished(
         return;
     };
 
-    inst.state.job_pending = false;
+    if !inst.state.finish_job(job_id) {
+        tracing::debug!("丢弃过期的贴图翻译结果: {job_id:?}");
+        return;
+    }
     apply_translate_result(&mut inst.state, result);
     inst.window.request_redraw();
 }

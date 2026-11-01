@@ -12,7 +12,7 @@
 
 use super::state::SnipperState;
 use super::types::SnipperOutcome;
-use crate::ports::{JobCancel, MediaJob, MediaJobOutcome, MediaJobRunner, PortError};
+use crate::ports::{JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, PortError};
 use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::TranslationAction;
 use std::sync::Arc;
@@ -40,7 +40,7 @@ impl SnipperJobKind {
 ///
 /// 单次截图会话把结果投递到自己的 `EventLoopProxy`，常驻工作区则把结果投递到
 /// 宿主事件循环；运行时因此不绑定具体事件类型，也不强制 UI 依赖 winit 代理。
-pub type SnipperJobSink = Arc<dyn Fn(SnipperJobKind, MediaJobOutcome) + Send + Sync>;
+pub type SnipperJobSink = Arc<dyn Fn(JobId, SnipperJobKind, MediaJobOutcome) + Send + Sync>;
 
 /// 截图会话任务运行时：把结果回调与宿主媒体执行器组合在一起。
 ///
@@ -62,12 +62,16 @@ impl SnipperJobRuntime {
     /// # Errors
     ///
     /// 后台执行器停止、队列已满或任务参数非法时返回 [`PortError`]。
-    pub fn submit(&self, kind: SnipperJobKind, job: MediaJob) -> Result<JobCancel, PortError> {
+    pub fn submit(
+        &self,
+        kind: SnipperJobKind,
+        job: MediaJob,
+    ) -> Result<(JobId, JobCancel), PortError> {
         let sink = self.sink.clone();
         self.runner.submit(
             job,
-            Box::new(move |outcome| {
-                sink(kind, outcome);
+            Box::new(move |job_id, outcome| {
+                sink(job_id, kind, outcome);
             }),
         )
     }
@@ -76,10 +80,16 @@ impl SnipperJobRuntime {
 /// 处理后台任务结果，驱动截图会话状态流转。
 pub fn handle_job_outcome(
     state: &mut SnipperState,
+    job_id: JobId,
     kind: SnipperJobKind,
     outcome: MediaJobOutcome,
 ) {
+    if state.pending_job_id != Some(job_id) {
+        tracing::debug!("丢弃过期的截图媒体任务结果: {job_id:?}");
+        return;
+    }
     state.pending_job = None;
+    state.pending_job_id = None;
     state.pending_job_cancel = None;
 
     match outcome {
@@ -150,11 +160,20 @@ mod tests {
         }
     }
 
+    /// 让状态接受一个测试任务 ID，模拟真实提交成功后的待处理态。
+    fn accept_job(state: &mut SnipperState) -> JobId {
+        let job_id = JobId::new(1);
+        state.pending_job_id = Some(job_id);
+        job_id
+    }
+
     #[test]
     fn test_handle_empty_ocr_outcome_keeps_session_open() {
         let mut state = SnipperState::new();
+        let job_id = accept_job(&mut state);
         handle_job_outcome(
             &mut state,
+            job_id,
             SnipperJobKind::Ocr,
             MediaJobOutcome::Ocr {
                 text: String::new(),
@@ -167,8 +186,10 @@ mod tests {
     #[test]
     fn test_handle_translate_outcome_pushes_annotation() {
         let mut state = SnipperState::new();
+        let job_id = accept_job(&mut state);
         handle_job_outcome(
             &mut state,
+            job_id,
             SnipperJobKind::Translate,
             MediaJobOutcome::Translated {
                 items: vec![translation_item()],
@@ -181,9 +202,11 @@ mod tests {
     #[test]
     fn test_handle_saved_outcome_sets_result() {
         let mut state = SnipperState::new();
+        let job_id = accept_job(&mut state);
         let path = PathBuf::from("/tmp/snapin_test.png");
         handle_job_outcome(
             &mut state,
+            job_id,
             SnipperJobKind::Save,
             MediaJobOutcome::Saved { path: path.clone() },
         );
@@ -196,8 +219,10 @@ mod tests {
     #[test]
     fn test_handle_save_cancelled_keeps_session_open() {
         let mut state = SnipperState::new();
+        let job_id = accept_job(&mut state);
         handle_job_outcome(
             &mut state,
+            job_id,
             SnipperJobKind::Save,
             MediaJobOutcome::SaveCancelled,
         );
@@ -208,8 +233,10 @@ mod tests {
     #[test]
     fn test_handle_job_failure_sets_status() {
         let mut state = SnipperState::new();
+        let job_id = accept_job(&mut state);
         handle_job_outcome(
             &mut state,
+            job_id,
             SnipperJobKind::Translate,
             MediaJobOutcome::Failed {
                 message: "网络超时".to_string(),
@@ -226,8 +253,10 @@ mod tests {
     #[test]
     fn test_ocr_success_keeps_session_open() {
         let mut state = SnipperState::new();
+        let job_id = accept_job(&mut state);
         handle_job_outcome(
             &mut state,
+            job_id,
             SnipperJobKind::Ocr,
             MediaJobOutcome::Ocr {
                 text: "识别出来的一段文字".to_string(),
@@ -248,5 +277,32 @@ mod tests {
         let image = image::RgbaImage::from_pixel(2, 2, Rgba([255, 0, 0, 255]));
         let job = MediaJob::Ocr { image };
         assert!(matches!(job, MediaJob::Ocr { .. }));
+    }
+}
+
+#[cfg(test)]
+mod stale_tests {
+    use super::*;
+    use crate::ports::JobId;
+
+    /// 旧任务的迟到回调不得清空当前任务或改写会话状态。
+    #[test]
+    fn test_stale_job_outcome_is_ignored() {
+        let mut state = SnipperState::new();
+        state.pending_job = Some(SnipperJobKind::Save);
+        state.pending_job_id = Some(JobId::new(2));
+
+        handle_job_outcome(
+            &mut state,
+            JobId::new(1),
+            SnipperJobKind::Save,
+            MediaJobOutcome::Failed {
+                message: "旧任务失败".to_string(),
+            },
+        );
+
+        assert_eq!(state.pending_job_id, Some(JobId::new(2)));
+        assert!(state.outcome.is_none());
+        assert!(state.status_message.is_none());
     }
 }
