@@ -41,6 +41,26 @@ impl ConfigFile {
     pub fn is_supported(&self) -> bool {
         self.schema_version <= CONFIG_SCHEMA_VERSION
     }
+
+    /// 将旧 schema 迁移到当前版本。
+    ///
+    /// 版本 0 代表历史无版本号配置，字段布局与 v1 相同；未来字段变更应在此按
+    /// 版本逐级转换，读取路径不允许把未来版本静默当成当前版本。
+    ///
+    /// # Errors
+    ///
+    /// 文件版本高于当前程序支持范围时返回 [`crate::error::CoreError::UnsupportedConfigVersion`]。
+    pub fn migrate(mut self, path: &std::path::Path) -> Result<Self, crate::error::CoreError> {
+        if !self.is_supported() {
+            return Err(crate::error::CoreError::UnsupportedConfigVersion {
+                path: path.to_path_buf(),
+                found: self.schema_version,
+                supported: CONFIG_SCHEMA_VERSION,
+            });
+        }
+        self.schema_version = CONFIG_SCHEMA_VERSION;
+        Ok(self)
+    }
 }
 
 fn default_schema_version() -> u32 {

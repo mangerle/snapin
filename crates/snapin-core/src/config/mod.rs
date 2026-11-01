@@ -58,13 +58,7 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreE
             return recover_invalid_config(&target_path, error);
         }
     };
-    if !file.is_supported() {
-        return Err(CoreError::UnsupportedConfigVersion {
-            path: target_path.clone(),
-            found: file.schema_version,
-            supported: CONFIG_SCHEMA_VERSION,
-        });
-    }
+    let file = file.migrate(&target_path)?;
     let config = file.config.sanitized();
 
     tighten_config_permissions(&target_path);
