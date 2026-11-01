@@ -12,6 +12,7 @@ snapin-daemon.workspace = true
 snapin-platform.workspace = true
 snapin-service.workspace = true
 snapin-settings.workspace = true
+snapin-runtime.workspace = true
 snapin-ui.workspace = true
 
 anyhow.workspace = true

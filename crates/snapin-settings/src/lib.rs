@@ -20,6 +20,7 @@ use snapin_platform::{
     get_platform_capabilities, open_path_in_file_manager, sync_autostart, sync_hotkeys_to_gnome,
     PlatformError,
 };
+use snapin_runtime::TaskRuntime;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
@@ -41,6 +42,10 @@ pub enum SettingsError {
     /// 平台服务交互异常
     #[error(transparent)]
     Platform(#[from] PlatformError),
+
+    /// 统一后台任务运行时初始化失败
+    #[error("初始化设置中心后台任务运行时失败: {0}")]
+    Runtime(String),
 }
 
 /// 运行 Slint 偏好设置中心图形界面
@@ -79,6 +84,8 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
         }
     });
 
+    let runtime = settings_runtime()?;
+    let cancel = runtime.cancellation_token();
     let config = config::load_or_create_config(None)?;
     let config_arc = Arc::new(Mutex::new(config.clone()));
 
@@ -90,11 +97,12 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
 
     // 2. 注册界面交互与保存回调
     register_callbacks(&window, config_arc);
-    update_controller::register_update_callbacks(&window);
+    update_controller::register_update_callbacks(&window, runtime.clone(), cancel.clone());
 
     let run_res = window
         .run()
         .map_err(|e| SettingsError::RuntimeFailed(e.to_string()));
+    cancel.cancel();
 
     // 3. 设置窗口退出后，从磁盘同步最新的有效全局快捷键
     if let Ok(latest_cfg) = config::load_or_create_config(None) {
@@ -105,6 +113,19 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
 
     run_res?;
     Ok(())
+}
+
+/// 获取设置中心后台任务运行时：优先复用当前 Tokio 上下文，否则使用进程级共享实例。
+fn settings_runtime() -> Result<TaskRuntime, SettingsError> {
+    TaskRuntime::current(8).or_else(|current_error| {
+        TaskRuntime::shared("snapin-settings", 8)
+            .cloned()
+            .ok_or_else(|| {
+                SettingsError::Runtime(format!(
+                    "当前运行时不可用（{current_error}），进程级共享运行时创建失败"
+                ))
+            })
+    })
 }
 
 /// 注册界面操作按钮回调事件

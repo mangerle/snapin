@@ -1,9 +1,10 @@
 //! 截图与贴图的保存流程：对话框、编码落盘、降级目录、通知与打开目录。
 //!
 //! 保存属于应用层用例：UI 只提交图像与保存意图，不关心默认目录、文件命名模板、
-//! 系统对话框或保存后通知。这样截图与贴图共享同一套错误处理与降级策略。
+//! 系统对话框或保存后通知。编码落盘统一放入阻塞线程池，对话框与通知在异步
+//! 上下文等待，避免阻塞后台运行时。
 
-use snapin_core::config::Config;
+use snapin_core::config::{Config, OutputConfig};
 use snapin_core::AppPaths;
 use snapin_platform::{
     open_path_in_file_manager, pick_save_path, resolve_save_path, save_image_to_path,
@@ -11,11 +12,12 @@ use snapin_platform::{
 };
 use snapin_ui::MediaJobOutcome;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// 贴图保存请求。
 pub(super) struct SavePasterRequest {
     /// 要保存的最终图像
-    pub(super) image: image::RgbaImage,
+    pub(super) image: Arc<image::RgbaImage>,
     /// 是否弹出系统保存对话框
     pub(super) as_dialog: bool,
     /// 保存成功后是否打开所在目录
@@ -23,13 +25,12 @@ pub(super) struct SavePasterRequest {
 }
 
 /// 执行截图保存：按配置直接落盘或先弹出保存对话框，成功后同步复制到剪贴板。
-pub(super) fn execute_save_screenshot(
-    image: &image::RgbaImage,
+pub(super) async fn execute_save_screenshot(
+    image: Arc<image::RgbaImage>,
     config: &Config,
-    runtime: &tokio::runtime::Runtime,
 ) -> MediaJobOutcome {
     let chosen_path = if config.output.prompt_save_path {
-        match pick_save_target(config, runtime) {
+        match pick_save_target(config).await {
             Ok(Some(path)) => Some(path),
             Ok(None) => return MediaJobOutcome::SaveCancelled,
             Err(message) => return MediaJobOutcome::Failed { message },
@@ -38,27 +39,26 @@ pub(super) fn execute_save_screenshot(
         None
     };
 
-    let saved = match chosen_path {
-        Some(path) => save_image_to_path(image, &path, &config.output)
-            .map_err(|error| format!("保存到所选路径失败: {error}")),
-        None => save_quick_with_fallback(image, config),
-    };
-    let path = match saved {
+    let path = match save_image(image.clone(), chosen_path, &config.output).await {
         Ok(path) => path,
         Err(message) => return MediaJobOutcome::Failed { message },
     };
 
-    if let Err(error) = write_image_to_clipboard(image) {
-        tracing::warn!("保存后同步复制到系统剪贴板失败: {error}");
+    let clipboard_image = image;
+    let clipboard_result =
+        tokio::task::spawn_blocking(move || write_image_to_clipboard(&clipboard_image)).await;
+    match clipboard_result {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::warn!("保存后同步复制到系统剪贴板失败: {error}"),
+        Err(error) => tracing::warn!("保存后剪贴板任务异常: {error}"),
     }
     MediaJobOutcome::Saved { path }
 }
 
 /// 执行贴图保存：支持快捷保存与系统对话框两条路径。
-pub(super) fn execute_save_paster(
+pub(super) async fn execute_save_paster(
     request: SavePasterRequest,
     config: &Config,
-    runtime: &tokio::runtime::Runtime,
 ) -> MediaJobOutcome {
     let SavePasterRequest {
         image,
@@ -66,25 +66,24 @@ pub(super) fn execute_save_paster(
         open_folder_after,
     } = request;
 
-    let saved = if as_dialog {
-        match pick_save_target(config, runtime) {
-            Ok(Some(path)) => save_image_to_path(&image, &path, &config.output)
-                .map_err(|error| format!("保存到所选路径失败: {error}")),
+    let chosen_path = if as_dialog {
+        match pick_save_target(config).await {
+            Ok(Some(path)) => Some(path),
             Ok(None) => return MediaJobOutcome::SaveCancelled,
             Err(message) => return MediaJobOutcome::Failed { message },
         }
     } else {
-        save_quick_with_fallback(&image, config)
+        None
     };
-    let path = match saved {
+
+    let path = match save_image(image, chosen_path, &config.output).await {
         Ok(path) => path,
         Err(message) => return MediaJobOutcome::Failed { message },
     };
 
     if config.output.notify_on_save {
         let body = format!("贴图图像已保存至: {}", path.display());
-        if let Err(error) = runtime.block_on(send_desktop_notification("Snapin 贴图已保存", &body))
-        {
+        if let Err(error) = send_desktop_notification("Snapin 贴图已保存", &body).await {
             tracing::debug!("发送贴图保存通知失败或系统通知不可用: {error}");
         }
     }
@@ -96,11 +95,24 @@ pub(super) fn execute_save_paster(
     MediaJobOutcome::Saved { path }
 }
 
+/// 在阻塞线程池执行编码落盘。
+async fn save_image(
+    image: Arc<image::RgbaImage>,
+    chosen_path: Option<PathBuf>,
+    output: &OutputConfig,
+) -> Result<PathBuf, String> {
+    let output = output.clone();
+    tokio::task::spawn_blocking(move || match chosen_path {
+        Some(path) => save_image_to_path(&image, &path, &output)
+            .map_err(|error| format!("保存到所选路径失败: {error}")),
+        None => save_quick_with_fallback(&image, &output),
+    })
+    .await
+    .map_err(|error| format!("保存任务异常: {error}"))?
+}
+
 /// 弹出系统保存对话框，建议文件名与初始目录沿用快捷保存配置。
-fn pick_save_target(
-    config: &Config,
-    runtime: &tokio::runtime::Runtime,
-) -> Result<Option<PathBuf>, String> {
+async fn pick_save_target(config: &Config) -> Result<Option<PathBuf>, String> {
     let suggested = resolve_save_path(&config.output);
     let suggested_name = suggested
         .file_name()
@@ -112,14 +124,17 @@ fn pick_save_target(
         .filter(|folder| folder.is_absolute())
         .map(Path::to_path_buf);
 
-    runtime
-        .block_on(pick_save_path(&suggested_name, current_folder.as_deref()))
+    pick_save_path(&suggested_name, current_folder.as_deref())
+        .await
         .map_err(|error| format!("打开保存对话框失败: {error}"))
 }
 
 /// 按用户配置保存；配置路径失败时降级保存到 Pictures 目录。
-fn save_quick_with_fallback(image: &image::RgbaImage, config: &Config) -> Result<PathBuf, String> {
-    if let Ok(path) = save_image_with_config(image, &config.output) {
+fn save_quick_with_fallback(
+    image: &image::RgbaImage,
+    output: &OutputConfig,
+) -> Result<PathBuf, String> {
+    if let Ok(path) = save_image_with_config(image, output) {
         return Ok(path);
     }
 

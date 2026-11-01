@@ -6012,6 +6012,7 @@ dependencies = [
  "snapin-core",
  "snapin-daemon",
  "snapin-platform",
+ "snapin-runtime",
  "snapin-service",
  "snapin-settings",
  "snapin-ui",
@@ -6044,6 +6045,7 @@ dependencies = [
  "serde",
  "serde_json",
  "snapin-core",
+ "snapin-runtime",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -6065,6 +6067,7 @@ dependencies = [
  "serde",
  "serde_json",
  "snapin-core",
+ "snapin-runtime",
  "thiserror 1.0.69",
  "tokio",
  "toml 0.8.23",
@@ -6072,6 +6075,16 @@ dependencies = [
  "tray-icon",
  "xcap",
  "zbus 4.4.0",
+]
+
+[[package]]
+name = "snapin-runtime"
+version = "1.2.0"
+dependencies = [
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -6110,6 +6123,7 @@ dependencies = [
  "snapin-core",
  "snapin-daemon",
  "snapin-platform",
+ "snapin-runtime",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -6626,6 +6640,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]

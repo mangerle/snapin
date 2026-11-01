@@ -113,13 +113,18 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
         }
     }
 
-    // 后台周期性轻量检查更新（模式 B：仅检查版本并发送桌面气泡通知，不下载大包）
+    // 后台周期性轻量检查更新（模式 B：仅检查版本并发送桌面气泡通知，不下载大包）。
+    // 任务提交到应用统一运行时并受取消令牌控制，守护进程停机时会等待其退出。
     if cfg.general.auto_check_update {
         let check_url = cfg.general.custom_update_url.clone();
         let interval_hours = cfg.general.update_check_interval_hours.max(1);
-        tokio::spawn(async move {
-            run_update_check_loop(check_url, interval_hours).await;
-        });
+        let runtime = services.runtime();
+        let cancel = runtime.cancellation_token();
+        if let Err(error) = runtime.spawn(async move {
+            run_update_check_loop(check_url, interval_hours, cancel).await;
+        }) {
+            tracing::warn!("提交后台更新检查任务失败: {error}");
+        }
     }
 
     // 托盘菜单轮询定时器（每 100ms 探测一次非阻塞事件）
@@ -179,11 +184,14 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
                                 let _ = handle_command(DaemonRequest::SwitchGroup(None), &workspace_proxy, &services).await;
                             }
                             TrayAction::ClearHistory => {
-                                tokio::spawn(async {
+                                let runtime = services.runtime();
+                                if let Err(error) = runtime.spawn(async {
                                     if let Err(e) = crate::cleaner::clear_snip_history().await {
                                         tracing::warn!("托盘触发清空截屏历史失败: {e}");
                                     }
-                                });
+                                }) {
+                                    tracing::warn!("提交清空截屏历史任务失败: {error}");
+                                }
                             }
                             TrayAction::Preferences => {
                                 tokio::task::spawn_blocking(|| {
@@ -248,22 +256,34 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
         Ok(()) => {}
         Err(error) => tracing::warn!("IPC 监听任务异常退出: {error}"),
     }
+    services.runtime().shutdown().await;
 
     tracing::info!("Snapin 守护服务已平滑退出");
     Ok(())
 }
 
-/// 守护进程后台更新轻量巡检循环（模式 B：仅提示不主动下载）
-async fn run_update_check_loop(custom_url: Option<String>, interval_hours: u32) {
-    // 延迟 10 秒发起首次检查，避开系统开机高峰期与网络重连抖动
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-
+/// 守护进程后台更新轻量巡检循环（模式 B：仅提示不主动下载）。
+///
+/// 首次延迟 10 秒避开开机高峰；之后按配置间隔检查。每个等待点都监听统一取消
+/// 令牌，守护进程停机时任务可以立即退出，不再遗留脱缰的 Tokio 任务。
+async fn run_update_check_loop(
+    custom_url: Option<String>,
+    interval_hours: u32,
+    cancel: snapin_runtime::CancellationToken,
+) {
     let period = std::time::Duration::from_secs((interval_hours as u64).saturating_mul(3600));
-    let mut check_interval = tokio::time::interval(period);
+    if wait_or_cancel(&cancel, std::time::Duration::from_secs(10)).await {
+        return;
+    }
 
     loop {
         tracing::debug!("后台轻量检查 Snapin 新版本...");
-        match snapin_core::check_update_async(custom_url.as_deref()).await {
+        let check = snapin_core::check_update_async(custom_url.as_deref());
+        let check_result = tokio::select! {
+            _ = cancel.cancelled() => return,
+            result = check => result,
+        };
+        match check_result {
             Ok(Some(update)) => {
                 let new_version = update.version().to_string();
                 tracing::info!("检测到 Snapin 新版本: v{new_version}");
@@ -282,6 +302,19 @@ async fn run_update_check_loop(custom_url: Option<String>, interval_hours: u32) 
             }
         }
 
-        check_interval.tick().await;
+        if wait_or_cancel(&cancel, period).await {
+            return;
+        }
+    }
+}
+
+/// 等待指定时长或取消信号；返回 `true` 表示已取消。
+async fn wait_or_cancel(
+    cancel: &snapin_runtime::CancellationToken,
+    duration: std::time::Duration,
+) -> bool {
+    tokio::select! {
+        _ = cancel.cancelled() => true,
+        _ = tokio::time::sleep(duration) => false,
     }
 }

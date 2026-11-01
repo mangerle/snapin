@@ -8,6 +8,7 @@ description = "Snapin Unix Domain Socket 进程间通信、强类型分帧协议
 
 [dependencies]
 snapin-core.workspace = true
+snapin-runtime.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

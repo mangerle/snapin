@@ -129,22 +129,23 @@ pub async fn send_command_to_daemon(command: &DaemonRequest) -> Result<bool, Dae
     }
 }
 
-/// 尝试向常驻守护进程发送热重载配置指令（安全适配不同线程上下文，非阻塞投递）
+/// 尝试向常驻守护进程发送热重载配置指令（非阻塞投递）。
+///
+/// 优先复用调用方已有的 Tokio 运行时，没有上下文时使用进程级共享任务运行时；
+/// 不再为一次 IPC 通知创建临时线程或临时运行时。
 pub fn notify_daemon_reload_config() {
-    if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        handle.spawn(async {
-            let _ = send_command_to_daemon(&DaemonRequest::ReloadConfig).await;
-        });
-    } else {
-        std::thread::spawn(|| {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build();
-            if let Ok(rt) = rt {
-                rt.block_on(async {
-                    let _ = send_command_to_daemon(&DaemonRequest::ReloadConfig).await;
-                });
-            }
-        });
+    let runtime = snapin_runtime::TaskRuntime::current(4)
+        .ok()
+        .or_else(|| snapin_runtime::TaskRuntime::shared("snapin-daemon-client", 4).cloned());
+    let Some(runtime) = runtime else {
+        tracing::warn!("后台任务运行时不可用，配置热重载通知未发送");
+        return;
+    };
+    if let Err(error) = runtime.spawn(async {
+        if let Err(error) = send_command_to_daemon(&DaemonRequest::ReloadConfig).await {
+            tracing::debug!("发送配置热重载通知失败: {error}");
+        }
+    }) {
+        tracing::warn!("提交配置热重载通知任务失败: {error}");
     }
 }
