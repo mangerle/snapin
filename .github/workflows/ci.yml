@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  quality:
+    name: Linux 质量门禁
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Rust 稳定版与格式/静态检查组件
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: 启用 Rust 依赖缓存
+        uses: Swatinem/rust-cache@v2
+
+      - name: 安装 Linux 图形与系统开发依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libdbus-1-dev \
+            pkg-config
+
+      - name: 检查代码格式
+        run: cargo fmt --all -- --check
+
+      - name: 运行 Clippy 零警告门禁
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: 运行全工作区测试
+        run: cargo test --locked --workspace
+
+      - name: 编译检查全部目标
+        run: cargo check --locked --workspace --all-targets
+
+  windows-check:
+    name: Windows 编译检查
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Rust 稳定版工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 启用 Rust 依赖缓存
+        uses: Swatinem/rust-cache@v2
+
+      - name: 编译检查全部目标
+        run: cargo check --locked --workspace --all-targets
+
+  macos-check:
+    name: macOS 编译检查
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Rust 稳定版工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 启用 Rust 依赖缓存
+        uses: Swatinem/rust-cache@v2
+
+      - name: 编译检查全部目标
+        run: cargo check --locked --workspace --all-targets
