@@ -167,9 +167,9 @@ fn render_pending_annotation_preview(state: &PasterWindowState, target: &mut Pix
         return;
     };
     if tool == Tool::Badge {
-        params.ui_scale *= scale;
+        params.style.ui_scale *= scale;
     } else {
-        params.stroke_width *= scale;
+        params.style.stroke_width *= scale;
     }
     render_draft_preview(&params, &mut target.as_mut());
 }

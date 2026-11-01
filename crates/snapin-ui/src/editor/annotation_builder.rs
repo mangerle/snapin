@@ -10,19 +10,47 @@ use snapin_core::annotation::shapes::{
 use snapin_core::annotation::{ArrowStyle, BadgeStyle, LineStyle};
 use tiny_skia::{Paint, PixmapMut, Transform};
 
-/// 即时预览与提交时的几何与样式上下文参数
-pub struct AnnotationDraftParams<'a> {
-    pub tool: Tool,
-    pub points: &'a [(f32, f32)],
+/// 工具栏样式快照：与几何点和序号解耦，预览与最终提交共享同一份样式。
+#[derive(Debug, Clone, Copy)]
+pub struct AnnotationStyle {
     pub stroke_width: f32,
     pub color_rgba: (u8, u8, u8, u8),
     pub ui_scale: f32,
-    pub badge_number: u32,
     pub line_style: LineStyle,
     pub filled: bool,
     pub corner_radius: f32,
     pub badge_style: BadgeStyle,
     pub arrow_style: ArrowStyle,
+}
+
+impl AnnotationStyle {
+    /// 从当前工具栏控件状态固化样式。
+    pub fn from_toolbar(toolbar: &Toolbar) -> Self {
+        let color = toolbar.sub_options.color;
+        Self {
+            stroke_width: toolbar.sub_options.current_stroke_width(),
+            color_rgba: (
+                (color.red() * 255.0).round() as u8,
+                (color.green() * 255.0).round() as u8,
+                (color.blue() * 255.0).round() as u8,
+                (color.alpha() * 255.0).round() as u8,
+            ),
+            ui_scale: toolbar.ui_scale,
+            line_style: toolbar.sub_options.line_style,
+            filled: toolbar.sub_options.filled,
+            corner_radius: toolbar.sub_options.corner_radius,
+            badge_style: toolbar.sub_options.badge_style,
+            arrow_style: toolbar.sub_options.arrow_style,
+        }
+    }
+}
+
+/// 即时预览与提交时的几何与样式上下文参数
+pub struct AnnotationDraftParams<'a> {
+    pub tool: Tool,
+    pub points: &'a [(f32, f32)],
+    pub badge_number: u32,
+    pub style: AnnotationStyle,
 }
 
 impl<'a> AnnotationDraftParams<'a> {
@@ -40,27 +68,11 @@ impl<'a> AnnotationDraftParams<'a> {
             return None;
         }
 
-        let stroke_w = toolbar.sub_options.current_stroke_width();
-        let c = toolbar.sub_options.color;
-        let rgba = (
-            (c.red() * 255.0).round() as u8,
-            (c.green() * 255.0).round() as u8,
-            (c.blue() * 255.0).round() as u8,
-            (c.alpha() * 255.0).round() as u8,
-        );
-
         Some(Self {
             tool,
             points,
-            stroke_width: stroke_w,
-            color_rgba: rgba,
-            ui_scale: toolbar.ui_scale,
             badge_number,
-            line_style: toolbar.sub_options.line_style,
-            filled: toolbar.sub_options.filled,
-            corner_radius: toolbar.sub_options.corner_radius,
-            badge_style: toolbar.sub_options.badge_style,
-            arrow_style: toolbar.sub_options.arrow_style,
+            style: AnnotationStyle::from_toolbar(toolbar),
         })
     }
 }
@@ -77,8 +89,8 @@ pub fn render_draft_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapM
         Tool::Pen => {
             PenAction::draw_points_offset(
                 pts,
-                params.color_rgba,
-                params.stroke_width,
+                params.style.color_rgba,
+                params.style.stroke_width,
                 pixmap,
                 0.0,
                 0.0,
@@ -88,11 +100,11 @@ pub fn render_draft_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapM
             MarkerAction::draw_points_offset(
                 pts,
                 (
-                    params.color_rgba.0,
-                    params.color_rgba.1,
-                    params.color_rgba.2,
+                    params.style.color_rgba.0,
+                    params.style.color_rgba.1,
+                    params.style.color_rgba.2,
                 ),
-                params.stroke_width * 2.0,
+                params.style.stroke_width * 2.0,
                 pixmap,
                 0.0,
                 0.0,
@@ -142,43 +154,43 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
             let rect = Rect::from_points(first, last);
             Some(AnnotationShape::Rect(RectAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
-                color: params.color_rgba,
-                stroke_width: params.stroke_width,
-                is_filled: params.filled,
-                corner_radius: params.corner_radius,
-                line_style: params.line_style,
+                color: params.style.color_rgba,
+                stroke_width: params.style.stroke_width,
+                is_filled: params.style.filled,
+                corner_radius: params.style.corner_radius,
+                line_style: params.style.line_style,
             }))
         }
         Tool::Ellipse => {
             let rect = Rect::from_points(first, last);
             Some(AnnotationShape::Ellipse(EllipseAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
-                color: params.color_rgba,
-                stroke_width: params.stroke_width,
-                is_filled: params.filled,
-                line_style: params.line_style,
+                color: params.style.color_rgba,
+                stroke_width: params.style.stroke_width,
+                is_filled: params.style.filled,
+                line_style: params.style.line_style,
             }))
         }
         Tool::Arrow => Some(AnnotationShape::Arrow(ArrowAction {
             start: first,
             end: last,
-            color: params.color_rgba,
-            stroke_width: params.stroke_width,
-            style: params.arrow_style,
+            color: params.style.color_rgba,
+            stroke_width: params.style.stroke_width,
+            style: params.style.arrow_style,
         })),
         Tool::Pen => Some(AnnotationShape::Pen(PenAction {
             points: pts.to_vec(),
-            color: params.color_rgba,
-            stroke_width: params.stroke_width,
+            color: params.style.color_rgba,
+            stroke_width: params.style.stroke_width,
         })),
         Tool::Marker => Some(AnnotationShape::Marker(MarkerAction {
             points: pts.to_vec(),
             color: (
-                params.color_rgba.0,
-                params.color_rgba.1,
-                params.color_rgba.2,
+                params.style.color_rgba.0,
+                params.style.color_rgba.1,
+                params.style.color_rgba.2,
             ),
-            stroke_width: params.stroke_width * 2.0,
+            stroke_width: params.style.stroke_width * 2.0,
         })),
         Tool::Mosaic => {
             let rect = Rect::from_points(first, last);
@@ -191,7 +203,7 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
             let rect = Rect::from_points(first, last);
             Some(AnnotationShape::Blur(BlurAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
-                radius: (params.stroke_width * 2.0).clamp(4.0, 50.0) as u32,
+                radius: (params.style.stroke_width * 2.0).clamp(4.0, 50.0) as u32,
             }))
         }
         Tool::Spotlight => {
@@ -202,13 +214,14 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
         }
         Tool::Badge => {
             let center = last;
-            let radius = (params.stroke_width * 3.0).clamp(10.0, 48.0) * params.ui_scale;
+            let radius =
+                (params.style.stroke_width * 3.0).clamp(10.0, 48.0) * params.style.ui_scale;
             Some(AnnotationShape::Badge(BadgeAction {
                 center,
                 radius,
                 number: params.badge_number as usize,
-                color: params.color_rgba,
-                style: params.badge_style,
+                color: params.style.color_rgba,
+                style: params.style.badge_style,
             }))
         }
         _ => None,
@@ -223,15 +236,17 @@ mod tests {
         AnnotationDraftParams {
             tool,
             points,
-            stroke_width: 4.0,
-            color_rgba: (255, 0, 0, 255),
-            ui_scale: 1.0,
             badge_number: 1,
-            line_style: LineStyle::Solid,
-            filled: false,
-            corner_radius: 0.0,
-            badge_style: BadgeStyle::Filled,
-            arrow_style: ArrowStyle::Tapered,
+            style: AnnotationStyle {
+                stroke_width: 4.0,
+                color_rgba: (255, 0, 0, 255),
+                ui_scale: 1.0,
+                line_style: LineStyle::Solid,
+                filled: false,
+                corner_radius: 0.0,
+                badge_style: BadgeStyle::Filled,
+                arrow_style: ArrowStyle::Tapered,
+            },
         }
     }
 

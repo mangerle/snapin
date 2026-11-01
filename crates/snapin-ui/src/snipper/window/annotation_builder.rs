@@ -14,13 +14,6 @@ impl<'a> AnnotationDraftParams<'a> {
     pub fn from_state(state: &'a SnipperState) -> Option<Self> {
         let tool = state.toolbar.active_tool?;
         let points = &state.pending_stroke_points;
-        if points.is_empty() {
-            return None;
-        }
-        if tool != Tool::Badge && points.len() < 2 {
-            return None;
-        }
-
         Self::from_toolbar_and_points(
             &state.toolbar,
             tool,
