@@ -38,22 +38,31 @@ fn get_cache_dir() -> Option<PathBuf> {
 
 /// 保存上次选区坐标至运行时缓存文件
 pub fn save_last_selection(rect: (f32, f32, f32, f32)) {
+    if let Some(cache_dir) = get_cache_dir() {
+        save_last_selection_in(&cache_dir, rect);
+    }
+}
+
+/// 将历史选区写入指定缓存目录；目录由调用方负责存在。
+fn save_last_selection_in(cache_dir: &std::path::Path, rect: (f32, f32, f32, f32)) {
     let record = SelectionRectRecord::new(rect.0, rect.1, rect.2, rect.3);
     if !record.is_valid() {
         return;
     }
-
-    if let Some(cache_dir) = get_cache_dir() {
-        let toml_path = cache_dir.join("last_selection.toml");
-        if let Ok(toml_content) = toml::to_string(&record) {
-            let _ = std::fs::write(toml_path, toml_content);
-        }
+    let toml_path = cache_dir.join("last_selection.toml");
+    if let Ok(toml_content) = toml::to_string(&record) {
+        let _ = std::fs::write(toml_path, toml_content);
     }
 }
 
 /// 读取上次保存的历史选区
 pub fn load_last_selection() -> Option<(f32, f32, f32, f32)> {
     let cache_dir = get_cache_dir()?;
+    load_last_selection_from(&cache_dir)
+}
+
+/// 从指定缓存目录读取历史选区。
+fn load_last_selection_from(cache_dir: &std::path::Path) -> Option<(f32, f32, f32, f32)> {
     let toml_path = cache_dir.join("last_selection.toml");
 
     // 优先读取强类型结构化的 TOML 缓存文件
@@ -86,16 +95,19 @@ pub fn load_last_selection() -> Option<(f32, f32, f32, f32)> {
 
 /// 清理历史选区记忆缓存文件（包括 TOML 与旧版 txt 缓存）
 pub fn clear_selection_cache() -> usize {
+    get_cache_dir().map_or(0, |cache_dir| clear_selection_cache_in(&cache_dir))
+}
+
+/// 清理指定缓存目录中的选区缓存文件。
+fn clear_selection_cache_in(cache_dir: &std::path::Path) -> usize {
     let mut count = 0;
-    if let Some(cache_dir) = get_cache_dir() {
-        let toml_path = cache_dir.join("last_selection.toml");
-        if toml_path.exists() && std::fs::remove_file(&toml_path).is_ok() {
-            count += 1;
-        }
-        let legacy_path = cache_dir.join("last_selection.txt");
-        if legacy_path.exists() && std::fs::remove_file(&legacy_path).is_ok() {
-            count += 1;
-        }
+    let toml_path = cache_dir.join("last_selection.toml");
+    if toml_path.exists() && std::fs::remove_file(&toml_path).is_ok() {
+        count += 1;
+    }
+    let legacy_path = cache_dir.join("last_selection.txt");
+    if legacy_path.exists() && std::fs::remove_file(&legacy_path).is_ok() {
+        count += 1;
     }
     count
 }
@@ -118,11 +130,22 @@ mod tests {
     }
 
     #[test]
-    fn test_clear_selection_cache() {
-        save_last_selection((50.0, 60.0, 200.0, 150.0));
-        assert!(load_last_selection().is_some());
-        let cleared = clear_selection_cache();
-        assert!(cleared >= 1);
-        assert!(load_last_selection().is_none());
+    fn test_clear_selection_cache_is_hermetic() {
+        let dir = tempfile::tempdir().expect("应可创建测试缓存目录");
+        save_last_selection_in(dir.path(), (50.0, 60.0, 200.0, 150.0));
+        assert!(load_last_selection_from(dir.path()).is_some());
+
+        let cleared = clear_selection_cache_in(dir.path());
+        assert_eq!(cleared, 1);
+        assert!(load_last_selection_from(dir.path()).is_none());
+    }
+
+    #[test]
+    fn test_clear_selection_cache_removes_legacy_file() {
+        let dir = tempfile::tempdir().expect("应可创建测试缓存目录");
+        std::fs::write(dir.path().join("last_selection.txt"), "1,2,300,400")
+            .expect("应可写入旧版缓存");
+        assert_eq!(clear_selection_cache_in(dir.path()), 1);
+        assert!(!dir.path().join("last_selection.txt").exists());
     }
 }
