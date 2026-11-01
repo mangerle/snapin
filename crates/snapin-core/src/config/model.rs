@@ -7,6 +7,42 @@ pub use crate::config::enums::*;
 pub use crate::config::sections::*;
 use serde::{Deserialize, Serialize};
 
+/// 当前配置文件 schema 版本。
+pub const CONFIG_SCHEMA_VERSION: u32 = 1;
+
+/// 配置文件顶层封装：schema 版本 + 扁平化的配置板块。
+///
+/// `schema_version` 允许未来字段迁移在读取时显式分支；`flatten` 保证现有
+/// `[general]`、`[output]` 等板块布局不变，旧版无版本号文件按 0 处理并迁移。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfigFile {
+    /// 配置 schema 版本
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u32,
+    /// 配置内容
+    #[serde(flatten)]
+    pub config: Config,
+}
+
+impl ConfigFile {
+    /// 用当前 schema 版本封装配置。
+    pub fn current(config: Config) -> Self {
+        Self {
+            schema_version: CONFIG_SCHEMA_VERSION,
+            config,
+        }
+    }
+
+    /// schema 版本是否受当前程序支持。
+    pub fn is_supported(&self) -> bool {
+        self.schema_version <= CONFIG_SCHEMA_VERSION
+    }
+}
+
+fn default_schema_version() -> u32 {
+    CONFIG_SCHEMA_VERSION
+}
+
 /// Snapin 顶层配置根结构体
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Config {

@@ -28,4 +28,12 @@ pub enum CoreError {
     /// TOML 配置文件序列化与生成失败
     #[error("TOML 配置文件序列化失败，原因: {0}")]
     ConfigSerializeError(#[from] toml::ser::Error),
+
+    /// 配置文件 schema 版本高于当前程序支持范围
+    #[error("配置文件 schema 版本过新，路径: {path}，文件版本: {found}，支持上限: {supported}")]
+    UnsupportedConfigVersion {
+        path: String,
+        found: u32,
+        supported: u32,
+    },
 }

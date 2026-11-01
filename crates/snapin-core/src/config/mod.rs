@@ -9,9 +9,10 @@ pub mod types;
 
 use crate::error::CoreError;
 pub use model::{
-    normalize_file_name_template, ColorFormat, Config, CoverMode, DoubleClickAction, GeneralConfig,
-    HotkeyConfig, ImageFormat, InterfaceConfig, LogLevel, OcrConfig, OutputConfig, PasterConfig,
-    SnipConfig, TargetLanguage, TranslateConfig, TranslateProvider, ZoomAnchor,
+    normalize_file_name_template, ColorFormat, Config, ConfigFile, CoverMode, DoubleClickAction,
+    GeneralConfig, HotkeyConfig, ImageFormat, InterfaceConfig, LogLevel, OcrConfig, OutputConfig,
+    PasterConfig, SnipConfig, TargetLanguage, TranslateConfig, TranslateProvider, ZoomAnchor,
+    CONFIG_SCHEMA_VERSION,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -48,15 +49,50 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreE
         source: e,
     })?;
 
-    let config: Config = toml::from_str(&content).map_err(|e| CoreError::ConfigParseError {
-        path: target_path.to_string_lossy().to_string(),
-        source: e,
-    })?;
-    let config = config.sanitized();
+    let file: ConfigFile = match toml::from_str(&content) {
+        Ok(file) => file,
+        Err(error) => {
+            // 配置损坏不应让所有依赖配置的进程永久无法启动：先保留原始文件，
+            // 再写入默认配置并告警，用户仍可从 .bak 中手工恢复。
+            return recover_invalid_config(&target_path, error);
+        }
+    };
+    if !file.is_supported() {
+        return Err(CoreError::UnsupportedConfigVersion {
+            path: target_path.to_string_lossy().to_string(),
+            found: file.schema_version,
+            supported: CONFIG_SCHEMA_VERSION,
+        });
+    }
+    let config = file.config.sanitized();
 
     tighten_config_permissions(&target_path);
     tracing::debug!("成功加载配置文件: {:?}", target_path);
     Ok(config)
+}
+
+/// 备份损坏配置并写入默认配置。
+///
+/// 备份失败时不覆盖原文件，宁可把错误向上抛出，也不能在未保留用户数据的情况下
+/// 用默认值静默替换包含翻译密钥的配置。
+fn recover_invalid_config(
+    target_path: &Path,
+    parse_error: toml::de::Error,
+) -> Result<Config, CoreError> {
+    let backup_path = target_path.with_extension("toml.bak");
+    fs::rename(target_path, &backup_path).map_err(|error| CoreError::IoError {
+        path: target_path.to_string_lossy().to_string(),
+        source: error,
+    })?;
+
+    let default_config = Config::default().sanitized();
+    save_config(&default_config, target_path)?;
+    tracing::warn!(
+        "配置文件解析失败，已备份至 {:?} 并重建默认配置，原因: {}",
+        backup_path,
+        parse_error
+    );
+    Ok(default_config)
 }
 
 /// 将已存在配置文件的权限收紧为 0600，避免历史版本创建的 0644 文件泄露 API 密钥。
@@ -83,7 +119,7 @@ fn tighten_config_permissions(path: &Path) {
 pub fn save_config(config: &Config, target_path: &Path) -> Result<(), CoreError> {
     // 保存前再次收敛外部输入，保证 UI 手工输入与历史配置都不会把越界值写回磁盘。
     let sanitized = config.clone().sanitized();
-    let toml_string = toml::to_string_pretty(&sanitized)?;
+    let toml_string = toml::to_string_pretty(&ConfigFile::current(sanitized))?;
 
     if let Some(parent) = target_path.parent() {
         if !parent.exists() {
@@ -163,6 +199,49 @@ provider = "deepl"
             toml::from_str::<Config>(invalid).is_err(),
             "未知翻译服务商必须显式报错，不能静默回退"
         );
+    }
+
+    /// 保存时必须写入 schema 版本，加载时能识别并拒绝未来版本。
+    #[test]
+    fn test_schema_version_is_written_and_newer_version_is_rejected() {
+        let temp_dir = tempdir().expect("创建临时目录失败");
+        let config_file = temp_dir.path().join("config.toml");
+        let config = Config::default();
+        save_config(&config, &config_file).expect("保存配置失败");
+
+        let raw = std::fs::read_to_string(&config_file).expect("读取配置失败");
+        assert!(
+            raw.contains(&format!("schema_version = {CONFIG_SCHEMA_VERSION}")),
+            "配置文件必须写入当前 schema 版本，实际内容: {raw}"
+        );
+
+        std::fs::write(
+            &config_file,
+            format!(
+                "schema_version = {}\n[general]\n",
+                CONFIG_SCHEMA_VERSION + 1
+            ),
+        )
+        .expect("写入未来版本配置失败");
+        let error = load_or_create_config(Some(&config_file)).expect_err("未来版本必须被拒绝");
+        assert!(matches!(error, CoreError::UnsupportedConfigVersion { .. }));
+    }
+
+    /// 损坏配置必须保留 .bak 并重建默认配置，不能阻断所有依赖配置的进程启动。
+    #[test]
+    fn test_corrupt_config_is_backed_up_and_replaced() {
+        let temp_dir = tempdir().expect("创建临时目录失败");
+        let config_file = temp_dir.path().join("config.toml");
+        std::fs::write(&config_file, "this is not toml = [").expect("写入损坏配置失败");
+
+        let loaded = load_or_create_config(Some(&config_file)).expect("损坏配置应降级为默认值");
+        assert_eq!(loaded, Config::default());
+        assert!(
+            config_file.with_extension("toml.bak").exists(),
+            "损坏配置必须先备份再重建"
+        );
+        let rebuilt = std::fs::read_to_string(&config_file).expect("重建配置应存在");
+        assert!(rebuilt.contains("schema_version"));
     }
 
     #[test]
