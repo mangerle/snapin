@@ -94,17 +94,38 @@ pub(crate) struct WorkspaceRuntime {
 /// 创建集中多窗口贴图工作区事件循环与配套代理
 pub fn create_paster_workspace(
 ) -> Result<(EventLoop<PasterAppEvent>, PasterWorkspaceProxy), UiError> {
-    #[allow(unused_mut)]
-    let mut builder = EventLoopBuilder::<PasterAppEvent>::with_user_event();
-    #[cfg(target_os = "linux")]
-    builder.with_any_thread(true);
-    #[cfg(target_os = "windows")]
-    builder.with_any_thread(true);
-    let event_loop = builder.build().map_err(|e| UiError::Window {
-        message: format!("创建集中多窗口贴图工作区事件循环失败: {e}"),
-    })?;
+    let event_loop = build_workspace_event_loop()?;
     let proxy = PasterWorkspaceProxy::new(event_loop.create_proxy());
     Ok((event_loop, proxy))
+}
+
+/// 按平台创建事件循环；仅 Wayland/Windows 需要 `with_any_thread` 以支持后台线程创建。
+fn build_workspace_event_loop() -> Result<EventLoop<PasterAppEvent>, UiError> {
+    let build = |builder: &mut EventLoopBuilder<PasterAppEvent>| {
+        builder.build().map_err(|error| UiError::Window {
+            message: format!("创建集中多窗口贴图工作区事件循环失败: {error}"),
+        })
+    };
+
+    #[cfg(target_os = "linux")]
+    {
+        let mut builder = EventLoopBuilder::<PasterAppEvent>::with_user_event();
+        builder.with_any_thread(true);
+        build(&mut builder)
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut builder = EventLoopBuilder::<PasterAppEvent>::with_user_event();
+        builder.with_any_thread(true);
+        build(&mut builder)
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        let mut builder = EventLoopBuilder::<PasterAppEvent>::with_user_event();
+        build(&mut builder)
+    }
 }
 
 /// 运行集中贴图工作区事件主循环

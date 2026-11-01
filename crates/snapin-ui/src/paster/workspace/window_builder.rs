@@ -33,8 +33,7 @@ pub(crate) fn create_new_paster_window(
     let initial_h = item.pixmap.height();
     let (init_x, init_y) = item.position;
 
-    #[allow(unused_mut)]
-    let mut builder = WindowBuilder::new()
+    let builder = WindowBuilder::new()
         .with_title(&title)
         .with_decorations(false)
         .with_transparent(true)
@@ -43,10 +42,10 @@ pub(crate) fn create_new_paster_window(
         .with_position(PhysicalPosition::new(init_x, init_y));
 
     #[cfg(target_os = "linux")]
-    {
+    let builder = {
         use winit::platform::wayland::WindowBuilderExtWayland;
-        builder = builder.with_name("snapin-pin", "snapin-pin");
-    }
+        builder.with_name("snapin-pin", "snapin-pin")
+    };
 
     let window = Arc::new(builder.build(elwt).map_err(|e| UiError::Window {
         message: format!("创建集中工作区贴图窗口失败: {e}"),

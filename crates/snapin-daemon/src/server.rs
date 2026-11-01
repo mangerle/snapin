@@ -108,10 +108,14 @@ impl IpcListener {
 
     /// 启动常驻异步监听循环，将解码出的请求与响应回执派发给有界通道。
     pub async fn run_loop(
-        #[allow(unused_mut)] mut self,
+        self,
         cmd_sender: Sender<IpcInvocation>,
         mut shutdown: watch::Receiver<bool>,
     ) {
+        #[cfg(target_os = "windows")]
+        let mut this = self;
+        #[cfg(not(target_os = "windows"))]
+        let this = self;
         let mut connections = JoinSet::new();
 
         #[cfg(unix)]
@@ -123,7 +127,7 @@ impl IpcListener {
                         tracing::warn!("IPC 连接任务异常退出: {error}");
                     }
                 }
-                accepted = self.listener.accept() => {
+                accepted = this.listener.accept() => {
                     match accepted {
                         Ok((stream, _addr)) => {
                             spawn_connection_handler(stream, cmd_sender.clone(), &mut connections).await;
@@ -138,12 +142,12 @@ impl IpcListener {
 
         #[cfg(windows)]
         {
-            let mut current_server = self.initial_server.take();
+            let mut current_server = this.initial_server.take();
             loop {
                 let server = match current_server.take() {
                     Some(s) => s,
                     None => match tokio::net::windows::named_pipe::ServerOptions::new()
-                        .create(&self.pipe_name)
+                        .create(&this.pipe_name)
                     {
                         Ok(s) => s,
                         Err(e) => {
