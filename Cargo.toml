@@ -24,16 +24,16 @@ repository = "https://github.com/mangerle/snapin"
 
 [workspace.dependencies]
 # 内部子包依赖
-snapin-app = { path = "crates/snapin-app", version = "1.0.0" }
-snapin-core = { path = "crates/snapin-core", version = "1.0.0" }
-snapin-daemon = { path = "crates/snapin-daemon", version = "1.0.0" }
-snapin-platform = { path = "crates/snapin-platform", version = "1.0.0" }
-snapin-ui = { path = "crates/snapin-ui", version = "1.0.0" }
-snapin-service = { path = "crates/snapin-service", version = "1.0.0" }
-snapin-settings = { path = "crates/snapin-settings", version = "1.0.0" }
-snapin-runtime = { path = "crates/snapin-runtime", version = "1.0.0" }
-snapin-storage = { path = "crates/snapin-storage", version = "1.0.0" }
-snapin-updater = { path = "crates/snapin-updater", version = "1.0.0" }
+snapin-app = { path = "crates/snapin-app", version = "1.2.0" }
+snapin-core = { path = "crates/snapin-core", version = "1.2.0" }
+snapin-daemon = { path = "crates/snapin-daemon", version = "1.2.0" }
+snapin-platform = { path = "crates/snapin-platform", version = "1.2.0" }
+snapin-ui = { path = "crates/snapin-ui", version = "1.2.0" }
+snapin-service = { path = "crates/snapin-service", version = "1.2.0" }
+snapin-settings = { path = "crates/snapin-settings", version = "1.2.0" }
+snapin-runtime = { path = "crates/snapin-runtime", version = "1.2.0" }
+snapin-storage = { path = "crates/snapin-storage", version = "1.2.0" }
+snapin-updater = { path = "crates/snapin-updater", version = "1.2.0" }
 
 # 窗口事件循环与原生跨平台显示后端支持 (Linux Wayland/X11、Windows、macOS)
 winit = { version = "0.29", features = ["rwh_06"] }
