@@ -1,7 +1,6 @@
 //! 平滑自由画笔标注图元实现。
 
 use super::{map_point, points_bounds};
-use crate::annotation::action::AnnotationAction;
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{LineCap, LineJoin, Paint, PathBuilder, PixmapMut, Stroke, Transform};
@@ -50,8 +49,8 @@ impl PenAction {
     }
 }
 
-impl AnnotationAction for PenAction {
-    fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
+impl PenAction {
+    pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         Self::draw_points_offset(
             &self.points,
             self.color,
@@ -62,24 +61,31 @@ impl AnnotationAction for PenAction {
         );
     }
 
-    fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
+    pub(crate) fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
         self.stroke_width = stroke_w;
     }
 
-    fn bounds(&self) -> Option<Rect> {
+    pub(crate) fn bounds(&self) -> Option<Rect> {
         points_bounds(&self.points)
     }
 
-    fn translate(&mut self, dx: f32, dy: f32) {
+    pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
         for point in &mut self.points {
             point.0 += dx;
             point.1 += dy;
         }
     }
 
-    fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
+    pub(crate) fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
         for point in &mut self.points {
             *point = map_point(from, to, *point);
         }
+    }
+}
+
+/// 以零偏移绘制该图元，供测试与一次性回放使用。
+impl PenAction {
+    pub fn draw(&self, pixmap: &mut tiny_skia::PixmapMut) {
+        self.draw_offset(pixmap, 0.0, 0.0);
     }
 }

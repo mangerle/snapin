@@ -11,39 +11,6 @@ use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use tiny_skia::PixmapMut;
 
-/// 单次矢量标注行为的 Trait 抽象
-pub trait AnnotationAction: Send + Sync {
-    /// 执行带坐标偏移量的绘制（在全屏绘制时 offset 为 0，局部裁剪时 offset 为 -crop_x, -crop_y）
-    fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32);
-
-    /// 执行绘制（默认 offset 为 0.0）
-    fn draw(&self, pixmap: &mut PixmapMut) {
-        self.draw_offset(pixmap, 0.0, 0.0);
-    }
-
-    /// 动态调节标注尺寸 (粗细或字体大小)
-    fn adjust_size(&mut self, _stroke_w: f32, _font_sz: f32) {}
-
-    /// 动态调节矩形圆角半径；非矩形图元默认忽略
-    fn adjust_corner_radius(&mut self, _radius: f32) {}
-
-    /// 返回图元的轴对齐包围盒；没有有效几何（空文本、退化线段等）时返回 None
-    fn bounds(&self) -> Option<Rect>;
-
-    /// 整体平移图元
-    fn translate(&mut self, dx: f32, dy: f32);
-
-    /// 按包围盒映射缩放图元：`from` 为拖拽开始时的包围盒，`to` 为手柄拖拽后的新包围盒。
-    ///
-    /// 每次拖拽都基于原始形状与原始包围盒重新计算，避免逐帧累积缩放误差。
-    fn resize_from_bounds(&mut self, _from: Rect, _to: Rect) {}
-
-    /// 是否允许通过包围盒手柄拉伸缩放；复合图元（原位翻译块）只支持整体移动
-    fn supports_resize(&self) -> bool {
-        true
-    }
-}
-
 /// 所有支持的闭合矢量标注图元枚举 (代数数据类型，天然支持无堆分配存储、值拷贝与 Serde 序列化)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AnnotationShape {
@@ -159,20 +126,10 @@ impl AnnotationShape {
     }
 
     /// 是否允许通过包围盒手柄拉伸缩放
+    ///
+    /// 原位翻译块是复合图元，只支持整体移动；其余图元均支持手柄拉伸。
     pub fn supports_resize(&self) -> bool {
-        match self {
-            Self::Rect(a) => a.supports_resize(),
-            Self::Ellipse(a) => a.supports_resize(),
-            Self::Arrow(a) => a.supports_resize(),
-            Self::Pen(a) => a.supports_resize(),
-            Self::Marker(a) => a.supports_resize(),
-            Self::Mosaic(a) => a.supports_resize(),
-            Self::Blur(a) => a.supports_resize(),
-            Self::Spotlight(a) => a.supports_resize(),
-            Self::Badge(a) => a.supports_resize(),
-            Self::Text(a) => a.supports_resize(),
-            Self::Translation(a) => a.supports_resize(),
-        }
+        !matches!(self, Self::Translation(_))
     }
 }
 

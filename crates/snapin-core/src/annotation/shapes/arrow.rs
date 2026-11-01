@@ -4,7 +4,6 @@
 //! 三者在同一份几何基础上绘制，只在箭杆渲染方式上分叉。
 
 use super::map_point;
-use crate::annotation::action::AnnotationAction;
 use crate::annotation::style::{ArrowStyle, LineStyle};
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
@@ -154,8 +153,8 @@ impl ArrowAction {
     }
 }
 
-impl AnnotationAction for ArrowAction {
-    fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
+impl ArrowAction {
+    pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         let Some(mut geometry) = self.geometry() else {
             return;
         };
@@ -172,11 +171,11 @@ impl AnnotationAction for ArrowAction {
         }
     }
 
-    fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
+    pub(crate) fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
         self.stroke_width = stroke_w;
     }
 
-    fn bounds(&self) -> Option<Rect> {
+    pub(crate) fn bounds(&self) -> Option<Rect> {
         let min_x = self.start.0.min(self.end.0);
         let min_y = self.start.1.min(self.end.1);
         let width = (self.end.0 - self.start.0).abs();
@@ -192,16 +191,23 @@ impl AnnotationAction for ArrowAction {
         })
     }
 
-    fn translate(&mut self, dx: f32, dy: f32) {
+    pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
         self.start.0 += dx;
         self.start.1 += dy;
         self.end.0 += dx;
         self.end.1 += dy;
     }
 
-    fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
+    pub(crate) fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
         self.start = map_point(from, to, self.start);
         self.end = map_point(from, to, self.end);
+    }
+}
+
+/// 以零偏移绘制该图元，供测试与一次性回放使用。
+impl ArrowAction {
+    pub fn draw(&self, pixmap: &mut tiny_skia::PixmapMut) {
+        self.draw_offset(pixmap, 0.0, 0.0);
     }
 }
 

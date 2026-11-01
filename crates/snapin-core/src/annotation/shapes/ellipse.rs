@@ -1,7 +1,6 @@
 //! 椭圆与圆形标注图元绘制实现。
 
 use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect};
-use crate::annotation::action::AnnotationAction;
 use crate::annotation::style::LineStyle;
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
@@ -19,8 +18,8 @@ pub struct EllipseAction {
     pub line_style: LineStyle,
 }
 
-impl AnnotationAction for EllipseAction {
-    fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
+impl EllipseAction {
+    pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         let (x, y, w, h) = self.rect;
         if let Some(r) = SkiaRect::from_xywh(x + offset_x, y + offset_y, w, h) {
             let mut paint = Paint::default();
@@ -45,20 +44,27 @@ impl AnnotationAction for EllipseAction {
         }
     }
 
-    fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
+    pub(crate) fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
         self.stroke_width = stroke_w;
     }
 
-    fn bounds(&self) -> Option<Rect> {
+    pub(crate) fn bounds(&self) -> Option<Rect> {
         valid_rect(rect_from_tuple(self.rect))
     }
 
-    fn translate(&mut self, dx: f32, dy: f32) {
+    pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
         self.rect.0 += dx;
         self.rect.1 += dy;
     }
 
-    fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
+    pub(crate) fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
         self.rect = tuple_from_rect(resize_rect(from, to, rect_from_tuple(self.rect)));
+    }
+}
+
+/// 以零偏移绘制该图元，供测试与一次性回放使用。
+impl EllipseAction {
+    pub fn draw(&self, pixmap: &mut tiny_skia::PixmapMut) {
+        self.draw_offset(pixmap, 0.0, 0.0);
     }
 }

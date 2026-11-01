@@ -10,7 +10,7 @@ pub mod paths;
 pub mod render;
 pub mod trigger;
 
-pub use annotation::{AnnotationAction, AnnotationHistory, AnnotationShape};
+pub use annotation::{AnnotationHistory, AnnotationShape};
 pub use config::{Config, HotkeyConfig, OutputConfig, PasterConfig, SnipConfig};
 pub use error::CoreError;
 pub use geometry::Rect;

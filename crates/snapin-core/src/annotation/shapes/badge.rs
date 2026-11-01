@@ -1,7 +1,6 @@
 //! 步骤数字序号气泡标号图元绘制实现。
 
 use super::map_point;
-use crate::annotation::action::AnnotationAction;
 use crate::annotation::style::BadgeStyle;
 use crate::geometry::Rect;
 use crate::render::with_thread_local_text_renderer;
@@ -20,8 +19,8 @@ pub struct BadgeAction {
     pub style: BadgeStyle,
 }
 
-impl AnnotationAction for BadgeAction {
-    fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
+impl BadgeAction {
+    pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         let (cx, cy) = (self.center.0 + offset_x, self.center.1 + offset_y);
         let r = self.radius;
 
@@ -83,11 +82,11 @@ impl AnnotationAction for BadgeAction {
         });
     }
 
-    fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
+    pub(crate) fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
         self.radius = (stroke_w * 3.0).clamp(10.0, 48.0);
     }
 
-    fn bounds(&self) -> Option<Rect> {
+    pub(crate) fn bounds(&self) -> Option<Rect> {
         let r = self.radius.max(1.0);
         Some(Rect {
             x: self.center.0 - r,
@@ -97,12 +96,12 @@ impl AnnotationAction for BadgeAction {
         })
     }
 
-    fn translate(&mut self, dx: f32, dy: f32) {
+    pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
         self.center.0 += dx;
         self.center.1 += dy;
     }
 
-    fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
+    pub(crate) fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
         self.center = map_point(from, to, self.center);
         let sx = if from.width.abs() > f32::EPSILON {
             to.width / from.width
@@ -140,6 +139,13 @@ impl BadgeAction {
         with_thread_local_text_renderer(|renderer| {
             renderer.draw_badge_digit_rgba(pixmap, cx, cy, self.number, r, self.color);
         });
+    }
+}
+
+/// 以零偏移绘制该图元，供测试与一次性回放使用。
+impl BadgeAction {
+    pub fn draw(&self, pixmap: &mut tiny_skia::PixmapMut) {
+        self.draw_offset(pixmap, 0.0, 0.0);
     }
 }
 

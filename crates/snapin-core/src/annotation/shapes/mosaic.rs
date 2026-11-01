@@ -3,7 +3,6 @@
 //! 对指定矩形区域内的像素按照步长进行降采样网格填充，达到隐私遮蔽效果。
 
 use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect};
-use crate::annotation::action::AnnotationAction;
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Paint, PixmapMut, Rect as SkiaRect, Transform};
@@ -15,8 +14,8 @@ pub struct MosaicAction {
     pub cell_size: u32,
 }
 
-impl AnnotationAction for MosaicAction {
-    fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
+impl MosaicAction {
+    pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         let (rx, ry, rw, rh) = self.rect;
         let rx = rx + offset_x;
         let ry = ry + offset_y;
@@ -59,20 +58,27 @@ impl AnnotationAction for MosaicAction {
         }
     }
 
-    fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
+    pub(crate) fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
         self.cell_size = (stroke_w * 2.0).clamp(4.0, 50.0) as u32;
     }
 
-    fn bounds(&self) -> Option<Rect> {
+    pub(crate) fn bounds(&self) -> Option<Rect> {
         valid_rect(rect_from_tuple(self.rect))
     }
 
-    fn translate(&mut self, dx: f32, dy: f32) {
+    pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
         self.rect.0 += dx;
         self.rect.1 += dy;
     }
 
-    fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
+    pub(crate) fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
         self.rect = tuple_from_rect(resize_rect(from, to, rect_from_tuple(self.rect)));
+    }
+}
+
+/// 以零偏移绘制该图元，供测试与一次性回放使用。
+impl MosaicAction {
+    pub fn draw(&self, pixmap: &mut tiny_skia::PixmapMut) {
+        self.draw_offset(pixmap, 0.0, 0.0);
     }
 }

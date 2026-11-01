@@ -1,7 +1,6 @@
 //! 文本标注图元绘制实现。
 
 use super::{estimate_text_width, map_point};
-use crate::annotation::action::AnnotationAction;
 use crate::geometry::Rect;
 use crate::render::with_thread_local_text_renderer;
 use serde::{Deserialize, Serialize};
@@ -16,8 +15,8 @@ pub struct TextAction {
     pub font_size: f32,
 }
 
-impl AnnotationAction for TextAction {
-    fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
+impl TextAction {
+    pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         if self.text.is_empty() {
             return;
         }
@@ -30,11 +29,11 @@ impl AnnotationAction for TextAction {
         });
     }
 
-    fn adjust_size(&mut self, _stroke_w: f32, font_sz: f32) {
+    pub(crate) fn adjust_size(&mut self, _stroke_w: f32, font_sz: f32) {
         self.font_size = font_sz;
     }
 
-    fn bounds(&self) -> Option<Rect> {
+    pub(crate) fn bounds(&self) -> Option<Rect> {
         if self.text.is_empty() {
             return None;
         }
@@ -48,12 +47,12 @@ impl AnnotationAction for TextAction {
         })
     }
 
-    fn translate(&mut self, dx: f32, dy: f32) {
+    pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
         self.pos.0 += dx;
         self.pos.1 += dy;
     }
 
-    fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
+    pub(crate) fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
         self.pos = map_point(from, to, self.pos);
         let sy = if from.height.abs() > f32::EPSILON {
             to.height / from.height
@@ -61,5 +60,12 @@ impl AnnotationAction for TextAction {
             1.0
         };
         self.font_size = (self.font_size * sy).clamp(8.0, 240.0);
+    }
+}
+
+/// 以零偏移绘制该图元，供测试与一次性回放使用。
+impl TextAction {
+    pub fn draw(&self, pixmap: &mut tiny_skia::PixmapMut) {
+        self.draw_offset(pixmap, 0.0, 0.0);
     }
 }

@@ -1,7 +1,6 @@
 //! 截图原位翻译替换图元光栅化实现。
 
 use super::valid_rect;
-use crate::annotation::action::AnnotationAction;
 use crate::config::enums::CoverMode;
 use crate::geometry::Rect;
 use crate::render::with_thread_local_text_renderer;
@@ -39,8 +38,8 @@ impl TranslationAction {
     }
 }
 
-impl AnnotationAction for TranslationAction {
-    fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
+impl TranslationAction {
+    pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         if self.items.is_empty() {
             return;
         }
@@ -128,13 +127,15 @@ impl AnnotationAction for TranslationAction {
         });
     }
 
-    fn adjust_size(&mut self, _stroke_w: f32, font_sz: f32) {
+    pub(crate) fn adjust_size(&mut self, _stroke_w: f32, font_sz: f32) {
         for item in &mut self.items {
             item.font_size = font_sz;
         }
     }
 
-    fn bounds(&self) -> Option<Rect> {
+    pub(crate) fn resize_from_bounds(&mut self, _from: Rect, _to: Rect) {}
+
+    pub(crate) fn bounds(&self) -> Option<Rect> {
         let mut min_x = f32::MAX;
         let mut min_y = f32::MAX;
         let mut max_x = f32::MIN;
@@ -158,16 +159,18 @@ impl AnnotationAction for TranslationAction {
         })
     }
 
-    fn translate(&mut self, dx: f32, dy: f32) {
+    pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
         for item in &mut self.items {
             item.rect.0 += dx;
             item.rect.1 += dy;
         }
     }
+}
 
-    /// 原位翻译块由多个独立文本项组成，拉伸会破坏字号与覆盖区域的适配关系，只允许整体移动
-    fn supports_resize(&self) -> bool {
-        false
+/// 以零偏移绘制该图元，供测试与一次性回放使用。
+impl TranslationAction {
+    pub fn draw(&self, pixmap: &mut tiny_skia::PixmapMut) {
+        self.draw_offset(pixmap, 0.0, 0.0);
     }
 }
 
