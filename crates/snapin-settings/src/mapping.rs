@@ -93,23 +93,15 @@ pub trait SettingEnum: Sized + Copy + PartialEq + Eq + 'static {
     /// 该枚举所有合法变体按照 UI ComboBox 呈现顺序排列的静态切片
     fn all_variants() -> &'static [Self];
 
-    /// 将枚举实例推导转换为对应的 0-indexed 下标
-    fn to_index(self) -> i32 {
-        Self::all_variants()
-            .iter()
-            .position(|&variant| variant == self)
-            .unwrap_or(0) as i32
-    }
+    /// 将枚举实例转换为对应的 0-indexed 下标。
+    ///
+    /// 由各枚举穷尽 `match` 实现，新增变体时编译器会强制补全，避免静默落到 0。
+    fn to_index(self) -> i32;
 
-    /// 从界面下标安全反向解析枚举实例，越界时自动优雅回退至首个默认变体
-    fn from_index(index: i32) -> Self {
-        let variants = Self::all_variants();
-        if index >= 0 && (index as usize) < variants.len() {
-            variants[index as usize]
-        } else {
-            variants[0]
-        }
-    }
+    /// 从界面下标安全反向解析枚举实例，越界时回退至首个默认变体。
+    ///
+    /// 同样使用穷尽 `match`，保证下标与变体顺序一一对应。
+    fn from_index(index: i32) -> Self;
 }
 
 impl SettingEnum for LogLevel {
@@ -122,11 +114,47 @@ impl SettingEnum for LogLevel {
             Self::Error,
         ]
     }
+
+    fn to_index(self) -> i32 {
+        match self {
+            Self::Trace => 0,
+            Self::Debug => 1,
+            Self::Info => 2,
+            Self::Warn => 3,
+            Self::Error => 4,
+        }
+    }
+
+    fn from_index(index: i32) -> Self {
+        match index {
+            1 => Self::Debug,
+            2 => Self::Info,
+            3 => Self::Warn,
+            4 => Self::Error,
+            _ => Self::Trace,
+        }
+    }
 }
 
 impl SettingEnum for ColorFormat {
     fn all_variants() -> &'static [Self] {
         &[Self::Hex, Self::Rgb, Self::Hsl]
+    }
+
+    fn to_index(self) -> i32 {
+        match self {
+            Self::Hex => 0,
+            Self::Rgb => 1,
+            Self::Hsl => 2,
+        }
+    }
+
+    fn from_index(index: i32) -> Self {
+        match index {
+            1 => Self::Rgb,
+            2 => Self::Hsl,
+            _ => Self::Hex,
+        }
     }
 }
 
@@ -134,17 +162,63 @@ impl SettingEnum for ZoomAnchor {
     fn all_variants() -> &'static [Self] {
         &[Self::Cursor, Self::Center]
     }
+
+    fn to_index(self) -> i32 {
+        match self {
+            Self::Cursor => 0,
+            Self::Center => 1,
+        }
+    }
+
+    fn from_index(index: i32) -> Self {
+        match index {
+            1 => Self::Center,
+            _ => Self::Cursor,
+        }
+    }
 }
 
 impl SettingEnum for DoubleClickAction {
     fn all_variants() -> &'static [Self] {
         &[Self::Close, Self::CopyAndClose, Self::Copy]
     }
+
+    fn to_index(self) -> i32 {
+        match self {
+            Self::Close => 0,
+            Self::CopyAndClose => 1,
+            Self::Copy => 2,
+        }
+    }
+
+    fn from_index(index: i32) -> Self {
+        match index {
+            1 => Self::CopyAndClose,
+            2 => Self::Copy,
+            _ => Self::Close,
+        }
+    }
 }
 
 impl SettingEnum for ImageFormat {
     fn all_variants() -> &'static [Self] {
         &[Self::Png, Self::Jpeg, Self::Webp]
+    }
+
+    fn to_index(self) -> i32 {
+        match self {
+            Self::Png => 0,
+            Self::Jpeg => 1,
+            Self::Webp => 2,
+        }
+    }
+
+    fn from_index(index: i32) -> Self {
+        match index {
+            1 => Self::Jpeg,
+            2 => Self::Webp,
+            _ => Self::Png,
+        }
     }
 }
 
@@ -157,6 +231,26 @@ impl SettingEnum for TranslateProvider {
             Self::Youdao,
             Self::Aliyun,
         ]
+    }
+
+    fn to_index(self) -> i32 {
+        match self {
+            Self::BingFree => 0,
+            Self::GoogleFree => 1,
+            Self::Baidu => 2,
+            Self::Youdao => 3,
+            Self::Aliyun => 4,
+        }
+    }
+
+    fn from_index(index: i32) -> Self {
+        match index {
+            1 => Self::GoogleFree,
+            2 => Self::Baidu,
+            3 => Self::Youdao,
+            4 => Self::Aliyun,
+            _ => Self::BingFree,
+        }
     }
 }
 
@@ -173,11 +267,51 @@ impl SettingEnum for TargetLanguage {
             Self::Ru,
         ]
     }
+
+    fn to_index(self) -> i32 {
+        match self {
+            Self::Zh => 0,
+            Self::En => 1,
+            Self::Ja => 2,
+            Self::Ko => 3,
+            Self::Fr => 4,
+            Self::De => 5,
+            Self::Es => 6,
+            Self::Ru => 7,
+        }
+    }
+
+    fn from_index(index: i32) -> Self {
+        match index {
+            1 => Self::En,
+            2 => Self::Ja,
+            3 => Self::Ko,
+            4 => Self::Fr,
+            5 => Self::De,
+            6 => Self::Es,
+            7 => Self::Ru,
+            _ => Self::Zh,
+        }
+    }
 }
 
 impl SettingEnum for CoverMode {
     fn all_variants() -> &'static [Self] {
         &[Self::SolidColor, Self::FrostedGlass]
+    }
+
+    fn to_index(self) -> i32 {
+        match self {
+            Self::SolidColor => 0,
+            Self::FrostedGlass => 1,
+        }
+    }
+
+    fn from_index(index: i32) -> Self {
+        match index {
+            1 => Self::FrostedGlass,
+            _ => Self::SolidColor,
+        }
     }
 }
 
