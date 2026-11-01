@@ -21,6 +21,7 @@ use snapin_platform::{
     PlatformError,
 };
 use snapin_runtime::TaskRuntime;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
@@ -96,7 +97,7 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
     }
 
     // 2. 注册界面交互与保存回调
-    register_callbacks(&window, config_arc.clone());
+    register_callbacks(&window, config_arc.clone(), runtime.clone());
     update_controller::register_update_callbacks(
         &window,
         runtime.clone(),
@@ -134,23 +135,31 @@ fn settings_runtime() -> Result<TaskRuntime, SettingsError> {
 }
 
 /// 注册界面操作按钮回调事件
-fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
+fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>, runtime: TaskRuntime) {
     let win_weak = win.as_weak();
     let cfg_clone = config_arc.clone();
+    let saving = Arc::new(AtomicBool::new(false));
     win.on_save_and_apply(move || {
         let Some(window) = win_weak.upgrade() else {
             return;
         };
-        let Ok(mut config_guard) = cfg_clone.lock() else {
+        if saving.swap(true, Ordering::AcqRel) {
+            window.set_status_message(SharedString::from("正在保存配置，请稍候..."));
+            return;
+        }
+        let Ok(guard) = cfg_clone.lock() else {
+            saving.store(false, Ordering::Release);
             window.set_status_message(SharedString::from("保存失败: 配置状态锁异常"));
             return;
         };
-
-        extract_config_from_window(&window, &mut config_guard);
+        let mut updated = guard.clone();
+        drop(guard);
+        extract_config_from_window(&window, &mut updated);
 
         let config_path = match config::get_default_config_path() {
             Ok(path) => path,
             Err(error) => {
+                saving.store(false, Ordering::Release);
                 tracing::error!("获取配置文件路径失败: {error}");
                 window.set_status_message(SharedString::from(format!(
                     "保存失败: 无法定位配置文件 ({error})"
@@ -158,31 +167,65 @@ fn register_callbacks(win: &SettingsWindow, config_arc: Arc<Mutex<Config>>) {
                 return;
             }
         };
+        window.set_status_message(SharedString::from("正在保存配置并同步系统设置..."));
 
-        if let Err(error) = config::save_config(&config_guard, &config_path) {
-            tracing::error!("保存配置文件失败: {error}");
-            window.set_status_message(SharedString::from(format!("保存失败: {error}")));
-            return;
-        }
+        let win_async = win_weak.clone();
+        let config_for_task = updated.clone();
+        let cfg_after = cfg_clone.clone();
+        let saving_after = saving.clone();
+        let spawn_result = runtime.spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                let mut warnings: Vec<String> = Vec::new();
+                if let Err(error) = config::save_config(&config_for_task, &config_path) {
+                    return Err(format!("保存配置失败: {error}"));
+                }
+                if let Err(error) = sync_hotkeys_to_gnome(&config_for_task.hotkeys) {
+                    warnings.push(format!("系统快捷键同步失败 ({error})"));
+                }
+                if let Err(error) = sync_autostart(config_for_task.general.autostart) {
+                    warnings.push(format!("开机自启动同步失败 ({error})"));
+                }
+                Ok((config_for_task, warnings))
+            })
+            .await;
 
-        let mut warnings: Vec<String> = Vec::new();
-        if let Err(error) = sync_hotkeys_to_gnome(&config_guard.hotkeys) {
-            tracing::warn!("保存配置后同步系统快捷键失败: {error}");
-            warnings.push(format!("系统快捷键同步失败 ({error})"));
-        }
-        if let Err(error) = sync_autostart(config_guard.general.autostart) {
-            tracing::warn!("保存配置后同步开机自启动失败: {error}");
-            warnings.push(format!("开机自启动同步失败 ({error})"));
-        }
-        notify_daemon_reload_config();
+            let _ = slint::invoke_from_event_loop(move || {
+                saving_after.store(false, Ordering::Release);
+                let Some(window) = win_async.upgrade() else {
+                    return;
+                };
+                match result {
+                    Ok(Ok((config, warnings))) => {
+                        if let Ok(mut guard) = cfg_after.lock() {
+                            *guard = config;
+                        }
+                        notify_daemon_reload_config();
+                        if warnings.is_empty() {
+                            window.set_status_message(SharedString::from(
+                                "设置已成功保存并同步应用！",
+                            ));
+                        } else {
+                            window.set_status_message(SharedString::from(format!(
+                                "设置已保存，但{}",
+                                warnings.join("；")
+                            )));
+                        }
+                    }
+                    Ok(Err(message)) => {
+                        tracing::error!("{message}");
+                        window.set_status_message(SharedString::from(message));
+                    }
+                    Err(error) => {
+                        tracing::error!("设置保存任务异常: {error}");
+                        window.set_status_message(SharedString::from("保存失败: 配置写入任务异常"));
+                    }
+                }
+            });
+        });
 
-        if warnings.is_empty() {
-            window.set_status_message(SharedString::from("设置已成功保存并同步应用！"));
-        } else {
-            window.set_status_message(SharedString::from(format!(
-                "设置已保存，但{}",
-                warnings.join("；")
-            )));
+        if spawn_result.is_err() {
+            saving.store(false, Ordering::Release);
+            window.set_status_message(SharedString::from("保存失败: 无法提交后台任务"));
         }
     });
 
