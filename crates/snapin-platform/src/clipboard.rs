@@ -62,6 +62,21 @@ pub fn write_raw_image_to_clipboard(
     height: u32,
     raw_rgba: &[u8],
 ) -> Result<(), PlatformError> {
+    let expected_len = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| PlatformError::Clipboard {
+            message: format!("剪贴板图像尺寸溢出，宽度: {width}，高度: {height}"),
+        })?;
+    if raw_rgba.len() != expected_len {
+        return Err(PlatformError::Clipboard {
+            message: format!(
+                "剪贴板图像像素长度不匹配，期望 {expected_len} 字节，实际 {} 字节",
+                raw_rgba.len()
+            ),
+        });
+    }
+
     with_clipboard(|cb| {
         let image_data = ImageData {
             width: width as usize,
@@ -113,9 +128,28 @@ pub fn read_clipboard_text() -> Result<Option<String>, PlatformError> {
 pub fn read_clipboard_image() -> Result<Option<RgbaImage>, PlatformError> {
     let res = with_clipboard(|cb| match cb.get_image() {
         Ok(img_data) => {
-            let width = img_data.width as u32;
-            let height = img_data.height as u32;
-            if let Some(rgba) = RgbaImage::from_raw(width, height, img_data.bytes.into_owned()) {
+            let width = u32::try_from(img_data.width).map_err(|_| arboard::Error::Unknown {
+                description: format!("剪贴板图像宽度超出 u32 范围: {}", img_data.width),
+            })?;
+            let height = u32::try_from(img_data.height).map_err(|_| arboard::Error::Unknown {
+                description: format!("剪贴板图像高度超出 u32 范围: {}", img_data.height),
+            })?;
+            let expected_len = (width as usize)
+                .checked_mul(height as usize)
+                .and_then(|pixels| pixels.checked_mul(4))
+                .ok_or_else(|| arboard::Error::Unknown {
+                    description: format!("剪贴板图像尺寸溢出，宽度: {width}，高度: {height}"),
+                })?;
+            let bytes = img_data.bytes.into_owned();
+            if bytes.len() != expected_len {
+                return Err(arboard::Error::Unknown {
+                    description: format!(
+                        "剪贴板图像像素长度不匹配，期望 {expected_len} 字节，实际 {} 字节",
+                        bytes.len()
+                    ),
+                });
+            }
+            if let Some(rgba) = RgbaImage::from_raw(width, height, bytes) {
                 Ok(Some(rgba))
             } else {
                 Ok(None)
@@ -135,6 +169,13 @@ pub fn read_clipboard_image() -> Result<Option<RgbaImage>, PlatformError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 裸像素长度与宽高必须严格匹配，避免把越界切片交给平台层。
+    #[test]
+    fn test_write_raw_image_rejects_length_mismatch() {
+        let error = write_raw_image_to_clipboard(4, 4, &[0u8; 15]).expect_err("长度不匹配必须失败");
+        assert!(matches!(error, PlatformError::Clipboard { .. }));
+    }
 
     #[test]
     fn test_clipboard_basic() {
