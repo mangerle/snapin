@@ -3,14 +3,11 @@
 use super::cursor::refresh_cursor;
 use super::events::handle_key_input;
 use super::events::SnipperState;
-use super::jobs::SnipperUserEvent;
 use super::mouse::{handle_cursor_move, handle_mouse_button, handle_mouse_wheel};
 use super::presenter::SnipperPresenter;
 use super::types::SnipperOutcome;
 use image::RgbaImage;
-use std::sync::{Arc, Mutex};
 use winit::event::{Ime, WindowEvent};
-use winit::event_loop::EventLoopWindowTarget;
 use winit::window::Window;
 
 /// 截图窗口事件分发器
@@ -24,8 +21,6 @@ impl SnipperEventDispatcher {
         presenter: &mut SnipperPresenter,
         state: &mut SnipperState,
         bg_image: &RgbaImage,
-        outcome_slot: &Arc<Mutex<Option<SnipperOutcome>>>,
-        elwt: &EventLoopWindowTarget<SnipperUserEvent>,
     ) {
         let screen_w = bg_image.width();
         let screen_h = bg_image.height();
@@ -67,7 +62,6 @@ impl SnipperEventDispatcher {
                 if need_redraw {
                     window.request_redraw();
                 }
-                Self::check_exit_outcome(state, outcome_slot, elwt);
             }
             WindowEvent::KeyboardInput {
                 event: key_event, ..
@@ -77,7 +71,6 @@ impl SnipperEventDispatcher {
                 if need_redraw {
                     window.request_redraw();
                 }
-                Self::check_exit_outcome(state, outcome_slot, elwt);
             }
             WindowEvent::Ime(ime_event) => {
                 let need_redraw = match ime_event {
@@ -117,30 +110,12 @@ impl SnipperEventDispatcher {
             }
             WindowEvent::CloseRequested => {
                 state.cancel_pending_job();
-                if let Ok(mut g) = outcome_slot.lock() {
-                    *g = Some(SnipperOutcome::Cancelled);
-                }
-                elwt.exit();
+                state.outcome = Some(SnipperOutcome::Cancelled);
             }
             _ => {}
         }
 
         // 任意事件都可能改变选区、工具或光标位置，统一在此刷新系统光标形状
         refresh_cursor(window, state);
-    }
-
-    /// 检查是否存在有效结果并安全退出事件循环
-    pub(crate) fn check_exit_outcome(
-        state: &mut SnipperState,
-        outcome_slot: &Arc<Mutex<Option<SnipperOutcome>>>,
-        elwt: &EventLoopWindowTarget<SnipperUserEvent>,
-    ) {
-        if state.outcome.is_some() {
-            state.cancel_pending_job();
-            if let Ok(mut g) = outcome_slot.lock() {
-                *g = state.outcome.take();
-            }
-            elwt.exit();
-        }
     }
 }

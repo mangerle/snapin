@@ -38,20 +38,14 @@ pub enum SnipperOutcome {
     Cancelled,
 }
 
-/// 截图触发模式枚举
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SnipMode {
-    /// 常规交互截图
-    #[default]
-    Normal,
-    /// 截屏并自动复制（选定区域后立即自动复制并退出，无需点击确认）
-    AutoCopy,
-    /// 框选后自动翻译（首次锁定选区时立即执行整图翻译，保留工具栏便于继续处理）
-    Translate,
-    /// 自定义截屏（优先复用上次历史选区）
-    Custom,
-    /// 全屏截图（进入会话即锁定整屏选区，工具栏可继续标注或复制/保存/贴图）
-    Fullscreen,
-    /// 全屏取色器（无选区，单击复制光标处颜色并退出）
-    PickColor,
+/// 一次截图覆盖层启动所需的全部数据。
+pub struct SnipperLaunch {
+    /// 全屏底图
+    pub bg_image: image::RgbaImage,
+    /// 窗口候选矩形
+    pub windows: Vec<crate::snipper::WindowRect>,
+    /// 会话配置、模式与端口
+    pub runtime: SnipperRuntime,
 }
+
+pub use snapin_core::SnipMode;

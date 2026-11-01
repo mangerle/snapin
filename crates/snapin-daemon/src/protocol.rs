@@ -1,6 +1,7 @@
 //! Unix Domain Socket 守护进程请求与响应协议模型。
 
 use serde::{Deserialize, Serialize};
+use snapin_core::SnipMode;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::oneshot;
@@ -18,6 +19,13 @@ pub enum DaemonRequest {
     ReloadConfig,
     /// 触发贴图（由剪贴板生成）
     Paste,
+    /// 在常驻 GUI 事件循环中打开截图/取色覆盖层
+    StartSnip {
+        /// 触发模式
+        mode: SnipMode,
+        /// 截图前延时秒数
+        delay_seconds: u32,
+    },
     /// 客户端直接向常驻守护进程投递像素数据创建贴图窗口（通过内存文件系统 Raw 路径零膨胀传输）
     CreatePaster {
         width: u32,

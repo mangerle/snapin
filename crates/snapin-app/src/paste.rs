@@ -1,16 +1,12 @@
 //! 贴图生成与窗口展示模块。
 
-use crate::paster_workspace::run_paster_window_session;
-use crate::services::AppServices;
-use anyhow::{Context, Result};
-use snapin_core::config::{self, Config};
+use anyhow::{bail, Context, Result};
 use snapin_core::AppPaths;
 use snapin_platform::{read_clipboard_image, read_clipboard_text, send_desktop_notification};
 use snapin_ui::paster::{
     render_color_swatch_card, render_simple_text_card, try_parse_hex_color, PasterItem,
 };
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use tiny_skia::Pixmap;
 
 use snapin_ui::paster::PasterWorkspaceProxy;
@@ -57,40 +53,6 @@ pub async fn paste_clipboard_to_workspace(proxy: &PasterWorkspaceProxy) -> Resul
         send_desktop_notification("Snapin 贴图提示", "当前剪贴板为空，无法生成贴图").await?;
     }
     Ok(())
-}
-
-/// 检查系统剪贴板并就地生成独立贴图（单次会话降级模式）
-///
-/// 单次模式没有守护进程预先加载配置，因此由应用层读取当前配置并在失败时降级为
-/// 默认配置继续运行，避免一处配置文件语法错误导致贴图功能完全不可用。
-pub async fn run_oneshot_paste() -> Result<()> {
-    tracing::info!("正在检查剪贴板内容以生成独立贴图...");
-    let item = tokio::task::spawn_blocking(create_paster_item_from_clipboard)
-        .await
-        .context("剪贴板解析任务调度失败")??;
-
-    if let Some(item) = item {
-        let config = load_single_session_config();
-        let services = Arc::new(AppServices::new(config).context("初始化贴图应用服务失败")?);
-        tokio::task::spawn_blocking(move || run_paster_window_session(&services, item))
-            .await
-            .context("贴图任务调度失败")?
-            .context("贴图窗口运行异常")?;
-    } else {
-        send_desktop_notification("Snapin 贴图提示", "当前剪贴板为空，无法生成贴图").await?;
-    }
-    Ok(())
-}
-
-/// 加载单次贴图模式所需配置；读取失败时降级为默认配置并告警。
-fn load_single_session_config() -> Config {
-    match config::load_or_create_config(None) {
-        Ok(config) => config,
-        Err(error) => {
-            tracing::warn!("单次贴图模式读取配置失败，已降级为默认配置: {error}");
-            Config::default()
-        }
-    }
 }
 
 /// 从磁盘读取并解码目标图像为 tiny-skia 位图（同步阻塞实现，仅供阻塞线程池调用）。
@@ -164,13 +126,22 @@ fn write_rgba_into(pixmap: &mut Pixmap, src: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// 独立启动贴图并挂载置顶窗口
+/// 通过常驻守护进程展示外部图像文件。
+///
+/// 图像解码与原生像素写入在阻塞线程池完成；守护进程通过受控运行时目录接收
+/// 一次性像素文件，避免把整幅图像序列化进 IPC 帧。
+///
+/// # Errors
+///
+/// 目标文件不存在、图像解码失败、守护进程无法启动或拒绝创建贴图时返回错误。
 pub async fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
     if !path.exists() {
         tracing::warn!("贴图目标文件不存在，已忽略本次请求: {:?}", path);
         return Ok(());
     }
     let is_raw_source = path.extension().and_then(|ext| ext.to_str()) == Some("raw");
+
+    crate::daemon_client::ensure_daemon_running().await?;
 
     let load_path = path.clone();
     let pixmap = tokio::task::spawn_blocking(move || load_pixmap_from_file(&load_path))
@@ -184,53 +155,35 @@ pub async fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
     let height = pixmap.height();
     let raw_temp = AppPaths::generate_temp_path("paster_pin", "raw");
 
-    // 临时原生像素落盘同为阻塞 IO，连同位图与路径一起移交阻塞线程处理后再取回，
-    // 既避免整幅像素的额外复制，也保留后续清理所需的临时文件路径
-    let (written, pixmap, raw_temp) = tokio::task::spawn_blocking(move || {
-        let written = snapin_core::AppPaths::write_secure_file(&raw_temp, pixmap.data()).is_ok();
-        (written, pixmap, raw_temp)
+    let raw_temp_for_write = raw_temp.clone();
+    let written = tokio::task::spawn_blocking(move || {
+        AppPaths::write_secure_file(&raw_temp_for_write, pixmap.data()).is_ok()
     })
     .await
     .context("贴图临时像素写入任务调度失败")?;
+    if !written {
+        bail!("贴图像素临时文件写入失败，请检查运行时目录权限");
+    }
 
-    let delivered = if written {
-        let req = snapin_daemon::DaemonRequest::CreatePaster {
-            width,
-            height,
-            x,
-            y,
-            title: title.clone(),
-            raw_path: raw_temp.to_string_lossy().to_string(),
-        };
-        match snapin_daemon::send_command_to_daemon(&req).await {
-            Ok(true) => {
-                tracing::info!("外部图片已通过零序列化膨胀安全路径委托常驻集中工作区展示");
-                true
-            }
-            _ => {
-                let _ = tokio::fs::remove_file(&raw_temp).await;
-                false
-            }
-        }
-    } else {
-        tracing::warn!("贴图临时像素文件写入失败，降级为本地独立贴图窗口");
-        false
+    let request = snapin_daemon::DaemonRequest::CreatePaster {
+        width,
+        height,
+        x,
+        y,
+        title,
+        raw_path: raw_temp.to_string_lossy().to_string(),
     };
-
-    if !delivered {
-        let item = PasterItem::new(uid, title, pixmap, (x, y));
-        let config = load_single_session_config();
-        let services = Arc::new(AppServices::new(config).context("初始化贴图应用服务失败")?);
-        tokio::task::spawn_blocking(move || run_paster_window_session(&services, item))
-            .await
-            .context("贴图任务调度失败")?
-            .context("贴图窗口运行异常")?;
+    if !matches!(
+        snapin_daemon::send_command_to_daemon(&request).await,
+        Ok(true)
+    ) {
+        let _ = tokio::fs::remove_file(&raw_temp).await;
+        bail!("守护进程拒绝创建贴图，临时像素文件已清理");
     }
 
     // 原生像素源文件是一次性中转载体，无论移交成功与否都必须回收，防止共享内存目录堆积
     if is_raw_source {
         let _ = tokio::fs::remove_file(&path).await;
     }
-
     Ok(())
 }

@@ -7,9 +7,11 @@ pub mod config;
 pub mod error;
 pub mod paths;
 pub mod render;
+pub mod trigger;
 
 pub use annotation::{AnnotationAction, AnnotationHistory, AnnotationShape};
 pub use config::{Config, HotkeyConfig, OutputConfig, PasterConfig, SnipConfig};
 pub use error::CoreError;
 pub use paths::AppPaths;
 pub use render::{with_thread_local_text_renderer, TextRenderer};
+pub use trigger::SnipMode;

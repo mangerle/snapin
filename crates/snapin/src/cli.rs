@@ -92,25 +92,12 @@ fn parse_delay_seconds(raw: &str) -> Result<u32, String> {
 }
 
 impl Commands {
-    /// 该子命令是否强依赖用户配置文件。    ///
-    /// 只有真正读取偏好字段的命令才需要读盘结果：截图依赖热键之外的全部设置，
-    /// 快捷键同步依赖热键表，守护进程依赖贴图与输出设置。
-    pub fn needs_config(&self) -> bool {
-        matches!(
-            self,
-            Self::Snip { .. } | Self::PickColor | Self::SyncHotkeys | Self::Daemon
-        )
-    }
-
-    /// 该子命令是否需要预先探测桌面平台能力（GNOME 特权扩展在线状态）。
+    /// 该子命令是否强依赖用户配置文件。
     ///
-    /// 探测会发起一次 D-Bus 往返，两条路径消费其结果：截图据此决定是否走扩展零白闪原生通道
-    /// （扩展未在线时直接走 portal，避免一次注定失败的调用），设置中心据此展示扩展部署状态。
-    pub fn needs_capabilities(&self) -> bool {
-        matches!(
-            self,
-            Self::Snip { .. } | Self::PickColor | Self::Prefs | Self::Daemon
-        )
+    /// 只有真正读取偏好字段的命令才需要读盘结果：快捷键同步依赖热键表，
+    /// 守护进程依赖贴图、输出与更新设置；截图与取色已委托守护进程，无需在 CLI 进程读配置。
+    pub fn needs_config(&self) -> bool {
+        matches!(self, Self::SyncHotkeys | Self::Daemon)
     }
 }
 
@@ -119,12 +106,17 @@ mod tests {
     use super::*;
     use clap::CommandFactory;
 
-    /// 断言启动副作用裁剪策略：仅强依赖偏好与桌面探测的命令返回 true
+    /// 断言启动副作用裁剪策略：仅真正消费用户配置的命令返回 true
     #[test]
     fn test_startup_dependency_predicates() {
         Cli::command().debug_assert();
 
-        let config_heavy = [
+        let config_heavy = [Commands::SyncHotkeys, Commands::Daemon];
+        for command in config_heavy {
+            assert!(command.needs_config(), "{command:?} 应强依赖配置");
+        }
+
+        let config_free = [
             Commands::Snip {
                 auto_copy: false,
                 custom: false,
@@ -132,15 +124,7 @@ mod tests {
                 fullscreen: false,
                 delay: 0,
             },
-            Commands::SyncHotkeys,
-            Commands::Daemon,
             Commands::PickColor,
-        ];
-        for command in config_heavy {
-            assert!(command.needs_config(), "{command:?} 应强依赖配置");
-        }
-
-        let config_free = [
             Commands::Paste,
             Commands::Toggle,
             Commands::SwitchGroup { id: None },
@@ -157,19 +141,6 @@ mod tests {
         for command in config_free {
             assert!(!command.needs_config(), "{command:?} 不应依赖配置");
         }
-
-        assert!(Commands::Prefs.needs_capabilities());
-        assert!(Commands::PickColor.needs_capabilities());
-        assert!(Commands::Snip {
-            auto_copy: true,
-            custom: false,
-            translate: false,
-            fullscreen: false,
-            delay: 0,
-        }
-        .needs_capabilities());
-        assert!(!Commands::Exit.needs_capabilities());
-        assert!(Commands::Daemon.needs_capabilities());
     }
 
     /// 裸命令启动应被允许（用于桌面图标双击拉起常驻守护服务）

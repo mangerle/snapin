@@ -274,6 +274,8 @@ snapin sync-hotkeys    # 重新同步 GNOME 全局快捷键
 snapin exit            # 退出当前守护进程
 ```
 
+`snapin snip`、`snapin pick-color`、`snapin paste` 与 `snapin pin-file` 在守护进程未运行时会自动派生守护进程并等待 IPC 就绪；所有截图与贴图窗口始终由守护进程主线程的同一事件循环托管。设置中心作为独立进程启动，不会在守护进程内创建第二个 GUI 事件循环。
+
 ## 常见问题
 
 ### 快捷键没有反应
@@ -366,6 +368,8 @@ systemd 用户服务与第三方许可文件一并装入 deb 包。
 - `extension`：配套 GNOME Shell 扩展。
 
 依赖方向为 `snapin` → `snapin-app` → `snapin-ui` / `snapin-platform` / `snapin-service` / `snapin-storage` / `snapin-updater` → `snapin-core`；`snapin-ui` 不直接依赖平台与服务 crate，`snapin-core` 不依赖网络与自更新基础设施。
+
+GUI 生命周期统一由常驻守护进程主线程的单一 winit 事件循环托管，贴图窗口与截图覆盖层共存于同一循环。命令行进程只负责 IPC，若守护进程未运行会自动派生并等待其就绪；设置中心作为独立 Slint 进程运行，不会在守护进程内创建第二个事件循环。
 
 ## 参与贡献
 

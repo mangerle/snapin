@@ -16,7 +16,6 @@ use crate::ports::{JobCancel, MediaJob, MediaJobOutcome, MediaJobRunner, PortErr
 use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::TranslationAction;
 use std::sync::Arc;
-use winit::event_loop::EventLoopProxy;
 
 /// 截图会话支持的后台任务类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,31 +36,25 @@ impl SnipperJobKind {
     }
 }
 
-/// 发送回 winit 事件循环的用户事件
-#[derive(Debug)]
-pub enum SnipperUserEvent {
-    /// 媒体任务完成；`kind` 由提交端携带，用于失败提示的稳定归类
-    JobFinished {
-        /// 任务类型
-        kind: SnipperJobKind,
-        /// 任务结果
-        outcome: MediaJobOutcome,
-    },
-}
-
-/// 截图会话任务运行时：把 UI 事件循环代理与宿主媒体执行器组合在一起。
+/// 截图任务结果回调类型。
 ///
-/// 每个截图会话独有一个实例，内部只持有 `Arc` 与事件循环代理，克隆代价极低。
+/// 单次截图会话把结果投递到自己的 `EventLoopProxy`，常驻工作区则把结果投递到
+/// 宿主事件循环；运行时因此不绑定具体事件类型，也不强制 UI 依赖 winit 代理。
+pub type SnipperJobSink = Arc<dyn Fn(SnipperJobKind, MediaJobOutcome) + Send + Sync>;
+
+/// 截图会话任务运行时：把结果回调与宿主媒体执行器组合在一起。
+///
+/// 每个截图会话独有一个实例，内部只持有 `Arc`，克隆代价极低。
 #[derive(Clone)]
 pub struct SnipperJobRuntime {
     runner: Arc<dyn MediaJobRunner>,
-    proxy: EventLoopProxy<SnipperUserEvent>,
+    sink: SnipperJobSink,
 }
 
 impl SnipperJobRuntime {
-    /// 构建截图任务运行时
-    pub fn new(runner: Arc<dyn MediaJobRunner>, proxy: EventLoopProxy<SnipperUserEvent>) -> Self {
-        Self { runner, proxy }
+    /// 使用结果回调构建截图任务运行时
+    pub fn new(runner: Arc<dyn MediaJobRunner>, sink: SnipperJobSink) -> Self {
+        Self { runner, sink }
     }
 
     /// 提交任务并注册结果回传。
@@ -70,11 +63,11 @@ impl SnipperJobRuntime {
     ///
     /// 后台执行器停止、队列已满或任务参数非法时返回 [`PortError`]。
     pub fn submit(&self, kind: SnipperJobKind, job: MediaJob) -> Result<JobCancel, PortError> {
-        let proxy = self.proxy.clone();
+        let sink = self.sink.clone();
         self.runner.submit(
             job,
             Box::new(move |outcome| {
-                let _ = proxy.send_event(SnipperUserEvent::JobFinished { kind, outcome });
+                sink(kind, outcome);
             }),
         )
     }

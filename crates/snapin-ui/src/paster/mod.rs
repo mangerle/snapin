@@ -17,5 +17,6 @@ pub use surface::PasterSurface;
 pub use text_to_pin::{render_color_swatch_card, render_simple_text_card, try_parse_hex_color};
 pub use workspace::{
     create_paster_workspace, is_valid_group_id, run_paster_workspace_loop, PasterAppEvent,
-    PasterWorkspaceOptions, PasterWorkspaceProxy, WorkspaceStatus, TOTAL_PIN_GROUPS,
+    PasterWorkspaceOptions, PasterWorkspaceProxy, SnipperFinishedCallback, WorkspaceStatus,
+    TOTAL_PIN_GROUPS,
 };

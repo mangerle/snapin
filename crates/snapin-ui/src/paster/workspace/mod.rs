@@ -8,6 +8,7 @@
 //! GUI 线程的派生与后台执行器生命周期属于应用层职责。
 
 pub mod event_handler;
+pub mod paster_events;
 pub mod proxy;
 pub mod window_builder;
 
@@ -19,19 +20,25 @@ use super::manager::PasterManager;
 use super::window::jobs::PasterJobRuntime;
 use crate::error::UiError;
 use crate::ports::{ConfigStore, DesktopPort, MediaJobRunner};
-use event_handler::{
-    handle_workspace_about_to_wait, handle_workspace_user_event, handle_workspace_window_event,
-};
+use crate::snipper::{SnipperOutcome, SnipperView};
+use event_handler::{handle_workspace_user_event, handle_workspace_window_event};
+use paster_events::handle_workspace_about_to_wait;
 use snapin_core::config::Config;
 use std::collections::HashMap;
 use std::sync::Arc;
 use winit::event::Event;
-use winit::event_loop::{ControlFlow, EventLoop, EventLoopBuilder};
+use winit::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy};
 #[cfg(target_os = "linux")]
 use winit::platform::wayland::EventLoopBuilderExtWayland;
 #[cfg(target_os = "windows")]
 use winit::platform::windows::EventLoopBuilderExtWindows;
 use winit::window::WindowId;
+
+/// 截图覆盖层结束回调。
+///
+/// 工作区运行在 GUI 事件循环线程，应用层不应在此执行耗时操作；回调应只做
+/// 有界通道投递或轻量状态记录。
+pub type SnipperFinishedCallback = Arc<dyn Fn(SnipperOutcome) + Send + Sync>;
 
 /// 贴图工作区启动参数。
 ///
@@ -46,8 +53,13 @@ pub struct PasterWorkspaceOptions {
     pub media: Arc<dyn MediaJobRunner>,
     /// 配置持久化端口，用于保存活动分组等低频率设置
     pub config_store: Arc<dyn ConfigStore>,
-    /// 单次会话模式下最后一个贴图关闭后是否退出事件循环
-    pub exit_on_all_closed: bool,
+    /// 截图覆盖层结束回调；常驻守护进程用它把结果送回应用层
+    pub on_snipper_finished: Option<SnipperFinishedCallback>,
+    /// GUI 线程周期回调；用于在主线程轮询托盘与原生热键。
+    ///
+    /// 回调在主线程执行，不能捕获要求 `Send` 的宿主对象之外的限制；
+    /// 返回后事件循环会安排 100ms 后的下一次唤醒。
+    pub on_tick: Option<Box<dyn FnMut()>>,
 }
 
 /// 贴图工作区事件循环持有的全部长生命周期资源。
@@ -63,8 +75,17 @@ pub(crate) struct WorkspaceRuntime {
     pub desktop: Arc<dyn DesktopPort>,
     /// 配置持久化端口
     pub config_store: Arc<dyn ConfigStore>,
-    /// 单次会话模式下最后一个贴图关闭后是否退出事件循环
-    pub exit_on_all_closed: bool,
+    /// 当前截图覆盖层（同一时刻最多一个）
+    pub snipper: Option<SnipperView>,
+    /// 用于把截图任务结果投递回本事件循环的代理
+    pub event_proxy: EventLoopProxy<PasterAppEvent>,
+    /// 截图覆盖层结束回调；常驻守护进程用它把结果送回应用层
+    pub on_snipper_finished: Option<SnipperFinishedCallback>,
+    /// GUI 线程周期回调；用于在主线程轮询托盘与原生热键。
+    ///
+    /// 回调在主线程执行，不能捕获要求 `Send` 的宿主对象之外的限制；
+    /// 返回后事件循环会安排 100ms 后的下一次唤醒。
+    pub on_tick: Option<Box<dyn FnMut()>>,
 }
 
 /// 创建集中多窗口贴图工作区事件循环与配套代理
@@ -85,8 +106,7 @@ pub fn create_paster_workspace(
 
 /// 运行集中贴图工作区事件主循环
 ///
-/// 当 `options.exit_on_all_closed` 为 false 时（常驻守护模式），即便当前贴图全部关闭，
-/// 事件循环也始终常驻等待；为 true 时（单次会话模式），在最后一个贴图关闭后自动退出。
+/// 工作区是守护进程的唯一 GUI 事件循环，全部贴图关闭后仍常驻等待新指令。
 ///
 /// # Errors
 ///
@@ -101,7 +121,8 @@ pub fn run_paster_workspace_loop(
         desktop,
         media,
         config_store,
-        exit_on_all_closed,
+        on_snipper_finished,
+        on_tick,
     } = options;
 
     let mut manager = PasterManager::default();
@@ -112,7 +133,8 @@ pub fn run_paster_workspace_loop(
         .min(event_handler::TOTAL_PIN_GROUPS.saturating_sub(1));
     manager.switch_group(initial_group);
 
-    let proxy = PasterWorkspaceProxy::new(event_loop.create_proxy());
+    let event_proxy = event_loop.create_proxy();
+    let proxy = PasterWorkspaceProxy::new(event_proxy.clone());
     let jobs = Arc::new(PasterJobRuntime::new(media, proxy.clone()));
     let mut runtime = WorkspaceRuntime {
         instances: HashMap::new(),
@@ -121,7 +143,10 @@ pub fn run_paster_workspace_loop(
         jobs,
         desktop,
         config_store,
-        exit_on_all_closed,
+        snipper: None,
+        event_proxy,
+        on_snipper_finished,
+        on_tick,
     };
 
     event_loop
@@ -133,7 +158,7 @@ pub fn run_paster_workspace_loop(
                     handle_workspace_user_event(app_event, &mut runtime, elwt);
                 }
                 Event::WindowEvent { window_id, event } => {
-                    handle_workspace_window_event(window_id, event, &mut runtime, elwt);
+                    handle_workspace_window_event(window_id, event, &mut runtime);
                 }
                 Event::AboutToWait => {
                     let deadline = handle_workspace_about_to_wait(&mut runtime);

@@ -12,24 +12,20 @@
 mod cleaner;
 mod config;
 mod daemon;
+mod daemon_client;
 mod desktop;
-mod error;
 mod installer;
 mod lifecycle;
 mod media;
 mod paste;
-mod paster_workspace;
 mod services;
 mod snip;
 mod update;
 
 pub use cleaner::clear_snip_history;
-pub use daemon::run_daemon_server;
-pub use error::AppError;
+pub use daemon::run_daemon_process;
+pub use daemon_client::ensure_daemon_running;
 pub use installer::install_gnome_extension;
 pub use lifecycle::exit_snapin_application;
-pub use paste::{run_oneshot_paste, run_pin_file};
-pub use paster_workspace::{run_paster_window_session, spawn_paster_workspace_thread};
-pub use services::AppServices;
-pub use snip::{acquire_screen_snapshot, run_oneshot_snip};
+pub use paste::run_pin_file;
 pub use update::run_cli_update;

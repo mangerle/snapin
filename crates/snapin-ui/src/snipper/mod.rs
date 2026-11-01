@@ -10,5 +10,5 @@ pub use crate::editor::toolbar::{StrokeWidthLevel, SubToolOptions, Toolbar, Tool
 pub use canvas::SnipperCanvas;
 pub use magnifier::{ColorFormat, Magnifier};
 pub use selection::{Rect, SelectionHistory, SelectionState};
-pub use window::{run_snipper_session, SnipMode, SnipperOutcome, SnipperRuntime};
+pub use window::{SnipMode, SnipperLaunch, SnipperOutcome, SnipperRuntime, SnipperView};
 pub use window_rect::WindowRect;

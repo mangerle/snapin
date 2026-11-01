@@ -2,6 +2,9 @@
 
 use crate::error::UiError;
 use crate::model::PasterItem;
+use crate::ports::MediaJobOutcome;
+use crate::snipper::window::jobs::SnipperJobKind;
+use crate::snipper::SnipperLaunch;
 use snapin_core::annotation::shapes::TranslationShapeItem;
 use snapin_core::config::Config;
 use std::path::PathBuf;
@@ -21,6 +24,15 @@ pub enum PasterAppEvent {
     ReloadConfig(Box<Config>),
     /// 创建并弹出一个新的贴图窗口
     OpenPaster(PasterItem),
+    /// 在同一事件循环中打开全屏截图覆盖层
+    OpenSnipper(Box<SnipperLaunch>),
+    /// 截图覆盖层媒体任务完成
+    SnipperJobFinished {
+        /// 任务类型
+        kind: SnipperJobKind,
+        /// 任务结果
+        outcome: MediaJobOutcome,
+    },
     /// 批量切换当前分组内所有贴图的显隐状态
     ToggleVisibility,
     /// 切换活动分组（若为 None 则循环轮转至下一个分组）
@@ -73,6 +85,20 @@ impl PasterWorkspaceProxy {
             .send_event(PasterAppEvent::OpenPaster(item))
             .map_err(|e| UiError::Window {
                 message: format!("向贴图工作区投递打开窗口指令失败: {e}"),
+            })
+    }
+
+    /// 请求工作区平滑停机（不等待确认，供 GUI 线程托盘退出动作使用）。
+    pub fn request_shutdown(&self) {
+        let _ = self.proxy.send_event(PasterAppEvent::Shutdown(None));
+    }
+
+    /// 请求工作区打开全屏截图覆盖层
+    pub fn open_snipper(&self, launch: SnipperLaunch) -> Result<(), UiError> {
+        self.proxy
+            .send_event(PasterAppEvent::OpenSnipper(Box::new(launch)))
+            .map_err(|e| UiError::Window {
+                message: format!("向贴图工作区投递截图覆盖层指令失败: {e}"),
             })
     }
 

@@ -77,7 +77,7 @@ impl TaskRuntime {
     /// 当前线程没有 Tokio 运行时上下文时返回 [`TaskRuntimeError::NoRuntime`]。
     pub fn current(capacity: usize) -> Result<Self, TaskRuntimeError> {
         let handle = Handle::try_current().map_err(|_| TaskRuntimeError::NoRuntime)?;
-        Ok(Self::from_handle(handle, capacity, None))
+        Ok(Self::from_handle_inner(handle, capacity, None))
     }
 
     /// 获取进程级共享任务运行时；首次调用时创建并常驻。
@@ -96,7 +96,7 @@ impl TaskRuntime {
                 match runtime {
                     Ok(runtime) => {
                         let handle = runtime.handle().clone();
-                        Some(Self::from_handle(handle, capacity, Some(runtime)))
+                        Some(Self::from_handle_inner(handle, capacity, Some(runtime)))
                     }
                     Err(error) => {
                         tracing::error!("创建进程级后台任务运行时失败: {error}");
@@ -107,8 +107,16 @@ impl TaskRuntime {
             .as_ref()
     }
 
+    /// 由已有 Tokio 句柄构造任务运行时。
+    ///
+    /// 守护进程需要把 GUI 事件循环放在主线程，同时把异步服务放进独立运行时；
+    /// 此时由调用方持有所需运行时，并通过本构造函数复用其句柄。
+    pub fn from_handle(handle: Handle, capacity: usize) -> Self {
+        Self::from_handle_inner(handle, capacity, None)
+    }
+
     /// 由已有句柄构造运行时；`owned` 仅用于进程级共享实例保活。
-    fn from_handle(handle: Handle, capacity: usize, owned: Option<Runtime>) -> Self {
+    fn from_handle_inner(handle: Handle, capacity: usize, owned: Option<Runtime>) -> Self {
         let capacity = capacity.max(1);
         Self {
             inner: Arc::new(RuntimeInner {

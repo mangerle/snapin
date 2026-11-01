@@ -1,24 +1,27 @@
-//! 截图流水线调度与呈现模块。
+//! 截图流水线调度、截图覆盖层准备与结果输出。
+//!
+//! 所有截图覆盖层由常驻守护进程的单一 GUI 事件循环托管；本模块负责捕获屏幕、
+//! 枚举窗口候选、构造覆盖层启动参数，并把结果转换为通知或贴图窗口。
 
 use crate::services::AppServices;
 use anyhow::{Context, Result};
-use image::RgbaImage;
 use snapin_core::config::Config;
-use snapin_core::AppPaths;
+use snapin_core::SnipMode;
 use snapin_platform::{
     capture_fullscreen_snapshot, enumerate_visible_windows, send_desktop_notification,
     WindowRect as PlatformWindowRect,
 };
-use snapin_ui::snipper::{
-    run_snipper_session, SnipMode, SnipperOutcome, SnipperRuntime, WindowRect,
-};
-use std::path::Path;
-use std::process::Command;
+use snapin_ui::paster::PasterWorkspaceProxy;
+use snapin_ui::snipper::{SnipperLaunch, SnipperOutcome, SnipperRuntime, WindowRect};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-/// 获取全屏快照（跨平台调度：Linux 优先扩展零白闪/Portal降级，Windows/macOS 走原生极速捕获）。
-pub async fn acquire_screen_snapshot() -> Result<RgbaImage> {
+/// 获取全屏快照（跨平台调度：Linux 优先扩展零白闪/Portal 降级，Windows/macOS 走原生捕获）。
+///
+/// # Errors
+///
+/// 平台截屏通道不可用、超时或图像解码失败时返回错误。
+pub async fn acquire_screen_snapshot() -> Result<image::RgbaImage> {
     let t_start = Instant::now();
     let rgba = capture_fullscreen_snapshot()
         .await
@@ -36,31 +39,30 @@ pub async fn acquire_screen_snapshot() -> Result<RgbaImage> {
     Ok(rgba)
 }
 
-/// 执行单次截图流程
+/// 准备一次截图覆盖层所需的底图、窗口候选与应用端口。
 ///
-/// `delay_seconds` 大于 0 时，先发送桌面通知并等待指定秒数再捕获屏幕，
-/// 便于截取菜单、悬浮提示等需要先操作的界面。
-pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode, delay_seconds: u32) -> Result<()> {
-    if delay_seconds > 0 {
-        let message = format!("将在 {delay_seconds} 秒后截图");
-        if let Err(error) = send_desktop_notification("Snapin 截图", &message).await {
-            tracing::debug!("发送延时截图通知失败或系统通知不可用: {error}");
-        }
-        tracing::info!("截图延时等待中: {delay_seconds} 秒");
-        tokio::time::sleep(Duration::from_secs(u64::from(delay_seconds))).await;
-    }
+/// `delay_seconds` 大于 0 时先发送通知并等待；等待期间监听统一取消令牌，
+/// 守护进程停机时可以及时放弃本次截图。
+///
+/// # Errors
+///
+/// 延时期间被取消、屏幕捕获失败或应用服务不可用时返回错误。
+pub(crate) async fn prepare_snipper_launch(
+    services: &Arc<AppServices>,
+    mode: SnipMode,
+    delay_seconds: u32,
+) -> Result<SnipperLaunch> {
+    wait_snipper_delay(services, delay_seconds).await?;
 
     let t0 = Instant::now();
-    let img = acquire_screen_snapshot().await?;
-    let t1 = Instant::now();
+    let bg_image = acquire_screen_snapshot().await?;
     tracing::info!(
-        "快照准备就绪: {}x{}，耗时: {:.2}ms，正在瞬间呈现交互窗口...",
-        img.width(),
-        img.height(),
-        (t1 - t0).as_secs_f64() * 1000.0
+        "快照准备就绪: {}x{}，耗时: {:.2}ms，正在呈现交互覆盖层...",
+        bg_image.width(),
+        bg_image.height(),
+        t0.elapsed().as_secs_f64() * 1000.0
     );
 
-    let services = Arc::new(AppServices::new(cfg.clone()).context("初始化截图应用服务失败")?);
     let windows = if matches!(
         mode,
         SnipMode::Normal | SnipMode::AutoCopy | SnipMode::Translate
@@ -82,97 +84,118 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode, delay_seconds: u32) -
     } else {
         Vec::new()
     };
-    let runtime = SnipperRuntime {
-        config: (*services.config()).clone(),
-        mode,
-        desktop: services.desktop(),
-        media: services.media(),
-    };
-    let outcome = tokio::task::spawn_blocking(move || run_snipper_session(img, windows, runtime))
-        .await
-        .context("截图任务调度异常")?
-        .context("截图交互会话运行失败")?;
 
-    if let Some(outcome) = outcome {
-        match outcome {
-            SnipperOutcome::CopiedImage => {
-                if cfg.output.notify_on_copy {
-                    send_desktop_notification("Snapin 截图", "选区图像已成功复制到剪贴板").await?;
-                }
-            }
-            SnipperOutcome::CopiedText(text) => {
-                if cfg.output.notify_on_copy {
-                    let summary =
-                        format!("识别文字已复制到剪贴板（{} 字符）", text.chars().count());
-                    send_desktop_notification("Snapin 文字识别", &summary).await?;
-                }
-            }
-            SnipperOutcome::CopiedColor(color) => {
-                if cfg.output.notify_on_copy {
-                    let summary = format!("颜色值已复制到剪贴板: {color}");
-                    send_desktop_notification("Snapin 取色器", &summary).await?;
-                }
-            }
-            SnipperOutcome::Saved(path) => {
-                if cfg.output.notify_on_save {
-                    let msg = format!("选区图像已保存至: {}", path.display());
-                    send_desktop_notification("Snapin 截图已保存", &msg).await?;
-                }
-            }
-            SnipperOutcome::Pinned(item) => {
-                tracing::info!("正在向常驻集中贴图工作区投递选区窗口...");
-                let raw_path = AppPaths::generate_temp_path("paster_ipc", "raw");
-                let raw_written =
-                    AppPaths::write_secure_file(&raw_path, item.pixmap.data()).is_ok();
-                let mut delivered = false;
+    Ok(SnipperLaunch {
+        bg_image,
+        windows,
+        runtime: SnipperRuntime {
+            config: (*services.config()).clone(),
+            mode,
+            desktop: services.desktop(),
+            media: services.media(),
+        },
+    })
+}
 
-                if raw_written {
-                    let req = snapin_daemon::DaemonRequest::CreatePaster {
-                        width: item.pixmap.width(),
-                        height: item.pixmap.height(),
-                        x: item.position.0,
-                        y: item.position.1,
-                        title: item.title.clone(),
-                        raw_path: raw_path.to_string_lossy().to_string(),
-                    };
-                    if let Ok(true) = snapin_daemon::send_command_to_daemon(&req).await {
-                        tracing::info!("已成功通过零序列化膨胀安全路径移交常驻集中贴图工作区展示");
-                        delivered = true;
-                    }
-                }
+/// 延时截图前发送通知并等待，等待期间响应应用运行时取消信号。
+async fn wait_snipper_delay(services: &Arc<AppServices>, delay_seconds: u32) -> Result<()> {
+    if delay_seconds == 0 {
+        return Ok(());
+    }
+    let message = format!("将在 {delay_seconds} 秒后截图");
+    if let Err(error) = send_desktop_notification("Snapin 截图", &message).await {
+        tracing::debug!("发送延时截图通知失败或系统通知不可用: {error}");
+    }
+    tracing::info!("截图延时等待中: {delay_seconds} 秒");
+    let cancel = services.runtime().cancellation_token();
+    tokio::select! {
+        _ = cancel.cancelled() => anyhow::bail!("截图延时等待被取消"),
+        _ = tokio::time::sleep(Duration::from_secs(u64::from(delay_seconds))) => Ok(()),
+    }
+}
 
-                if !delivered {
-                    if raw_written {
-                        tracing::info!("未检测到常驻守护服务，改由独立进程启动集中贴图工作区");
-                        if let Err(error) = spawn_detached_paster(&raw_path, item.position) {
-                            let _ = std::fs::remove_file(&raw_path);
-                            tracing::error!("启动独立贴图进程失败: {error:#}");
-                            let _ = send_desktop_notification(
-                                "Snapin 贴图失败",
-                                "无法启动独立贴图进程，详情请查看运行日志",
-                            )
-                            .await;
-                        }
-                    } else {
-                        tracing::error!("贴图像素临时文件写入失败，无法生成贴图");
-                        let _ = send_desktop_notification(
-                            "Snapin 贴图失败",
-                            "贴图像素临时文件写入失败，请检查临时目录权限与磁盘空间",
-                        )
-                        .await;
-                    }
-                }
-            }
-            SnipperOutcome::Cancelled => {
-                tracing::info!("用户已取消本次截图");
+/// 在常驻 GUI 工作区中异步启动截图覆盖层。
+///
+/// 截屏与窗口枚举在应用运行时执行，完成后通过事件循环代理投递覆盖层；
+/// 任务受统一运行时追踪，守护进程停机时会等待其结束。
+pub(crate) async fn start_snipper_task(
+    services: Arc<AppServices>,
+    workspace: PasterWorkspaceProxy,
+    mode: SnipMode,
+    delay_seconds: u32,
+) {
+    match prepare_snipper_launch(&services, mode, delay_seconds).await {
+        Ok(launch) => {
+            if let Err(error) = workspace.open_snipper(launch) {
+                tracing::error!("向常驻工作区投递截图覆盖层失败: {error}");
+                let _ = send_desktop_notification(
+                    "Snapin 截图失败",
+                    "无法在常驻界面中打开截图覆盖层，详情请查看运行日志",
+                )
+                .await;
             }
         }
+        Err(error) => {
+            tracing::warn!("准备截图覆盖层失败: {error:#}");
+            let _ = send_desktop_notification(
+                "Snapin 截图失败",
+                "屏幕捕获或截图初始化失败，详情请查看运行日志",
+            )
+            .await;
+        }
     }
+}
 
+/// 处理截图结果：通知、贴图交付与错误提示。
+///
+/// 截图覆盖层运行在常驻守护进程的 GUI 事件循环中，结果可直接投递到同一工作区
+/// 创建贴图窗口，不再需要临时像素文件或独立贴图子进程。
+///
+/// # Errors
+///
+/// 结果是贴图且向常驻工作区投递失败时返回错误。
+pub(crate) async fn handle_snipper_outcome(
+    config: &Config,
+    outcome: SnipperOutcome,
+    workspace: &PasterWorkspaceProxy,
+) -> Result<()> {
+    match outcome {
+        SnipperOutcome::CopiedImage => {
+            if config.output.notify_on_copy {
+                send_desktop_notification("Snapin 截图", "选区图像已成功复制到剪贴板").await?;
+            }
+        }
+        SnipperOutcome::CopiedText(text) => {
+            if config.output.notify_on_copy {
+                let summary = format!("识别文字已复制到剪贴板（{} 字符）", text.chars().count());
+                send_desktop_notification("Snapin 文字识别", &summary).await?;
+            }
+        }
+        SnipperOutcome::CopiedColor(color) => {
+            if config.output.notify_on_copy {
+                let summary = format!("颜色值已复制到剪贴板: {color}");
+                send_desktop_notification("Snapin 取色器", &summary).await?;
+            }
+        }
+        SnipperOutcome::Saved(path) => {
+            if config.output.notify_on_save {
+                let message = format!("选区图像已保存至: {}", path.display());
+                send_desktop_notification("Snapin 截图已保存", &message).await?;
+            }
+        }
+        SnipperOutcome::Pinned(item) => {
+            workspace
+                .open_paster(item)
+                .context("向常驻集中工作区投递贴图失败")?;
+        }
+        SnipperOutcome::Cancelled => {
+            tracing::info!("用户已取消本次截图");
+        }
+    }
     Ok(())
 }
 
-/// 将平台窗口矩形转换为 UI 几何契约，避免表现层依赖平台类型。
+/// 将平台窗口矩形转换为 UI 几何契约，避免应用层依赖 UI 内部类型。
 fn to_ui_window_rect(rect: PlatformWindowRect) -> WindowRect {
     WindowRect {
         x: rect.x,
@@ -180,29 +203,4 @@ fn to_ui_window_rect(rect: PlatformWindowRect) -> WindowRect {
         width: rect.width,
         height: rect.height,
     }
-}
-
-/// 派生独立的 `snapin pin-file` 子进程完成一次性贴图。
-///
-/// winit 0.29 通过进程级静态标志限制 `EventLoop` 每进程只能创建一次，而截图会话已经
-/// 占用了该名额；守护进程缺席时若仍在本进程创建贴图工作区，必然返回
-/// `EventLoop can't be recreated`。因此必须把像素文件交给全新进程，由它复用
-/// `pin-file` 既有的守护进程 IPC 与本地贴图回退逻辑，并在贴图关闭后自行退出。
-/// 父进程不等待子进程，避免每个贴图都长期占用一个截图进程的内存。
-fn spawn_detached_paster(raw_path: &Path, position: (i32, i32)) -> Result<()> {
-    let exe = std::env::current_exe().context("获取当前可执行文件路径失败")?;
-    Command::new(&exe)
-        .arg("pin-file")
-        .arg(raw_path)
-        .arg(position.0.to_string())
-        .arg(position.1.to_string())
-        .spawn()
-        .with_context(|| {
-            format!(
-                "启动独立贴图进程失败，可执行文件: {}，像素文件: {}",
-                exe.display(),
-                raw_path.display()
-            )
-        })?;
-    Ok(())
 }

@@ -11,6 +11,7 @@ use snapin_daemon::{DaemonRequest, DaemonResponse};
 use snapin_platform::send_desktop_notification;
 use snapin_ui::paster::{is_valid_group_id, PasterItem, PasterWorkspaceProxy, TOTAL_PIN_GROUPS};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use tiny_skia::Pixmap;
 use tokio::time::timeout;
@@ -101,10 +102,26 @@ async fn confirm_paster_placement(_title: &str, _x: i32, _y: i32) {}
 pub async fn handle_command(
     command: DaemonRequest,
     workspace: &PasterWorkspaceProxy,
-    services: &AppServices,
+    services: &Arc<AppServices>,
 ) -> DaemonResponse {
     match command {
-        DaemonRequest::ReloadConfig => reload_config(workspace, services).await,
+        DaemonRequest::ReloadConfig => reload_config(workspace, services.as_ref()).await,
+        DaemonRequest::StartSnip {
+            mode,
+            delay_seconds,
+        } => {
+            let services = Arc::clone(services);
+            let workspace = workspace.clone();
+            match services.runtime().spawn(async move {
+                crate::snip::start_snipper_task(services, workspace, mode, delay_seconds).await;
+            }) {
+                Ok(()) => DaemonResponse::Ok,
+                Err(error) => {
+                    tracing::warn!("提交截图覆盖层任务失败: {error}");
+                    DaemonResponse::Error(format!("提交截图任务失败: {error}"))
+                }
+            }
+        }
         DaemonRequest::Paste => {
             if let Err(error) = paste_clipboard_to_workspace(workspace).await {
                 tracing::error!("守护服务执行剪贴板贴图失败: {error}");

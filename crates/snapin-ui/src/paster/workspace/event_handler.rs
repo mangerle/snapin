@@ -1,20 +1,17 @@
 //! 贴图集中工作区事件调度与窗口事件响应。
 
-use super::super::window::events::{
-    handle_paster_cursor_move, handle_paster_key, handle_paster_mouse_button, handle_paster_scroll,
-};
-use super::super::window::render::render_paster_to_surface;
 use super::super::window::state::PasterWindowState;
-use super::super::window::text_session::{refresh_ime_cursor_area, sync_ime_state};
+use super::paster_events::handle_paster_window_event;
 use super::proxy::{PasterAppEvent, WorkspaceStatus};
 use super::window_builder::create_new_paster_window;
 use super::WorkspaceRuntime;
+use crate::snipper::window::jobs::SnipperJobSink;
+use crate::snipper::{SnipperOutcome, SnipperView};
 use snapin_core::annotation::shapes::TranslationShapeItem;
 use snapin_core::config::Config;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Instant;
-use winit::event::{Ime, WindowEvent};
+use std::sync::{Arc, Mutex};
+use winit::event::WindowEvent;
 use winit::event_loop::EventLoopWindowTarget;
 use winit::window::WindowId;
 
@@ -33,64 +30,24 @@ pub(crate) fn handle_workspace_user_event(
     elwt: &EventLoopWindowTarget<PasterAppEvent>,
 ) {
     match event {
-        PasterAppEvent::ReloadConfig(new_cfg) => {
-            runtime.cfg = Arc::new(*new_cfg);
-            for inst in runtime.instances.values_mut() {
-                inst.state.config = runtime.cfg.clone();
-            }
-            tracing::info!("集中贴图工作区已完成全局配置热更新");
-        }
+        PasterAppEvent::ReloadConfig(new_cfg) => reload_config(*new_cfg, runtime),
         PasterAppEvent::OpenPaster(item) => {
             if let Err(e) = create_new_paster_window(item, runtime, elwt) {
                 tracing::error!("在当前事件循环中创建新贴图窗口失败: {e}");
             }
         }
-        PasterAppEvent::ToggleVisibility => {
-            let new_visible = runtime.manager.toggle_current_group_visibility();
-            let active = runtime.manager.active_group();
-            for inst in runtime.instances.values_mut() {
-                if inst.state.item.group_id == active {
-                    inst.window.set_visible(new_visible);
-                }
-            }
-            tracing::info!(
-                "已切换当前贴图组 ({active}) 显隐状态: {}",
-                if new_visible {
-                    "全部显示"
-                } else {
-                    "全部隐藏"
-                }
-            );
+        PasterAppEvent::OpenSnipper(launch) => {
+            open_snipper(*launch, runtime, elwt);
         }
-        PasterAppEvent::SwitchGroup(target) => {
-            let next_group = match target {
-                Some(id) if is_valid_group_id(id) => id,
-                Some(id) => {
-                    tracing::warn!(
-                        "忽略非法贴图分组 ID: {id}，有效范围: 0..={}",
-                        TOTAL_PIN_GROUPS.saturating_sub(1)
-                    );
-                    return;
-                }
-                None => (runtime.manager.active_group() + 1) % TOTAL_PIN_GROUPS,
-            };
-            runtime.manager.switch_group(next_group);
-            let group_label = format!(
-                "当前贴图组: {}/{}（ID {next_group}）",
-                next_group.saturating_add(1),
-                TOTAL_PIN_GROUPS
-            );
-            for inst in runtime.instances.values_mut() {
-                let visible = inst.state.item.group_id == next_group;
-                inst.window.set_visible(visible);
-                if visible {
-                    inst.state.set_status_message(group_label.clone());
-                    inst.window.request_redraw();
-                }
+        PasterAppEvent::SnipperJobFinished { kind, outcome } => {
+            if let Some(view) = runtime.snipper.as_mut() {
+                view.handle_job_finished(kind, outcome);
+                view.request_redraw();
             }
-            persist_active_group(runtime, next_group);
-            tracing::info!("已切换活动贴图分组至: {next_group}");
+            finish_snipper_if_ready(runtime);
         }
+        PasterAppEvent::ToggleVisibility => toggle_group_visibility(runtime),
+        PasterAppEvent::SwitchGroup(target) => switch_group(target, runtime),
         PasterAppEvent::GetStatus(responder) => {
             let status = WorkspaceStatus {
                 active_group: runtime.manager.active_group(),
@@ -107,18 +64,142 @@ pub(crate) fn handle_workspace_user_event(
         PasterAppEvent::SaveFinished { paster_id, result } => {
             handle_save_finished(paster_id, result, runtime);
         }
-        PasterAppEvent::Shutdown(responder) => {
-            // 工作区停机时逐个结束会话并关闭 IME，再统一释放窗口实例
-            for inst in runtime.instances.values_mut() {
-                inst.state.cancel_text_session();
-                inst.window.set_ime_allowed(false);
-            }
-            runtime.instances.clear();
-            if let Some(responder) = responder {
-                let _ = responder.send(());
-            }
-            elwt.exit();
+        PasterAppEvent::Shutdown(responder) => shutdown_workspace(runtime, responder, elwt),
+    }
+}
+
+/// 热更新工作区配置并同步给所有贴图窗口。
+fn reload_config(new_config: Config, runtime: &mut WorkspaceRuntime) {
+    runtime.cfg = Arc::new(new_config);
+    for inst in runtime.instances.values_mut() {
+        inst.state.config = runtime.cfg.clone();
+    }
+    tracing::info!("集中贴图工作区已完成全局配置热更新");
+}
+
+/// 切换当前分组全部贴图的显隐。
+fn toggle_group_visibility(runtime: &mut WorkspaceRuntime) {
+    let new_visible = runtime.manager.toggle_current_group_visibility();
+    let active = runtime.manager.active_group();
+    for inst in runtime.instances.values_mut() {
+        if inst.state.item.group_id == active {
+            inst.window.set_visible(new_visible);
         }
+    }
+    tracing::info!(
+        "已切换当前贴图组 ({active}) 显隐状态: {}",
+        if new_visible {
+            "全部显示"
+        } else {
+            "全部隐藏"
+        }
+    );
+}
+
+/// 切换活动分组，同步窗口可见性并持久化分组选择。
+fn switch_group(target: Option<usize>, runtime: &mut WorkspaceRuntime) {
+    let next_group = match target {
+        Some(id) if is_valid_group_id(id) => id,
+        Some(id) => {
+            tracing::warn!(
+                "忽略非法贴图分组 ID: {id}，有效范围: 0..={}",
+                TOTAL_PIN_GROUPS.saturating_sub(1)
+            );
+            return;
+        }
+        None => (runtime.manager.active_group() + 1) % TOTAL_PIN_GROUPS,
+    };
+    runtime.manager.switch_group(next_group);
+    let group_label = format!(
+        "当前贴图组: {}/{}（ID {next_group}）",
+        next_group.saturating_add(1),
+        TOTAL_PIN_GROUPS
+    );
+    for inst in runtime.instances.values_mut() {
+        let visible = inst.state.item.group_id == next_group;
+        inst.window.set_visible(visible);
+        if visible {
+            inst.state.set_status_message(group_label.clone());
+            inst.window.request_redraw();
+        }
+    }
+    persist_active_group(runtime, next_group);
+    tracing::info!("已切换活动贴图分组至: {next_group}");
+}
+
+/// 平滑关闭截图覆盖层、全部贴图窗口与工作区事件循环。
+fn shutdown_workspace(
+    runtime: &mut WorkspaceRuntime,
+    responder: Option<tokio::sync::oneshot::Sender<()>>,
+    elwt: &EventLoopWindowTarget<PasterAppEvent>,
+) {
+    if let Some(mut view) = runtime.snipper.take() {
+        view.cancel();
+    }
+    // 工作区停机时逐个结束会话并关闭 IME，再统一释放窗口实例
+    for inst in runtime.instances.values_mut() {
+        inst.state.cancel_text_session();
+        inst.window.set_ime_allowed(false);
+    }
+    runtime.instances.clear();
+    if let Some(responder) = responder {
+        let _ = responder.send(());
+    }
+    elwt.exit();
+}
+
+/// 在现有事件循环中创建截图覆盖层。
+fn open_snipper(
+    launch: crate::snipper::SnipperLaunch,
+    runtime: &mut WorkspaceRuntime,
+    elwt: &EventLoopWindowTarget<PasterAppEvent>,
+) {
+    if let Some(mut previous) = runtime.snipper.take() {
+        previous.cancel();
+        tracing::warn!("已有截图覆盖层未结束，已取消旧会话并打开新会话");
+    }
+
+    // EventLoopProxy 在 macOS 上为 Send 但不是 Sync；媒体任务线程需要共享回调，
+    // 因此用短临界区互斥锁包裹代理，既满足跨线程约束又只在投递结果时短暂持锁。
+    let event_proxy = Arc::new(Mutex::new(runtime.event_proxy.clone()));
+    let sink: SnipperJobSink = Arc::new(move |kind, outcome| match event_proxy.lock() {
+        Ok(proxy) => {
+            let _ = proxy.send_event(PasterAppEvent::SnipperJobFinished { kind, outcome });
+        }
+        Err(_) => tracing::warn!("截图事件代理锁中毒，媒体任务结果未能回传"),
+    });
+
+    match SnipperView::new(elwt, launch, sink) {
+        Ok(view) => {
+            tracing::info!("截图覆盖层已挂载至常驻工作区事件循环");
+            runtime.snipper = Some(view);
+        }
+        Err(error) => {
+            tracing::error!("创建截图覆盖层失败: {error}");
+            notify_snipper_finished(runtime, SnipperOutcome::Cancelled);
+        }
+    }
+}
+
+/// 若截图覆盖层已产出结果，则销毁窗口并回传应用层。
+fn finish_snipper_if_ready(runtime: &mut WorkspaceRuntime) {
+    let Some(outcome) = runtime
+        .snipper
+        .as_mut()
+        .and_then(|view| view.take_outcome())
+    else {
+        return;
+    };
+    if let Some(mut view) = runtime.snipper.take() {
+        view.cancel();
+    }
+    notify_snipper_finished(runtime, outcome);
+}
+
+/// 投递截图结果；回调由应用层负责转换为有界通道消息。
+fn notify_snipper_finished(runtime: &WorkspaceRuntime, outcome: SnipperOutcome) {
+    if let Some(callback) = &runtime.on_snipper_finished {
+        callback(outcome);
     }
 }
 
@@ -151,128 +232,20 @@ pub(crate) fn handle_workspace_window_event(
     window_id: WindowId,
     event: WindowEvent,
     runtime: &mut WorkspaceRuntime,
-    elwt: &EventLoopWindowTarget<PasterAppEvent>,
 ) {
-    let mut should_close = false;
-
-    if let Some(inst) = runtime.instances.get_mut(&window_id) {
-        match event {
-            WindowEvent::CloseRequested => {
-                should_close = true;
-            }
-            WindowEvent::KeyboardInput {
-                event: key_event, ..
-            } => {
-                let text_active = inst.state.has_active_text_session();
-                if handle_paster_key(
-                    &mut inst.state,
-                    &key_event.logical_key,
-                    key_event.state,
-                    &inst.window,
-                ) {
-                    inst.window.request_redraw();
-                }
-                sync_ime_state(&inst.state, &inst.window, text_active);
-                if inst.state.should_close {
-                    should_close = true;
-                }
-            }
-            WindowEvent::CursorMoved { position, .. } => {
-                let size = inst.window.inner_size();
-                if handle_paster_cursor_move(
-                    &mut inst.state,
-                    (position.x, position.y),
-                    (size.width as f32, size.height as f32),
-                ) {
-                    inst.window.request_redraw();
-                }
-            }
-            WindowEvent::MouseWheel { delta, .. } => {
-                if handle_paster_scroll(&mut inst.state, delta, &inst.window) {
-                    // 缩放会改变文字会话的屏幕位置，同步刷新 IME 候选框锚点
-                    refresh_ime_cursor_area(&inst.state, &inst.window);
-                    inst.window.request_redraw();
-                }
-            }
-            WindowEvent::MouseInput { state, button, .. } => {
-                let text_active = inst.state.has_active_text_session();
-                if handle_paster_mouse_button(&mut inst.state, button, state, &inst.window) {
-                    inst.window.request_redraw();
-                }
-                sync_ime_state(&inst.state, &inst.window, text_active);
-                if inst.state.should_close {
-                    should_close = true;
-                }
-            }
-            WindowEvent::Ime(ime_event) => {
-                let need_redraw = match ime_event {
-                    Ime::Commit(text) => inst.state.apply_ime_commit(&text),
-                    Ime::Preedit(text, _cursor) => inst.state.apply_ime_preedit(&text),
-                    _ => false,
-                };
-                if need_redraw {
-                    refresh_ime_cursor_area(&inst.state, &inst.window);
-                    inst.window.request_redraw();
-                }
-            }
-            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                let s = scale_factor as f32;
-                inst.state.ui_scale = s;
-                inst.state.context_menu.set_ui_scale(s);
-                inst.window.request_redraw();
-            }
-            WindowEvent::RedrawRequested => {
-                // 过期提示先清除再渲染，确保最后一帧不会闪出已失效的文字
-                inst.state.clear_expired_status(Instant::now());
-                let size = inst.window.inner_size();
-                if let Err(e) = render_paster_to_surface(
-                    &mut inst.state,
-                    &mut inst.surface,
-                    size.width,
-                    size.height,
-                ) {
-                    tracing::error!("贴图渲染帧缓冲失败: {e}");
-                }
-            }
-            _ => {}
+    if runtime
+        .snipper
+        .as_ref()
+        .is_some_and(|view| view.window_id() == window_id)
+    {
+        if let Some(view) = runtime.snipper.as_mut() {
+            view.dispatch(event);
         }
+        finish_snipper_if_ready(runtime);
+        return;
     }
 
-    if should_close {
-        if let Some(mut removed) = runtime.instances.remove(&window_id) {
-            // 关闭前结束文字会话并显式关闭 IME，避免输入法候选框残留在桌面上
-            removed.state.cancel_text_session();
-            removed.window.set_ime_allowed(false);
-            runtime.manager.remove_paster(removed.item_id);
-            tracing::info!(
-                "贴图已安全关闭: {}，工作区剩余活动贴图: {}",
-                removed.item_id,
-                runtime.instances.len()
-            );
-        }
-        if runtime.exit_on_all_closed && runtime.instances.is_empty() {
-            tracing::info!("所有单次会话贴图窗口均已关闭，平滑退出工作区");
-            elwt.exit();
-        }
-    }
-}
-
-/// 事件循环空闲时清理过期提示，并返回最近一条提示的失效时刻。
-///
-/// 返回 `Some(deadline)` 时调用方应把控制流切换为定时等待，确保提示到期后
-/// 即使没有任何输入事件也能被清除并触发一次重绘；返回 `None` 时恢复无限等待。
-pub(crate) fn handle_workspace_about_to_wait(runtime: &mut WorkspaceRuntime) -> Option<Instant> {
-    let now = Instant::now();
-    let mut earliest: Option<Instant> = None;
-    for inst in runtime.instances.values_mut() {
-        if inst.state.clear_expired_status(now) {
-            inst.window.request_redraw();
-        }
-        if let Some(deadline) = inst.state.status_deadline() {
-            earliest = Some(earliest.map_or(deadline, |current| current.min(deadline)));
-        }
-    }
-    earliest
+    handle_paster_window_event(window_id, event, runtime);
 }
 
 /// 处理贴图保存结果：回填文件路径与状态提示。
