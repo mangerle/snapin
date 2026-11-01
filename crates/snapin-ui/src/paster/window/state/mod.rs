@@ -11,6 +11,7 @@ use crate::paster::window::annotation::{
 use crate::paster::window::input_region::InputRegionCache;
 use crate::paster::window::jobs::PasterJobRuntime;
 use crate::ports::{DesktopPort, JobCancel, JobId, NoopDesktop};
+use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 
 mod jobs;
 
@@ -183,13 +184,23 @@ impl PasterWindowState {
             old_size.height as f32,
         );
 
-        if let Ok(position) = window.outer_position() {
-            let delta_x = ((new_width - old_size.width as f32) * ratio_x).round() as i32;
-            let delta_y = ((new_height - old_size.height as f32) * ratio_y).round() as i32;
-            window.set_outer_position(PhysicalPosition::new(
-                position.x - delta_x,
-                position.y - delta_y,
-            ));
+        // Wayland 的 xdg-shell 不允许客户端查询/设置顶层窗口位置，winit 会返回
+        // NotSupported 并忽略 set_outer_position；此时不能假装锚点缩放生效，
+        // 只保留窗口尺寸变化，由合成器决定落点，避免把错误静默吞掉。
+        if supports_window_positioning(window) {
+            match window.outer_position() {
+                Ok(position) => {
+                    let delta_x = ((new_width - old_size.width as f32) * ratio_x).round() as i32;
+                    let delta_y = ((new_height - old_size.height as f32) * ratio_y).round() as i32;
+                    window.set_outer_position(PhysicalPosition::new(
+                        position.x - delta_x,
+                        position.y - delta_y,
+                    ));
+                }
+                Err(error) => {
+                    tracing::debug!("读取贴图窗口位置失败，缩放锚点退回合成器默认落点: {error}");
+                }
+            }
         }
 
         apply_window_scale_resize(self, window);
@@ -495,6 +506,16 @@ pub(crate) fn apply_window_scale_resize(state: &mut PasterWindowState, window: &
     }
 
     let _ = window.request_inner_size(PhysicalSize::new(new_w as u32, new_h as u32));
+}
+
+/// 当前窗口后端是否允许客户端查询和设置顶层窗口位置。
+///
+/// Wayland 下该能力由合成器垄断，返回 `false`；X11、Windows 与 macOS 返回 `true`。
+fn supports_window_positioning(window: &Window) -> bool {
+    window
+        .display_handle()
+        .map(|handle| !matches!(handle.as_raw(), RawDisplayHandle::Wayland(_)))
+        .unwrap_or(false)
 }
 
 /// 计算缩放时用于保持锚点稳定的相对位置比例。
