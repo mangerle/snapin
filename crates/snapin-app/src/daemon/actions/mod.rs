@@ -79,6 +79,23 @@ pub(super) fn spawn_snipper(
     }
 }
 
+/// 提交一条无需回执的工作区命令。
+///
+/// 热键与托盘共享同一套“克隆服务容器 + 投递命令”样板，集中到此处避免两处
+/// 动作分发逻辑随新增命令而漂移。
+pub(super) fn spawn_workspace_command(
+    services: &Arc<AppServices>,
+    workspace: &PasterWorkspaceProxy,
+    request: DaemonRequest,
+) {
+    let runtime = services.runtime();
+    let services = Arc::clone(services);
+    let workspace = workspace.clone();
+    spawn_daemon_command(runtime, async move {
+        let _ = handle_command(request, &workspace, &services).await;
+    });
+}
+
 /// 在统一运行时中提交一条守护命令任务。
 pub(super) fn spawn_daemon_command<F>(runtime: TaskRuntime, task: F)
 where

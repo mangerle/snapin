@@ -1,7 +1,6 @@
 //! 托盘动作控制器。
 
-use super::{spawn_daemon_command, spawn_preferences_subprocess, spawn_snipper};
-use crate::daemon::commands::handle_command;
+use super::{spawn_preferences_subprocess, spawn_snipper, spawn_workspace_command};
 use crate::services::AppServices;
 use snapin_core::SnipMode;
 use snapin_daemon::DaemonRequest;
@@ -25,29 +24,13 @@ pub(crate) fn handle_tray_action(
         TrayAction::AutoCopy => spawn_snipper(services, workspace, SnipMode::AutoCopy, 0),
         TrayAction::CustomSnip => spawn_snipper(services, workspace, SnipMode::Custom, 0),
         TrayAction::Paste => {
-            let runtime = services.runtime();
-            let services = Arc::clone(services);
-            let workspace = workspace.clone();
-            spawn_daemon_command(runtime, async move {
-                let _ = handle_command(DaemonRequest::Paste, &workspace, &services).await;
-            });
+            spawn_workspace_command(services, workspace, DaemonRequest::Paste);
         }
         TrayAction::TogglePasters => {
-            let runtime = services.runtime();
-            let services = Arc::clone(services);
-            let workspace = workspace.clone();
-            spawn_daemon_command(runtime, async move {
-                let _ = handle_command(DaemonRequest::TogglePasters, &workspace, &services).await;
-            });
+            spawn_workspace_command(services, workspace, DaemonRequest::TogglePasters);
         }
         TrayAction::SwitchGroup => {
-            let runtime = services.runtime();
-            let services = Arc::clone(services);
-            let workspace = workspace.clone();
-            spawn_daemon_command(runtime, async move {
-                let _ =
-                    handle_command(DaemonRequest::SwitchGroup(None), &workspace, &services).await;
-            });
+            spawn_workspace_command(services, workspace, DaemonRequest::SwitchGroup(None));
         }
         TrayAction::ClearHistory => {
             let runtime = services.runtime();

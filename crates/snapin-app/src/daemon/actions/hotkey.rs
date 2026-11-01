@@ -1,7 +1,6 @@
 //! 全局热键动作控制器。
 
-use super::{spawn_daemon_command, spawn_snipper};
-use crate::daemon::commands::handle_command;
+use super::{spawn_snipper, spawn_workspace_command};
 use crate::services::AppServices;
 use snapin_core::SnipMode;
 use snapin_daemon::DaemonRequest;
@@ -22,29 +21,13 @@ pub(crate) fn handle_hotkey_action(
             spawn_snipper(services, workspace, SnipMode::Translate, 0)
         }
         snapin_platform::HotkeyAction::Paste => {
-            let runtime = services.runtime();
-            let services = Arc::clone(services);
-            let workspace = workspace.clone();
-            spawn_daemon_command(runtime, async move {
-                let _ = handle_command(DaemonRequest::Paste, &workspace, &services).await;
-            });
+            spawn_workspace_command(services, workspace, DaemonRequest::Paste);
         }
         snapin_platform::HotkeyAction::TogglePasters => {
-            let runtime = services.runtime();
-            let services = Arc::clone(services);
-            let workspace = workspace.clone();
-            spawn_daemon_command(runtime, async move {
-                let _ = handle_command(DaemonRequest::TogglePasters, &workspace, &services).await;
-            });
+            spawn_workspace_command(services, workspace, DaemonRequest::TogglePasters);
         }
         snapin_platform::HotkeyAction::SwitchGroup => {
-            let runtime = services.runtime();
-            let services = Arc::clone(services);
-            let workspace = workspace.clone();
-            spawn_daemon_command(runtime, async move {
-                let _ =
-                    handle_command(DaemonRequest::SwitchGroup(None), &workspace, &services).await;
-            });
+            spawn_workspace_command(services, workspace, DaemonRequest::SwitchGroup(None));
         }
     }
     true
