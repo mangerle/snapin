@@ -5,6 +5,7 @@ use super::jobs::{SnipperJobKind, SnipperJobRuntime};
 use super::types::{SnipMode, SnipperOutcome};
 use crate::editor::text_input::TextInputSession;
 use crate::editor::toolbar::Toolbar;
+use crate::model::ShapeId;
 use crate::ports::{DesktopPort, JobCancel, JobId, NoopDesktop};
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionHistory, SelectionState};
@@ -37,7 +38,7 @@ pub struct SnipperState {
     pub pending_stroke_points: Vec<(f32, f32)>,
     pub active_text_input: Option<TextInputSession>,
     /// 当前选中的已提交标注在历史栈中的索引
-    pub selected_annotation: Option<usize>,
+    pub selected_annotation: Option<ShapeId>,
     /// 标注拖动或手柄拉伸会话
     pub annotation_drag: Option<AnnotationDrag>,
     pub outcome: Option<SnipperOutcome>,

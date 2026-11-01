@@ -195,7 +195,7 @@ mod tests {
         state.cursor_pos = (150.0, 150.0);
         assert_eq!(desired_cursor_icon(&state), CursorIcon::Move);
 
-        state.selected_annotation = Some(0);
+        state.selected_annotation = Some(0.into());
         state.cursor_pos = (300.0, 220.0);
         assert_eq!(desired_cursor_icon(&state), CursorIcon::NwseResize);
 
