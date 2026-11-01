@@ -28,6 +28,166 @@ pub enum Tool {
     Spotlight,
 }
 
+/// 工具栏工具的描述元数据。
+///
+/// 二级属性栏控件组合、主栏几何入口与聚光灯无属性栏等差异集中在此，
+/// 布局、命中与渲染不再各自维护工具特例。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ToolDescriptor {
+    /// 工具标识
+    pub tool: Tool,
+    /// 主栏是否作为矩形/椭圆几何入口显示
+    pub geometric_slot: bool,
+    /// 是否提供二级属性栏
+    pub has_sub_bar: bool,
+    /// 是否提供矩形/椭圆形状切换
+    pub shape_controls: bool,
+    /// 是否提供圆角半径控件
+    pub corner_radius: bool,
+    /// 是否提供线型控件
+    pub line_style: bool,
+    /// 是否提供填充开关
+    pub fill_toggle: bool,
+    /// 是否提供序号底板样式
+    pub badge_style: bool,
+    /// 是否提供箭头样式
+    pub arrow_style: bool,
+    /// 是否提供预设调色板
+    pub color_palette: bool,
+}
+
+/// 工具描述表；新增工具时在此补齐一条并同步图标/主栏顺序。
+pub const TOOL_DESCRIPTORS: &[ToolDescriptor] = &[
+    ToolDescriptor {
+        tool: Tool::Rect,
+        geometric_slot: true,
+        has_sub_bar: true,
+        shape_controls: true,
+        corner_radius: true,
+        line_style: true,
+        fill_toggle: true,
+        badge_style: false,
+        arrow_style: false,
+        color_palette: true,
+    },
+    ToolDescriptor {
+        tool: Tool::Ellipse,
+        geometric_slot: true,
+        has_sub_bar: true,
+        shape_controls: true,
+        corner_radius: false,
+        line_style: true,
+        fill_toggle: true,
+        badge_style: false,
+        arrow_style: false,
+        color_palette: true,
+    },
+    ToolDescriptor {
+        tool: Tool::Arrow,
+        geometric_slot: false,
+        has_sub_bar: true,
+        shape_controls: false,
+        corner_radius: false,
+        line_style: false,
+        fill_toggle: false,
+        badge_style: false,
+        arrow_style: true,
+        color_palette: true,
+    },
+    ToolDescriptor {
+        tool: Tool::Pen,
+        geometric_slot: false,
+        has_sub_bar: true,
+        shape_controls: false,
+        corner_radius: false,
+        line_style: false,
+        fill_toggle: false,
+        badge_style: false,
+        arrow_style: false,
+        color_palette: true,
+    },
+    ToolDescriptor {
+        tool: Tool::Marker,
+        geometric_slot: false,
+        has_sub_bar: true,
+        shape_controls: false,
+        corner_radius: false,
+        line_style: false,
+        fill_toggle: false,
+        badge_style: false,
+        arrow_style: false,
+        color_palette: true,
+    },
+    ToolDescriptor {
+        tool: Tool::Text,
+        geometric_slot: false,
+        has_sub_bar: true,
+        shape_controls: false,
+        corner_radius: false,
+        line_style: false,
+        fill_toggle: false,
+        badge_style: false,
+        arrow_style: false,
+        color_palette: true,
+    },
+    ToolDescriptor {
+        tool: Tool::Badge,
+        geometric_slot: false,
+        has_sub_bar: true,
+        shape_controls: false,
+        corner_radius: false,
+        line_style: false,
+        fill_toggle: false,
+        badge_style: true,
+        arrow_style: false,
+        color_palette: true,
+    },
+    ToolDescriptor {
+        tool: Tool::Mosaic,
+        geometric_slot: false,
+        has_sub_bar: true,
+        shape_controls: false,
+        corner_radius: false,
+        line_style: false,
+        fill_toggle: false,
+        badge_style: false,
+        arrow_style: false,
+        color_palette: true,
+    },
+    ToolDescriptor {
+        tool: Tool::Blur,
+        geometric_slot: false,
+        has_sub_bar: true,
+        shape_controls: false,
+        corner_radius: false,
+        line_style: false,
+        fill_toggle: false,
+        badge_style: false,
+        arrow_style: false,
+        color_palette: false,
+    },
+    ToolDescriptor {
+        tool: Tool::Spotlight,
+        geometric_slot: false,
+        has_sub_bar: false,
+        shape_controls: false,
+        corner_radius: false,
+        line_style: false,
+        fill_toggle: false,
+        badge_style: false,
+        arrow_style: false,
+        color_palette: false,
+    },
+];
+
+/// 按工具查找描述元数据；表必须覆盖全部工具。
+pub fn tool_descriptor(tool: Tool) -> &'static ToolDescriptor {
+    TOOL_DESCRIPTORS
+        .iter()
+        .find(|descriptor| descriptor.tool == tool)
+        .expect("工具描述表必须覆盖全部 Tool 变体")
+}
+
 /// 工具栏一次性命令动作。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolbarAction {
@@ -180,6 +340,34 @@ mod tests {
         let action = ToolbarItem::action(ToolbarAction::Undo);
         assert_eq!(action.as_tool(), None);
         assert_eq!(ToolbarItem::action(ToolbarAction::Close).as_tool(), None);
+    }
+
+    /// 描述表必须覆盖全部工具，并保留聚光灯无属性栏、矩形几何入口等关键差异。
+    #[test]
+    fn test_tool_descriptors_cover_all_tools() {
+        let tools = [
+            Tool::Rect,
+            Tool::Ellipse,
+            Tool::Arrow,
+            Tool::Pen,
+            Tool::Marker,
+            Tool::Text,
+            Tool::Badge,
+            Tool::Mosaic,
+            Tool::Blur,
+            Tool::Spotlight,
+        ];
+        assert_eq!(TOOL_DESCRIPTORS.len(), tools.len());
+        for tool in tools {
+            let descriptor = tool_descriptor(tool);
+            assert_eq!(descriptor.tool, tool);
+        }
+        assert!(tool_descriptor(Tool::Rect).geometric_slot);
+        assert!(tool_descriptor(Tool::Ellipse).geometric_slot);
+        assert!(!tool_descriptor(Tool::Spotlight).has_sub_bar);
+        assert!(!tool_descriptor(Tool::Blur).color_palette);
+        assert!(tool_descriptor(Tool::Badge).badge_style);
+        assert!(tool_descriptor(Tool::Arrow).arrow_style);
     }
 
     /// 主栏必须同时包含可激活工具与一次性动作，且动作不会成为激活态。

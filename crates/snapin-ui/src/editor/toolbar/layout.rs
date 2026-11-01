@@ -3,7 +3,9 @@
 //! 主栏根据选区与屏幕边界自适应定位；二级栏按当前工具的可用选项生成控件序列，
 //! 控件坐标只在此处计算一次，渲染与命中测试共用同一份结果，避免两处各写一套坐标而漂移。
 
-use crate::editor::toolbar::items::{preset_colors, StrokeWidthLevel, Tool, CORNER_RADIUS_PRESETS};
+use crate::editor::toolbar::items::{
+    preset_colors, tool_descriptor, StrokeWidthLevel, Tool, CORNER_RADIUS_PRESETS,
+};
 use crate::editor::toolbar::metrics::{button_size, padding};
 use crate::geometry::Rect;
 
@@ -173,8 +175,8 @@ fn build_entries(
         scale: s,
     };
 
-    let is_geo = matches!(active_tool, Tool::Rect | Tool::Ellipse);
-    if is_geo {
+    let descriptor = tool_descriptor(active_tool);
+    if descriptor.shape_controls {
         cursor.push(Some(SubControl::ShapeRect), 26.0 * s);
         cursor.push(Some(SubControl::ShapeEllipse), 26.0 * s);
         cursor.push(None, 16.0 * s);
@@ -188,28 +190,27 @@ fn build_entries(
         cursor.push(Some(SubControl::Stroke(level)), 24.0 * s);
     }
 
-    if is_geo {
+    if descriptor.line_style {
         cursor.push(None, 16.0 * s);
         cursor.push(Some(SubControl::LineStyle), 52.0 * s);
-        cursor.push(Some(SubControl::FillToggle), 28.0 * s);
-        if active_tool == Tool::Rect {
-            cursor.push(Some(SubControl::CornerRadius), 44.0 * s);
-        }
     }
-
-    if active_tool == Tool::Badge {
+    if descriptor.fill_toggle {
+        cursor.push(Some(SubControl::FillToggle), 28.0 * s);
+    }
+    if descriptor.corner_radius {
+        cursor.push(Some(SubControl::CornerRadius), 44.0 * s);
+    }
+    if descriptor.badge_style {
         cursor.push(None, 16.0 * s);
         cursor.push(Some(SubControl::BadgeStyle), 44.0 * s);
     }
-
-    if active_tool == Tool::Arrow {
+    if descriptor.arrow_style {
         cursor.push(None, 16.0 * s);
         cursor.push(Some(SubControl::ArrowStyle), 52.0 * s);
     }
 
-    cursor.push(None, 16.0 * s);
-    // 模糊工具只使用粗细档位调节半径，颜色与模糊无关。
-    if active_tool != Tool::Blur {
+    if descriptor.color_palette {
+        cursor.push(None, 16.0 * s);
         for (index, _) in preset_colors().iter().enumerate() {
             cursor.push(Some(SubControl::Color(index)), 26.0 * s);
         }
@@ -232,8 +233,8 @@ pub(crate) fn calculate_sub_layout(
     if main_rect.width <= 0.0 {
         return None;
     }
-    // 聚光灯没有可调参数，不显示空的二级属性栏。
-    if active_tool == Tool::Spotlight {
+    // 没有可调参数的工具不显示空的二级属性栏。
+    if !tool_descriptor(active_tool).has_sub_bar {
         return None;
     }
 

@@ -4,7 +4,7 @@
 //! 渲染层读取同一份布局结果，避免交互与绘制各维护一套坐标。
 
 use super::interaction::hit_test_main_items;
-use super::items::{preset_colors, CORNER_RADIUS_PRESETS};
+use super::items::{preset_colors, tool_descriptor, CORNER_RADIUS_PRESETS};
 use super::layout::{
     calculate_main_layout, calculate_sub_layout, SubControl, SubDropdown, SubLayout,
 };
@@ -275,7 +275,9 @@ impl Toolbar {
                     // 形状按钮只做开合：点击选中矩形（默认形状），再点取消。
                     // 椭圆是同一个工具的第二形态，只能从二级属性栏显式选择——
                     // 旧实现在此循环"矩形→椭圆→关闭"，导致用户想点开选项时反而被切成椭圆。
-                    let shape_active = matches!(self.active_tool, Some(Tool::Rect | Tool::Ellipse));
+                    let shape_active = self
+                        .active_tool
+                        .is_some_and(|tool| tool_descriptor(tool).geometric_slot);
                     self.set_active_tool(if shape_active { None } else { Some(Tool::Rect) });
                     return None;
                 }

@@ -1,7 +1,7 @@
 //! 主工具栏与拖动手柄绘制。
 
 use super::super::icons::{make_paint, render_item_icon};
-use super::super::items::{Tool, ToolbarAction, ToolbarItem};
+use super::super::items::{tool_descriptor, Tool, ToolbarAction, ToolbarItem};
 use super::super::metrics::{
     button_size, divider_width, drag_handle_width, has_separator_before, padding, spacing,
 };
@@ -56,7 +56,9 @@ pub(super) fn render_main_buttons(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
             height: btn_size,
         };
 
-        let is_geometric_slot = item == ToolbarItem::Tool(Tool::Rect);
+        let is_geometric_slot = item
+            .as_tool()
+            .is_some_and(|tool| tool_descriptor(tool).geometric_slot);
         let is_active = if is_geometric_slot {
             matches!(toolbar.active_tool, Some(Tool::Rect | Tool::Ellipse))
         } else {
