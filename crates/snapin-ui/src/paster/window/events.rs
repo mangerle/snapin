@@ -29,9 +29,9 @@ pub fn handle_paster_key(
         return state.handle_text_session_key(key);
     }
 
-    if state.context_menu.is_open {
+    if state.interaction.context_menu.is_open {
         if let Key::Named(NamedKey::Escape) = key {
-            state.context_menu.close();
+            state.interaction.context_menu.close();
             apply_window_scale_resize(state, window);
             return true;
         }
@@ -74,23 +74,24 @@ pub fn handle_paster_cursor_move(
 ) -> bool {
     state.cursor_pos = (pos.0 as f32, pos.1 as f32);
 
-    if state.is_drawing {
+    if state.interaction.is_drawing {
         return state.update_stroke(state.cursor_pos);
     }
 
     let toolbar_hover_changed = if state.chrome.show_toolbar {
         refresh_toolbar_layout(state, window_size.0, window_size.1);
         state
+            .interaction
             .toolbar
             .handle_mouse_move(state.cursor_pos.0, state.cursor_pos.1)
     } else {
         false
     };
 
-    let menu_hover_changed = if state.context_menu.is_open {
+    let menu_hover_changed = if state.interaction.context_menu.is_open {
         let items =
             ContextMenuState::build_main_items(state.chrome.show_toolbar, state.chrome.has_shadow);
-        state.context_menu.handle_mouse_move(
+        state.interaction.context_menu.handle_mouse_move(
             state.cursor_pos.0,
             state.cursor_pos.1,
             &items,
@@ -109,8 +110,8 @@ pub fn handle_paster_scroll(
     delta: MouseScrollDelta,
     window: &Window,
 ) -> bool {
-    if state.context_menu.is_open {
-        state.context_menu.close();
+    if state.interaction.context_menu.is_open {
+        state.interaction.context_menu.close();
     }
 
     let delta_y = match delta {
@@ -140,11 +141,11 @@ pub fn handle_paster_mouse_button(
     let handled = match (button, button_state) {
         (MouseButton::Right, ElementState::Pressed) => {
             // 右键打开菜单前取消未完成的一笔，避免拖拽预览残留在图像上
-            state.pending_stroke_points.clear();
-            state.is_drawing = false;
+            state.interaction.pending_stroke_points.clear();
+            state.interaction.is_drawing = false;
 
-            state.context_menu.set_ui_scale(state.ui_scale);
-            state.context_menu.is_open = true;
+            state.interaction.context_menu.set_ui_scale(state.ui_scale);
+            state.interaction.context_menu.is_open = true;
             apply_window_scale_resize(state, window);
 
             let win_size = window.inner_size();
@@ -152,7 +153,7 @@ pub fn handle_paster_mouse_button(
                 state.chrome.show_toolbar,
                 state.chrome.has_shadow,
             );
-            state.context_menu.open_at(
+            state.interaction.context_menu.open_at(
                 state.cursor_pos.0,
                 state.cursor_pos.1,
                 win_size.width as f32,
@@ -172,10 +173,10 @@ pub fn handle_paster_mouse_button(
 
 /// 左键按下：优先处理菜单与工具栏，其次在激活标注工具时开始一笔，最后才拖动窗口。
 fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
-    if state.context_menu.is_open {
+    if state.interaction.context_menu.is_open {
         let main_items =
             ContextMenuState::build_main_items(state.chrome.show_toolbar, state.chrome.has_shadow);
-        let action = state.context_menu.handle_click(
+        let action = state.interaction.context_menu.handle_click(
             state.cursor_pos.0,
             state.cursor_pos.1,
             &main_items,
@@ -184,7 +185,7 @@ fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
         if let Some(act) = action {
             dispatch_menu_action(state, act, window);
         }
-        if !state.context_menu.is_open {
+        if !state.interaction.context_menu.is_open {
             apply_window_scale_resize(state, window);
         }
         return true;
@@ -201,22 +202,24 @@ fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
     }
 
     // 文字工具在图像内按下时开启 IME 输入会话，而不是走拖拽笔迹路径
-    if state.toolbar.active_tool == Some(Tool::Text)
+    if state.interaction.toolbar.active_tool == Some(Tool::Text)
         && state.screen_point_inside_image(state.cursor_pos)
     {
         return state.begin_text_session(state.cursor_pos);
     }
 
     // 有激活工具且按下点在贴图图像内：开始一笔，不触发窗口拖动与双击动作
-    if state.toolbar.active_tool.is_some() && state.screen_point_inside_image(state.cursor_pos) {
+    if state.interaction.toolbar.active_tool.is_some()
+        && state.screen_point_inside_image(state.cursor_pos)
+    {
         state.begin_stroke(state.cursor_pos);
         return true;
     }
 
     let now = Instant::now();
-    if let Some(prev) = state.last_click_time {
+    if let Some(prev) = state.interaction.last_click_time {
         if now.duration_since(prev).as_millis() < 300 {
-            state.last_click_time = None;
+            state.interaction.last_click_time = None;
             match state.config.paster.double_click_action {
                 DoubleClickAction::CopyAndClose => {
                     if copy_paster_to_clipboard(state) {
@@ -233,14 +236,14 @@ fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
             return true;
         }
     }
-    state.last_click_time = Some(now);
+    state.interaction.last_click_time = Some(now);
     let _ = window.drag_window();
     false
 }
 
 /// 左键松开：把当前笔迹提交进图像与标注历史，并清空预览状态。
 fn handle_left_release(state: &mut PasterWindowState) -> bool {
-    if !state.is_drawing {
+    if !state.interaction.is_drawing {
         return false;
     }
     state.update_stroke(state.cursor_pos);

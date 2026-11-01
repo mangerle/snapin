@@ -1,8 +1,7 @@
 //! 贴图窗口运行时状态封装与窗口尺寸缩放管理。
 
 use crate::editor::annotation_builder::{build_shape, AnnotationDraftParams};
-use crate::editor::text_input::TextInputSession;
-use crate::editor::toolbar::{Tool, Toolbar};
+use crate::editor::toolbar::Tool;
 use crate::model::PasterItem;
 use crate::paster::context_menu::ContextMenuState;
 use crate::paster::window::annotation::{
@@ -15,12 +14,14 @@ use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 mod chrome;
 mod document;
 mod frame_cache;
+mod interaction;
 mod job_slot;
 mod jobs;
 
 use chrome::PasterChrome;
 use document::PasterDocument;
 use frame_cache::FrameCache;
+use interaction::PasterInteraction;
 use job_slot::PasterJobSlot;
 
 use snapin_core::annotation::action::AnnotationShape;
@@ -40,13 +41,12 @@ pub(crate) const STATUS_MESSAGE_TTL: Duration = Duration::from_secs(3);
 pub struct PasterWindowState {
     /// 贴图内容文档：图像、底图与标注历史
     pub(crate) document: PasterDocument,
-    /// 贴图标注工具栏（主栏按钮集由 `PASTER_MAIN_ITEMS` 指定）
-    pub toolbar: Toolbar,
+    /// 工具栏、笔迹、文字会话与右键菜单
+    pub(crate) interaction: PasterInteraction,
     pub should_close: bool,
     /// 窗口外观与交互开关
     pub(crate) chrome: PasterChrome,
     pub file_path: Option<PathBuf>,
-    pub context_menu: ContextMenuState,
     pub cursor_pos: (f32, f32),
     pub ui_scale: f32,
     pub config: Arc<Config>,
@@ -58,15 +58,8 @@ pub struct PasterWindowState {
     pub(crate) job_slot: PasterJobSlot,
     /// 图像顶部状态提示及其产生时刻，超过 [`STATUS_MESSAGE_TTL`] 后自动失效
     pub(crate) status_message: Option<(String, Instant)>,
-    pub(crate) last_click_time: Option<Instant>,
     /// 当前修饰键状态；文本输入据此忽略 Ctrl 组合字符
     pub(crate) modifiers: ModifiersState,
-    /// 当前一笔尚待提交的标注轨迹（图像像素坐标）
-    pub(crate) pending_stroke_points: Vec<(f32, f32)>,
-    /// 左键是否正处于一笔标注的拖拽过程中
-    pub(crate) is_drawing: bool,
-    /// 正在编辑的文字标注会话（坐标与字号均为图像像素），无会话时为 `None`
-    pub(crate) active_text_input: Option<TextInputSession>,
     /// 渲染帧缓冲与输入区域缓存；都属于可丢弃的表现层缓存
     pub(crate) frame_cache: FrameCache,
 }
@@ -75,11 +68,10 @@ impl PasterWindowState {
     pub fn new(item: PasterItem) -> Self {
         Self {
             document: PasterDocument::new(item),
-            toolbar: create_paster_toolbar(),
+            interaction: PasterInteraction::new(create_paster_toolbar()),
             should_close: false,
             chrome: PasterChrome::default(),
             file_path: None,
-            context_menu: ContextMenuState::default(),
             cursor_pos: (0.0, 0.0),
             ui_scale: 1.0,
             config: Arc::new(Config::default()),
@@ -87,12 +79,8 @@ impl PasterWindowState {
             desktop: Arc::new(NoopDesktop),
             job_slot: PasterJobSlot::default(),
             status_message: None,
-            last_click_time: None,
             modifiers: ModifiersState::default(),
-            pending_stroke_points: Vec::with_capacity(64),
             frame_cache: FrameCache::default(),
-            is_drawing: false,
-            active_text_input: None,
         }
     }
 
@@ -287,9 +275,9 @@ impl PasterWindowState {
         self.chrome.show_toolbar = visible;
         if !visible {
             self.commit_text_session();
-            self.toolbar.active_tool = None;
-            self.pending_stroke_points.clear();
-            self.is_drawing = false;
+            self.interaction.toolbar.active_tool = None;
+            self.interaction.pending_stroke_points.clear();
+            self.interaction.is_drawing = false;
         }
         apply_window_scale_resize(self, window);
     }
@@ -314,9 +302,9 @@ impl PasterWindowState {
             }
             self.cancel_text_session();
             window.set_ime_allowed(false);
-            self.pending_stroke_points.clear();
-            self.is_drawing = false;
-            self.context_menu.close();
+            self.interaction.pending_stroke_points.clear();
+            self.interaction.is_drawing = false;
+            self.interaction.context_menu.close();
             self.set_status_message("鼠标穿透已开启，点击工具条上的穿透按钮恢复");
         } else {
             self.set_status_message("鼠标穿透已关闭");
@@ -338,39 +326,40 @@ impl PasterWindowState {
 
     /// 开始一笔标注：记录起点图像坐标，等待拖动更新与松开提交。
     pub(crate) fn begin_stroke(&mut self, screen_pos: (f32, f32)) -> bool {
-        if self.toolbar.active_tool.is_none() {
+        if self.interaction.toolbar.active_tool.is_none() {
             return false;
         }
-        self.pending_stroke_points.clear();
-        self.pending_stroke_points
+        self.interaction.pending_stroke_points.clear();
+        self.interaction
+            .pending_stroke_points
             .push(self.image_point(screen_pos));
-        self.is_drawing = true;
+        self.interaction.is_drawing = true;
         true
     }
 
     /// 拖动中更新当前笔迹：画笔/荧光笔追加连续点，其余图元只保留起点与最新终点。
     pub(crate) fn update_stroke(&mut self, screen_pos: (f32, f32)) -> bool {
-        if !self.is_drawing {
+        if !self.interaction.is_drawing {
             return false;
         }
-        let Some(tool) = self.toolbar.active_tool else {
-            self.pending_stroke_points.clear();
-            self.is_drawing = false;
+        let Some(tool) = self.interaction.toolbar.active_tool else {
+            self.interaction.pending_stroke_points.clear();
+            self.interaction.is_drawing = false;
             return false;
         };
 
         let point = self.image_point(screen_pos);
         match tool {
             Tool::Pen | Tool::Marker => {
-                if self.pending_stroke_points.last() != Some(&point) {
-                    self.pending_stroke_points.push(point);
+                if self.interaction.pending_stroke_points.last() != Some(&point) {
+                    self.interaction.pending_stroke_points.push(point);
                 }
             }
             _ => {
-                if self.pending_stroke_points.len() > 1 {
-                    self.pending_stroke_points[1] = point;
+                if self.interaction.pending_stroke_points.len() > 1 {
+                    self.interaction.pending_stroke_points[1] = point;
                 } else {
-                    self.pending_stroke_points.push(point);
+                    self.interaction.pending_stroke_points.push(point);
                 }
             }
         }
@@ -382,22 +371,22 @@ impl PasterWindowState {
     /// 先绘制像素再入历史：复制图像、图像另存为都直接读取 `item.pixmap`，
     /// 因此天然携带已提交的标注；撤销/重做则依赖底图与历史重放恢复。
     pub(crate) fn commit_pending_stroke(&mut self) -> bool {
-        self.is_drawing = false;
-        let Some(tool) = self.toolbar.active_tool else {
-            self.pending_stroke_points.clear();
+        self.interaction.is_drawing = false;
+        let Some(tool) = self.interaction.toolbar.active_tool else {
+            self.interaction.pending_stroke_points.clear();
             return false;
         };
 
         let shape = {
             let params = AnnotationDraftParams::from_toolbar_and_points(
-                &self.toolbar,
+                &self.interaction.toolbar,
                 tool,
-                &self.pending_stroke_points,
+                &self.interaction.pending_stroke_points,
                 self.document.annotations.next_badge_number(),
             );
             params.and_then(|params| build_shape(&params))
         };
-        self.pending_stroke_points.clear();
+        self.interaction.pending_stroke_points.clear();
 
         let Some(shape) = shape else {
             return false;
@@ -466,10 +455,10 @@ impl PasterWindowState {
     fn reset_annotation_baseline(&mut self) {
         self.document.base_pixmap = None;
         self.document.annotations.clear();
-        self.pending_stroke_points.clear();
-        self.is_drawing = false;
+        self.interaction.pending_stroke_points.clear();
+        self.interaction.is_drawing = false;
         // 坐标系已失效，进行中的文字会话不能再落到新底图上
-        self.active_text_input = None;
+        self.interaction.active_text_input = None;
     }
 }
 
@@ -488,21 +477,24 @@ pub(crate) fn apply_window_scale_resize(state: &mut PasterWindowState, window: &
     if state.chrome.show_toolbar {
         // 工具条度量以 state.ui_scale 为准：首次在 HiDPI 屏上打开工具条时，
         // toolbar.ui_scale 可能仍是初始的 1.0，先同步避免按过期倍率扩容不足。
-        state.toolbar.ui_scale = state.ui_scale.max(0.1);
+        state.interaction.toolbar.ui_scale = state.ui_scale.max(0.1);
         let (req_w, req_h) = toolbar_required_extent(
             state.ui_scale,
-            state.toolbar.main_width(),
-            state.toolbar.main_height(),
+            state.interaction.toolbar.main_width(),
+            state.interaction.toolbar.main_height(),
         );
         new_w = new_w.max(req_w);
         new_h += req_h;
     }
 
     // 若当前正在展示右键菜单，确保窗口物理尺寸足以容纳菜单而不被截断
-    if state.context_menu.is_open {
+    if state.interaction.context_menu.is_open {
         let main_items =
             ContextMenuState::build_main_items(state.chrome.show_toolbar, state.chrome.has_shadow);
-        let (req_w, req_h) = state.context_menu.required_menu_extent(&main_items);
+        let (req_w, req_h) = state
+            .interaction
+            .context_menu
+            .required_menu_extent(&main_items);
         new_w = new_w.max(req_w);
         new_h = new_h.max(req_h);
     }

@@ -17,7 +17,7 @@ use winit::window::Window;
 impl PasterWindowState {
     /// 当前是否处于文字输入会话中。
     pub(crate) fn has_active_text_session(&self) -> bool {
-        self.active_text_input.is_some()
+        self.interaction.active_text_input.is_some()
     }
 
     /// 在点击位置开启文字会话；点击点必须落在缩放后的图像内部。
@@ -25,7 +25,7 @@ impl PasterWindowState {
     /// 若已有会话，会先按常规路径提交（空文本自动丢弃），再在新位置开启；
     /// 坐标在这里一次性换算为图像像素，后续 IME 事件与渲染都不再重复换算。
     pub(crate) fn begin_text_session(&mut self, screen_pos: (f32, f32)) -> bool {
-        if self.toolbar.active_tool != Some(Tool::Text) {
+        if self.interaction.toolbar.active_tool != Some(Tool::Text) {
             return false;
         }
         if !self.screen_point_inside_image(screen_pos) {
@@ -33,10 +33,10 @@ impl PasterWindowState {
         }
 
         self.commit_text_session();
-        let color = color_to_rgba(self.toolbar.sub_options.color);
-        let font_size = self.toolbar.sub_options.font_size;
+        let color = color_to_rgba(self.interaction.toolbar.sub_options.color);
+        let font_size = self.interaction.toolbar.sub_options.font_size;
         let pos = self.image_point(screen_pos);
-        self.active_text_input = Some(TextInputSession::new(pos, color, font_size));
+        self.interaction.active_text_input = Some(TextInputSession::new(pos, color, font_size));
         true
     }
 
@@ -44,7 +44,7 @@ impl PasterWindowState {
     ///
     /// 返回是否实际产生了新图元，供测试与调用方判断是否需要重绘。
     pub(crate) fn commit_text_session(&mut self) -> bool {
-        let Some(session) = self.active_text_input.take() else {
+        let Some(session) = self.interaction.active_text_input.take() else {
             return false;
         };
         let Some(shape) = session.commit() else {
@@ -58,7 +58,7 @@ impl PasterWindowState {
 
     /// 取消当前会话，已输入但未提交的文字直接丢弃。
     pub(crate) fn cancel_text_session(&mut self) -> bool {
-        self.active_text_input.take().is_some()
+        self.interaction.active_text_input.take().is_some()
     }
 
     /// 处理会话中的按键：回车提交、Esc 取消、退格删除、其余可见字符直接录入。
@@ -67,7 +67,7 @@ impl PasterWindowState {
     /// 因此 Esc 不会继续落到「关闭贴图」的全局分支上。
     pub(crate) fn handle_text_session_key(&mut self, key: &Key) -> bool {
         let ctrl_pressed = self.modifiers.control_key();
-        let action = match self.active_text_input.as_mut() {
+        let action = match self.interaction.active_text_input.as_mut() {
             Some(session) => {
                 crate::editor::text_input::handle_session_key(session, key, ctrl_pressed)
             }
@@ -89,7 +89,7 @@ impl PasterWindowState {
 
     /// 接收输入法确认提交的文本。
     pub(crate) fn apply_ime_commit(&mut self, text: &str) -> bool {
-        match &mut self.active_text_input {
+        match &mut self.interaction.active_text_input {
             Some(session) => {
                 session.push_commit(text);
                 true
@@ -100,7 +100,7 @@ impl PasterWindowState {
 
     /// 接收输入法预编辑文本，用于即时渲染与下划线提示。
     pub(crate) fn apply_ime_preedit(&mut self, text: &str) -> bool {
-        match &mut self.active_text_input {
+        match &mut self.interaction.active_text_input {
             Some(session) => {
                 session.set_preedit(text);
                 true
@@ -115,7 +115,7 @@ impl PasterWindowState {
 /// 会话坐标与字号均为图像像素，乘以缩放倍数后才能与缩放后的贴图对齐；
 /// 预编辑文本额外绘制下划线，提交后该下划线会随会话一起消失。
 pub(crate) fn render_text_session_preview(state: &PasterWindowState, target: &mut Pixmap) {
-    let Some(session) = &state.active_text_input else {
+    let Some(session) = &state.interaction.active_text_input else {
         return;
     };
     let scale = state.document.item.transform.scale.max(f32::EPSILON);
@@ -138,7 +138,7 @@ pub(crate) fn sync_ime_state(state: &PasterWindowState, window: &Window, was_act
 
 /// 将 IME 候选框锚定到当前会话在屏幕上的位置。
 pub(crate) fn refresh_ime_cursor_area(state: &PasterWindowState, window: &Window) {
-    let Some(session) = &state.active_text_input else {
+    let Some(session) = &state.interaction.active_text_input else {
         return;
     };
     let scale = state.document.item.transform.scale.max(f32::EPSILON);
@@ -173,7 +173,7 @@ mod tests {
         let pixmap = Pixmap::new(width, height).expect("创建测试位图失败");
         let item = PasterItem::new(1, "测试贴图".to_string(), pixmap, (0, 0));
         let mut state = PasterWindowState::new(item);
-        state.toolbar.active_tool = Some(Tool::Text);
+        state.interaction.toolbar.active_tool = Some(Tool::Text);
         state
     }
 
@@ -185,13 +185,17 @@ mod tests {
 
         assert!(state.begin_text_session((10.0, 10.0)));
         state
+            .interaction
             .active_text_input
             .as_mut()
             .expect("会话应处于激活状态")
             .push_str("文字标注");
 
         assert!(state.commit_text_session(), "非空文本应成功提交");
-        assert!(state.active_text_input.is_none(), "提交后会话必须结束");
+        assert!(
+            state.interaction.active_text_input.is_none(),
+            "提交后会话必须结束"
+        );
         assert_eq!(
             state.document.annotations.undo_stack().len(),
             1,
@@ -227,13 +231,14 @@ mod tests {
 
         assert!(state.begin_text_session((20.0, 20.0)));
         state
+            .interaction
             .active_text_input
             .as_mut()
             .expect("会话应处于激活状态")
             .push_str("不提交");
         assert!(state.cancel_text_session());
 
-        assert!(state.active_text_input.is_none());
+        assert!(state.interaction.active_text_input.is_none());
         assert!(
             state.document.annotations.undo_stack().is_empty(),
             "取消后不得入历史"
@@ -254,7 +259,7 @@ mod tests {
         assert!(state.begin_text_session((20.0, 20.0)));
         assert!(!state.commit_text_session(), "空文本不应产生图元");
 
-        assert!(state.active_text_input.is_none());
+        assert!(state.interaction.active_text_input.is_none());
         assert!(state.document.annotations.undo_stack().is_empty());
         assert_eq!(state.document.item.pixmap.data(), original.as_slice());
     }
@@ -267,6 +272,7 @@ mod tests {
         assert!(state.begin_text_session((30.0, 20.0)));
         assert_eq!(
             state
+                .interaction
                 .active_text_input
                 .as_ref()
                 .expect("会话应处于激活状态")
@@ -278,6 +284,7 @@ mod tests {
         state.document.item.transform.scale = 1.67;
         assert!(state.begin_text_session((100.2, 83.5)));
         let pos = state
+            .interaction
             .active_text_input
             .as_ref()
             .expect("会话应处于激活状态")
@@ -300,13 +307,14 @@ mod tests {
         let mut state = text_state(80, 60);
         assert!(state.begin_text_session((8.0, 8.0)));
         state
+            .interaction
             .active_text_input
             .as_mut()
             .expect("会话应处于激活状态")
             .push_str("取消");
 
         assert!(state.handle_text_session_key(&Key::Named(NamedKey::Escape)));
-        assert!(state.active_text_input.is_none());
+        assert!(state.interaction.active_text_input.is_none());
         assert!(!state.should_close, "Esc 取消会话时不得关闭贴图");
         assert!(state.document.annotations.undo_stack().is_empty());
     }

@@ -51,7 +51,7 @@ pub fn render_paster_to_surface(
     let window_exceeds_image = (width as f32) > scaled_w + 0.5 || (height as f32) > scaled_h + 0.5;
     if needs_opaque_backdrop(
         surface.supports_transparency(),
-        state.context_menu.is_open,
+        state.interaction.context_menu.is_open,
         window_exceeds_image,
     ) {
         target_pixmap.fill(Color::from_rgba8(241, 245, 249, 255));
@@ -93,18 +93,21 @@ pub fn render_paster_to_surface(
     render_status_message(state, &mut target_pixmap, scaled_w);
 
     // 6. 绘制标注工具栏与右键上下文菜单 (统一复用线程局部高精度文本排版引擎)
-    if state.chrome.show_toolbar || state.context_menu.is_open {
+    if state.chrome.show_toolbar || state.interaction.context_menu.is_open {
         if state.chrome.show_toolbar {
             // 与命中测试同源：工具条锚定在缩放后的图像正下方，窗口扩容区域保持透明
             refresh_toolbar_layout(state, width as f32, height as f32);
         }
         with_thread_local_text_renderer(|tr| {
             if state.chrome.show_toolbar {
-                state.toolbar.render(&mut target_pixmap.as_mut());
+                state
+                    .interaction
+                    .toolbar
+                    .render(&mut target_pixmap.as_mut());
             }
-            if state.context_menu.is_open {
+            if state.interaction.context_menu.is_open {
                 render_context_menu(
-                    &state.context_menu,
+                    &state.interaction.context_menu,
                     &mut target_pixmap.as_mut(),
                     tr,
                     state.chrome.show_toolbar,
@@ -148,24 +151,24 @@ pub fn render_paster_to_surface(
 /// 线宽同样随缩放放大。序号半径在工厂内部以 `stroke_width * ui_scale` 推导，
 /// 因此这里改为放大 `ui_scale` 而不是先放大线宽，避免半径夹取区间随预览偏移。
 fn render_pending_annotation_preview(state: &PasterWindowState, target: &mut Pixmap) {
-    if !state.is_drawing {
+    if !state.interaction.is_drawing {
         return;
     }
-    let Some(tool) = state.toolbar.active_tool else {
+    let Some(tool) = state.interaction.toolbar.active_tool else {
         return;
     };
-    if state.pending_stroke_points.is_empty() {
+    if state.interaction.pending_stroke_points.is_empty() {
         return;
     }
 
     let scale = state.document.item.transform.scale.max(f32::EPSILON);
-    let mut scaled_points = Vec::with_capacity(state.pending_stroke_points.len());
-    for &point in &state.pending_stroke_points {
+    let mut scaled_points = Vec::with_capacity(state.interaction.pending_stroke_points.len());
+    for &point in &state.interaction.pending_stroke_points {
         scaled_points.push(image_to_screen_point(point, scale));
     }
 
     let Some(mut params) = AnnotationDraftParams::from_toolbar_and_points(
-        &state.toolbar,
+        &state.interaction.toolbar,
         tool,
         &scaled_points,
         state.document.annotations.next_badge_number(),

@@ -65,7 +65,7 @@ pub(crate) fn create_new_paster_window(
     let group_id = item.group_id;
     let mut state = PasterWindowState::from_config(item, runtime.cfg.clone());
     state.ui_scale = auto_scale;
-    state.context_menu.set_ui_scale(auto_scale);
+    state.interaction.context_menu.set_ui_scale(auto_scale);
     // 工作区级端口注入窗口状态后，工具栏动作才能把整图任务投递到应用层执行器
     state.job_runtime = Some(runtime.jobs.clone());
     state.desktop = runtime.desktop.clone();

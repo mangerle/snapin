@@ -145,9 +145,9 @@ pub(crate) fn input_layout_from_state(
     let scale = state.document.item.transform.scale.max(f32::EPSILON);
     let (toolbar_main, toolbar_sub, toolbar_dropdown) = if state.chrome.show_toolbar {
         (
-            Some(state.toolbar.main_rect),
-            state.toolbar.sub_rect,
-            state.toolbar.dropdown_rect(),
+            Some(state.interaction.toolbar.main_rect),
+            state.interaction.toolbar.sub_rect,
+            state.interaction.toolbar.dropdown_rect(),
         )
     } else {
         (None, None, None)
@@ -171,7 +171,7 @@ pub(crate) fn input_layout_from_state(
 
 /// 计算右键菜单主面板与二级子菜单面板的矩形。
 fn context_menu_rects(state: &PasterWindowState) -> (Option<Rect>, Option<Rect>) {
-    let menu = &state.context_menu;
+    let menu = &state.interaction.context_menu;
     if !menu.is_open {
         return (None, None);
     }

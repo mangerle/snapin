@@ -123,7 +123,7 @@ pub(crate) fn refresh_toolbar_layout(
     window_height: f32,
 ) {
     let ui_scale = state.ui_scale.max(0.1);
-    state.toolbar.ui_scale = ui_scale;
+    state.interaction.toolbar.ui_scale = ui_scale;
 
     let scale = state.document.item.transform.scale.max(f32::EPSILON);
     let scaled_h = (state.document.item.pixmap.height() as f32 * scale).max(1.0);
@@ -134,9 +134,10 @@ pub(crate) fn refresh_toolbar_layout(
 
     // 先更新窗口边界，place_main_bar 内部的属性栏布局才能按正确的屏幕尺寸避让
     state
+        .interaction
         .toolbar
         .set_screen_bounds(window_width.max(1.0), window_height.max(1.0));
-    state.toolbar.place_main_bar(bar_x, bar_y);
+    state.interaction.toolbar.place_main_bar(bar_x, bar_y);
 }
 
 /// 检测并处理贴图标注工具栏的点击，返回是否已消费本次点击。
@@ -155,11 +156,11 @@ pub(crate) fn handle_toolbar_click(
     refresh_toolbar_layout(state, window_size.0, window_size.1);
 
     let (cx, cy) = state.cursor_pos;
-    if !state.toolbar.contains_point(cx, cy) {
+    if !state.interaction.toolbar.contains_point(cx, cy) {
         return false;
     }
 
-    if let Some(item) = state.toolbar.handle_click(cx, cy) {
+    if let Some(item) = state.interaction.toolbar.handle_click(cx, cy) {
         match item {
             ToolbarAction::Undo => {
                 state.undo_annotation();
@@ -264,12 +265,12 @@ mod tests {
         end: (f32, f32),
         color: Color,
     ) -> AnnotationShape {
-        state.toolbar.active_tool = Some(Tool::Rect);
-        state.toolbar.sub_options.filled = true;
-        state.toolbar.sub_options.color = color;
-        state.pending_stroke_points.clear();
-        state.pending_stroke_points.push(start);
-        state.pending_stroke_points.push(end);
+        state.interaction.toolbar.active_tool = Some(Tool::Rect);
+        state.interaction.toolbar.sub_options.filled = true;
+        state.interaction.toolbar.sub_options.color = color;
+        state.interaction.pending_stroke_points.clear();
+        state.interaction.pending_stroke_points.push(start);
+        state.interaction.pending_stroke_points.push(end);
         assert!(state.commit_pending_stroke(), "矩形标注应提交成功");
         state
             .document
@@ -342,8 +343,8 @@ mod tests {
         let mut state = test_state(100, 80);
         let original = state.document.item.pixmap.data().to_vec();
 
-        state.toolbar.active_tool = Some(Tool::Pen);
-        state.toolbar.sub_options.custom_stroke_width = 4.0;
+        state.interaction.toolbar.active_tool = Some(Tool::Pen);
+        state.interaction.toolbar.sub_options.custom_stroke_width = 4.0;
         assert!(state.begin_stroke((10.0, 10.0)));
         assert!(state.update_stroke((80.0, 60.0)));
         assert!(state.commit_pending_stroke());
@@ -369,7 +370,7 @@ mod tests {
             "底图必须保持创建贴图时的原始像素"
         );
         assert!(
-            state.pending_stroke_points.is_empty(),
+            state.interaction.pending_stroke_points.is_empty(),
             "提交后待提交点集必须清空"
         );
     }
@@ -604,25 +605,30 @@ mod tests {
         let mut state = test_state(140, 80);
         state.ui_scale = 1.0;
         state.chrome.show_toolbar = true;
-        state.toolbar.active_tool = Some(Tool::Rect);
+        state.interaction.toolbar.active_tool = Some(Tool::Rect);
 
         refresh_toolbar_layout(&mut state, 508.0, 180.0);
 
-        assert_eq!(state.toolbar.main_rect.x, 8.0);
+        assert_eq!(state.interaction.toolbar.main_rect.x, 8.0);
         assert_eq!(
-            state.toolbar.main_rect.y, 88.0,
+            state.interaction.toolbar.main_rect.y, 88.0,
             "主栏应紧贴图像底边下方 8 像素"
         );
-        let sub = state.toolbar.sub_rect.expect("矩形工具应展开属性栏");
+        let sub = state
+            .interaction
+            .toolbar
+            .sub_rect
+            .expect("矩形工具应展开属性栏");
         assert!(
-            sub.y + sub.height <= state.toolbar.main_rect.y + 0.01,
+            sub.y + sub.height <= state.interaction.toolbar.main_rect.y + 0.01,
             "属性栏应位于主栏上方，实际 y: {} 高: {}",
             sub.y,
             sub.height
         );
         assert!(sub.y >= 0.0, "属性栏不得超出窗口顶部，实际 y: {}", sub.y);
         assert!(
-            state.toolbar.main_rect.y + state.toolbar.main_rect.height <= 180.0 - 8.0,
+            state.interaction.toolbar.main_rect.y + state.interaction.toolbar.main_rect.height
+                <= 180.0 - 8.0,
             "主栏底边应留出 8 像素下边距"
         );
     }
