@@ -35,7 +35,7 @@ pub const DEFAULT_MANIFEST_URL: &str =
 ///
 /// # Errors
 /// 若版本号格式非法或更新器参数校验失败，返回 [`UpdaterError::Operation`]。
-pub fn build_updater(custom_manifest_url: Option<&str>) -> Result<Updater, UpdaterError> {
+fn build_updater(custom_manifest_url: Option<&str>) -> Result<Updater, UpdaterError> {
     let manifest_url = custom_manifest_url
         .filter(|url| !url.trim().is_empty())
         .unwrap_or(DEFAULT_MANIFEST_URL);

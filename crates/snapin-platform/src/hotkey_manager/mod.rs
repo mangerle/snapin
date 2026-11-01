@@ -144,18 +144,6 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError>
     }
 }
 
-/// 临时清空 Snapin 在 GNOME 中的快捷键绑定，避免在设置中心录制按键时被系统全局拦截。
-pub fn suspend_hotkeys_for_settings() -> Result<(), PlatformError> {
-    #[cfg(target_os = "linux")]
-    {
-        gnome::suspend_hotkeys_for_settings()
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        Ok(())
-    }
-}
-
 /// 将热键转换为通用的跨平台按键表达字符串
 pub fn hotkey_to_accelerator(hotkey: &Hotkey) -> String {
     let mut parts = Vec::new();

@@ -5,15 +5,6 @@ use crate::error::PlatformError;
 use snapin_core::config::HotkeyConfig;
 use std::process::Command;
 
-#[cfg(target_os = "linux")]
-const HOTKEY_ACTIONS: [HotkeyAction; 5] = [
-    HotkeyAction::Snip,
-    HotkeyAction::Translate,
-    HotkeyAction::Paste,
-    HotkeyAction::TogglePasters,
-    HotkeyAction::SwitchGroup,
-];
-
 /// 返回 GNOME 注册所需的路径后缀、显示名与命令行参数。
 #[cfg(target_os = "linux")]
 fn gnome_hotkey_metadata(
@@ -80,37 +71,6 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError>
         execute_gsettings_batch(&batch_refs);
 
         tracing::info!("GNOME 快捷键同步完成");
-        Ok(())
-    }
-}
-
-/// 临时清空 Snapin 在 GNOME 中的快捷键绑定，避免在设置中心录制按键时被系统全局拦截
-pub fn suspend_hotkeys_for_settings() -> Result<(), PlatformError> {
-    #[cfg(not(target_os = "linux"))]
-    {
-        return Ok(());
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let base_path = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
-        let schemas: Vec<String> = HOTKEY_ACTIONS
-            .iter()
-            .map(|action| {
-                format!(
-                    "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/{}/",
-                    gnome_hotkey_metadata(*action).0
-                )
-            })
-            .collect();
-
-        let items: Vec<(&str, &str, &str)> = schemas
-            .iter()
-            .map(|s| (s.as_str(), "binding", ""))
-            .collect();
-
-        execute_gsettings_batch(&items);
-        tracing::info!("已临时挂起 Snapin 全局快捷键，以确保设置中心自由录入按键");
         Ok(())
     }
 }
@@ -209,6 +169,15 @@ fn execute_gsettings_batch(items: &[(&str, &str, &str)]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 测试覆盖的稳定动作顺序。
+    const HOTKEY_ACTIONS: [HotkeyAction; 5] = [
+        HotkeyAction::Snip,
+        HotkeyAction::Translate,
+        HotkeyAction::Paste,
+        HotkeyAction::TogglePasters,
+        HotkeyAction::SwitchGroup,
+    ];
 
     /// GNOME 自定义快捷键路径后缀必须唯一，否则后注册项会覆盖前一项。
     #[test]

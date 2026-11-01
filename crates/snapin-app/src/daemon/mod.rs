@@ -64,6 +64,7 @@ pub fn run_daemon_process(cfg: Config) -> Result<()> {
     runtime.block_on(snapin_platform::init_platform_capabilities());
     runtime.block_on(run_startup_hotkeys_and_extension(&cfg));
     enable_gnome_extension();
+    runtime.block_on(snapin_platform::refresh_platform_capabilities());
 
     // 2. 统一后台任务运行时与应用服务
     let task_runtime = TaskRuntime::from_handle(handle.clone(), 8);

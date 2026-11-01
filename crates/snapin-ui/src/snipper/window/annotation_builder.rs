@@ -5,7 +5,6 @@
 
 use super::events::SnipperState;
 pub use crate::editor::annotation_builder::AnnotationDraftParams;
-use crate::editor::toolbar::Tool;
 
 pub use crate::editor::annotation_builder::{build_shape, render_draft_preview};
 
