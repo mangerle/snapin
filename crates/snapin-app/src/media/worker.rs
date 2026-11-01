@@ -191,12 +191,12 @@ fn build_translator(config: &Config) -> Arc<dyn Translator> {
     let api = &config.translate.api_keys;
     create_translator(&TranslatorOptions {
         provider: to_service_provider(config.translate.provider),
-        baidu_app_id: api.baidu_app_id.clone(),
-        baidu_secret_key: api.baidu_secret_key.clone(),
-        youdao_app_key: api.youdao_app_key.clone(),
-        youdao_app_secret: api.youdao_app_secret.clone(),
-        aliyun_access_key_id: api.aliyun_access_key_id.clone(),
-        aliyun_access_key_secret: api.aliyun_access_key_secret.clone(),
+        baidu_app_id: api.baidu_app_id.as_str().to_string(),
+        baidu_secret_key: api.baidu_secret_key.as_str().to_string(),
+        youdao_app_key: api.youdao_app_key.as_str().to_string(),
+        youdao_app_secret: api.youdao_app_secret.as_str().to_string(),
+        aliyun_access_key_id: api.aliyun_access_key_id.as_str().to_string(),
+        aliyun_access_key_secret: api.aliyun_access_key_secret.as_str().to_string(),
     })
 }
 

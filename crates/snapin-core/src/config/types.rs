@@ -8,6 +8,53 @@ use std::fmt;
 use std::str::FromStr;
 use tiny_skia::Color;
 
+/// 敏感字符串新类型。
+///
+/// 序列化与普通 `String` 完全一致，但 `Debug` 永不输出明文；业务代码必须显式调用
+/// [`SecretString::as_str`] 才能取得内容，避免凭证被无意拼进日志或错误上下文。
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SecretString(String);
+
+impl SecretString {
+    /// 从普通字符串构造敏感值。
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    /// 显式读取明文；仅在构造第三方请求签名时使用。
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// 是否为空。
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl From<String> for SecretString {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&str> for SecretString {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
+impl fmt::Debug for SecretString {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.is_empty() {
+            formatter.write_str("\"\"")
+        } else {
+            formatter.write_str("\"<已隐藏>\"")
+        }
+    }
+}
+
 /// 强类型 HEX 色彩结构体
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HexColor {

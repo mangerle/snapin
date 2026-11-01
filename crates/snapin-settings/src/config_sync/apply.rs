@@ -84,10 +84,12 @@ fn sync_translate_to_window(win: &SettingsWindow, t: &config::model::TranslateCo
     win.set_target_language_index(t.target_language.to_index());
     win.set_cover_mode_index(t.cover_mode.to_index());
 
-    win.set_baidu_app_id(SharedString::from(&t.api_keys.baidu_app_id));
-    win.set_baidu_secret_key(SharedString::from(&t.api_keys.baidu_secret_key));
-    win.set_youdao_app_key(SharedString::from(&t.api_keys.youdao_app_key));
-    win.set_youdao_app_secret(SharedString::from(&t.api_keys.youdao_app_secret));
-    win.set_aliyun_access_key_id(SharedString::from(&t.api_keys.aliyun_access_key_id));
-    win.set_aliyun_access_key_secret(SharedString::from(&t.api_keys.aliyun_access_key_secret));
+    win.set_baidu_app_id(SharedString::from(t.api_keys.baidu_app_id.as_str()));
+    win.set_baidu_secret_key(SharedString::from(t.api_keys.baidu_secret_key.as_str()));
+    win.set_youdao_app_key(SharedString::from(t.api_keys.youdao_app_key.as_str()));
+    win.set_youdao_app_secret(SharedString::from(t.api_keys.youdao_app_secret.as_str()));
+    win.set_aliyun_access_key_id(SharedString::from(t.api_keys.aliyun_access_key_id.as_str()));
+    win.set_aliyun_access_key_secret(SharedString::from(
+        t.api_keys.aliyun_access_key_secret.as_str(),
+    ));
 }

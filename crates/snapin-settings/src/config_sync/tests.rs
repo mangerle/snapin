@@ -54,12 +54,12 @@ fn sample_config() -> Config {
     cfg.translate.provider = TranslateProvider::from_index(1);
     cfg.translate.target_language = TargetLanguage::from_index(2);
     cfg.translate.cover_mode = CoverMode::from_index(1);
-    cfg.translate.api_keys.baidu_app_id = "baidu-id".to_string();
-    cfg.translate.api_keys.baidu_secret_key = "baidu-secret".to_string();
-    cfg.translate.api_keys.youdao_app_key = "youdao-key".to_string();
-    cfg.translate.api_keys.youdao_app_secret = "youdao-secret".to_string();
-    cfg.translate.api_keys.aliyun_access_key_id = "ali-ak".to_string();
-    cfg.translate.api_keys.aliyun_access_key_secret = "ali-sk".to_string();
+    cfg.translate.api_keys.baidu_app_id = "baidu-id".into();
+    cfg.translate.api_keys.baidu_secret_key = "baidu-secret".into();
+    cfg.translate.api_keys.youdao_app_key = "youdao-key".into();
+    cfg.translate.api_keys.youdao_app_secret = "youdao-secret".into();
+    cfg.translate.api_keys.aliyun_access_key_id = "ali-ak".into();
+    cfg.translate.api_keys.aliyun_access_key_secret = "ali-sk".into();
 
     cfg.hotkeys.snip = expect_hotkey("F2");
     cfg.hotkeys.translate = expect_hotkey("Ctrl+Shift+T");

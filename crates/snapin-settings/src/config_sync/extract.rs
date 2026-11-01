@@ -109,10 +109,10 @@ fn extract_translate_from_window(win: &SettingsWindow, t: &mut config::model::Tr
     t.target_language = TargetLanguage::from_index(win.get_target_language_index());
     t.cover_mode = CoverMode::from_index(win.get_cover_mode_index());
 
-    t.api_keys.baidu_app_id = win.get_baidu_app_id().to_string();
-    t.api_keys.baidu_secret_key = win.get_baidu_secret_key().to_string();
-    t.api_keys.youdao_app_key = win.get_youdao_app_key().to_string();
-    t.api_keys.youdao_app_secret = win.get_youdao_app_secret().to_string();
-    t.api_keys.aliyun_access_key_id = win.get_aliyun_access_key_id().to_string();
-    t.api_keys.aliyun_access_key_secret = win.get_aliyun_access_key_secret().to_string();
+    t.api_keys.baidu_app_id = win.get_baidu_app_id().as_str().into();
+    t.api_keys.baidu_secret_key = win.get_baidu_secret_key().as_str().into();
+    t.api_keys.youdao_app_key = win.get_youdao_app_key().as_str().into();
+    t.api_keys.youdao_app_secret = win.get_youdao_app_secret().as_str().into();
+    t.api_keys.aliyun_access_key_id = win.get_aliyun_access_key_id().as_str().into();
+    t.api_keys.aliyun_access_key_secret = win.get_aliyun_access_key_secret().as_str().into();
 }

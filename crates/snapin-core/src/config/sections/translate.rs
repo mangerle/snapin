@@ -1,8 +1,8 @@
 //! 机器翻译与原位覆盖渲染配置模块。
 
 use crate::config::enums::{CoverMode, TargetLanguage, TranslateProvider};
+use crate::config::types::SecretString;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
 /// 机器翻译核心配置
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,58 +25,28 @@ pub struct TranslateConfig {
 }
 
 /// 第三方翻译服务商认证凭证集合
-#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TranslateApiKeys {
     /// 百度翻译 App ID
     #[serde(default)]
-    pub baidu_app_id: String,
+    pub baidu_app_id: SecretString,
     /// 百度翻译 密钥
     #[serde(default)]
-    pub baidu_secret_key: String,
+    pub baidu_secret_key: SecretString,
 
     /// 网易有道 App Key
     #[serde(default)]
-    pub youdao_app_key: String,
+    pub youdao_app_key: SecretString,
     /// 网易有道 App Secret
     #[serde(default)]
-    pub youdao_app_secret: String,
+    pub youdao_app_secret: SecretString,
 
     /// 阿里云 AccessKey ID
     #[serde(default)]
-    pub aliyun_access_key_id: String,
+    pub aliyun_access_key_id: SecretString,
     /// 阿里云 AccessKey Secret
     #[serde(default)]
-    pub aliyun_access_key_secret: String,
-}
-
-impl fmt::Debug for TranslateApiKeys {
-    /// 调试输出只暴露“是否已配置”，绝不打印任何翻译服务凭证明文。
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("TranslateApiKeys")
-            .field("baidu_app_id", &redacted(&self.baidu_app_id))
-            .field("baidu_secret_key", &redacted(&self.baidu_secret_key))
-            .field("youdao_app_key", &redacted(&self.youdao_app_key))
-            .field("youdao_app_secret", &redacted(&self.youdao_app_secret))
-            .field(
-                "aliyun_access_key_id",
-                &redacted(&self.aliyun_access_key_id),
-            )
-            .field(
-                "aliyun_access_key_secret",
-                &redacted(&self.aliyun_access_key_secret),
-            )
-            .finish()
-    }
-}
-
-/// 将非空凭证替换为固定占位符，空值保持空字符串以便区分“未配置”。
-fn redacted(value: &str) -> &'static str {
-    if value.is_empty() {
-        ""
-    } else {
-        "<已隐藏>"
-    }
+    pub aliyun_access_key_secret: SecretString,
 }
 
 #[cfg(test)]
@@ -87,12 +57,12 @@ mod tests {
     #[test]
     fn test_debug_redacts_all_translate_secrets() {
         let keys = TranslateApiKeys {
-            baidu_app_id: "baidu-id-secret".to_string(),
-            baidu_secret_key: "baidu-key-secret".to_string(),
-            youdao_app_key: "youdao-key-secret".to_string(),
-            youdao_app_secret: "youdao-secret-secret".to_string(),
-            aliyun_access_key_id: "aliyun-id-secret".to_string(),
-            aliyun_access_key_secret: "aliyun-secret-secret".to_string(),
+            baidu_app_id: SecretString::from("baidu-id-secret"),
+            baidu_secret_key: SecretString::from("baidu-key-secret"),
+            youdao_app_key: SecretString::from("youdao-key-secret"),
+            youdao_app_secret: SecretString::from("youdao-secret-secret"),
+            aliyun_access_key_id: SecretString::from("aliyun-id-secret"),
+            aliyun_access_key_secret: SecretString::from("aliyun-secret-secret"),
         };
         let debug = format!("{keys:?}");
         for secret in [
