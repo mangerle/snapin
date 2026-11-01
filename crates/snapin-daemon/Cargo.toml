@@ -10,6 +10,7 @@ description = "Snapin Unix Domain Socket 进程间通信、强类型分帧协议
 snapin-core.workspace = true
 snapin-runtime.workspace = true
 tokio.workspace = true
+tokio-util = { workspace = true, features = ["rt"] }
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true

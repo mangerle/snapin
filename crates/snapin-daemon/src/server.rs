@@ -12,6 +12,7 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::{oneshot, watch};
 use tokio::task::JoinSet;
 use tokio::time::timeout;
+use tokio_util::sync::CancellationToken;
 
 /// 同时处理的 IPC 连接上限，防止异常客户端耗尽任务与内存
 const MAX_CONCURRENT_CONNECTIONS: usize = 32;
@@ -203,14 +204,22 @@ async fn spawn_connection_handler<S>(
         match read_res {
             Ok(Ok(request)) => {
                 let (resp_tx, resp_rx) = oneshot::channel();
+                let cancelled = CancellationToken::new();
                 let invocation = IpcInvocation {
                     request,
                     responder: resp_tx,
+                    cancelled: cancelled.clone(),
                 };
                 if sender.send(invocation).await.is_ok() {
                     let response = match timeout(IPC_TIMEOUT, resp_rx).await {
                         Ok(Ok(resp)) => resp,
-                        _ => DaemonResponse::Error("业务处理超时".to_string()),
+                        Ok(Err(_)) => DaemonResponse::Error("业务执行器已关闭".to_string()),
+                        Err(_) => {
+                            // 客户端已经超时：通知业务执行方在下一个阶段边界停止，
+                            // 避免“客户端收到失败、服务端仍完成副作用”的幽灵执行。
+                            cancelled.cancel();
+                            DaemonResponse::Error("业务处理超时".to_string())
+                        }
                     };
                     let _ =
                         timeout(IPC_TIMEOUT, write_framed_message(&mut stream, &response)).await;

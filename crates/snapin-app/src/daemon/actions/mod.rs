@@ -30,18 +30,37 @@ pub(super) async fn handle_snipper_result(
 }
 
 /// 处理一条 IPC 请求；返回 `true` 表示请求停机。
-pub(super) async fn handle_ipc_request(
+///
+/// 主事件循环只负责路由：除停机指令需要立即改变循环状态外，其余业务命令全部
+/// 提交到统一任务运行时执行。这样慢命令（创建贴图、切换分组、配置重载）不会
+/// 阻塞 SIGTERM、GUI 退出与截图结果处理，也不会造成 IPC 队头阻塞。
+pub(super) fn handle_ipc_request(
     invocation: snapin_daemon::IpcInvocation,
     services: &Arc<AppServices>,
     workspace: &PasterWorkspaceProxy,
 ) -> bool {
-    let is_shutdown = matches!(invocation.request, DaemonRequest::Shutdown);
-    let response = handle_command(invocation.request, workspace, services).await;
-    let _ = invocation.responder.send(response);
-    if is_shutdown {
+    if matches!(invocation.request, DaemonRequest::Shutdown) {
+        let _ = invocation.responder.send(snapin_daemon::DaemonResponse::Ok);
         tracing::info!("接收到平滑停机指令，退出守护进程事件循环");
+        return true;
     }
-    is_shutdown
+
+    let request = invocation.request;
+    let responder = invocation.responder;
+    let cancelled = invocation.cancelled;
+    let services = Arc::clone(services);
+    let workspace = workspace.clone();
+    if let Err(error) = services.runtime().spawn(async move {
+        let response = tokio::select! {
+            _ = cancelled.cancelled() => return,
+            response = handle_command(request, &workspace, &services) => response,
+        };
+        // 客户端可能已超时离开；发送失败只表示无人接收，业务结果已按需落盘。
+        let _ = responder.send(response);
+    }) {
+        tracing::warn!("提交 IPC 命令任务失败: {error}");
+    }
+    false
 }
 
 /// 提交一次截图覆盖层任务。

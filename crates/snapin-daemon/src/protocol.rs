@@ -65,10 +65,15 @@ pub enum DaemonResponse {
     Error(String),
 }
 
-/// IPC 调度通道载荷：包含请求与用于回传响应的一对一 Oneshot 发送端
+/// IPC 调度通道载荷：包含请求、响应回执与客户端超时取消信号。
+///
+/// 连接处理器在等待业务响应超过 [`IPC_TIMEOUT`] 后会触发 `cancelled`，
+/// 业务执行方据此在下一个阶段边界停止工作，避免客户端已经收到超时错误、
+/// 服务端却仍然执行非幂等副作用。
 pub struct IpcInvocation {
     pub request: DaemonRequest,
     pub responder: oneshot::Sender<DaemonResponse>,
+    pub cancelled: tokio_util::sync::CancellationToken,
 }
 
 /// 获取本用户的默认 IPC Socket 路径（由 AppPaths 统一纳管）

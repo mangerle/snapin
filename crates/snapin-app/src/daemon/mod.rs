@@ -35,7 +35,8 @@ use std::sync::Arc;
 use std::time::Duration;
 #[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::mpsc::{self, error::TrySendError};
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use update_loop::run_update_check_loop;
 
@@ -82,9 +83,24 @@ pub fn run_daemon_process(cfg: Config) -> Result<()> {
 
     // 4. 截图结果与 GUI 退出信号通过有界通道回传
     let (snipper_tx, snipper_rx) = mpsc::channel::<SnipperOutcome>(4);
+    let callback_runtime = services.runtime();
     let snipper_callback: SnipperFinishedCallback = Arc::new(move |outcome| {
-        if let Err(error) = snipper_tx.try_send(outcome) {
-            tracing::warn!("截图结果回传队列已满或工作区已关闭: {error}");
+        let sender = snipper_tx.clone();
+        match sender.try_send(outcome) {
+            Ok(()) => {}
+            Err(TrySendError::Full(outcome)) => {
+                // 回调运行在 GUI 线程，不能阻塞等待；把背压转交给统一运行时，
+                // 由异步任务在队列出现空位后补投，避免直接丢弃贴图或保存结果。
+                let sender = snipper_tx.clone();
+                if let Err(error) = callback_runtime.spawn(async move {
+                    let _ = sender.send(outcome).await;
+                }) {
+                    tracing::warn!("截图结果回传队列已满且异步补投失败: {error}");
+                }
+            }
+            Err(TrySendError::Closed(_)) => {
+                tracing::warn!("截图结果回传通道已关闭，工作区可能已退出");
+            }
         }
     });
     let (gui_closed_tx, gui_closed_rx) = watch::channel(false);
@@ -268,7 +284,13 @@ async fn run_daemon_server(
             maybe_outcome = snipper_rx.recv(), if snipper_channel_open => {
                 match maybe_outcome {
                     Some(outcome) => {
-                        handle_snipper_result(outcome, &services, &workspace_proxy).await;
+                        let services = Arc::clone(&services);
+                        let workspace = workspace_proxy.clone();
+                        if let Err(error) = services.runtime().spawn(async move {
+                            handle_snipper_result(outcome, &services, &workspace).await;
+                        }) {
+                            tracing::warn!("提交截图结果处理任务失败: {error}");
+                        }
                     }
                     None => snipper_channel_open = false,
                 }
@@ -278,7 +300,7 @@ async fn run_daemon_server(
                     tracing::info!("IPC 指令通道已关闭，准备退出守护进程");
                     break;
                 };
-                if handle_ipc_request(invocation, &services, &workspace_proxy).await {
+                if handle_ipc_request(invocation, &services, &workspace_proxy) {
                     break;
                 }
             }
