@@ -51,7 +51,11 @@ pub async fn paste_clipboard_to_workspace(proxy: &PasterWorkspaceProxy) -> Resul
             .open_paster(item)
             .context("向集中工作区投递贴图失败")?;
     } else {
-        send_desktop_notification("Snapin 贴图提示", "当前剪贴板为空，无法生成贴图").await?;
+        if let Err(error) =
+            send_desktop_notification("Snapin 贴图提示", "当前剪贴板为空，无法生成贴图").await
+        {
+            tracing::debug!("发送剪贴板为空提示失败或系统通知不可用: {error}");
+        }
     }
     Ok(())
 }

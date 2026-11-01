@@ -34,11 +34,15 @@ pub async fn clear_snip_history() -> Result<()> {
         .await
         .context("选区缓存清理任务调度失败")?;
 
-    send_desktop_notification(
+    // 清理已经完成，通知失败属于非致命提示，不能把成功清理误报为失败。
+    if let Err(error) = send_desktop_notification(
         "Snapin 截屏历史已清空",
         &format!("已成功清理 {count} 项临时快照与 {cache_count} 项选区缓存"),
     )
-    .await?;
+    .await
+    {
+        tracing::debug!("发送截屏历史清理通知失败或系统通知不可用: {error}");
+    }
     Ok(())
 }
 

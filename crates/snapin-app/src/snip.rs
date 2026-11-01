@@ -162,25 +162,25 @@ pub(crate) async fn handle_snipper_outcome(
     match outcome {
         SnipperOutcome::CopiedImage => {
             if config.output.notify_on_copy {
-                send_desktop_notification("Snapin 截图", "选区图像已成功复制到剪贴板").await?;
+                notify_or_debug("Snapin 截图", "选区图像已成功复制到剪贴板").await;
             }
         }
         SnipperOutcome::CopiedText(text) => {
             if config.output.notify_on_copy {
                 let summary = format!("识别文字已复制到剪贴板（{} 字符）", text.chars().count());
-                send_desktop_notification("Snapin 文字识别", &summary).await?;
+                notify_or_debug("Snapin 文字识别", &summary).await;
             }
         }
         SnipperOutcome::CopiedColor(color) => {
             if config.output.notify_on_copy {
                 let summary = format!("颜色值已复制到剪贴板: {color}");
-                send_desktop_notification("Snapin 取色器", &summary).await?;
+                notify_or_debug("Snapin 取色器", &summary).await;
             }
         }
         SnipperOutcome::Saved(path) => {
             if config.output.notify_on_save {
                 let message = format!("选区图像已保存至: {}", path.display());
-                send_desktop_notification("Snapin 截图已保存", &message).await?;
+                notify_or_debug("Snapin 截图已保存", &message).await;
             }
         }
         SnipperOutcome::Pinned(item) => {
@@ -193,6 +193,13 @@ pub(crate) async fn handle_snipper_outcome(
         }
     }
     Ok(())
+}
+
+/// 发送非关键桌面通知；失败只记录调试日志，不影响已经完成的业务结果。
+async fn notify_or_debug(summary: &str, body: &str) {
+    if let Err(error) = send_desktop_notification(summary, body).await {
+        tracing::debug!("发送桌面通知失败或系统通知不可用: {error}");
+    }
 }
 
 /// 将平台窗口矩形转换为 UI 几何契约，避免应用层依赖 UI 内部类型。
