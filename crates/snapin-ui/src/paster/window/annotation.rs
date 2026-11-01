@@ -189,8 +189,8 @@ fn submit_paster_ocr(state: &mut PasterWindowState) {
         state.set_status_message("请等待当前任务完成");
         return;
     }
-    let Some(executor) = state.job_executor.clone() else {
-        state.set_status_message("后台任务执行器不可用");
+    let Some(runtime) = state.job_runtime.clone() else {
+        state.set_status_message("后台任务媒体执行器不可用");
         return;
     };
     let image = match pixmap_to_rgba_image(&state.item.pixmap) {
@@ -201,8 +201,8 @@ fn submit_paster_ocr(state: &mut PasterWindowState) {
         }
     };
 
-    match executor.submit_ocr(image) {
-        Ok(()) => {
+    match runtime.submit_ocr(state.item.id, image) {
+        Ok(_) => {
             state.job_pending = true;
             state.set_status_message("正在识别文字...");
         }
@@ -216,8 +216,8 @@ fn submit_paster_translate(state: &mut PasterWindowState) {
         state.set_status_message("请等待当前任务完成");
         return;
     }
-    let Some(executor) = state.job_executor.clone() else {
-        state.set_status_message("后台任务执行器不可用");
+    let Some(runtime) = state.job_runtime.clone() else {
+        state.set_status_message("后台任务媒体执行器不可用");
         return;
     };
     let image = match pixmap_to_rgba_image(&state.item.pixmap) {
@@ -228,8 +228,8 @@ fn submit_paster_translate(state: &mut PasterWindowState) {
         }
     };
 
-    match executor.submit_translate(image, state.config.clone()) {
-        Ok(()) => {
+    match runtime.submit_translate(state.item.id, image, state.config.translate.cover_mode) {
+        Ok(_) => {
             state.job_pending = true;
             state.set_status_message("正在翻译文字...");
         }

@@ -8,16 +8,12 @@ description = "Snapin 基于 Winit 与 Tiny-Skia 的全屏软光栅化截图选�
 
 [dependencies]
 snapin-core.workspace = true
-snapin-platform.workspace = true
-snapin-service.workspace = true
 winit.workspace = true
 softbuffer.workspace = true
 tiny-skia.workspace = true
 image.workspace = true
-chrono.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-arboard.workspace = true
 thiserror.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -27,7 +23,3 @@ wayland-client = "0.31"
 wayland-backend = { version = "0.3", features = ["client_system"] }
 raw-window-handle = "0.6"
 memmap2 = "0.9"
-
-
-[dev-dependencies]
-tempfile.workspace = true

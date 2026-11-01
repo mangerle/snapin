@@ -8,11 +8,11 @@ use anyhow::Context;
 use anyhow::Result;
 
 #[cfg(target_os = "linux")]
-const EXT_METADATA: &str = include_str!("../../../../extension/metadata.json");
+const EXT_METADATA: &str = include_str!("../../../extension/metadata.json");
 #[cfg(target_os = "linux")]
-const EXT_JAVASCRIPT: &str = include_str!("../../../../extension/extension.js");
+const EXT_JAVASCRIPT: &str = include_str!("../../../extension/extension.js");
 #[cfg(target_os = "linux")]
-const EXT_ICON_SVG: &[u8] = include_bytes!("../../../../assets/icons/snapin.svg");
+const EXT_ICON_SVG: &[u8] = include_bytes!("../../../assets/icons/snapin.svg");
 
 /// 安装配套 GNOME Shell 扩展到用户目录并向系统请求启用
 pub fn install_gnome_extension() -> Result<()> {

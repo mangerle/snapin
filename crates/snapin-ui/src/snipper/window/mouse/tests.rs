@@ -225,7 +225,7 @@ fn test_shift_constraint_shapes_and_arrow() {
 
 /// 截图翻译模式：首次锁定选区后应立即派发翻译任务，并复位模式避免重复触发。
 ///
-/// 测试环境未注入后台任务调度器，因此以「调度器不可用」提示作为翻译派发已发生的证据。
+/// 测试环境未注入后台媒体执行器，因此以「媒体执行器不可用」提示作为翻译派发已发生的证据。
 #[test]
 fn test_translate_mode_triggers_translation_on_first_selection() {
     let mut state = SnipperState::new();
@@ -244,7 +244,7 @@ fn test_translate_mode_triggers_translation_on_first_selection() {
     assert_eq!(state.mode, SnipMode::Normal, "自动翻译应复位为普通模式");
     assert_eq!(
         state.status_message.as_deref(),
-        Some("后台任务调度器不可用"),
+        Some("后台任务媒体执行器不可用"),
         "应进入翻译任务派发路径"
     );
 }

@@ -19,19 +19,17 @@ pub use event_dispatcher::SnipperEventDispatcher;
 pub use presenter::{create_dimmed_pixmap_fast, SnipperPresenter};
 pub use session::SnipperSession;
 pub use state::SnipperState;
-pub use types::{SnipMode, SnipperOutcome};
+pub use types::{SnipMode, SnipperOutcome, SnipperRuntime};
 
 use crate::error::UiError;
+use crate::snipper::window_rect::WindowRect;
 use image::RgbaImage;
-use snapin_core::config::Config;
-use snapin_platform::WindowRect;
 
 /// 启动全屏截图交互会话，进入事件循环直至用户确认或取消
 pub fn run_snipper_session(
     bg_image: RgbaImage,
-    cfg: Config,
-    mode: SnipMode,
     windows: Vec<WindowRect>,
+    runtime: SnipperRuntime,
 ) -> Result<Option<SnipperOutcome>, UiError> {
-    SnipperSession::new(bg_image, cfg, mode, windows).run()
+    SnipperSession::new(bg_image, windows, runtime).run()
 }

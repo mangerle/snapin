@@ -352,14 +352,17 @@ systemd 用户服务与第三方许可文件一并装入 deb 包。
 
 ## 项目结构
 
-- `snapin`：CLI 入口、守护进程调度与截图 / 贴图流程编排。
+- `snapin`：CLI 解析与进程装配，不承载业务编排。
+- `snapin-app`：应用层用例编排、媒体任务执行器、守护进程运行时与系统集成调度。
 - `snapin-core`：配置模型、标注图元、文本排版与路径约定。
-- `snapin-ui`：winit 截图窗口与集中贴图工作区、工具栏、渲染与交互。
+- `snapin-ui`：纯表现层，提供 winit 截图窗口、贴图工作区、工具栏、渲染与交互；通过 `ports` 请求宿主能力，不直接读写系统剪贴板、配置文件或网络服务。
 - `snapin-platform`：Portal、GNOME 扩展 D-Bus、剪贴板、热键、通知、存储与自启动。
 - `snapin-service`：PP-OCRv6 推理与多服务商翻译。
 - `snapin-settings`：Slint 设置中心及配置双向同步。
 - `snapin-daemon`：本地 IPC 协议、服务端与客户端。
 - `extension`：配套 GNOME Shell 扩展。
+
+依赖方向为 `snapin` → `snapin-app` → `snapin-ui` / `snapin-platform` / `snapin-service` → `snapin-core`；`snapin-ui` 不直接依赖平台与服务 crate。
 
 ## 参与贡献
 

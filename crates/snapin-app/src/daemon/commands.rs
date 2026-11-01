@@ -3,7 +3,8 @@
 //! 每个指令返回强类型响应，耗时文件与配置操作统一调度到阻塞线程池，
 //! 避免阻塞异步主循环。
 
-use super::super::paste::paste_clipboard_to_workspace;
+use crate::paste::paste_clipboard_to_workspace;
+use crate::services::AppServices;
 use snapin_core::config;
 use snapin_core::AppPaths;
 use snapin_daemon::{DaemonRequest, DaemonResponse};
@@ -100,9 +101,10 @@ async fn confirm_paster_placement(_title: &str, _x: i32, _y: i32) {}
 pub async fn handle_command(
     command: DaemonRequest,
     workspace: &PasterWorkspaceProxy,
+    services: &AppServices,
 ) -> DaemonResponse {
     match command {
-        DaemonRequest::ReloadConfig => reload_config(workspace).await,
+        DaemonRequest::ReloadConfig => reload_config(workspace, services).await,
         DaemonRequest::Paste => {
             if let Err(error) = paste_clipboard_to_workspace(workspace).await {
                 tracing::error!("守护服务执行剪贴板贴图失败: {error}");
@@ -118,7 +120,20 @@ pub async fn handle_command(
             y,
             title,
             raw_path,
-        } => create_paster(workspace, width, height, x, y, title, raw_path).await,
+        } => {
+            create_paster(
+                workspace,
+                CreatePasterRequest {
+                    width,
+                    height,
+                    x,
+                    y,
+                    title,
+                    raw_path,
+                },
+            )
+            .await
+        }
         DaemonRequest::TogglePasters => {
             if let Err(error) = workspace.toggle_visibility() {
                 DaemonResponse::Error(format!("切换贴图显隐失败: {error}"))
@@ -178,7 +193,7 @@ pub async fn handle_command(
     }
 }
 
-async fn reload_config(workspace: &PasterWorkspaceProxy) -> DaemonResponse {
+async fn reload_config(workspace: &PasterWorkspaceProxy, services: &AppServices) -> DaemonResponse {
     let loaded = tokio::task::spawn_blocking(|| config::load_or_create_config(None)).await;
 
     let new_config = match loaded {
@@ -202,9 +217,10 @@ async fn reload_config(workspace: &PasterWorkspaceProxy) -> DaemonResponse {
         Err(error) => tracing::warn!("快捷键同步任务异常: {error}"),
     }
 
+    services.update_config(new_config.clone());
     match workspace.reload_config(new_config) {
         Ok(()) => {
-            tracing::info!("守护进程已成功热重载配置并同步至贴图工作区与系统快捷键");
+            tracing::info!("守护进程已成功热重载配置并同步至贴图工作区、媒体服务与系统快捷键");
             DaemonResponse::Ok
         }
         Err(error) => {
@@ -214,15 +230,28 @@ async fn reload_config(workspace: &PasterWorkspaceProxy) -> DaemonResponse {
     }
 }
 
-async fn create_paster(
-    workspace: &PasterWorkspaceProxy,
+/// 创建贴图窗口所需的完整参数。
+struct CreatePasterRequest {
     width: u32,
     height: u32,
     x: i32,
     y: i32,
     title: String,
     raw_path: String,
+}
+
+async fn create_paster(
+    workspace: &PasterWorkspaceProxy,
+    request: CreatePasterRequest,
 ) -> DaemonResponse {
+    let CreatePasterRequest {
+        width,
+        height,
+        x,
+        y,
+        title,
+        raw_path,
+    } = request;
     let file_path = PathBuf::from(&raw_path);
     let runtime_dir = AppPaths::runtime_dir();
     let runtime_dir = runtime_dir

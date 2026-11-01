@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/snapin-app",
     "crates/snapin-core",
     "crates/snapin-daemon",
     "crates/snapin-platform",
@@ -20,6 +21,7 @@ repository = "https://github.com/mangerle/snapin"
 
 [workspace.dependencies]
 # 内部子包依赖
+snapin-app = { path = "crates/snapin-app", version = "1.0.0" }
 snapin-core = { path = "crates/snapin-core", version = "1.0.0" }
 snapin-daemon = { path = "crates/snapin-daemon", version = "1.0.0" }
 snapin-platform = { path = "crates/snapin-platform", version = "1.0.0" }

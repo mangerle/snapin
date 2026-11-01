@@ -1,0 +1,23 @@
+[package]
+name = "snapin-app"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Snapin 应用服务层：截图/贴图用例编排、媒体任务执行与守护进程运行时"
+
+[dependencies]
+snapin-core.workspace = true
+snapin-daemon.workspace = true
+snapin-platform.workspace = true
+snapin-service.workspace = true
+snapin-settings.workspace = true
+snapin-ui.workspace = true
+
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+image.workspace = true
+tiny-skia.workspace = true
+shipup.workspace = true

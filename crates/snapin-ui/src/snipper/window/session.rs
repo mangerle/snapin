@@ -2,15 +2,14 @@
 
 use super::event_dispatcher::SnipperEventDispatcher;
 use super::events::SnipperState;
-use super::jobs::{handle_job_outcome, SnipperJobDispatcher, SnipperUserEvent};
+use super::jobs::{handle_job_outcome, SnipperJobRuntime, SnipperUserEvent};
 use super::presenter::SnipperPresenter;
 use super::state::clamp_window_rect;
-use super::types::{SnipMode, SnipperOutcome};
+use super::types::{SnipMode, SnipperOutcome, SnipperRuntime};
 use crate::error::UiError;
 use crate::snipper::selection::{Rect, SelectionState};
+use crate::snipper::window_rect::WindowRect;
 use image::RgbaImage;
-use snapin_core::config::Config;
-use snapin_platform::WindowRect;
 use std::sync::{Arc, Mutex};
 use winit::dpi::PhysicalSize;
 use winit::event::Event;
@@ -24,30 +23,29 @@ use winit::window::{Fullscreen, WindowBuilder};
 /// 全屏截图交互会话：纳管物理窗口构建、事件循环与会话生命周期
 pub struct SnipperSession {
     bg_image: RgbaImage,
-    config: Config,
-    mode: SnipMode,
     /// 窗口截图候选矩形（物理像素，底层到顶层）
     windows: Vec<WindowRect>,
+    runtime: SnipperRuntime,
 }
 
 impl SnipperSession {
     /// 构建新的截图会话实例
-    pub fn new(
-        bg_image: RgbaImage,
-        config: Config,
-        mode: SnipMode,
-        windows: Vec<WindowRect>,
-    ) -> Self {
+    pub fn new(bg_image: RgbaImage, windows: Vec<WindowRect>, runtime: SnipperRuntime) -> Self {
         Self {
             bg_image,
-            config,
-            mode,
             windows,
+            runtime,
         }
     }
 
     /// 启动全屏截图窗口并进入交互事件循环，直到用户确认或取消
     pub fn run(self) -> Result<Option<SnipperOutcome>, UiError> {
+        let SnipperRuntime {
+            config,
+            mode,
+            desktop,
+            media,
+        } = self.runtime;
         #[allow(unused_mut)]
         let mut builder = EventLoopBuilder::<SnipperUserEvent>::with_user_event();
         #[cfg(target_os = "linux")]
@@ -80,17 +78,16 @@ impl SnipperSession {
             screen_w,
             screen_h,
             &self.bg_image,
-            self.mode != SnipMode::PickColor,
+            mode != SnipMode::PickColor,
         )?;
 
-        let config = Arc::new(self.config);
-        let mut state = SnipperState::from_config((*config).clone(), self.mode);
+        let mut state = SnipperState::from_config(config, mode, desktop);
         state.window_rects = self
             .windows
             .iter()
             .filter_map(|window| clamp_window_rect(*window, screen_w as f32, screen_h as f32))
             .collect();
-        if self.mode == SnipMode::Fullscreen {
+        if mode == SnipMode::Fullscreen {
             state.selection = SelectionState::Locked {
                 rect: Rect {
                     x: 0.0,
@@ -100,15 +97,12 @@ impl SnipperSession {
                 },
                 active_drag: None,
             };
-        } else if self.mode == SnipMode::PickColor {
+        } else if mode == SnipMode::PickColor {
             // 取色器必须显示放大镜；单击复制颜色，Esc 或右键取消。
             state.magnifier.enabled = true;
             state.set_status_message("单击复制颜色，Esc 取消");
         }
-        state.job_dispatcher = Some(Arc::new(SnipperJobDispatcher::new(
-            proxy,
-            Arc::clone(&config),
-        )));
+        state.job_runtime = Some(Arc::new(SnipperJobRuntime::new(media, proxy)));
         let raw_scale = window.scale_factor() as f32;
         let auto_scale = if raw_scale > 1.05 {
             raw_scale
@@ -148,8 +142,8 @@ impl SnipperSession {
                             elwt,
                         );
                     }
-                    Event::UserEvent(SnipperUserEvent::JobFinished(outcome)) => {
-                        handle_job_outcome(&mut state, outcome);
+                    Event::UserEvent(SnipperUserEvent::JobFinished { kind, outcome }) => {
+                        handle_job_outcome(&mut state, kind, outcome);
                         window.request_redraw();
                         SnipperEventDispatcher::check_exit_outcome(&mut state, &outcome_slot, elwt);
                     }

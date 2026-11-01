@@ -5,8 +5,8 @@ use crate::paster::manager::PasterItem;
 use crate::paster::window::annotation::{
     create_paster_toolbar, screen_to_image_point, toolbar_required_extent,
 };
-use crate::paster::window::jobs::PasterJobExecutor;
-use crate::paster::workspace::proxy::PasterWorkspaceProxy;
+use crate::paster::window::jobs::PasterJobRuntime;
+use crate::ports::{DesktopPort, NoopDesktop};
 use crate::snipper::toolbar::{Toolbar, ToolbarItem};
 use crate::snipper::window::annotation_builder::{build_shape, AnnotationDraftParams};
 use crate::snipper::window::text_input::TextInputSession;
@@ -44,10 +44,10 @@ pub struct PasterWindowState {
     pub cursor_pos: (f32, f32),
     pub ui_scale: f32,
     pub config: Arc<Config>,
-    /// 后台 OCR / 翻译任务执行器，工作区创建窗口时注入；测试环境中可为空
-    pub(crate) job_executor: Option<Arc<PasterJobExecutor>>,
-    /// 工作区异步事件代理，供另存为对话框完成后回传结果
-    pub(crate) workspace_proxy: Option<PasterWorkspaceProxy>,
+    /// 后台媒体任务运行时，工作区创建窗口时注入；测试环境中可为空
+    pub(crate) job_runtime: Option<Arc<PasterJobRuntime>>,
+    /// 桌面副作用端口：剪贴板、文件管理器等系统交互经此委托给应用层
+    pub(crate) desktop: Arc<dyn DesktopPort>,
     /// 是否有整图 OCR / 翻译任务正在后台执行，用于阻止重复提交
     pub(crate) job_pending: bool,
     /// 图像顶部状态提示及其产生时刻，超过 [`STATUS_MESSAGE_TTL`] 后自动失效
@@ -79,8 +79,8 @@ impl PasterWindowState {
             cursor_pos: (0.0, 0.0),
             ui_scale: 1.0,
             config: Arc::new(Config::default()),
-            job_executor: None,
-            workspace_proxy: None,
+            job_runtime: None,
+            desktop: Arc::new(NoopDesktop),
             job_pending: false,
             status_message: None,
             last_click_time: None,

@@ -1,15 +1,20 @@
 //! 截图流水线调度与呈现模块。
 
+use crate::services::AppServices;
 use anyhow::{Context, Result};
 use image::RgbaImage;
 use snapin_core::config::Config;
 use snapin_core::AppPaths;
 use snapin_platform::{
     capture_fullscreen_snapshot, enumerate_visible_windows, send_desktop_notification,
+    WindowRect as PlatformWindowRect,
 };
-use snapin_ui::snipper::{run_snipper_session, SnipMode, SnipperOutcome};
+use snapin_ui::snipper::{
+    run_snipper_session, SnipMode, SnipperOutcome, SnipperRuntime, WindowRect,
+};
 use std::path::Path;
 use std::process::Command;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// 获取全屏快照（跨平台调度：Linux 优先扩展零白闪/Portal降级，Windows/macOS 走原生极速捕获）。
@@ -55,13 +60,16 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode, delay_seconds: u32) -
         (t1 - t0).as_secs_f64() * 1000.0
     );
 
-    let cfg_clone = cfg.clone();
+    let services = Arc::new(AppServices::new(cfg.clone()).context("初始化截图应用服务失败")?);
     let windows = if matches!(
         mode,
         SnipMode::Normal | SnipMode::AutoCopy | SnipMode::Translate
     ) {
         match tokio::time::timeout(Duration::from_millis(500), enumerate_visible_windows()).await {
-            Ok(Ok(windows)) => windows,
+            Ok(Ok(windows)) => windows
+                .into_iter()
+                .map(to_ui_window_rect)
+                .collect::<Vec<WindowRect>>(),
             Ok(Err(error)) => {
                 tracing::debug!("获取窗口截图候选列表失败，继续使用普通区域截图: {error}");
                 Vec::new()
@@ -74,11 +82,16 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode, delay_seconds: u32) -
     } else {
         Vec::new()
     };
-    let outcome =
-        tokio::task::spawn_blocking(move || run_snipper_session(img, cfg_clone, mode, windows))
-            .await
-            .context("截图任务调度异常")?
-            .context("截图交互会话运行失败")?;
+    let runtime = SnipperRuntime {
+        config: (*services.config()).clone(),
+        mode,
+        desktop: services.desktop(),
+        media: services.media(),
+    };
+    let outcome = tokio::task::spawn_blocking(move || run_snipper_session(img, windows, runtime))
+        .await
+        .context("截图任务调度异常")?
+        .context("截图交互会话运行失败")?;
 
     if let Some(outcome) = outcome {
         match outcome {
@@ -157,6 +170,16 @@ pub async fn run_oneshot_snip(cfg: Config, mode: SnipMode, delay_seconds: u32) -
     }
 
     Ok(())
+}
+
+/// 将平台窗口矩形转换为 UI 几何契约，避免表现层依赖平台类型。
+fn to_ui_window_rect(rect: PlatformWindowRect) -> WindowRect {
+    WindowRect {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+    }
 }
 
 /// 派生独立的 `snapin pin-file` 子进程完成一次性贴图。

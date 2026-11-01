@@ -261,6 +261,7 @@ fn handle_left_release(
     let screen_w = original_rgba.width() as f32;
     let screen_h = original_rgba.height() as f32;
     let remember_selection = state.config.snip.remember_last_selection;
+    let desktop = state.desktop.clone();
     let pressed_window = state.press_window.take();
 
     // 标注拖动或手柄拉伸结束：编辑结果已实时写入历史栈，直接消费本次释放
@@ -281,12 +282,7 @@ fn handle_left_release(
                 if let Some(window_rect) = pressed_window {
                     if window_rect.width > 4.0 && window_rect.height > 4.0 {
                         if remember_selection {
-                            snapin_platform::save_last_selection((
-                                window_rect.x,
-                                window_rect.y,
-                                window_rect.width,
-                                window_rect.height,
-                            ));
+                            desktop.save_last_selection(window_rect);
                         }
                         state.history.push(window_rect);
                         state
@@ -306,7 +302,7 @@ fn handle_left_release(
             let rect = Rect::from_points(*start, *current);
             if rect.width > 4.0 && rect.height > 4.0 {
                 if remember_selection {
-                    snapin_platform::save_last_selection((rect.x, rect.y, rect.width, rect.height));
+                    desktop.save_last_selection(rect);
                 }
                 state.history.push(rect);
                 state.toolbar.update_layout(&rect, screen_w, screen_h);
@@ -330,7 +326,7 @@ fn handle_left_release(
             if active_drag.is_some() {
                 *active_drag = None;
                 if remember_selection {
-                    snapin_platform::save_last_selection((rect.x, rect.y, rect.width, rect.height));
+                    desktop.save_last_selection(*rect);
                 }
                 state.history.push(*rect);
                 state.toolbar.update_layout(rect, screen_w, screen_h);

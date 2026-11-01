@@ -1,13 +1,16 @@
 //! 贴图生成与窗口展示模块。
 
+use crate::paster_workspace::run_paster_window_session;
+use crate::services::AppServices;
 use anyhow::{Context, Result};
+use snapin_core::config::{self, Config};
 use snapin_core::AppPaths;
 use snapin_platform::{read_clipboard_image, read_clipboard_text, send_desktop_notification};
 use snapin_ui::paster::{
-    render_color_swatch_card, render_simple_text_card, spawn_paster_window, try_parse_hex_color,
-    PasterItem,
+    render_color_swatch_card, render_simple_text_card, try_parse_hex_color, PasterItem,
 };
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tiny_skia::Pixmap;
 
 use snapin_ui::paster::PasterWorkspaceProxy;
@@ -57,6 +60,9 @@ pub async fn paste_clipboard_to_workspace(proxy: &PasterWorkspaceProxy) -> Resul
 }
 
 /// 检查系统剪贴板并就地生成独立贴图（单次会话降级模式）
+///
+/// 单次模式没有守护进程预先加载配置，因此由应用层读取当前配置并在失败时降级为
+/// 默认配置继续运行，避免一处配置文件语法错误导致贴图功能完全不可用。
 pub async fn run_oneshot_paste() -> Result<()> {
     tracing::info!("正在检查剪贴板内容以生成独立贴图...");
     let item = tokio::task::spawn_blocking(create_paster_item_from_clipboard)
@@ -64,7 +70,9 @@ pub async fn run_oneshot_paste() -> Result<()> {
         .context("剪贴板解析任务调度失败")??;
 
     if let Some(item) = item {
-        tokio::task::spawn_blocking(move || spawn_paster_window(item))
+        let config = load_single_session_config();
+        let services = Arc::new(AppServices::new(config).context("初始化贴图应用服务失败")?);
+        tokio::task::spawn_blocking(move || run_paster_window_session(&services, item))
             .await
             .context("贴图任务调度失败")?
             .context("贴图窗口运行异常")?;
@@ -72,6 +80,17 @@ pub async fn run_oneshot_paste() -> Result<()> {
         send_desktop_notification("Snapin 贴图提示", "当前剪贴板为空，无法生成贴图").await?;
     }
     Ok(())
+}
+
+/// 加载单次贴图模式所需配置；读取失败时降级为默认配置并告警。
+fn load_single_session_config() -> Config {
+    match config::load_or_create_config(None) {
+        Ok(config) => config,
+        Err(error) => {
+            tracing::warn!("单次贴图模式读取配置失败，已降级为默认配置: {error}");
+            Config::default()
+        }
+    }
 }
 
 /// 从磁盘读取并解码目标图像为 tiny-skia 位图（同步阻塞实现，仅供阻塞线程池调用）。
@@ -200,7 +219,9 @@ pub async fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
 
     if !delivered {
         let item = PasterItem::new(uid, title, pixmap, (x, y));
-        tokio::task::spawn_blocking(move || spawn_paster_window(item))
+        let config = load_single_session_config();
+        let services = Arc::new(AppServices::new(config).context("初始化贴图应用服务失败")?);
+        tokio::task::spawn_blocking(move || run_paster_window_session(&services, item))
             .await
             .context("贴图任务调度失败")?
             .context("贴图窗口运行异常")?;

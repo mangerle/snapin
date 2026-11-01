@@ -1,15 +1,16 @@
 //! 截图交互会话状态机模型与配置初始化。
 
 use super::annotation_edit::AnnotationDrag;
-use super::jobs::{SnipperJobDispatcher, SnipperJobKind};
+use super::jobs::{SnipperJobKind, SnipperJobRuntime};
 use super::text_input::TextInputSession;
 use super::types::{SnipMode, SnipperOutcome};
+use crate::ports::{DesktopPort, JobCancel, NoopDesktop};
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionHistory, SelectionState};
 use crate::snipper::toolbar::Toolbar;
+use crate::snipper::window_rect::WindowRect;
 use snapin_core::annotation::AnnotationHistory;
 use snapin_core::config::{Config, InterfaceConfig, SnipConfig};
-use snapin_platform::WindowRect;
 use std::sync::Arc;
 use winit::keyboard::ModifiersState;
 use winit::window::CursorIcon;
@@ -42,18 +43,28 @@ pub struct SnipperState {
     pub outcome: Option<SnipperOutcome>,
     /// 操作失败或空结果提示（显示在画布顶部，下一次操作时清除）
     pub status_message: Option<String>,
-    /// 后台任务调度器（测试或非异步环境下为空）
-    pub job_dispatcher: Option<Arc<SnipperJobDispatcher>>,
+    /// 媒体任务运行时（测试或无宿主环境下为空）
+    pub job_runtime: Option<Arc<SnipperJobRuntime>>,
     /// 当前正在执行的 OCR/翻译任务类型
     pub pending_job: Option<SnipperJobKind>,
-    /// 当前后台任务的取消句柄
-    pub pending_job_abort: Option<tokio::task::AbortHandle>,
+    /// 当前后台任务的取消闭包
+    pub pending_job_cancel: Option<JobCancel>,
+    /// 桌面副作用端口：选区缓存、剪贴板等系统交互经此委托给应用层
+    pub desktop: Arc<dyn DesktopPort>,
     pub config: Config,
     pub mode: SnipMode,
 }
 
 impl SnipperState {
     pub fn new() -> Self {
+        Self::new_with_desktop(Arc::new(NoopDesktop))
+    }
+
+    /// 使用宿主注入的桌面端口构建空状态。
+    ///
+    /// UI 不直接读写系统剪贴板或选区缓存文件，因此单元测试与渲染测试可以使用
+    /// [`NoopDesktop`] 构造完全无系统副作用的会话状态。
+    pub fn new_with_desktop(desktop: Arc<dyn DesktopPort>) -> Self {
         // 截图工具栏按选区自动摆放，可能遮挡标注区域，因此启用右端拖动手柄
         let mut toolbar = Toolbar::default();
         toolbar.draggable = true;
@@ -76,9 +87,10 @@ impl SnipperState {
             annotation_drag: None,
             outcome: None,
             status_message: None,
-            job_dispatcher: None,
+            job_runtime: None,
             pending_job: None,
-            pending_job_abort: None,
+            pending_job_cancel: None,
+            desktop,
             config: Config::default(),
             mode: SnipMode::default(),
         }
@@ -87,14 +99,14 @@ impl SnipperState {
     /// 按用户配置决定是否持久化本次选区。
     pub fn remember_selection(&self, rect: Rect) {
         if self.config.snip.remember_last_selection {
-            snapin_platform::save_last_selection((rect.x, rect.y, rect.width, rect.height));
+            self.desktop.save_last_selection(rect);
         }
     }
 
     /// 取消当前后台任务（若存在）。
     pub fn cancel_pending_job(&mut self) {
-        if let Some(abort) = self.pending_job_abort.take() {
-            abort.abort();
+        if let Some(cancel) = self.pending_job_cancel.take() {
+            cancel();
         }
         self.pending_job = None;
     }
@@ -109,9 +121,9 @@ impl SnipperState {
         self.status_message = None;
     }
 
-    /// 根据用户配置文件与触发模式构建初始状态
-    pub fn from_config(cfg: Config, mode: SnipMode) -> Self {
-        let mut state = Self::new();
+    /// 根据用户配置、触发模式与宿主端口构建初始状态
+    pub fn from_config(cfg: Config, mode: SnipMode, desktop: Arc<dyn DesktopPort>) -> Self {
+        let mut state = Self::new_with_desktop(desktop);
         apply_interface_config(&mut state, &cfg.interface);
         apply_snip_config(&mut state, &cfg.snip, mode);
         state.config = cfg;
@@ -146,13 +158,7 @@ fn apply_snip_config(state: &mut SnipperState, snip: &SnipConfig, mode: SnipMode
     // 仅“自定义截屏”复用上次选区；常规截图始终从空白选区开始，
     // 避免启动时自动锁定旧尺寸、妨碍用户重新拉框。
     if snip.remember_last_selection && should_restore_last_selection(mode) {
-        if let Some((lx, ly, lw, lh)) = snapin_platform::load_last_selection() {
-            let rect = crate::snipper::selection::Rect {
-                x: lx,
-                y: ly,
-                width: lw,
-                height: lh,
-            };
+        if let Some(rect) = state.desktop.load_last_selection() {
             state.selection = SelectionState::Locked {
                 rect,
                 active_drag: None,

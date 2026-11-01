@@ -27,12 +27,18 @@ pub enum PasterAppEvent {
     SwitchGroup(Option<usize>),
     /// 查询当前工作区运行状态
     GetStatus(oneshot::Sender<WorkspaceStatus>),
-    /// 整图文字识别完成（成功为识别全文，失败为中文错误描述）
-    OcrFinished(Result<String, String>),
-    /// 整图翻译完成（成功为待注入的翻译图元，失败为中文错误描述）
-    TranslateFinished(Result<Vec<TranslationShapeItem>, String>),
-    /// “另存为”对话框完成：成功且用户选择路径时返回目标文件，取消时返回 `None`
-    SaveAsFinished {
+    /// 整图文字识别完成；携带 `paster_id` 以精确路由回发起窗口
+    OcrFinished {
+        paster_id: u64,
+        result: Result<String, String>,
+    },
+    /// 整图翻译完成；携带 `paster_id` 以精确路由回发起窗口
+    TranslateFinished {
+        paster_id: u64,
+        result: Result<Vec<TranslationShapeItem>, String>,
+    },
+    /// 贴图保存完成：成功且用户选择路径时返回目标文件，取消时返回 `None`
+    SaveFinished {
         paster_id: u64,
         result: Result<Option<PathBuf>, String>,
     },
@@ -70,16 +76,42 @@ impl PasterWorkspaceProxy {
             })
     }
 
-    /// 回传“另存为”结果，供工作区更新对应贴图的文件路径与状态提示。
-    pub fn save_as_finished(
+    /// 回传整图文字识别结果。
+    pub(crate) fn ocr_finished(
+        &self,
+        paster_id: u64,
+        result: Result<String, String>,
+    ) -> Result<(), UiError> {
+        self.proxy
+            .send_event(PasterAppEvent::OcrFinished { paster_id, result })
+            .map_err(|e| UiError::Window {
+                message: format!("向贴图工作区回传文字识别结果失败: {e}"),
+            })
+    }
+
+    /// 回传整图翻译结果。
+    pub(crate) fn translate_finished(
+        &self,
+        paster_id: u64,
+        result: Result<Vec<TranslationShapeItem>, String>,
+    ) -> Result<(), UiError> {
+        self.proxy
+            .send_event(PasterAppEvent::TranslateFinished { paster_id, result })
+            .map_err(|e| UiError::Window {
+                message: format!("向贴图工作区回传翻译结果失败: {e}"),
+            })
+    }
+
+    /// 回传贴图保存结果，供工作区更新对应贴图的文件路径与状态提示。
+    pub(crate) fn save_finished(
         &self,
         paster_id: u64,
         result: Result<Option<PathBuf>, String>,
     ) -> Result<(), UiError> {
         self.proxy
-            .send_event(PasterAppEvent::SaveAsFinished { paster_id, result })
+            .send_event(PasterAppEvent::SaveFinished { paster_id, result })
             .map_err(|e| UiError::Window {
-                message: format!("向贴图工作区回传另存为结果失败: {e}"),
+                message: format!("向贴图工作区回传保存结果失败: {e}"),
             })
     }
 

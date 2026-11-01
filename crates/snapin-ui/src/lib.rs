@@ -4,9 +4,14 @@
 
 pub mod error;
 pub mod paster;
+pub mod ports;
 pub mod snipper;
 pub mod surface;
 
 pub use error::UiError;
+pub use ports::{
+    ConfigStore, DesktopPort, JobCancel, MediaJob, MediaJobOutcome, MediaJobRunner, NoopDesktop,
+    PortError,
+};
 pub use surface::blit_pixmap_to_surface;
 pub use winit;

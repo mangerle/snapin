@@ -2,6 +2,8 @@
 
 pub mod commands;
 
+use crate::paster_workspace::spawn_paster_workspace_thread;
+use crate::services::AppServices;
 use anyhow::Context;
 use commands::handle_command;
 use snapin_core::config::Config;
@@ -10,7 +12,7 @@ use snapin_platform::{
     enable_gnome_extension, send_desktop_notification, spawn_detached_system_command,
     sync_hotkeys_to_gnome, PlatformTray, TrayAction,
 };
-use snapin_ui::paster::spawn_paster_workspace_thread;
+use std::sync::Arc;
 #[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, watch};
@@ -50,7 +52,7 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
     match tokio::task::spawn_blocking(move || {
         #[cfg(target_os = "linux")]
         {
-            if let Err(e) = super::installer::install_gnome_extension() {
+            if let Err(e) = crate::installer::install_gnome_extension() {
                 tracing::debug!("自愈检查 GNOME 扩展部署状态: {e}");
             }
         }
@@ -63,17 +65,17 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
         Err(error) => tracing::warn!("快捷键注册任务异常: {error}"),
     }
     enable_gnome_extension();
-    let workspace_proxy =
-        spawn_paster_workspace_thread(false).context("初始化并启动集中贴图工作区失败")?;
+    let services = Arc::new(AppServices::new(cfg.clone()).context("初始化守护进程应用服务失败")?);
+    let workspace_proxy = spawn_paster_workspace_thread(&services, false)
+        .context("初始化并启动集中贴图工作区失败")?;
 
     // 初始化跨平台原生系统托盘（在 Linux、Windows 与 macOS 平台提供系统托盘上下文菜单）
-    let tray_icon =
-        image::load_from_memory(include_bytes!("../../../../../assets/icons/32x32.png"))
-            .ok()
-            .map(|img| {
-                let rgba = img.to_rgba8();
-                (rgba.as_raw().clone(), rgba.width(), rgba.height())
-            });
+    let tray_icon = image::load_from_memory(include_bytes!("../../../../assets/icons/32x32.png"))
+        .ok()
+        .map(|img| {
+            let rgba = img.to_rgba8();
+            (rgba.as_raw().clone(), rgba.width(), rgba.height())
+        });
 
     let tray = PlatformTray::new(tray_icon)
         .map_err(|e| tracing::warn!("初始化跨平台原生系统托盘失败: {e}"))
@@ -168,17 +170,17 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
                                 spawn_snip_subprocess(&["snip", "--custom"]);
                             }
                             TrayAction::Paste => {
-                                let _ = handle_command(DaemonRequest::Paste, &workspace_proxy).await;
+                                let _ = handle_command(DaemonRequest::Paste, &workspace_proxy, &services).await;
                             }
                             TrayAction::TogglePasters => {
-                                let _ = handle_command(DaemonRequest::TogglePasters, &workspace_proxy).await;
+                                let _ = handle_command(DaemonRequest::TogglePasters, &workspace_proxy, &services).await;
                             }
                             TrayAction::SwitchGroup => {
-                                let _ = handle_command(DaemonRequest::SwitchGroup(None), &workspace_proxy).await;
+                                let _ = handle_command(DaemonRequest::SwitchGroup(None), &workspace_proxy, &services).await;
                             }
                             TrayAction::ClearHistory => {
                                 tokio::spawn(async {
-                                    if let Err(e) = super::cleaner::clear_snip_history().await {
+                                    if let Err(e) = crate::cleaner::clear_snip_history().await {
                                         tracing::warn!("托盘触发清空截屏历史失败: {e}");
                                     }
                                 });
@@ -209,13 +211,13 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
                                 spawn_snip_subprocess(&["snip", "--translate"]);
                             }
                             snapin_platform::HotkeyAction::Paste => {
-                                let _ = handle_command(DaemonRequest::Paste, &workspace_proxy).await;
+                                let _ = handle_command(DaemonRequest::Paste, &workspace_proxy, &services).await;
                             }
                             snapin_platform::HotkeyAction::TogglePasters => {
-                                let _ = handle_command(DaemonRequest::TogglePasters, &workspace_proxy).await;
+                                let _ = handle_command(DaemonRequest::TogglePasters, &workspace_proxy, &services).await;
                             }
                             snapin_platform::HotkeyAction::SwitchGroup => {
-                                let _ = handle_command(DaemonRequest::SwitchGroup(None), &workspace_proxy).await;
+                                let _ = handle_command(DaemonRequest::SwitchGroup(None), &workspace_proxy, &services).await;
                             }
                         }
                     }
@@ -227,7 +229,7 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
                     break;
                 };
                 let is_shutdown = matches!(invocation.request, DaemonRequest::Shutdown);
-                let response = handle_command(invocation.request, &workspace_proxy).await;
+                let response = handle_command(invocation.request, &workspace_proxy, &services).await;
                 let _ = invocation.responder.send(response);
                 if is_shutdown {
                     tracing::info!("接收到平滑停机指令，退出守护进程事件循环");

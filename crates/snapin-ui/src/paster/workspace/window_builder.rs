@@ -66,9 +66,9 @@ pub(crate) fn create_new_paster_window(
     let mut state = PasterWindowState::from_config(item, runtime.cfg.clone());
     state.ui_scale = auto_scale;
     state.context_menu.set_ui_scale(auto_scale);
-    // 工作区级执行器注入窗口状态后，工具栏动作才能把整图任务投递到后台线程
-    state.job_executor = Some(runtime.jobs.clone());
-    state.workspace_proxy = Some(runtime.proxy.clone());
+    // 工作区级端口注入窗口状态后，工具栏动作才能把整图任务投递到应用层执行器
+    state.job_runtime = Some(runtime.jobs.clone());
+    state.desktop = runtime.desktop.clone();
 
     let win_id = window.id();
     runtime.manager.add_entry(item_id, group_id);

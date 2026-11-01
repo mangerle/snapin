@@ -6,18 +6,15 @@
 // 在 Windows 发布构建中隐藏控制台黑框窗口，在 Debug 模式下保留以供输出日志调试。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-pub mod app;
 pub mod cli;
 
 use anyhow::{Context, Result};
-use app::cleaner::clear_snip_history;
-use app::daemon::run_daemon_server;
-use app::installer::install_gnome_extension;
-use app::lifecycle::exit_snapin_application;
-use app::paste::{run_oneshot_paste, run_pin_file};
-use app::snip::run_oneshot_snip;
 use clap::Parser;
 use cli::{Cli, Commands};
+use snapin_app::{
+    clear_snip_history, exit_snapin_application, install_gnome_extension, run_cli_update,
+    run_daemon_server, run_oneshot_paste, run_oneshot_snip, run_pin_file,
+};
 use snapin_core::config::{self, Config};
 use snapin_daemon::{send_command_to_daemon, DaemonRequest};
 use snapin_platform::{init_platform_capabilities, sync_hotkeys_to_gnome};
@@ -178,7 +175,7 @@ async fn main() -> Result<()> {
             run_daemon_server(cfg).await?;
         }
         Commands::Update { check } => {
-            app::update::run_cli_update(config, check).await?;
+            run_cli_update(config, check).await?;
         }
     }
 

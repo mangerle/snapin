@@ -10,8 +10,7 @@ use super::proxy::{PasterAppEvent, WorkspaceStatus};
 use super::window_builder::create_new_paster_window;
 use super::WorkspaceRuntime;
 use snapin_core::annotation::shapes::TranslationShapeItem;
-use snapin_core::config::{self, Config};
-use snapin_platform::{send_desktop_notification, write_text_to_clipboard};
+use snapin_core::config::Config;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -36,7 +35,6 @@ pub(crate) fn handle_workspace_user_event(
     match event {
         PasterAppEvent::ReloadConfig(new_cfg) => {
             runtime.cfg = Arc::new(*new_cfg);
-            runtime.jobs.update_config(runtime.cfg.clone());
             for inst in runtime.instances.values_mut() {
                 inst.state.config = runtime.cfg.clone();
             }
@@ -102,10 +100,14 @@ pub(crate) fn handle_workspace_user_event(
             };
             let _ = responder.send(status);
         }
-        PasterAppEvent::OcrFinished(result) => handle_ocr_finished(result, runtime),
-        PasterAppEvent::TranslateFinished(result) => handle_translate_finished(result, runtime),
-        PasterAppEvent::SaveAsFinished { paster_id, result } => {
-            handle_save_as_finished(paster_id, result, runtime);
+        PasterAppEvent::OcrFinished { paster_id, result } => {
+            handle_ocr_finished(paster_id, result, runtime);
+        }
+        PasterAppEvent::TranslateFinished { paster_id, result } => {
+            handle_translate_finished(paster_id, result, runtime);
+        }
+        PasterAppEvent::SaveFinished { paster_id, result } => {
+            handle_save_finished(paster_id, result, runtime);
         }
         PasterAppEvent::Shutdown(responder) => {
             // 工作区停机时逐个结束会话并关闭 IME，再统一释放窗口实例
@@ -134,14 +136,7 @@ fn persist_active_group(runtime: &mut WorkspaceRuntime, group: usize) {
         inst.state.config = updated.clone();
     }
 
-    let path = match config::get_default_config_path() {
-        Ok(path) => path,
-        Err(error) => {
-            tracing::warn!("定位配置文件路径失败，无法持久化贴图活动分组: {error}");
-            return;
-        }
-    };
-    if let Err(error) = config::save_config(&config, &path) {
+    if let Err(error) = runtime.config_store.save(&config) {
         tracing::warn!("持久化贴图活动分组失败: {error}");
     }
 }
@@ -282,8 +277,11 @@ pub(crate) fn handle_workspace_about_to_wait(runtime: &mut WorkspaceRuntime) -> 
     earliest
 }
 
-/// 处理“另存为”对话框结果：回填文件路径、状态提示与保存通知。
-fn handle_save_as_finished(
+/// 处理贴图保存结果：回填文件路径与状态提示。
+///
+/// 保存通知与“保存后打开目录”由应用层媒体执行器完成，UI 只负责更新窗口状态，
+/// 避免表现层重复解释通知配置。
+fn handle_save_finished(
     paster_id: u64,
     result: Result<Option<PathBuf>, String>,
     runtime: &mut WorkspaceRuntime,
@@ -293,44 +291,40 @@ fn handle_save_as_finished(
         .values_mut()
         .find(|inst| inst.item_id == paster_id)
     else {
-        tracing::warn!("另存为结果到达时目标贴图已关闭，结果已丢弃: {paster_id}");
+        tracing::warn!("保存结果到达时目标贴图已关闭，结果已丢弃: {paster_id}");
         return;
     };
 
+    inst.state.job_pending = false;
     match result {
         Ok(Some(path)) => {
             inst.state.file_path = Some(path.clone());
             inst.state
-                .set_status_message(format!("图像已另存至: {}", path.display()));
-            if inst.state.config.output.notify_on_save {
-                let message = format!("贴图图像已保存至: {}", path.display());
-                if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                    handle.spawn(async move {
-                        let _ = send_desktop_notification("Snapin 贴图已保存", &message).await;
-                    });
-                }
-            }
+                .set_status_message(format!("图像已保存至: {}", path.display()));
         }
-        Ok(None) => inst.state.set_status_message("已取消另存为"),
+        Ok(None) => inst.state.set_status_message("已取消保存"),
         Err(message) => {
-            tracing::warn!("贴图另存为失败: {message}");
+            tracing::warn!("贴图保存失败: {message}");
             inst.state
-                .set_status_message(format!("另存为失败: {message}"));
+                .set_status_message(format!("保存失败: {message}"));
         }
     }
 
     inst.window.request_redraw();
 }
 
-/// 将后台 OCR 结果回填到唯一处于等待状态的贴图窗口。
-fn handle_ocr_finished(result: Result<String, String>, runtime: &mut WorkspaceRuntime) {
-    runtime.jobs.complete();
+/// 将后台 OCR 结果回填到发起任务的贴图窗口。
+fn handle_ocr_finished(
+    paster_id: u64,
+    result: Result<String, String>,
+    runtime: &mut WorkspaceRuntime,
+) {
     let Some(inst) = runtime
         .instances
         .values_mut()
-        .find(|inst| inst.state.job_pending)
+        .find(|inst| inst.item_id == paster_id)
     else {
-        tracing::debug!("文字识别结果到达时没有等待中的贴图窗口，结果已丢弃");
+        tracing::debug!("文字识别结果到达时目标贴图已关闭，结果已丢弃: {paster_id}");
         return;
     };
 
@@ -339,18 +333,18 @@ fn handle_ocr_finished(result: Result<String, String>, runtime: &mut WorkspaceRu
     inst.window.request_redraw();
 }
 
-/// 将后台翻译结果注入标注历史并重建展示图像。
+/// 将后台翻译结果注入发起任务的贴图窗口标注历史并重建展示图像。
 fn handle_translate_finished(
+    paster_id: u64,
     result: Result<Vec<TranslationShapeItem>, String>,
     runtime: &mut WorkspaceRuntime,
 ) {
-    runtime.jobs.complete();
     let Some(inst) = runtime
         .instances
         .values_mut()
-        .find(|inst| inst.state.job_pending)
+        .find(|inst| inst.item_id == paster_id)
     else {
-        tracing::debug!("翻译结果到达时没有等待中的贴图窗口，结果已丢弃");
+        tracing::debug!("翻译结果到达时目标贴图已关闭，结果已丢弃: {paster_id}");
         return;
     };
 
@@ -368,7 +362,7 @@ fn apply_ocr_result(state: &mut PasterWindowState, result: Result<String, String
                 state.set_status_message("未识别到文字");
                 return;
             }
-            match write_text_to_clipboard(text) {
+            match state.desktop.write_text_clipboard(text) {
                 Ok(()) => {
                     let chars = text.chars().count();
                     state.set_status_message(format!("已复制识别文字（{chars} 字符）"));

@@ -16,9 +16,7 @@ pub use manager::{PasterItem, PasterManager};
 pub use surface::PasterSurface;
 pub use text_to_pin::{render_color_swatch_card, render_simple_text_card, try_parse_hex_color};
 pub use transform::PasterTransform;
-pub use window::spawn_paster_window;
 pub use workspace::{
-    create_paster_workspace, is_valid_group_id, run_paster_workspace_loop,
-    spawn_paster_workspace_thread, PasterAppEvent, PasterWorkspaceProxy, WorkspaceStatus,
-    TOTAL_PIN_GROUPS,
+    create_paster_workspace, is_valid_group_id, run_paster_workspace_loop, PasterAppEvent,
+    PasterWorkspaceOptions, PasterWorkspaceProxy, WorkspaceStatus, TOTAL_PIN_GROUPS,
 };

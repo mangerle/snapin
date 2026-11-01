@@ -5,7 +5,6 @@ pub use super::state::{commit_active_text_input, SnipperState};
 use super::types::SnipperOutcome;
 use crate::snipper::selection::SelectionState;
 use image::RgbaImage;
-use snapin_platform::write_text_to_clipboard;
 use winit::event::ElementState;
 use winit::keyboard::{Key, NamedKey};
 
@@ -134,7 +133,9 @@ fn handle_copy_hex_color(state: &SnipperState, img: &RgbaImage) {
     let py = (state.cursor_pos.1 as i32).clamp(0, img.height().saturating_sub(1) as i32) as u32;
     let pixel = img.get_pixel(px, py);
     let hex = format!("#{:02X}{:02X}{:02X}", pixel[0], pixel[1], pixel[2]);
-    let _ = write_text_to_clipboard(&hex);
+    if let Err(error) = state.desktop.write_text_clipboard(&hex) {
+        tracing::warn!("复制取色结果到系统剪贴板失败: {error}");
+    }
 }
 
 /// 历史选区回溯向后

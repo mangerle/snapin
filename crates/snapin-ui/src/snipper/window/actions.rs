@@ -1,12 +1,12 @@
 //! 截图结果输出动作处理 (复制到剪贴板、保存文件、转为贴图)。
 
 use super::events::SnipperState;
-use super::jobs::{SnipperJob, SnipperJobKind};
+use super::jobs::SnipperJobKind;
 use super::types::SnipperOutcome;
 use crate::paster::PasterItem;
+use crate::ports::MediaJob;
 use crate::snipper::selection::SelectionState;
 use image::{GenericImageView, RgbaImage};
-use snapin_platform::{write_image_to_clipboard, write_text_to_clipboard};
 
 /// 裁剪当前选区图像并合成已绘制的矢量标注
 pub fn crop_selection_image(
@@ -50,11 +50,11 @@ pub fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
         if let SelectionState::Locked { rect, .. } = &state.selection {
             state.remember_selection(*rect);
         }
-        match write_image_to_clipboard(&cropped) {
+        match state.desktop.write_image_clipboard(&cropped) {
             Ok(()) => state.outcome = Some(SnipperOutcome::CopiedImage),
-            Err(e) => {
-                tracing::warn!("复制选区图像到系统剪贴板失败: {e}");
-                state.set_status_message(format!("复制图像失败: {e}"));
+            Err(error) => {
+                tracing::warn!("复制选区图像到系统剪贴板失败: {error}");
+                state.set_status_message(format!("复制图像失败: {error}"));
             }
         }
     }
@@ -69,27 +69,13 @@ pub fn handle_action_save(state: &mut SnipperState, original_rgba: &RgbaImage) {
     }
 
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
-        let origin = match &state.selection {
-            SelectionState::Locked { rect, .. } => {
-                let (x, y, _, _) =
-                    rect.to_pixel_bounds(original_rgba.width(), original_rgba.height());
-                (x, y)
-            }
-            _ => return,
-        };
-
         if let SelectionState::Locked { rect, .. } = &state.selection {
             state.remember_selection(*rect);
         }
-
         dispatch_job(
             state,
-            SnipperJob {
-                kind: SnipperJobKind::Save,
-                image: cropped,
-                origin,
-                cover_mode: state.config.translate.cover_mode,
-            },
+            SnipperJobKind::Save,
+            MediaJob::SaveScreenshot { image: cropped },
         );
     }
 }
@@ -127,7 +113,7 @@ pub fn handle_action_pick_color(state: &mut SnipperState, original_rgba: &RgbaIm
     state.clear_status_message();
     let text = color_text_at_cursor(state, original_rgba);
 
-    match write_text_to_clipboard(&text) {
+    match state.desktop.write_text_clipboard(&text) {
         Ok(()) => state.outcome = Some(SnipperOutcome::CopiedColor(text)),
         Err(error) => {
             tracing::warn!("取色器复制颜色值到剪贴板失败: {error}");
@@ -156,46 +142,32 @@ pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
     }
 
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
-        let origin = match &state.selection {
-            SelectionState::Locked { rect, .. } => {
-                let (x, y, _, _) =
-                    rect.to_pixel_bounds(original_rgba.width(), original_rgba.height());
-                (x, y)
-            }
-            _ => return,
-        };
-
         if let SelectionState::Locked { rect, .. } = &state.selection {
             state.remember_selection(*rect);
         }
-
-        dispatch_job(
-            state,
-            SnipperJob {
-                kind: SnipperJobKind::Ocr,
-                image: cropped,
-                origin,
-                cover_mode: state.config.translate.cover_mode,
-            },
-        );
+        dispatch_job(state, SnipperJobKind::Ocr, MediaJob::Ocr { image: cropped });
     }
 }
 
-/// 将任务提交到后台并更新等待状态
-fn dispatch_job(state: &mut SnipperState, job: SnipperJob) {
-    let kind = job.kind;
-    let Some(dispatcher) = state.job_dispatcher.clone() else {
-        state.set_status_message("后台任务调度器不可用");
+/// 将任务提交到应用层媒体执行器并更新等待状态。
+///
+/// UI 不自行创建线程或 Tokio 任务；取消与结果回传统一由截图任务运行时负责。
+fn dispatch_job(state: &mut SnipperState, kind: SnipperJobKind, job: MediaJob) {
+    let Some(runtime) = state.job_runtime.clone() else {
+        state.set_status_message("后台任务媒体执行器不可用");
         return;
     };
 
-    match dispatcher.dispatch(job) {
-        Some(abort_handle) => {
+    match runtime.submit(kind, job) {
+        Ok(cancel) => {
             state.pending_job = Some(kind);
-            state.pending_job_abort = Some(abort_handle);
+            state.pending_job_cancel = Some(cancel);
             state.set_status_message(format!("正在执行{}...", kind.label()));
         }
-        None => state.set_status_message("后台任务调度器不可用"),
+        Err(error) => {
+            tracing::warn!("提交{}任务失败: {error}", kind.label());
+            state.set_status_message(format!("提交{}任务失败: {error}", kind.label()));
+        }
     }
 }
 
@@ -225,8 +197,8 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
 
     dispatch_job(
         state,
-        SnipperJob {
-            kind: SnipperJobKind::Translate,
+        SnipperJobKind::Translate,
+        MediaJob::Translate {
             image: cropped,
             origin: (px, py),
             cover_mode: state.config.translate.cover_mode,

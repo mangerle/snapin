@@ -1,7 +1,25 @@
 //! 截图会话输出结果与交互配置类型定义。
 
 use crate::paster::PasterItem;
+use crate::ports::{DesktopPort, MediaJobRunner};
+use snapin_core::config::Config;
 use std::path::PathBuf;
+use std::sync::Arc;
+
+/// 截图会话所需的宿主能力集合。
+///
+/// 把配置、触发模式与端口打包传入，避免会话构造函数平铺四个以上参数；
+/// 同时明确“截图会话只消费这些能力”，不在内部隐式读取配置或启动后台线程。
+pub struct SnipperRuntime {
+    /// 本次会话使用的配置快照
+    pub config: Config,
+    /// 截图触发模式
+    pub mode: SnipMode,
+    /// 桌面副作用端口
+    pub desktop: Arc<dyn DesktopPort>,
+    /// 媒体任务执行端口
+    pub media: Arc<dyn MediaJobRunner>,
+}
 
 /// 截图交互完成后的最终产出决策
 #[derive(Debug)]
