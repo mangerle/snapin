@@ -25,22 +25,26 @@ impl SelectionRectRecord {
         }
     }
 
-    /// 过滤宽高不足或坐标为负的畸形记录，避免恢复时生成不可见的历史选区
+    /// 过滤宽高不足、坐标越界或非有限数的畸形记录。
     fn is_valid(&self) -> bool {
-        self.width > 10.0 && self.height > 10.0 && self.x >= 0.0 && self.y >= 0.0
+        [self.x, self.y, self.width, self.height]
+            .iter()
+            .all(|value| value.is_finite())
+            && self.width > 10.0
+            && self.height > 10.0
+            && self.x >= 0.0
+            && self.y >= 0.0
     }
 }
 
-/// 获取 Snapin 缓存目录
-fn get_cache_dir() -> Option<PathBuf> {
-    Some(snapin_core::AppPaths::cache_dir())
+/// 获取 Snapin 缓存目录。
+fn get_cache_dir() -> PathBuf {
+    snapin_core::AppPaths::cache_dir()
 }
 
 /// 保存上次选区坐标至运行时缓存文件
 pub fn save_last_selection(rect: (f32, f32, f32, f32)) {
-    if let Some(cache_dir) = get_cache_dir() {
-        save_last_selection_in(&cache_dir, rect);
-    }
+    save_last_selection_in(&get_cache_dir(), rect);
 }
 
 /// 将历史选区写入指定缓存目录；目录由调用方负责存在。
@@ -51,15 +55,28 @@ fn save_last_selection_in(cache_dir: &std::path::Path, rect: (f32, f32, f32, f32
     }
     let _ = std::fs::create_dir_all(cache_dir);
     let toml_path = cache_dir.join("last_selection.toml");
-    if let Ok(toml_content) = toml::to_string(&record) {
-        let _ = std::fs::write(toml_path, toml_content);
+    let Ok(toml_content) = toml::to_string(&record) else {
+        return;
+    };
+
+    // 同目录临时文件 + rename，避免进程崩溃留下半截 TOML 被静默当成损坏缓存。
+    let temp_path = cache_dir.join(format!(
+        ".last_selection.{}.{}.tmp",
+        std::process::id(),
+        snapin_core::AppPaths::generate_unique_id()
+    ));
+    if snapin_core::AppPaths::write_secure_file(&temp_path, toml_content.as_bytes()).is_err() {
+        let _ = std::fs::remove_file(&temp_path);
+        return;
+    }
+    if std::fs::rename(&temp_path, &toml_path).is_err() {
+        let _ = std::fs::remove_file(&temp_path);
     }
 }
 
 /// 读取上次保存的历史选区
 pub fn load_last_selection() -> Option<(f32, f32, f32, f32)> {
-    let cache_dir = get_cache_dir()?;
-    load_last_selection_from(&cache_dir)
+    load_last_selection_from(&get_cache_dir())
 }
 
 /// 从指定缓存目录读取历史选区。
@@ -96,7 +113,7 @@ fn load_last_selection_from(cache_dir: &std::path::Path) -> Option<(f32, f32, f3
 
 /// 清理历史选区记忆缓存文件（包括 TOML 与旧版 txt 缓存）
 pub fn clear_selection_cache() -> usize {
-    get_cache_dir().map_or(0, |cache_dir| clear_selection_cache_in(&cache_dir))
+    clear_selection_cache_in(&get_cache_dir())
 }
 
 /// 清理指定缓存目录中的选区缓存文件。
@@ -128,6 +145,27 @@ mod tests {
 
         let invalid = SelectionRectRecord::new(-1.0, 0.0, 5.0, 5.0);
         assert!(!invalid.is_valid());
+        assert!(!SelectionRectRecord::new(0.0, 0.0, f32::INFINITY, 20.0).is_valid());
+        assert!(!SelectionRectRecord::new(0.0, 0.0, 20.0, f32::NAN).is_valid());
+    }
+
+    /// 原子写入成功后不得残留同目录临时文件。
+    #[test]
+    fn test_save_last_selection_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().expect("应可创建测试缓存目录");
+        save_last_selection_in(dir.path(), (10.0, 20.0, 300.0, 200.0));
+        assert!(load_last_selection_from(dir.path()).is_some());
+
+        let temp_exists = std::fs::read_dir(dir.path())
+            .expect("读取缓存目录失败")
+            .filter_map(Result::ok)
+            .any(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".last_selection.")
+            });
+        assert!(!temp_exists, "成功写入后不应残留临时文件");
     }
 
     #[test]
