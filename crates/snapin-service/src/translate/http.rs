@@ -76,6 +76,26 @@ pub fn check_status(provider: &str, response: &Response) -> Result<(), ServiceEr
     })
 }
 
+/// 以表单 POST 发送已签名请求，并统一完成状态码校验与有界响应读取。
+///
+/// 百度、有道、阿里三个签名服务商只在参数构造与响应解码上不同，传输层的
+/// 超时、限流识别、状态码与响应体上限必须共用同一份实现，避免各自遗漏。
+pub async fn post_signed_form(
+    provider: &str,
+    client: &Client,
+    endpoint: &str,
+    params: &[(&str, &str)],
+) -> Result<Vec<u8>, ServiceError> {
+    let response = client
+        .post(endpoint)
+        .form(params)
+        .send()
+        .await
+        .map_err(|error| network_error(provider, error))?;
+    check_status(provider, &response)?;
+    read_limited_body(provider, response).await
+}
+
 /// 读取响应体并强制大小上限。
 ///
 /// `content_length` 只是快速拒绝提示，最终仍按实际分块累计，防止分块传输

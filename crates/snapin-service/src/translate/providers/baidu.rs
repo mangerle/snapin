@@ -4,7 +4,7 @@ use crate::error::ServiceError;
 use crate::translate::batch::{join_batch, merge_joined_results, plan_batches, BatchLimits};
 use crate::translate::config::TranslateProvider;
 use crate::translate::engine::Translator;
-use crate::translate::http::{check_status, network_error, read_limited_body, shared_client};
+use crate::translate::http::{post_signed_form, shared_client};
 use crate::translate::language::normalize_language;
 use async_trait::async_trait;
 use md5::{Digest, Md5};
@@ -71,23 +71,20 @@ impl BaiduTranslator {
         hasher.update(raw_sign.as_bytes());
         let sign = format!("{:x}", hasher.finalize());
 
-        let response = self
-            .client
-            .post(self.endpoint.as_str())
-            .form(&[
+        let body = post_signed_form(
+            "baidu",
+            &self.client,
+            self.endpoint.as_str(),
+            &[
                 ("q", query),
                 ("from", from_lang),
                 ("to", to_lang),
                 ("appid", self.app_id.as_str()),
                 ("salt", salt.as_str()),
                 ("sign", sign.as_str()),
-            ])
-            .send()
-            .await
-            .map_err(|error| network_error("baidu", error))?;
-        check_status("baidu", &response)?;
-
-        let body = read_limited_body("baidu", response).await?;
+            ],
+        )
+        .await?;
         let resp_data: BaiduResponse =
             serde_json::from_slice(&body).map_err(|error| ServiceError::ResponseFormat {
                 provider: "baidu".to_string(),

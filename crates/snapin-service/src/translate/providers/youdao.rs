@@ -4,7 +4,7 @@ use crate::error::ServiceError;
 use crate::translate::batch::{join_batch, merge_joined_results, plan_batches, BatchLimits};
 use crate::translate::config::TranslateProvider;
 use crate::translate::engine::Translator;
-use crate::translate::http::{check_status, network_error, read_limited_body, shared_client};
+use crate::translate::http::{post_signed_form, shared_client};
 use crate::translate::language::normalize_language;
 use async_trait::async_trait;
 use reqwest::Client;
@@ -91,10 +91,11 @@ impl YoudaoTranslator {
         hasher.update(raw_sign.as_bytes());
         let sign = format!("{:x}", hasher.finalize());
 
-        let response = self
-            .client
-            .post(self.endpoint.as_str())
-            .form(&[
+        let body = post_signed_form(
+            "youdao",
+            &self.client,
+            self.endpoint.as_str(),
+            &[
                 ("q", query),
                 ("from", from_lang),
                 ("to", to_lang),
@@ -103,13 +104,9 @@ impl YoudaoTranslator {
                 ("sign", sign.as_str()),
                 ("signType", "v3"),
                 ("curtime", curtime.as_str()),
-            ])
-            .send()
-            .await
-            .map_err(|error| network_error("youdao", error))?;
-        check_status("youdao", &response)?;
-
-        let body = read_limited_body("youdao", response).await?;
+            ],
+        )
+        .await?;
         let data: YoudaoResponse =
             serde_json::from_slice(&body).map_err(|error| ServiceError::ResponseFormat {
                 provider: "youdao".to_string(),

@@ -4,7 +4,7 @@ use crate::error::ServiceError;
 use crate::translate::batch::{join_batch, merge_joined_results, plan_batches, BatchLimits};
 use crate::translate::config::TranslateProvider;
 use crate::translate::engine::Translator;
-use crate::translate::http::{check_status, network_error, read_limited_body, shared_client};
+use crate::translate::http::{post_signed_form, shared_client};
 use crate::translate::language::normalize_language;
 use async_trait::async_trait;
 use hmac::{Hmac, Mac};
@@ -108,16 +108,8 @@ impl AliyunTranslator {
 
         params.push(("Signature", signature.as_str()));
 
-        let response = self
-            .client
-            .post(self.endpoint.as_str())
-            .form(&params)
-            .send()
-            .await
-            .map_err(|error| network_error("aliyun", error))?;
-        check_status("aliyun", &response)?;
-
-        let body = read_limited_body("aliyun", response).await?;
+        let body =
+            post_signed_form("aliyun", &self.client, self.endpoint.as_str(), &params).await?;
         let res_data: AliyunResponse =
             serde_json::from_slice(&body).map_err(|error| ServiceError::ResponseFormat {
                 provider: "aliyun".to_string(),
