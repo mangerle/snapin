@@ -48,7 +48,11 @@ fn cleanup_runtime_dir(
     socket_path: &Path,
     min_age: Duration,
 ) -> std::io::Result<usize> {
-    let entries = std::fs::read_dir(runtime_dir)?;
+    let entries = match std::fs::read_dir(runtime_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error),
+    };
     let now = SystemTime::now();
     let mut removed = 0usize;
 

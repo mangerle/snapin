@@ -38,9 +38,30 @@ impl AppPaths {
             .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".config")))
             .unwrap_or_else(|_| PathBuf::from("."));
 
-        let p = base.join("snapin");
-        ensure_private_dir(&p);
-        p
+        base.join("snapin")
+    }
+
+    /// 确保配置目录存在并收紧为私有权限。
+    ///
+    /// 目录创建从 getter 中拆出，避免仅读取路径或测试布局时产生磁盘副作用。
+    pub fn ensure_config_dir() -> PathBuf {
+        let path = Self::config_dir();
+        ensure_private_dir(&path);
+        path
+    }
+
+    /// 确保缓存目录存在并收紧为私有权限。
+    pub fn ensure_cache_dir() -> PathBuf {
+        let path = Self::cache_dir();
+        ensure_private_dir(&path);
+        path
+    }
+
+    /// 确保运行时目录存在并收紧为私有权限。
+    pub fn ensure_runtime_dir() -> PathBuf {
+        let path = Self::runtime_dir();
+        ensure_private_dir(&path);
+        path
     }
 
     /// 获取默认配置文件路径：`$XDG_CONFIG_HOME/snapin/config.toml` 或系统对应配置目录
@@ -75,9 +96,7 @@ impl AppPaths {
             .unwrap_or_else(|_| PathBuf::from("."))
             .join("snapin");
 
-        let p = base;
-        ensure_private_dir(&p);
-        p
+        base
     }
 
     /// 获取安全运行时临时目录（多用户隔离与 tmpfs 提速）：
@@ -88,9 +107,7 @@ impl AppPaths {
         #[cfg(unix)]
         {
             if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
-                let p = PathBuf::from(runtime_dir).join("snapin");
-                ensure_private_dir(&p);
-                return p;
+                return PathBuf::from(runtime_dir).join("snapin");
             }
 
             let uid = rustix::process::getuid().as_raw();
@@ -100,16 +117,13 @@ impl AppPaths {
             } else {
                 std::env::temp_dir().join(format!("snapin-{uid}"))
             };
-            ensure_private_dir(&base);
             base
         }
 
         #[cfg(windows)]
         {
             let username = std::env::var("USERNAME").unwrap_or_else(|_| "user".to_string());
-            let base = std::env::temp_dir().join(format!("snapin-{username}"));
-            ensure_private_dir(&base);
-            base
+            std::env::temp_dir().join(format!("snapin-{username}"))
         }
     }
 
@@ -175,7 +189,7 @@ impl AppPaths {
 
     /// 生成防碰撞的安全临时文件绝对路径（位于安全运行时目录下）
     pub fn generate_temp_path(prefix: &str, ext: &str) -> PathBuf {
-        let dir = Self::runtime_dir();
+        let dir = Self::ensure_runtime_dir();
         let id = Self::generate_unique_id();
         let pid = std::process::id();
         dir.join(format!("{prefix}_{pid}_{id}.{ext}"))
