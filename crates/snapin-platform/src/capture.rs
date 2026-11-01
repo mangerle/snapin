@@ -85,12 +85,17 @@ async fn capture_via_extension() -> Result<RgbaImage, PlatformError> {
     // 读取完成后立即清理临时文件
     let _ = tokio::fs::remove_file(&target_path).await;
 
-    let dynamic_img =
-        image::load_from_memory(&file_bytes).map_err(|e| PlatformError::ImageDecode {
-            message: format!("从扩展导出的 PNG 图像解码失败: {e}"),
-        })?;
-
-    Ok(dynamic_img.to_rgba8())
+    tokio::task::spawn_blocking(move || {
+        image::load_from_memory(&file_bytes)
+            .map(|dynamic_img| dynamic_img.to_rgba8())
+            .map_err(|e| PlatformError::ImageDecode {
+                message: format!("从扩展导出的 PNG 图像解码失败: {e}"),
+            })
+    })
+    .await
+    .map_err(|error| PlatformError::Capture {
+        message: format!("扩展截图解码任务异常: {error}"),
+    })?
 }
 
 /// Windows / macOS 平台专用抓屏逻辑：基于 xcap 抓取主屏幕或多屏合成

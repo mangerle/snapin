@@ -121,20 +121,28 @@ pub async fn capture_fullscreen_portal() -> Result<RgbaImage, PlatformError> {
     tracing::debug!("Portal 截屏文件就绪，路径: {:?}", file_path);
 
     let t_dec_start = std::time::Instant::now();
-    let bytes = fs::read(&file_path).map_err(|e| PlatformError::Io {
-        path: file_path.to_string_lossy().to_string(),
-        source: e,
-    })?;
-    if let Err(e) = fs::remove_file(&file_path) {
-        tracing::warn!("清理 Portal 临时图片文件失败: {e}");
-    }
-    let dynamic_img = image::load_from_memory(&bytes).map_err(|e| PlatformError::ImageDecode {
-        message: format!(
-            "Portal 返回内容无法按受支持的图像格式解码，字节数: {}，原因: {e}",
-            bytes.len()
-        ),
-    })?;
-    let rgba_img = dynamic_img.into_rgba8();
+    let decode_path = file_path.clone();
+    let rgba_img = tokio::task::spawn_blocking(move || {
+        let bytes = fs::read(&decode_path).map_err(|e| PlatformError::Io {
+            path: decode_path.to_string_lossy().to_string(),
+            source: e,
+        })?;
+        if let Err(e) = fs::remove_file(&decode_path) {
+            tracing::warn!("清理 Portal 临时图片文件失败: {e}");
+        }
+        image::load_from_memory(&bytes)
+            .map(|dynamic_img| dynamic_img.into_rgba8())
+            .map_err(|e| PlatformError::ImageDecode {
+                message: format!(
+                    "Portal 返回内容无法按受支持的图像格式解码，字节数: {}，原因: {e}",
+                    bytes.len()
+                ),
+            })
+    })
+    .await
+    .map_err(|error| PlatformError::Portal {
+        message: format!("Portal 图像解码任务异常: {error}"),
+    })??;
     let t_dec_end = std::time::Instant::now();
     tracing::info!(
         "Portal 图片内存解码加载耗时: {:.2}ms",
