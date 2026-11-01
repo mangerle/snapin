@@ -1,6 +1,6 @@
 //! 椭圆与圆形标注图元绘制实现。
 
-use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect};
+use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect, SizeParam};
 use crate::annotation::style::{ColorRgba, LineStyle};
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
@@ -44,8 +44,10 @@ impl EllipseAction {
         }
     }
 
-    pub(crate) fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
-        self.stroke_width = stroke_w;
+    pub(crate) fn adjust_size(&mut self, param: SizeParam) {
+        if let SizeParam::Stroke(width) = param {
+            self.stroke_width = width;
+        }
     }
 
     pub(crate) fn bounds(&self) -> Option<Rect> {

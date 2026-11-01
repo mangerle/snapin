@@ -3,7 +3,7 @@
 //! 对指定矩形区域执行两轮可分离盒式模糊，近似高斯模糊效果。模糊在撤销/重做时
 //! 从底图重新计算，而不是保存像素快照，因此历史栈保持轻量且结果确定。
 
-use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect};
+use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect, SizeParam};
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use tiny_skia::PixmapMut;
@@ -53,8 +53,10 @@ impl BlurAction {
         }
     }
 
-    pub(crate) fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
-        self.radius = (stroke_w * 2.0).clamp(4.0, 50.0) as u32;
+    pub(crate) fn adjust_size(&mut self, param: SizeParam) {
+        if let SizeParam::Stroke(width) = param {
+            self.radius = (width * 2.0).clamp(4.0, 50.0) as u32;
+        }
     }
 
     pub(crate) fn bounds(&self) -> Option<Rect> {

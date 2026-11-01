@@ -1,6 +1,6 @@
 //! 步骤数字序号气泡标号图元绘制实现。
 
-use super::map_point;
+use super::{map_point, SizeParam};
 use crate::annotation::style::{BadgeStyle, ColorRgba};
 use crate::geometry::Rect;
 use crate::render::with_thread_local_text_renderer;
@@ -82,8 +82,10 @@ impl BadgeAction {
         });
     }
 
-    pub(crate) fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
-        self.radius = (stroke_w * 3.0).clamp(10.0, 48.0);
+    pub(crate) fn adjust_size(&mut self, param: SizeParam) {
+        if let SizeParam::Stroke(width) = param {
+            self.radius = (width * 3.0).clamp(10.0, 48.0);
+        }
     }
 
     pub(crate) fn bounds(&self) -> Option<Rect> {

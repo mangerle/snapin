@@ -1,6 +1,6 @@
 //! 截图原位翻译替换图元光栅化实现。
 
-use super::valid_rect;
+use super::{valid_rect, SizeParam};
 use crate::annotation::style::ColorRgba;
 use crate::config::enums::CoverMode;
 use crate::geometry::Rect;
@@ -128,9 +128,11 @@ impl TranslationAction {
         });
     }
 
-    pub(crate) fn adjust_size(&mut self, _stroke_w: f32, font_sz: f32) {
-        for item in &mut self.items {
-            item.font_size = font_sz;
+    pub(crate) fn adjust_size(&mut self, param: SizeParam) {
+        if let SizeParam::Font(size) = param {
+            for item in &mut self.items {
+                item.font_size = size;
+            }
         }
     }
 

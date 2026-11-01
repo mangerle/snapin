@@ -2,7 +2,7 @@
 //!
 //! 对指定矩形区域内的像素按照步长进行降采样网格填充，达到隐私遮蔽效果。
 
-use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect};
+use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect, SizeParam};
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Paint, PixmapMut, Rect as SkiaRect, Transform};
@@ -58,8 +58,10 @@ impl MosaicAction {
         }
     }
 
-    pub(crate) fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
-        self.cell_size = (stroke_w * 2.0).clamp(4.0, 50.0) as u32;
+    pub(crate) fn adjust_size(&mut self, param: SizeParam) {
+        if let SizeParam::Stroke(width) = param {
+            self.cell_size = (width * 2.0).clamp(4.0, 50.0) as u32;
+        }
     }
 
     pub(crate) fn bounds(&self) -> Option<Rect> {

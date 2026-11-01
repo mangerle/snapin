@@ -26,6 +26,18 @@ pub use translation::{TranslationAction, TranslationShapeItem};
 
 use crate::geometry::Rect;
 
+/// 图元尺寸调整参数。
+///
+/// 描边粗细与字号是互斥能力，用枚举替代 `adjust_size(stroke, font)` 的
+/// `0.0` 哨兵，避免调用方传错参数时静默改错字段。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SizeParam {
+    /// 调整描边粗细或等价视觉尺寸
+    Stroke(f32),
+    /// 调整文字字号
+    Font(f32),
+}
+
 /// 将历史结构体中的元组矩形转换为共享 [`Rect`]。
 ///
 /// 标注图元为了 Serde 兼容仍保存四元组，但所有新几何计算统一走结构体。

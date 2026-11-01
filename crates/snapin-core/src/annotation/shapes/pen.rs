@@ -1,6 +1,6 @@
 //! 平滑自由画笔标注图元实现。
 
-use super::{map_point, points_bounds};
+use super::{map_point, points_bounds, SizeParam};
 use crate::annotation::style::ColorRgba;
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
@@ -62,8 +62,10 @@ impl PenAction {
         );
     }
 
-    pub(crate) fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
-        self.stroke_width = stroke_w;
+    pub(crate) fn adjust_size(&mut self, param: SizeParam) {
+        if let SizeParam::Stroke(width) = param {
+            self.stroke_width = width;
+        }
     }
 
     pub(crate) fn bounds(&self) -> Option<Rect> {

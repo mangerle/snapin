@@ -2,7 +2,7 @@
 //!
 //! 采用半透明或正片叠底（Multiply）混合模式，确保高亮文本时底部的黑色文字永不被遮蔽。
 
-use super::{map_point, points_bounds};
+use super::{map_point, points_bounds, SizeParam};
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{BlendMode, LineCap, LineJoin, Paint, PathBuilder, PixmapMut, Stroke, Transform};
@@ -65,8 +65,10 @@ impl MarkerAction {
         );
     }
 
-    pub(crate) fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
-        self.stroke_width = (stroke_w * 2.5).max(4.0);
+    pub(crate) fn adjust_size(&mut self, param: SizeParam) {
+        if let SizeParam::Stroke(width) = param {
+            self.stroke_width = (width * 2.5).max(4.0);
+        }
     }
 
     pub(crate) fn bounds(&self) -> Option<Rect> {

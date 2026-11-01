@@ -3,7 +3,7 @@
 //! 箭头提供三种并列形态：实线箭杆、虚线箭杆、锥形填充箭杆（尾细头粗）。
 //! 三者在同一份几何基础上绘制，只在箭杆渲染方式上分叉。
 
-use super::map_point;
+use super::{map_point, SizeParam};
 use crate::annotation::style::{ArrowStyle, ColorRgba, LineStyle};
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
@@ -171,8 +171,10 @@ impl ArrowAction {
         }
     }
 
-    pub(crate) fn adjust_size(&mut self, stroke_w: f32, _font_sz: f32) {
-        self.stroke_width = stroke_w;
+    pub(crate) fn adjust_size(&mut self, param: SizeParam) {
+        if let SizeParam::Stroke(width) = param {
+            self.stroke_width = width;
+        }
     }
 
     pub(crate) fn bounds(&self) -> Option<Rect> {
@@ -290,7 +292,7 @@ mod tests {
         assert_eq!(pixmap.data()[tip_idx], 255);
         assert_eq!(pixmap.data()[tip_idx + 3], 255);
 
-        arrow.adjust_size(24.0, 0.0);
+        arrow.adjust_size(SizeParam::Stroke(24.0));
         assert_eq!(arrow.stroke_width, 24.0);
         arrow.draw(&mut pixmap.as_mut());
     }

@@ -5,7 +5,7 @@
 
 use crate::annotation::shapes::{
     ArrowAction, BadgeAction, BlurAction, EllipseAction, MarkerAction, MosaicAction, PenAction,
-    RectAction, SpotlightAction, TextAction, TranslationAction,
+    RectAction, SizeParam, SpotlightAction, TextAction, TranslationAction,
 };
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
@@ -57,20 +57,21 @@ impl AnnotationShape {
         }
     }
 
-    /// 动态调节图元尺寸 (粗细或字体大小)
-    pub fn adjust_size(&mut self, stroke_w: f32, font_sz: f32) {
+    /// 按尺寸语义调节图元：描边类只接受 [`SizeParam::Stroke`]，
+    /// 文本类只接受 [`SizeParam::Font`]，传错语义时不做任何修改。
+    pub fn adjust_size(&mut self, param: SizeParam) {
         match self {
-            Self::Rect(a) => a.adjust_size(stroke_w, font_sz),
-            Self::Ellipse(a) => a.adjust_size(stroke_w, font_sz),
-            Self::Arrow(a) => a.adjust_size(stroke_w, font_sz),
-            Self::Pen(a) => a.adjust_size(stroke_w, font_sz),
-            Self::Marker(a) => a.adjust_size(stroke_w, font_sz),
-            Self::Mosaic(a) => a.adjust_size(stroke_w, font_sz),
-            Self::Blur(a) => a.adjust_size(stroke_w, font_sz),
-            Self::Spotlight(a) => a.adjust_size(stroke_w, font_sz),
-            Self::Badge(a) => a.adjust_size(stroke_w, font_sz),
-            Self::Text(a) => a.adjust_size(stroke_w, font_sz),
-            Self::Translation(a) => a.adjust_size(stroke_w, font_sz),
+            Self::Rect(a) => a.adjust_size(param),
+            Self::Ellipse(a) => a.adjust_size(param),
+            Self::Arrow(a) => a.adjust_size(param),
+            Self::Pen(a) => a.adjust_size(param),
+            Self::Marker(a) => a.adjust_size(param),
+            Self::Mosaic(a) => a.adjust_size(param),
+            Self::Blur(a) => a.adjust_size(param),
+            Self::Spotlight(a) => a.adjust_size(param),
+            Self::Badge(a) => a.adjust_size(param),
+            Self::Text(a) => a.adjust_size(param),
+            Self::Translation(a) => a.adjust_size(param),
         }
     }
 
@@ -158,9 +159,10 @@ impl AnnotationHistory {
             | AnnotationShape::Arrow(_)
             | AnnotationShape::Pen(_)
             | AnnotationShape::Marker(_)
+            | AnnotationShape::Mosaic(_)
             | AnnotationShape::Blur(_)
             | AnnotationShape::Badge(_) => {
-                last.adjust_size(stroke_width, 0.0);
+                last.adjust_size(SizeParam::Stroke(stroke_width));
                 true
             }
             _ => false,
@@ -186,7 +188,7 @@ impl AnnotationHistory {
         };
         match last {
             AnnotationShape::Text(_) | AnnotationShape::Translation(_) => {
-                last.adjust_size(0.0, font_size);
+                last.adjust_size(SizeParam::Font(font_size));
                 true
             }
             _ => false,
@@ -411,6 +413,23 @@ mod tests {
         }));
         assert!(!history.adjust_last_stroke_width(12.0));
         assert!(history.adjust_last_font_size(30.0));
+    }
+
+    /// 马赛克也属于描边尺寸类图元，必须能被滚轮调粗细。
+    #[test]
+    fn test_adjust_last_stroke_width_covers_mosaic() {
+        use crate::annotation::shapes::MosaicAction;
+
+        let mut history = AnnotationHistory::default();
+        history.push(AnnotationShape::Mosaic(MosaicAction {
+            rect: (0.0, 0.0, 20.0, 20.0),
+            cell_size: 4,
+        }));
+        assert!(history.adjust_last_stroke_width(10.0));
+        match history.shape_at(0) {
+            Some(AnnotationShape::Mosaic(action)) => assert_eq!(action.cell_size, 20),
+            other => panic!("应为马赛克图元，实际: {other:?}"),
+        }
     }
 
     #[test]

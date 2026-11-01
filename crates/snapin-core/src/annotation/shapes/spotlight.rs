@@ -3,7 +3,7 @@
 //! 将聚光灯矩形之外的区域整体压暗，突出矩形内的内容；在撤销/重做时按底图
 //! 重新绘制，不保存像素快照。
 
-use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect};
+use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect, SizeParam};
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Paint, PixmapMut, Rect as SkiaRect, Transform};
@@ -42,7 +42,7 @@ impl SpotlightAction {
         }
     }
 
-    pub(crate) fn adjust_size(&mut self, _stroke_w: f32, _font_sz: f32) {}
+    pub(crate) fn adjust_size(&mut self, _param: SizeParam) {}
 
     pub(crate) fn bounds(&self) -> Option<Rect> {
         valid_rect(rect_from_tuple(self.rect))

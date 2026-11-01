@@ -1,6 +1,6 @@
 //! 文本标注图元绘制实现。
 
-use super::{estimate_text_width, map_point};
+use super::{estimate_text_width, map_point, SizeParam};
 use crate::annotation::style::ColorRgba;
 use crate::geometry::Rect;
 use crate::render::with_thread_local_text_renderer;
@@ -30,8 +30,10 @@ impl TextAction {
         });
     }
 
-    pub(crate) fn adjust_size(&mut self, _stroke_w: f32, font_sz: f32) {
-        self.font_size = font_sz;
+    pub(crate) fn adjust_size(&mut self, param: SizeParam) {
+        if let SizeParam::Font(size) = param {
+            self.font_size = size;
+        }
     }
 
     pub(crate) fn bounds(&self) -> Option<Rect> {
