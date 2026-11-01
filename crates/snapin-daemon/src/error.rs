@@ -30,8 +30,14 @@ pub enum DaemonError {
     },
 
     /// 消息载荷序列化/反序列化失败
-    #[error("IPC 消息 JSON 编解码失败: {0}")]
-    Json(#[from] serde_json::Error),
+    ///
+    /// 不把第三方 `serde_json::Error` 直接挂在公共枚举上，跨边界时只保留阶段
+    /// 与中文描述，避免依赖升级改变对外错误契约。
+    #[error("IPC 消息 JSON 编解码失败，阶段: {stage}，原因: {message}")]
+    Json {
+        stage: &'static str,
+        message: String,
+    },
 
     /// 守护进程业务处理返回失败
     #[error("守护进程处理指令失败: {0}")]

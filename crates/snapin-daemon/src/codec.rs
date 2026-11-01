@@ -61,7 +61,10 @@ pub async fn read_framed_message<R: AsyncReadExt + Unpin, T: for<'de> Deserializ
             source,
         })?;
 
-    let val = serde_json::from_slice(&buf)?;
+    let val = serde_json::from_slice(&buf).map_err(|error| DaemonError::Json {
+        stage: "解析请求/响应负载",
+        message: error.to_string(),
+    })?;
     Ok(val)
 }
 
@@ -70,7 +73,10 @@ pub async fn write_framed_message<W: AsyncWriteExt + Unpin, T: Serialize>(
     writer: &mut W,
     msg: &T,
 ) -> Result<(), DaemonError> {
-    let payload = serde_json::to_vec(msg)?;
+    let payload = serde_json::to_vec(msg).map_err(|error| DaemonError::Json {
+        stage: "序列化请求/响应负载",
+        message: error.to_string(),
+    })?;
 
     let len = payload.len();
     if len > MAX_IPC_FRAME_SIZE {
