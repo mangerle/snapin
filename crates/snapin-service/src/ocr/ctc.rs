@@ -26,15 +26,7 @@ pub fn ctc_greedy_decode(
     for timestep in 0..seq_len {
         let offset = timestep * num_classes;
         let row = &logits[offset..offset + num_classes];
-
-        let mut max_index = 0usize;
-        let mut max_value = f32::NEG_INFINITY;
-        for (index, &value) in row.iter().enumerate() {
-            if value > max_value {
-                max_value = value;
-                max_index = index;
-            }
-        }
+        let (max_index, max_value) = row_argmax(row);
 
         if max_index != 0 && max_index != last_index {
             if let Some(character) = map_class_to_character(max_index, dict) {

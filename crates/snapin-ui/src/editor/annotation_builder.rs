@@ -154,7 +154,7 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
             let rect = Rect::from_points(first, last);
             Some(AnnotationShape::Rect(RectAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
-                color: params.style.color_rgba,
+                color: params.style.color_rgba.into(),
                 stroke_width: params.style.stroke_width,
                 is_filled: params.style.filled,
                 corner_radius: params.style.corner_radius,
@@ -165,7 +165,7 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
             let rect = Rect::from_points(first, last);
             Some(AnnotationShape::Ellipse(EllipseAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
-                color: params.style.color_rgba,
+                color: params.style.color_rgba.into(),
                 stroke_width: params.style.stroke_width,
                 is_filled: params.style.filled,
                 line_style: params.style.line_style,
@@ -174,13 +174,13 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
         Tool::Arrow => Some(AnnotationShape::Arrow(ArrowAction {
             start: first,
             end: last,
-            color: params.style.color_rgba,
+            color: params.style.color_rgba.into(),
             stroke_width: params.style.stroke_width,
             style: params.style.arrow_style,
         })),
         Tool::Pen => Some(AnnotationShape::Pen(PenAction {
             points: pts.to_vec(),
-            color: params.style.color_rgba,
+            color: params.style.color_rgba.into(),
             stroke_width: params.style.stroke_width,
         })),
         Tool::Marker => Some(AnnotationShape::Marker(MarkerAction {
@@ -220,7 +220,7 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
                 center,
                 radius,
                 number: params.badge_number as usize,
-                color: params.style.color_rgba,
+                color: params.style.color_rgba.into(),
                 style: params.style.badge_style,
             }))
         }

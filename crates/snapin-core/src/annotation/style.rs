@@ -3,6 +3,36 @@
 use serde::{Deserialize, Serialize};
 use tiny_skia::{LineCap, Paint, Path, PixmapMut, Stroke, StrokeDash, Transform};
 
+/// 标注图元使用的 RGBA 颜色。
+///
+/// 使用具名新类型而不是四元组，避免与坐标、尺寸等 `(u8, u8, u8, u8)` 参数混淆；
+/// 序列化布局与历史四元组保持一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ColorRgba(pub u8, pub u8, pub u8, pub u8);
+
+impl ColorRgba {
+    /// 构造 RGBA 颜色。
+    pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self(r, g, b, a)
+    }
+
+    /// 构造不透明 RGB 颜色。
+    pub const fn opaque(r: u8, g: u8, b: u8) -> Self {
+        Self(r, g, b, 255)
+    }
+
+    /// 转为四元组，供仍在边界使用元组的第三方接口。
+    pub const fn to_tuple(self) -> (u8, u8, u8, u8) {
+        (self.0, self.1, self.2, self.3)
+    }
+}
+
+impl From<(u8, u8, u8, u8)> for ColorRgba {
+    fn from((r, g, b, a): (u8, u8, u8, u8)) -> Self {
+        Self(r, g, b, a)
+    }
+}
+
 /// 描边线型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -100,5 +130,20 @@ impl ArrowStyle {
             Self::Dashed => Some(LineStyle::Dashed),
             Self::Tapered => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod color_tests {
+    use super::*;
+
+    /// 新类型必须保持历史四元组的序列化布局，避免旧图元缓存失效。
+    #[test]
+    fn test_color_rgba_serializes_like_tuple() {
+        let color = ColorRgba::new(1, 2, 3, 4);
+        let encoded = serde_json::to_string(&color).expect("颜色应可序列化");
+        assert_eq!(encoded, "[1,2,3,4]");
+        let decoded: ColorRgba = serde_json::from_str(&encoded).expect("颜色应可反序列化");
+        assert_eq!(decoded, color);
     }
 }

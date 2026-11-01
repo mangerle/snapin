@@ -1,6 +1,7 @@
 //! 截图原位翻译替换图元光栅化实现。
 
 use super::valid_rect;
+use crate::annotation::style::ColorRgba;
 use crate::config::enums::CoverMode;
 use crate::geometry::Rect;
 use crate::render::with_thread_local_text_renderer;
@@ -17,9 +18,9 @@ pub struct TranslationShapeItem {
     /// 译文
     pub translated: String,
     /// 擦除背景主导色 RGBA
-    pub bg_color: (u8, u8, u8, u8),
+    pub bg_color: ColorRgba,
     /// 译文字体前景色 RGBA
-    pub text_color: (u8, u8, u8, u8),
+    pub text_color: ColorRgba,
     /// 适配后的字号大小 (pt)
     pub font_size: f32,
     /// 覆盖模式
@@ -120,7 +121,7 @@ impl TranslationAction {
                     TextBoxOptions {
                         rect: (rx, ry, rw, rh),
                         font_size,
-                        rgba: item.text_color,
+                        rgba: item.text_color.to_tuple(),
                     },
                 );
             }
@@ -184,8 +185,8 @@ mod tests {
             rect: (10.0, 10.0, 60.0, 30.0),
             original: "Hello".to_string(),
             translated: translated.to_string(),
-            bg_color: (255, 0, 0, 255),
-            text_color: (0, 0, 0, 255),
+            bg_color: (255, 0, 0, 255).into(),
+            text_color: (0, 0, 0, 255).into(),
             font_size: 16.0,
             cover_mode: CoverMode::SolidColor,
         }

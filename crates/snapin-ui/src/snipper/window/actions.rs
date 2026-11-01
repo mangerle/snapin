@@ -276,7 +276,7 @@ mod tests {
         // 添加一个全红色的填充矩形标注到全屏坐标 (15, 15, 20, 20)
         state.annotations.push(AnnotationShape::Rect(RectAction {
             rect: (15.0, 15.0, 20.0, 20.0),
-            color: (255, 0, 0, 255),
+            color: (255, 0, 0, 255).into(),
             stroke_width: 1.0,
             is_filled: true,
             corner_radius: 0.0,

@@ -50,7 +50,7 @@ fn test_mouse_wheel_continuous_stroke_width_and_retroactive_adjust() {
     // 模拟已绘制一个矩形标注
     state.annotations.push(AnnotationShape::Rect(RectAction {
         rect: (10.0, 10.0, 100.0, 100.0),
-        color: (255, 0, 0, 255),
+        color: (255, 0, 0, 255).into(),
         stroke_width: 4.0,
         is_filled: false,
         corner_radius: 0.0,

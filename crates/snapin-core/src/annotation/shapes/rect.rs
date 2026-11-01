@@ -1,7 +1,7 @@
 //! 矩形标注图元绘制实现。
 
 use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect};
-use crate::annotation::style::LineStyle;
+use crate::annotation::style::{ColorRgba, LineStyle};
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Paint, Path, PathBuilder, PixmapMut, Transform};
@@ -10,7 +10,7 @@ use tiny_skia::{Paint, Path, PathBuilder, PixmapMut, Transform};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RectAction {
     pub rect: (f32, f32, f32, f32),
-    pub color: (u8, u8, u8, u8),
+    pub color: ColorRgba,
     pub stroke_width: f32,
     pub is_filled: bool,
     /// 圆角半径（像素），0 表示直角；运行时自动收敛到短边一半以内
@@ -114,7 +114,7 @@ mod tests {
         let mut pixmap = Pixmap::new(180, 140).expect("分配 Pixmap 成功");
         RectAction {
             rect: (20.0, 20.0, 120.0, 80.0),
-            color: (255, 0, 0, 255),
+            color: (255, 0, 0, 255).into(),
             stroke_width: 4.0,
             is_filled: false,
             corner_radius,

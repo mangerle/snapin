@@ -1,7 +1,7 @@
 //! 步骤数字序号气泡标号图元绘制实现。
 
 use super::map_point;
-use crate::annotation::style::BadgeStyle;
+use crate::annotation::style::{BadgeStyle, ColorRgba};
 use crate::geometry::Rect;
 use crate::render::with_thread_local_text_renderer;
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 pub struct BadgeAction {
     pub center: (f32, f32),
     pub number: usize,
-    pub color: (u8, u8, u8, u8),
+    pub color: ColorRgba,
     pub radius: f32,
     /// 底板样式：实心圆底或空心描边
     #[serde(default)]
@@ -137,7 +137,7 @@ impl BadgeAction {
         }
 
         with_thread_local_text_renderer(|renderer| {
-            renderer.draw_badge_digit_rgba(pixmap, cx, cy, self.number, r, self.color);
+            renderer.draw_badge_digit_rgba(pixmap, cx, cy, self.number, r, self.color.to_tuple());
         });
     }
 }
@@ -159,7 +159,7 @@ mod tests {
         BadgeAction {
             center: (60.0, 60.0),
             number: 1,
-            color: (220, 38, 38, 255),
+            color: (220, 38, 38, 255).into(),
             radius: 24.0,
             style,
         }

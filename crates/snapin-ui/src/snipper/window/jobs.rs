@@ -153,8 +153,8 @@ mod tests {
             rect: (10.0, 10.0, 40.0, 20.0),
             original: "Hello".to_string(),
             translated: "你好".to_string(),
-            bg_color: (255, 255, 255, 255),
-            text_color: (0, 0, 0, 255),
+            bg_color: (255, 255, 255, 255).into(),
+            text_color: (0, 0, 0, 255).into(),
             font_size: 14.0,
             cover_mode: CoverMode::SolidColor,
         }

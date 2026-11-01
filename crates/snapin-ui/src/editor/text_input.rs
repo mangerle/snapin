@@ -80,7 +80,7 @@ impl TextInputSession {
             Some(AnnotationShape::Text(TextAction {
                 pos: self.pos,
                 text: self.text,
-                color: self.color,
+                color: self.color.into(),
                 font_size: self.font_size,
             }))
         }

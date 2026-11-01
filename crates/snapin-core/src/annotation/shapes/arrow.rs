@@ -4,7 +4,7 @@
 //! 三者在同一份几何基础上绘制，只在箭杆渲染方式上分叉。
 
 use super::map_point;
-use crate::annotation::style::{ArrowStyle, LineStyle};
+use crate::annotation::style::{ArrowStyle, ColorRgba, LineStyle};
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Transform};
@@ -14,7 +14,7 @@ use tiny_skia::{Paint, PathBuilder, PixmapMut, Transform};
 pub struct ArrowAction {
     pub start: (f32, f32),
     pub end: (f32, f32),
-    pub color: (u8, u8, u8, u8),
+    pub color: ColorRgba,
     pub stroke_width: f32,
     /// 箭头形态：实线 / 虚线 / 锥形
     #[serde(default)]
@@ -221,7 +221,7 @@ mod tests {
         ArrowAction {
             start: (20.0, 60.0),
             end: (220.0, 60.0),
-            color: (255, 0, 0, 255),
+            color: (255, 0, 0, 255).into(),
             stroke_width,
             style,
         }
@@ -280,7 +280,7 @@ mod tests {
         let mut arrow = ArrowAction {
             start: (20.0, 20.0),
             end: (180.0, 180.0),
-            color: (255, 0, 0, 255),
+            color: (255, 0, 0, 255).into(),
             stroke_width: 8.0,
             style: ArrowStyle::Tapered,
         };

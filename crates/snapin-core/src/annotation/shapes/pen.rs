@@ -1,6 +1,7 @@
 //! 平滑自由画笔标注图元实现。
 
 use super::{map_point, points_bounds};
+use crate::annotation::style::ColorRgba;
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{LineCap, LineJoin, Paint, PathBuilder, PixmapMut, Stroke, Transform};
@@ -9,7 +10,7 @@ use tiny_skia::{LineCap, LineJoin, Paint, PathBuilder, PixmapMut, Stroke, Transf
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PenAction {
     pub points: Vec<(f32, f32)>,
-    pub color: (u8, u8, u8, u8),
+    pub color: ColorRgba,
     pub stroke_width: f32,
 }
 
@@ -53,7 +54,7 @@ impl PenAction {
     pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         Self::draw_points_offset(
             &self.points,
-            self.color,
+            self.color.to_tuple(),
             self.stroke_width,
             pixmap,
             offset_x,

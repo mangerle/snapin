@@ -1,6 +1,7 @@
 //! 文本标注图元绘制实现。
 
 use super::{estimate_text_width, map_point};
+use crate::annotation::style::ColorRgba;
 use crate::geometry::Rect;
 use crate::render::with_thread_local_text_renderer;
 use serde::{Deserialize, Serialize};
@@ -11,7 +12,7 @@ use tiny_skia::PixmapMut;
 pub struct TextAction {
     pub pos: (f32, f32),
     pub text: String,
-    pub color: (u8, u8, u8, u8),
+    pub color: ColorRgba,
     pub font_size: f32,
 }
 
@@ -25,7 +26,7 @@ impl TextAction {
         let font_size = self.font_size.max(8.0);
 
         with_thread_local_text_renderer(|renderer| {
-            renderer.draw_text_rgba(pixmap, &self.text, x, y, font_size, self.color);
+            renderer.draw_text_rgba(pixmap, &self.text, x, y, font_size, self.color.to_tuple());
         });
     }
 

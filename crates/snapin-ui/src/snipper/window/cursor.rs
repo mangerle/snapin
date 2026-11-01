@@ -185,7 +185,7 @@ mod tests {
         };
         state.annotations.push(AnnotationShape::Rect(RectAction {
             rect: (100.0, 100.0, 200.0, 120.0),
-            color: (255, 0, 0, 255),
+            color: (255, 0, 0, 255).into(),
             stroke_width: 2.0,
             is_filled: false,
             corner_radius: 0.0,

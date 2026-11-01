@@ -60,8 +60,8 @@ pub(super) fn build_translation_items(
             ),
             original: block.text.clone(),
             translated: translated.to_string(),
-            bg_color,
-            text_color,
+            bg_color: bg_color.into(),
+            text_color: text_color.into(),
             font_size,
             cover_mode: placement.cover_mode,
         });
