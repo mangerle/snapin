@@ -133,13 +133,11 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
 /// 获取设置中心后台任务运行时：优先复用当前 Tokio 上下文，否则使用进程级共享实例。
 fn settings_runtime() -> Result<TaskRuntime, SettingsError> {
     TaskRuntime::current(8).or_else(|current_error| {
-        TaskRuntime::shared("snapin-settings", 8)
-            .cloned()
-            .ok_or_else(|| {
-                SettingsError::Runtime(format!(
-                    "当前运行时不可用（{current_error}），进程级共享运行时创建失败"
-                ))
-            })
+        TaskRuntime::shared().cloned().ok_or_else(|| {
+            SettingsError::Runtime(format!(
+                "当前运行时不可用（{current_error}），进程级共享运行时创建失败"
+            ))
+        })
     })
 }
 

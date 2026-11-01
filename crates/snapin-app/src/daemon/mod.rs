@@ -25,7 +25,7 @@ use snapin_platform::{
     enable_gnome_extension, send_desktop_notification, sync_hotkeys_to_gnome,
     PlatformHotkeyListener, PlatformTray,
 };
-use snapin_runtime::TaskRuntime;
+use snapin_runtime::{TaskPool, TaskRuntime};
 use snapin_ui::paster::{
     create_paster_workspace, run_paster_workspace_loop, PasterWorkspaceOptions,
     PasterWorkspaceProxy, SnipperFinishedCallback,
@@ -355,7 +355,7 @@ async fn announce_daemon_startup(cfg: &Config, services: &Arc<AppServices>) {
         let interval_hours = cfg.general.update_check_interval_hours.max(1);
         let runtime = services.runtime();
         let cancel = runtime.cancellation_token();
-        if let Err(error) = runtime.spawn(async move {
+        if let Err(error) = runtime.spawn_in(TaskPool::Maintenance, async move {
             run_update_check_loop(check_url, interval_hours, cancel).await;
         }) {
             tracing::warn!("提交后台更新检查任务失败: {error}");

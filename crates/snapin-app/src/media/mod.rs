@@ -25,6 +25,7 @@ mod translate;
 mod worker;
 
 use crate::config::{config_snapshot, SharedConfig};
+use snapin_runtime::TaskPool;
 use snapin_service::ocr::LocalPpOcrEngine;
 use snapin_ui::{JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, PortError};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -71,7 +72,7 @@ impl MediaJobRunner for MediaService {
         let cache = self.ocr_cache.clone();
 
         self.runtime
-            .spawn(async move {
+            .spawn_in(TaskPool::Media, async move {
                 let outcome = worker::execute_job(job, config, cache, worker_cancel).await;
                 if !task_cancel.load(Ordering::Acquire) {
                     sink(job_id, outcome);

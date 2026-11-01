@@ -16,7 +16,7 @@ use shipup::{DownloadedUpdate, Update, UpdateEvent};
 use slint::{ComponentHandle, SharedString};
 use snapin_daemon::{send_request_to_daemon, DaemonRequest, DaemonResponse};
 use snapin_platform::lifecycle::spawn_detached_system_command;
-use snapin_runtime::{CancellationToken, TaskRuntime};
+use snapin_runtime::{CancellationToken, TaskPool, TaskRuntime};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -118,7 +118,7 @@ fn setup_check_callback(win: &SettingsWindow, context: UpdateContext) {
         let task_cancel = cancel.clone();
         let reset_runtime = runtime.clone();
         let reset_cancel = cancel.clone();
-        let spawn_result = runtime.spawn_blocking(move || {
+        let spawn_result = runtime.spawn_blocking_in(TaskPool::Maintenance, move || {
             let custom_url = config_snapshot.snapshot().general.custom_update_url.clone();
             let result = snapin_updater::check_update(custom_url.as_deref());
             if task_cancel.is_cancelled() {
@@ -236,7 +236,7 @@ fn setup_download_callback(win: &SettingsWindow, context: UpdateContext) {
         let win_weak_async = win_weak.clone();
         let downloaded_holder_clone = downloaded_holder.clone();
         let task_cancel = cancel.clone();
-        let spawn_result = runtime.spawn_blocking(move || {
+        let spawn_result = runtime.spawn_blocking_in(TaskPool::Maintenance, move || {
             let win_progress = win_weak_async.clone();
             let progress_cancel = task_cancel.clone();
             let download_res = update.download(move |event| {

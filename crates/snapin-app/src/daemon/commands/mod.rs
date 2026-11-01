@@ -70,7 +70,7 @@ fn start_snip(
     match services.runtime().spawn(async move {
         crate::snip::start_snipper_task(services, workspace, mode, delay_seconds).await;
     }) {
-        Ok(()) => DaemonResponse::Ok,
+        Ok(_) => DaemonResponse::Ok,
         Err(error) => {
             tracing::warn!("提交截图覆盖层任务失败: {error}");
             DaemonResponse::Error(format!("提交截图任务失败: {error}"))
@@ -81,7 +81,7 @@ fn start_snip(
 /// 在守护进程内执行清理，保证与媒体任务共享同一运行时并避免外部进程竞态。
 async fn clear_history() -> DaemonResponse {
     match crate::cleaner::clear_snip_history().await {
-        Ok(()) => DaemonResponse::Ok,
+        Ok(_) => DaemonResponse::Ok,
         Err(error) => {
             tracing::warn!("清理截屏历史失败: {error:#}");
             DaemonResponse::Error(format!("清理截屏历史失败: {error}"))

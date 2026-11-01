@@ -4,7 +4,7 @@
 //! `.wait().await` 收割；不再为每条命令分支创建临时 reaper 线程或裸 `tokio::spawn`，
 //! 从而把子进程取消、退出等待与 panic 观测纳入同一套后台任务契约。
 
-use snapin_runtime::TaskRuntime;
+use snapin_runtime::{TaskPool, TaskRuntime};
 use std::ffi::{OsStr, OsString};
 use std::process::Stdio;
 
@@ -29,7 +29,7 @@ pub fn enable_gnome_extension() {
 /// 命令进入进程级后台运行时队列；队列满或运行时不可用时记录警告并放弃本次派生，
 /// 不阻塞调用线程，也不会创建不受追踪的临时线程。
 pub fn spawn_detached_system_command<P: AsRef<OsStr>>(program: &str, args: &[P]) {
-    let Some(runtime) = TaskRuntime::shared("snapin-platform-process", 16) else {
+    let Some(runtime) = TaskRuntime::shared() else {
         tracing::error!("后台进程运行时不可用，已放弃启动系统命令: {program}");
         return;
     };
@@ -37,7 +37,7 @@ pub fn spawn_detached_system_command<P: AsRef<OsStr>>(program: &str, args: &[P])
     let program = program.to_string();
     let arguments: Vec<OsString> = args.iter().map(|arg| arg.as_ref().to_os_string()).collect();
     let command_name = program.clone();
-    if let Err(error) = runtime.spawn(async move {
+    if let Err(error) = runtime.spawn_in(TaskPool::Process, async move {
         let spawned = tokio::process::Command::new(&program)
             .args(&arguments)
             .stdin(Stdio::null())

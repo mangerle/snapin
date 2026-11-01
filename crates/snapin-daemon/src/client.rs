@@ -134,9 +134,7 @@ pub async fn send_command_to_daemon(command: &DaemonRequest) -> Result<bool, Dae
 /// 优先复用调用方已有的 Tokio 运行时，没有上下文时使用进程级共享任务运行时；
 /// 不再为一次 IPC 通知创建临时线程或临时运行时。
 pub fn notify_daemon_reload_config() {
-    let runtime = snapin_runtime::TaskRuntime::current(4)
-        .ok()
-        .or_else(|| snapin_runtime::TaskRuntime::shared("snapin-daemon-client", 4).cloned());
+    let runtime = snapin_runtime::TaskRuntime::shared().cloned();
     let Some(runtime) = runtime else {
         tracing::warn!("后台任务运行时不可用，配置热重载通知未发送");
         return;
