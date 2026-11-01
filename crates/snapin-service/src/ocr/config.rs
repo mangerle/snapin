@@ -40,7 +40,7 @@ impl LocalOcrPaths {
             root.join("rec").join("inference.onnx"),
             root.join("ch_PP-OCRv6_small_rec.onnx"),
         ];
-        let rec_model = rec_candidates.into_iter().find(|p| p.exists())?;
+        let rec_model = rec_candidates.into_iter().find(|p| is_non_empty_file(p))?;
 
         // 2. 优先探测完整命名的检测模型
         let det_candidates = [
@@ -50,7 +50,7 @@ impl LocalOcrPaths {
             root.join("det").join("inference.onnx"),
             root.join("ch_PP-OCRv6_small_det.onnx"),
         ];
-        let det_model = det_candidates.into_iter().find(|p| p.exists())?;
+        let det_model = det_candidates.into_iter().find(|p| is_non_empty_file(p))?;
 
         // 3. 优先探测识别模型对应的完整命名配置文件与字典
         let config_candidates = [
@@ -63,7 +63,9 @@ impl LocalOcrPaths {
             root.join("inference.yml"),
             root.join("ppocrv6_dict.txt"),
         ];
-        let rec_config = config_candidates.into_iter().find(|p| p.exists())?;
+        let rec_config = config_candidates
+            .into_iter()
+            .find(|p| is_non_empty_file(p))?;
 
         Some(Self {
             rec_model,
@@ -72,7 +74,7 @@ impl LocalOcrPaths {
         })
     }
 
-    /// 按照 XDG 规范三级回退链搜索并定位模型资产
+    /// 按 XDG 规范三级回退链搜索并定位模型资产
     pub fn resolve_model_paths(custom_dir: Option<&Path>) -> Result<Self, ServiceError> {
         // 1. 自定义显式指定路径：显式配置无效时必须直接报错，禁止静默回退到其他目录。
         if let Some(custom) = custom_dir {
@@ -154,6 +156,13 @@ impl LocalOcrPaths {
     }
 }
 
+/// 模型资产必须是存在、非目录且非空的常规文件。
+fn is_non_empty_file(path: &Path) -> bool {
+    path.metadata()
+        .map(|metadata| metadata.is_file() && metadata.len() > 0)
+        .unwrap_or(false)
+}
+
 /// 加载字符字典 (支持从 inference.yml 或 dict.txt 自动适配)
 pub fn load_character_dict(config_path: &Path) -> Result<Vec<String>, ServiceError> {
     if !config_path.exists() {
@@ -166,6 +175,12 @@ pub fn load_character_dict(config_path: &Path) -> Result<Vec<String>, ServiceErr
         path: config_path.to_string_lossy().to_string(),
         source: e,
     })?;
+    if content.trim().is_empty() {
+        return Err(ServiceError::ConfigParseError {
+            path: config_path.to_string_lossy().to_string(),
+            reason: "模型字典文件为空".to_string(),
+        });
+    }
 
     // 若为纯文本字典 (每行一个字符)
     if config_path.extension().and_then(|s| s.to_str()) == Some("txt") {
@@ -199,4 +214,31 @@ pub fn load_character_dict(config_path: &Path) -> Result<Vec<String>, ServiceErr
         path: config_path.to_string_lossy().to_string(),
         reason: "未能从配置文件中解析出有效的 character_dict 字符列表".to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 目录、空文件与缺失文件都不能被当作模型资产。
+    #[test]
+    fn test_discover_in_root_rejects_invalid_assets() {
+        let dir = tempfile::tempdir().expect("创建临时目录失败");
+        assert!(LocalOcrPaths::discover_in_root(dir.path()).is_none());
+
+        let rec_dir = dir.path().join("ppocrv6_small_rec.onnx");
+        std::fs::create_dir(&rec_dir).expect("创建同名目录失败");
+        assert!(LocalOcrPaths::discover_in_root(dir.path()).is_none());
+
+        std::fs::remove_dir(&rec_dir).expect("删除目录失败");
+        std::fs::write(&rec_dir, b"").expect("写入空文件失败");
+        assert!(LocalOcrPaths::discover_in_root(dir.path()).is_none());
+
+        std::fs::write(&rec_dir, b"model").expect("写入模型占位内容失败");
+        std::fs::write(dir.path().join("ppocrv6_small_det.onnx"), b"model")
+            .expect("写入检测模型占位内容失败");
+        std::fs::write(dir.path().join("ppocrv6_small_rec.yml"), b"PostProcess:\n")
+            .expect("写入配置占位内容失败");
+        assert!(LocalOcrPaths::discover_in_root(dir.path()).is_some());
+    }
 }
