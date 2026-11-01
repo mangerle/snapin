@@ -3,9 +3,8 @@
 //! 基于 cosmic-text 提供统一的多语言中英文字体加载、高精度排版与 Alpha 混合像素流转，
 //! 并提供线程局部缓存以避免在非主干上下文内重复扫描与初始化系统字体库。
 
-use cosmic_text::{
-    Attrs, Buffer, Color as CosmicColor, FontSystem, Metrics, Shaping, SwashCache, Weight,
-};
+use super::raster::blend_glyph_rgba;
+use cosmic_text::{Attrs, Buffer, Color as CosmicColor, FontSystem, Metrics, Shaping, SwashCache};
 use std::cell::RefCell;
 use tiny_skia::{Color, PixmapMut};
 
@@ -24,8 +23,8 @@ const FONT_SHRINK_ATTEMPTS: usize = 3;
 
 /// 纯 Rust 高精度文本渲染上下文
 pub struct TextRenderer {
-    font_system: FontSystem,
-    swash_cache: SwashCache,
+    pub(super) font_system: FontSystem,
+    pub(super) swash_cache: SwashCache,
 }
 
 impl Default for TextRenderer {
@@ -153,202 +152,6 @@ impl TextRenderer {
             font_size = (font_size * FONT_SHRINK_STEP).max(MIN_BOX_FONT_SIZE);
         }
     }
-
-    /// 按包围盒宽度完成折行排版，返回可供测量的就绪缓冲区。
-    ///
-    /// 排版视口高度取 `box_h` 与单行行高的较大值：cosmic-text 只会排布视口内可见的行，
-    /// 若直接用 `box_h` 作为视口高度，当盒高不足一行时会排布出零行文本并绘制成空白，
-    /// 表现为"翻译/标注文字莫名消失"。保底一行既保证始终有可见字形，
-    /// 又让溢出判断自然收敛（total_text_h 至少为一个行高，必然高于不足的盒高）。
-    fn shape_box_text(
-        &mut self,
-        text: &str,
-        font_size: f32,
-        line_height: f32,
-        box_w: f32,
-        box_h: f32,
-    ) -> Buffer {
-        let metrics = Metrics::new(font_size, line_height);
-        let mut buffer = Buffer::new(&mut self.font_system, metrics);
-        buffer.set_size(&mut self.font_system, box_w, box_h.max(line_height));
-        buffer.set_text(&mut self.font_system, text, Attrs::new(), Shaping::Advanced);
-        buffer.shape_until_scroll(&mut self.font_system, false);
-        buffer
-    }
-
-    /// 将排版完成的缓冲区落笔到包围盒内，并把字形像素严格裁剪在盒形区域。
-    ///
-    /// 裁剪同时受盒形范围与画布物理边界约束：前者保证溢出文本不外溢，
-    /// 后者保证索引换算不会越出像素缓冲区。
-    fn paint_buffer_in_box(
-        &mut self,
-        pixmap: &mut PixmapMut,
-        buffer: &mut Buffer,
-        options: &TextBoxOptions,
-        vertical_offset: f32,
-    ) {
-        let (x, y, box_w, box_h) = options.rect;
-        let color = CosmicColor::rgba(
-            options.rgba.0,
-            options.rgba.1,
-            options.rgba.2,
-            options.rgba.3,
-        );
-        let width = pixmap.width() as i32;
-        let height = pixmap.height() as i32;
-        let origin_x = x as i32;
-        let origin_y = (y + vertical_offset) as i32;
-        let max_x = (x + box_w).floor() as i32;
-        let max_y = (y + box_h).floor() as i32;
-
-        buffer.draw(
-            &mut self.font_system,
-            &mut self.swash_cache,
-            color,
-            |gx, gy, _w, _h, c| {
-                let px = origin_x + gx;
-                let py = origin_y + gy;
-                let inside_box = px >= origin_x && px < max_x && py >= origin_y && py < max_y;
-                let inside_canvas = px >= 0 && px < width && py >= 0 && py < height;
-                if inside_box && inside_canvas {
-                    let idx = ((py as usize) * (width as usize) + (px as usize)) * 4;
-                    blend_glyph_rgba(pixmap.data_mut(), idx, c.r(), c.g(), c.b(), c.a());
-                }
-            },
-        );
-    }
-
-    /// 在气泡中心高精排版绘制白色加粗数字（实心徽标默认配色）
-    pub fn draw_badge_digit(
-        &mut self,
-        pixmap: &mut PixmapMut,
-        cx: f32,
-        cy: f32,
-        num: usize,
-        r: f32,
-    ) {
-        self.draw_badge_digit_rgba(pixmap, cx, cy, num, r, (255, 255, 255, 255));
-    }
-
-    /// 以指定颜色在气泡中心绘制加粗数字，供空心描边徽标与实心徽标共用
-    pub fn draw_badge_digit_rgba(
-        &mut self,
-        pixmap: &mut PixmapMut,
-        cx: f32,
-        cy: f32,
-        num: usize,
-        r: f32,
-        rgba: (u8, u8, u8, u8),
-    ) {
-        let text = num.to_string();
-        let font_size = if num < 10 {
-            r * 1.35
-        } else if num < 100 {
-            r * 1.05
-        } else {
-            r * 0.8
-        };
-
-        let metrics = Metrics::new(font_size, font_size * 1.25);
-        let mut buffer = Buffer::new(&mut self.font_system, metrics);
-        buffer.set_size(&mut self.font_system, r * 4.0, r * 4.0);
-        buffer.set_text(
-            &mut self.font_system,
-            &text,
-            Attrs::new().weight(Weight::BOLD),
-            Shaping::Advanced,
-        );
-        buffer.shape_until_scroll(&mut self.font_system, false);
-
-        // 先预计算所有字形包围盒，确保精准几何光学居中
-        let mut min_gx = f32::MAX;
-        let mut max_gx = f32::MIN;
-        let mut min_gy = f32::MAX;
-        let mut max_gy = f32::MIN;
-        let mut has_glyphs = false;
-
-        buffer.draw(
-            &mut self.font_system,
-            &mut self.swash_cache,
-            CosmicColor::rgba(rgba.0, rgba.1, rgba.2, rgba.3),
-            |gx, gy, w, h, _c| {
-                if w > 0 && h > 0 {
-                    has_glyphs = true;
-                    min_gx = min_gx.min(gx as f32);
-                    max_gx = max_gx.max((gx + w as i32) as f32);
-                    min_gy = min_gy.min(gy as f32);
-                    max_gy = max_gy.max((gy + h as i32) as f32);
-                }
-            },
-        );
-
-        let (offset_x, offset_y) = if has_glyphs {
-            let text_center_x = (min_gx + max_gx) / 2.0;
-            let text_center_y = (min_gy + max_gy) / 2.0;
-            (cx - text_center_x, cy - text_center_y)
-        } else {
-            (cx - font_size * 0.3, cy - font_size * 0.5)
-        };
-
-        let width = pixmap.width() as i32;
-        let height = pixmap.height() as i32;
-
-        buffer.draw(
-            &mut self.font_system,
-            &mut self.swash_cache,
-            CosmicColor::rgba(rgba.0, rgba.1, rgba.2, rgba.3),
-            |gx, gy, _w, _h, c| {
-                let px = offset_x as i32 + gx;
-                let py = offset_y as i32 + gy;
-                if px >= 0 && px < width && py >= 0 && py < height {
-                    let idx = ((py as usize) * (width as usize) + (px as usize)) * 4;
-                    blend_glyph_rgba(pixmap.data_mut(), idx, c.r(), c.g(), c.b(), c.a());
-                }
-            },
-        );
-    }
-
-    /// 测量输入框文本布局尺寸，返回行宽 (line_w) 与相对末尾字形右边界偏移量 (rel_cursor_x)
-    pub fn measure_text_input(
-        &mut self,
-        text: &str,
-        font_size: f32,
-        line_height: f32,
-        max_w: f32,
-        max_h: f32,
-    ) -> (f32, f32) {
-        if text.is_empty() {
-            return (0.0, 0.0);
-        }
-
-        let metrics = Metrics::new(font_size, line_height);
-        let mut buffer = Buffer::new(&mut self.font_system, metrics);
-        buffer.set_size(&mut self.font_system, max_w, max_h);
-        buffer.set_text(&mut self.font_system, text, Attrs::new(), Shaping::Advanced);
-        buffer.shape_until_scroll(&mut self.font_system, false);
-
-        let mut line_w: f32 = 0.0;
-        for run in buffer.layout_runs() {
-            if run.line_w > line_w {
-                line_w = run.line_w;
-            }
-        }
-
-        let mut max_gx: f32 = 0.0;
-        buffer.draw(
-            &mut self.font_system,
-            &mut self.swash_cache,
-            CosmicColor::rgba(255, 255, 255, 255),
-            |gx, _gy, w, _h, _c| {
-                if (gx + w as i32) as f32 > max_gx {
-                    max_gx = (gx + w as i32) as f32;
-                }
-            },
-        );
-
-        let cursor_offset = max_gx + 2.0;
-        (line_w, cursor_offset)
-    }
 }
 
 /// 借用线程局部文本渲染器执行闭包，避免在临时标注图元中反复分配字体引擎
@@ -357,28 +160,6 @@ pub fn with_thread_local_text_renderer<R>(f: impl FnOnce(&mut TextRenderer) -> R
         let mut renderer = cell.borrow_mut();
         f(&mut renderer)
     })
-}
-
-/// 将单个字形像素通过 Alpha 混合写入目标 RGBA 缓冲区。
-///
-/// tiny-skia 的 `Pixmap` 缓冲区使用预乘 Alpha 布局，因此目标通道值已经是
-/// “颜色 × 自身 Alpha”的结果，混合时只能再乘 `(1 - src_a)`，绝不能再乘一次
-/// `dst_a`，也不能除以 `out_a` 转回直通色。违反该约定会让透明贴图与磨砂玻璃
-/// 擦除层上的文字偏亮，并污染后续按预乘假设采样的模糊图元。
-#[inline]
-fn blend_glyph_rgba(data: &mut [u8], idx: usize, r: u8, g: u8, b: u8, a: u8) {
-    let src_a = a as f32 / 255.0;
-    let dst_a = data[idx + 3] as f32 / 255.0;
-    let out_a = src_a + dst_a * (1.0 - src_a);
-    if out_a <= 0.0 {
-        return;
-    }
-
-    let inv_src_a = 1.0 - src_a;
-    data[idx] = (r as f32 * src_a + data[idx] as f32 * inv_src_a).round() as u8;
-    data[idx + 1] = (g as f32 * src_a + data[idx + 1] as f32 * inv_src_a).round() as u8;
-    data[idx + 2] = (b as f32 * src_a + data[idx + 2] as f32 * inv_src_a).round() as u8;
-    data[idx + 3] = (out_a * 255.0).round() as u8;
 }
 
 #[cfg(test)]
@@ -406,7 +187,16 @@ mod tests {
     fn test_thread_local_text_renderer() {
         let mut pixmap = Pixmap::new(50, 50).unwrap();
         with_thread_local_text_renderer(|renderer| {
-            renderer.draw_badge_digit(&mut pixmap.as_mut(), 25.0, 25.0, 1, 15.0);
+            renderer.draw_centered_bold_text(
+                &mut pixmap.as_mut(),
+                "1",
+                crate::render::CenteredTextOptions {
+                    center: (25.0, 25.0),
+                    font_size: 15.0,
+                    max_extent: 60.0,
+                    rgba: (255, 255, 255, 255),
+                },
+            );
         });
         let has_pixel = pixmap.data().iter().any(|&b| b > 0);
         assert!(has_pixel, "标号数字排版绘制应写入非零像素");
@@ -464,18 +254,5 @@ mod tests {
             );
         }
         assert!(painted > 0, "裁剪后仍应写入可见字形像素");
-    }
-
-    /// 半透明目标像素必须按预乘 Alpha 混合：目标颜色只乘 `(1 - src_a)`，
-    /// 不能再次乘 `dst_a`，也不能除以 `out_a`。
-    #[test]
-    fn test_blend_glyph_keeps_premultiplied_destination() {
-        // 目标为预乘红色 (64, 0, 0, 128)，源为半透明蓝色 (0, 0, 255, 128)
-        let mut data = [64u8, 0, 0, 128];
-        blend_glyph_rgba(&mut data, 0, 0, 0, 255, 128);
-
-        // out_a = 0.502 + 0.502 * 0.498 = 0.752 -> 192
-        // out_r = 64 * 0.498 = 32，out_b = 255 * 0.502 = 128
-        assert_eq!(data, [32, 0, 128, 192]);
     }
 }

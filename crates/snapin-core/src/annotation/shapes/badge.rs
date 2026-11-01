@@ -3,7 +3,7 @@
 use super::{map_point, SizeParam};
 use crate::annotation::style::{BadgeStyle, ColorRgba};
 use crate::geometry::Rect;
-use crate::render::with_thread_local_text_renderer;
+use crate::render::{with_thread_local_text_renderer, CenteredTextOptions, TextRenderer};
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
@@ -78,8 +78,37 @@ impl BadgeAction {
 
         // 3. 使用统一文本基础设施高精排版渲染现代纯白加粗数字 (绝对光学居中)
         with_thread_local_text_renderer(|renderer| {
-            renderer.draw_badge_digit(pixmap, cx, cy, self.number, r);
+            self.draw_digit(renderer, pixmap, cx, cy, r, (255, 255, 255, 255));
         });
+    }
+
+    /// 按序号位数选择字号，并复用渲染层的通用几何居中能力。
+    fn draw_digit(
+        &self,
+        renderer: &mut TextRenderer,
+        pixmap: &mut PixmapMut,
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        rgba: (u8, u8, u8, u8),
+    ) {
+        let font_size = if self.number < 10 {
+            radius * 1.35
+        } else if self.number < 100 {
+            radius * 1.05
+        } else {
+            radius * 0.8
+        };
+        renderer.draw_centered_bold_text(
+            pixmap,
+            &self.number.to_string(),
+            CenteredTextOptions {
+                center: (cx, cy),
+                font_size,
+                max_extent: radius * 4.0,
+                rgba,
+            },
+        );
     }
 
     pub(crate) fn adjust_size(&mut self, param: SizeParam) {
@@ -139,7 +168,7 @@ impl BadgeAction {
         }
 
         with_thread_local_text_renderer(|renderer| {
-            renderer.draw_badge_digit_rgba(pixmap, cx, cy, self.number, r, self.color.to_tuple());
+            self.draw_digit(renderer, pixmap, cx, cy, r, self.color.to_tuple());
         });
     }
 }
