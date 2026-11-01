@@ -4,9 +4,6 @@
 //! 提取出来，可避免贴图模块反向依赖截图模块，也避免两边各维护一份工具栏与
 //! 文本输入状态机。
 
-pub mod annotation_builder;
-pub mod text_input;
-pub mod toolbar;
-
-pub use text_input::TextInputSession;
-pub use toolbar::{Tool, Toolbar, ToolbarAction, ToolbarItem};
+pub(crate) mod annotation_builder;
+pub(crate) mod text_input;
+pub(crate) mod toolbar;

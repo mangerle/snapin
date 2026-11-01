@@ -5,7 +5,7 @@ use snapin_core::AppPaths;
 use std::path::PathBuf;
 
 /// 将路径开头的 `~` 展开为真实用户主目录，兼容 Unix `/` 与 Windows `\` 分隔符。
-pub fn expand_home_dir(path_str: &str) -> PathBuf {
+pub(crate) fn expand_home_dir(path_str: &str) -> PathBuf {
     let Some(home) = AppPaths::home_dir() else {
         return PathBuf::from(path_str);
     };
@@ -22,7 +22,7 @@ pub fn expand_home_dir(path_str: &str) -> PathBuf {
 }
 
 /// 格式化时间戳占位符模板
-pub fn format_template(template: &str, dt: &chrono::DateTime<Local>) -> String {
+pub(crate) fn format_template(template: &str, dt: &chrono::DateTime<Local>) -> String {
     template
         .replace("{YYYY}", &dt.format("%Y").to_string())
         .replace("{MM}", &dt.format("%m").to_string())

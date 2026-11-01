@@ -3,19 +3,17 @@
 //! 提供基于纯 CPU 软件光栅化的全屏置顶截图交互（snipper）与常驻桌面贴图窗口（paster）。
 
 mod drawing;
-pub mod editor;
-pub mod error;
-pub mod geometry;
-pub mod model;
+pub(crate) mod editor;
+mod error;
+pub(crate) mod geometry;
+pub(crate) mod model;
 pub mod paster;
-pub mod ports;
+pub(crate) mod ports;
 pub mod snipper;
-pub mod surface;
+pub(crate) mod surface;
 
 pub use error::UiError;
 pub use ports::{
     ConfigStore, DesktopPort, JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner,
-    NoopDesktop, PortError,
+    PortError,
 };
-pub use surface::blit_pixmap_to_surface;
-pub use winit;

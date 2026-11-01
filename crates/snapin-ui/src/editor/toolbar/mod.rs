@@ -15,9 +15,7 @@ pub mod render;
 #[cfg(test)]
 mod tests;
 
-pub use items::{
-    preset_colors, StrokeWidthLevel, SubToolOptions, Tool, ToolbarAction, ToolbarItem,
-};
+pub use items::{StrokeWidthLevel, SubToolOptions, Tool, ToolbarAction, ToolbarItem};
 
 use crate::geometry::Rect;
 pub(crate) use layout::SubControl;
