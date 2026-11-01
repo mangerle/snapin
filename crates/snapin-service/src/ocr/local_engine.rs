@@ -24,7 +24,7 @@ use ort::environment::Environment;
 use ort::session::Session;
 use ort::value::Tensor;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 /// 本地 PP-OCR 推理引擎（内部共享会话，可安全克隆后跨线程传递）
@@ -100,6 +100,17 @@ impl OcrEngine for LocalPpOcrEngine {
 }
 
 impl EngineInner {
+    /// 获取推理会话锁；锁中毒表示此前的推理线程发生过 panic。
+    ///
+    /// ONNX Runtime 的会话对象本身没有需要回滚的 Rust 状态，因此恢复内部守卫继续推理，
+    /// 比让整个进程永久失去 OCR 能力更符合局部故障隔离原则。
+    fn lock_sessions(&self) -> MutexGuard<'_, OcrSessions> {
+        self.sessions.lock().unwrap_or_else(|poisoned| {
+            tracing::debug!("OCR 推理会话锁已中毒，恢复内部状态后继续推理");
+            poisoned.into_inner()
+        })
+    }
+
     fn recognize(&self, image: &RgbaImage) -> Result<OcrResult, ServiceError> {
         let (image_width, image_height) = image.dimensions();
         if image_width == 0 || image_height == 0 {
@@ -111,14 +122,6 @@ impl EngineInner {
         if detection_input.chw.is_empty() {
             return Ok(OcrResult::default());
         }
-
-        let mut sessions = self
-            .sessions
-            .lock()
-            .map_err(|_| ServiceError::InferenceError {
-                stage: "ocr_session_lock".to_string(),
-                reason: "OCR 推理会话锁已中毒".to_string(),
-            })?;
 
         let det_tensor = Tensor::from_array((
             vec![
@@ -132,35 +135,41 @@ impl EngineInner {
         .map_err(|error| inference_error("det_input", error))?;
 
         let det_started = Instant::now();
-        let det_outputs = sessions
-            .det
-            .run(ort::inputs![det_tensor])
-            .map_err(|error| inference_error("det_run", error))?;
-        let det_output = det_outputs
-            .get("fetch_name_0")
-            .ok_or_else(|| missing_output_error("det_run", "fetch_name_0"))?;
-        let (det_shape, probability_map) = det_output
-            .try_extract_tensor::<f32>()
-            .map_err(|error| inference_error("det_output", error))?;
+        // 只在检测推理与张量取数期间持有会话锁；二值化、膨胀、连通域等 CPU 后处理
+        // 放到锁外执行，避免多个 OCR 任务在纯计算阶段互相阻塞并长期占用阻塞线程。
+        let (det_dims, probability_map) = {
+            let mut sessions = self.lock_sessions();
+            let det_outputs = sessions
+                .det
+                .run(ort::inputs![det_tensor])
+                .map_err(|error| inference_error("det_run", error))?;
+            let det_output = det_outputs
+                .get("fetch_name_0")
+                .ok_or_else(|| missing_output_error("det_run", "fetch_name_0"))?;
+            let (det_shape, probability_map) = det_output
+                .try_extract_tensor::<f32>()
+                .map_err(|error| inference_error("det_output", error))?;
 
-        if det_shape.len() != 4 {
-            return Err(ServiceError::InferenceError {
-                stage: "det_output".to_string(),
-                reason: format!("检测模型输出维度异常: {:?}", det_shape),
-            });
-        }
+            if det_shape.len() != 4 {
+                return Err(ServiceError::InferenceError {
+                    stage: "det_output".to_string(),
+                    reason: format!("检测模型输出维度异常: {:?}", det_shape),
+                });
+            }
 
-        let map_height = det_shape[2] as usize;
-        let map_width = det_shape[3] as usize;
+            (det_shape.to_vec(), probability_map.to_vec())
+        };
+
+        let map_height = det_dims[2] as usize;
+        let map_width = det_dims[3] as usize;
         let boxes = extract_bounding_boxes(
-            probability_map,
+            &probability_map,
             map_width,
             map_height,
             image_width,
             image_height,
             &self.det_params,
         );
-        drop(det_outputs);
 
         tracing::debug!(
             "OCR 检测完成，文本框数量: {}，耗时: {:.2}ms",
@@ -187,12 +196,7 @@ impl EngineInner {
                 cropped
             };
 
-            let (text, confidence) = match recognize_text_line(
-                &mut sessions.rec,
-                &cropped,
-                &self.rec_preprocess,
-                &self.dict,
-            ) {
+            let (text, confidence) = match self.recognize_text_line(&cropped) {
                 Ok(Some(decoded)) => decoded,
                 Ok(None) => continue,
                 Err(error) => {
@@ -247,45 +251,54 @@ impl EngineInner {
 ///
 /// 当输入张量构造失败、ONNX Runtime 推理失败、输出名称缺失、输出张量解析失败，
 /// 或输出维度不是 `[1, 序列长度, 类别数]` 时返回 [`ServiceError::InferenceError`]。
-fn recognize_text_line(
-    session: &mut Session,
-    cropped: &RgbaImage,
-    params: &PreprocessParams,
-    dict: &[String],
-) -> Result<Option<(String, f32)>, ServiceError> {
-    let (chw, rec_width, rec_height) = preprocess_recognition_image(cropped, params);
-    if chw.is_empty() {
-        return Ok(None);
+impl EngineInner {
+    /// 对单个文本框裁剪图执行一次识别推理，返回去空白后的文本与平均置信度。
+    ///
+    /// 预处理与张量构造在锁外完成，锁只覆盖单次识别推理与 CTC 解码；
+    /// 这样逐行识别不会在整张图的生命周期内独占会话，其他 OCR 任务可以穿插执行。
+    fn recognize_text_line(
+        &self,
+        cropped: &RgbaImage,
+    ) -> Result<Option<(String, f32)>, ServiceError> {
+        let (chw, rec_width, rec_height) =
+            preprocess_recognition_image(cropped, &self.rec_preprocess);
+        if chw.is_empty() {
+            return Ok(None);
+        }
+
+        let rec_tensor =
+            Tensor::from_array((vec![1_i64, 3, rec_height as i64, rec_width as i64], chw))
+                .map_err(|error| inference_error("rec_input", error))?;
+
+        let mut sessions = self.lock_sessions();
+        let rec_outputs = sessions
+            .rec
+            .run(ort::inputs![rec_tensor])
+            .map_err(|error| inference_error("rec_run", error))?;
+        let rec_output = rec_outputs
+            .get("fetch_name_0")
+            .ok_or_else(|| missing_output_error("rec_run", "fetch_name_0"))?;
+        let (rec_shape, logits) = rec_output
+            .try_extract_tensor::<f32>()
+            .map_err(|error| inference_error("rec_output", error))?;
+
+        if rec_shape.len() != 3 {
+            return Err(ServiceError::InferenceError {
+                stage: "rec_output".to_string(),
+                reason: format!("识别模型输出维度异常: {:?}", rec_shape),
+            });
+        }
+
+        let sequence_len = rec_shape[1] as usize;
+        let class_count = rec_shape[2] as usize;
+        let (text, confidence) = ctc_greedy_decode(logits, sequence_len, class_count, &self.dict);
+        let text = text.trim().to_string();
+        if text.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some((text, confidence)))
     }
-
-    let rec_tensor = Tensor::from_array((vec![1_i64, 3, rec_height as i64, rec_width as i64], chw))
-        .map_err(|error| inference_error("rec_input", error))?;
-    let rec_outputs = session
-        .run(ort::inputs![rec_tensor])
-        .map_err(|error| inference_error("rec_run", error))?;
-    let rec_output = rec_outputs
-        .get("fetch_name_0")
-        .ok_or_else(|| missing_output_error("rec_run", "fetch_name_0"))?;
-    let (rec_shape, logits) = rec_output
-        .try_extract_tensor::<f32>()
-        .map_err(|error| inference_error("rec_output", error))?;
-
-    if rec_shape.len() != 3 {
-        return Err(ServiceError::InferenceError {
-            stage: "rec_output".to_string(),
-            reason: format!("识别模型输出维度异常: {:?}", rec_shape),
-        });
-    }
-
-    let sequence_len = rec_shape[1] as usize;
-    let class_count = rec_shape[2] as usize;
-    let (text, confidence) = ctc_greedy_decode(logits, sequence_len, class_count, dict);
-    let text = text.trim().to_string();
-    if text.is_empty() {
-        return Ok(None);
-    }
-
-    Ok(Some((text, confidence)))
 }
 
 /// 构建单个 ONNX 推理会话。

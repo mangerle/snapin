@@ -23,10 +23,10 @@ pub struct DbPostProcessParams {
 impl Default for DbPostProcessParams {
     fn default() -> Self {
         Self {
-            thresh: 0.3,
+            thresh: 0.2,
             box_thresh: 0.45,
             unclip_ratio: 1.4,
-            max_candidates: 256,
+            max_candidates: 3000,
         }
     }
 }
@@ -263,6 +263,35 @@ fn horizontal_dilate(mask: &[bool], width: usize, height: usize) -> Vec<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 后处理默认值必须与随模型发布的检测配置保持一致，避免静默漏检或截断候选框。
+    #[test]
+    fn test_default_params_match_model_det_config() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/models/ppocrv6/ppocrv6_small_det.yml");
+        let content = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("读取检测模型配置失败，路径: {path:?}，原因: {error}"));
+        let yaml: serde_yaml::Value =
+            serde_yaml::from_str(&content).expect("检测模型配置必须是合法 YAML");
+        let post = &yaml["PostProcess"];
+        let defaults = DbPostProcessParams::default();
+
+        let thresh = post["thresh"].as_f64().expect("配置必须包含 thresh") as f32;
+        let box_thresh = post["box_thresh"]
+            .as_f64()
+            .expect("配置必须包含 box_thresh") as f32;
+        let unclip_ratio = post["unclip_ratio"]
+            .as_f64()
+            .expect("配置必须包含 unclip_ratio") as f32;
+        let max_candidates = post["max_candidates"]
+            .as_u64()
+            .expect("配置必须包含 max_candidates") as usize;
+
+        assert_eq!(defaults.thresh, thresh);
+        assert_eq!(defaults.box_thresh, box_thresh);
+        assert_eq!(defaults.unclip_ratio, unclip_ratio);
+        assert_eq!(defaults.max_candidates, max_candidates);
+    }
 
     #[test]
     fn test_extract_single_text_box() {
