@@ -7,48 +7,48 @@ use snapin_core::config::Config;
 /// 执行 CLI 更新流程
 pub async fn run_cli_update(config: Option<Config>, check_only: bool) -> Result<()> {
     let custom_url = config.and_then(|c| c.general.custom_update_url);
-    println!("正在检查 Snapin 最新版本...");
+    tracing::info!("正在检查 Snapin 最新版本...");
 
     let update = snapin_updater::check_update_async(custom_url.as_deref())
         .await
         .context("检查更新失败")?;
 
     let Some(update) = update else {
-        println!(
+        tracing::info!(
             "当前已是最新版本 (v{})，无需更新。",
             env!("CARGO_PKG_VERSION")
         );
         return Ok(());
     };
 
-    print_update_info(&update);
+    log_update_info(&update);
 
     if check_only {
         return Ok(());
     }
 
-    println!("\n开始下载新版本更新包...");
+    tracing::info!("开始下载新版本更新包...");
     let downloaded = download_with_progress(update).await?;
 
-    println!("\n正在应用物理安装...");
+    tracing::info!("正在应用物理安装...");
     downloaded
         .install(|event| {
             tracing::info!("更新包物理落地: {event:?}");
         })
         .context("执行物理安装失败")?;
 
-    println!("Snapin 已成功升级至最新版本！请重启守护进程生效。");
+    tracing::info!("Snapin 已成功升级至最新版本，请重启守护进程生效。");
     Ok(())
 }
 
-/// 打印新版本摘要信息
-fn print_update_info(update: &Update) {
-    println!("\n发现可用新版本: v{}", update.version());
+/// 输出新版本摘要信息
+fn log_update_info(update: &Update) {
+    tracing::info!("发现可用新版本: v{}", update.version());
     if let Some(date) = update.pub_date() {
-        println!("发布时间: {date}");
+        tracing::info!("发布时间: {date}");
     }
     if let Some(notes) = update.notes() {
-        println!("\n更新日志:\n{notes}");
+        tracing::info!("更新日志:\n{notes}");
     }
 }
 
@@ -70,11 +70,10 @@ async fn download_with_progress(update: Update) -> Result<shipup::DownloadedUpda
                     None => "-- B/s".to_string(),
                 };
                 let p = percent.unwrap_or(0.0);
-                print!("\r下载进度: {p:.1}%  速率: {speed_str}      ");
-                let _ = std::io::Write::flush(&mut std::io::stdout());
+                tracing::debug!("下载进度: {p:.1}% 速率: {speed_str}");
             }
             UpdateEvent::VerifyingSignature => {
-                println!("\n正在验证 Ed25519 数字签名与 SHA-256 哈希完整性...");
+                tracing::info!("正在验证 Ed25519 数字签名与 SHA-256 哈希完整性...");
             }
             _ => {}
         })
