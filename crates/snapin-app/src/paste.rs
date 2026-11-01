@@ -129,7 +129,8 @@ fn write_rgba_into(pixmap: &mut Pixmap, src: &[u8]) -> Result<()> {
 /// 通过常驻守护进程展示外部图像文件。
 ///
 /// 图像解码与原生像素写入在阻塞线程池完成；守护进程通过受控运行时目录接收
-/// 一次性像素文件，避免把整幅图像序列化进 IPC 帧。
+/// 一次性像素文件，避免把整幅图像序列化进 IPC 帧。用户提供的源文件始终只读，
+/// 只有本次新建的临时像素文件会在移交后回收。
 ///
 /// # Errors
 ///
@@ -139,8 +140,6 @@ pub async fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
         tracing::warn!("贴图目标文件不存在，已忽略本次请求: {:?}", path);
         return Ok(());
     }
-    let is_raw_source = path.extension().and_then(|ext| ext.to_str()) == Some("raw");
-
     crate::daemon_client::ensure_daemon_running().await?;
 
     let load_path = path.clone();
@@ -181,9 +180,5 @@ pub async fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
         bail!("守护进程拒绝创建贴图，临时像素文件已清理");
     }
 
-    // 原生像素源文件是一次性中转载体，无论移交成功与否都必须回收，防止共享内存目录堆积
-    if is_raw_source {
-        let _ = tokio::fs::remove_file(&path).await;
-    }
     Ok(())
 }
