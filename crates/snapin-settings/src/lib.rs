@@ -96,8 +96,13 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
     }
 
     // 2. 注册界面交互与保存回调
-    register_callbacks(&window, config_arc);
-    update_controller::register_update_callbacks(&window, runtime.clone(), cancel.clone());
+    register_callbacks(&window, config_arc.clone());
+    update_controller::register_update_callbacks(
+        &window,
+        runtime.clone(),
+        cancel.clone(),
+        config_arc.clone(),
+    );
 
     let run_res = window
         .run()

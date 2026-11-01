@@ -13,6 +13,7 @@
 use crate::SettingsWindow;
 use shipup::{DownloadedUpdate, Update, UpdateEvent};
 use slint::{ComponentHandle, SharedString};
+use snapin_core::config::Config;
 use snapin_daemon::{send_request_to_daemon, DaemonRequest};
 use snapin_platform::lifecycle::spawn_detached_system_command;
 use snapin_runtime::{CancellationToken, TaskRuntime};
@@ -37,6 +38,11 @@ pub enum UpdateUiStatus {
     Error = 6,
 }
 
+/// 检查或下载进行中时拒绝重复触发，避免同一更新被并发检查/下载。
+fn update_is_busy(status: i32) -> bool {
+    status == UpdateUiStatus::Checking as i32 || status == UpdateUiStatus::Downloading as i32
+}
+
 /// 格式化下载速率与完成百分比
 fn format_download_speed(speed: Option<u64>, percent: Option<f32>) -> String {
     let p_str = percent.map(|p| format!("{p:.1}%")).unwrap_or_default();
@@ -57,6 +63,7 @@ fn format_download_speed(speed: Option<u64>, percent: Option<f32>) -> String {
 struct UpdateContext {
     runtime: TaskRuntime,
     cancel: CancellationToken,
+    config: Arc<Mutex<Config>>,
     pending_update: Arc<Mutex<Option<Update>>>,
     downloaded_update: Arc<Mutex<Option<DownloadedUpdate>>>,
 }
@@ -69,10 +76,12 @@ pub fn register_update_callbacks(
     win: &SettingsWindow,
     runtime: TaskRuntime,
     cancel: CancellationToken,
+    config: Arc<Mutex<Config>>,
 ) {
     let context = UpdateContext {
         runtime,
         cancel,
+        config,
         pending_update: Arc::new(Mutex::new(None::<Update>)),
         downloaded_update: Arc::new(Mutex::new(None::<DownloadedUpdate>)),
     };
@@ -87,6 +96,7 @@ fn setup_check_callback(win: &SettingsWindow, context: UpdateContext) {
     let UpdateContext {
         runtime,
         cancel,
+        config,
         pending_update,
         downloaded_update: _,
     } = context;
@@ -95,16 +105,24 @@ fn setup_check_callback(win: &SettingsWindow, context: UpdateContext) {
         let Some(window) = win_weak.upgrade() else {
             return;
         };
+        if update_is_busy(window.get_update_status()) {
+            return;
+        }
         window.set_update_status(UpdateUiStatus::Checking as i32);
         window.set_update_status_text(SharedString::from("正在连接更新服务器..."));
 
         let win_weak_async = win_weak.clone();
         let update_holder = pending_update.clone();
+        let config_snapshot = config.clone();
         let task_cancel = cancel.clone();
         let reset_runtime = runtime.clone();
         let reset_cancel = cancel.clone();
         let spawn_result = runtime.spawn_blocking(move || {
-            let result = snapin_updater::check_update(None);
+            let custom_url = config_snapshot
+                .lock()
+                .ok()
+                .and_then(|config| config.general.custom_update_url.clone());
+            let result = snapin_updater::check_update(custom_url.as_deref());
             if task_cancel.is_cancelled() {
                 return;
             }
@@ -191,6 +209,7 @@ fn setup_download_callback(win: &SettingsWindow, context: UpdateContext) {
     let UpdateContext {
         runtime,
         cancel,
+        config: _,
         pending_update,
         downloaded_update: downloaded_holder,
     } = context;
@@ -199,6 +218,9 @@ fn setup_download_callback(win: &SettingsWindow, context: UpdateContext) {
         let Some(window) = win_weak.upgrade() else {
             return;
         };
+        if window.get_update_status() == UpdateUiStatus::Downloading as i32 {
+            return;
+        }
         let update = match pending_update.lock() {
             Ok(guard) => guard.clone(),
             Err(_) => None,
@@ -290,6 +312,7 @@ fn setup_install_callback(win: &SettingsWindow, context: UpdateContext) {
     let UpdateContext {
         runtime,
         cancel,
+        config: _,
         pending_update: _,
         downloaded_update: downloaded_holder,
     } = context;
@@ -367,4 +390,19 @@ fn setup_install_callback(win: &SettingsWindow, context: UpdateContext) {
             window.set_update_status_text(SharedString::from(format!("无法提交安装任务: {error}")));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 只阻止检查与下载中的重复点击，已发现新版本或错误状态仍允许重试。
+    #[test]
+    fn test_update_is_busy_only_blocks_inflight_states() {
+        assert!(update_is_busy(UpdateUiStatus::Checking as i32));
+        assert!(update_is_busy(UpdateUiStatus::Downloading as i32));
+        assert!(!update_is_busy(UpdateUiStatus::Idle as i32));
+        assert!(!update_is_busy(UpdateUiStatus::Available as i32));
+        assert!(!update_is_busy(UpdateUiStatus::Error as i32));
+    }
 }
