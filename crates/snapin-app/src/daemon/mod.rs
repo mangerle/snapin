@@ -12,6 +12,7 @@
 
 mod actions;
 pub mod commands;
+mod shutdown;
 mod update_loop;
 
 use crate::services::AppServices;
@@ -19,6 +20,7 @@ use actions::{
     handle_hotkey_action, handle_ipc_request, handle_snipper_result, handle_tray_action,
 };
 use anyhow::{Context, Result};
+use shutdown::ShutdownCoordinator;
 use snapin_core::config::Config;
 use snapin_daemon::{send_command_to_daemon, DaemonRequest, IpcListener};
 use snapin_platform::{
@@ -371,18 +373,14 @@ async fn shutdown_daemon(
     listener_handle: JoinHandle<()>,
     services: &Arc<AppServices>,
 ) -> Result<()> {
-    if !*gui_closed.borrow() {
-        if let Err(error) = workspace_proxy.shutdown_and_wait().await {
-            tracing::warn!("请求 GUI 工作区停机未得到确认，继续收尾后台服务: {error}");
-        }
-    }
-    let _ = shutdown_tx.send(true);
-    match tokio::time::timeout(Duration::from_secs(5), listener_handle).await {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => tracing::warn!("IPC 监听任务异常退出: {error}"),
-        Err(_) => tracing::warn!("等待 IPC 监听任务退出超时（5 秒），继续收尾后台运行时"),
-    }
-    // 设置明确上限：ONNX 推理等阻塞任务无法被强制中断，不能让他们拖住进程退出。
-    services.runtime().shutdown(Duration::from_secs(5)).await;
+    ShutdownCoordinator::new()
+        .shutdown(
+            &workspace_proxy,
+            &gui_closed,
+            &shutdown_tx,
+            listener_handle,
+            services,
+        )
+        .await;
     Ok(())
 }
