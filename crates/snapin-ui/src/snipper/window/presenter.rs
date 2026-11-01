@@ -11,7 +11,7 @@ use crate::surface::{
 use image::RgbaImage;
 use std::num::NonZeroU32;
 use std::sync::Arc;
-use tiny_skia::Pixmap;
+use tiny_skia::{Color, FilterQuality, Pixmap, PixmapPaint, Transform};
 use winit::window::Window;
 
 /// 放大镜配置签名：任一字段变化都会改变卡片外观或尺寸，必须回退到全量重绘。
@@ -130,6 +130,52 @@ impl SnipperPresenter {
             frame_words,
             overlay: None,
         })
+    }
+
+    /// 窗口尺寸变化时重建表面、底图与提交缓冲。
+    ///
+    /// winit 全屏窗口在显示器分辨率或缩放变化时会收到 `Resized`。若继续使用
+    /// 创建时的固定缓冲，`copy_from_slice` 会因长度不一致而持续报错。这里按新尺寸
+    /// 缩放底图与背景图像，并清空增量快照，下一帧强制全量重绘。
+    pub fn resize(
+        &mut self,
+        width: u32,
+        height: u32,
+        bg_image: &mut RgbaImage,
+    ) -> Result<(), UiError> {
+        let w = NonZeroU32::new(width).ok_or_else(|| UiError::Softbuffer {
+            message: "窗口宽度变为零".to_string(),
+        })?;
+        let h = NonZeroU32::new(height).ok_or_else(|| UiError::Softbuffer {
+            message: "窗口高度变为零".to_string(),
+        })?;
+        if self.render_pixmap.width() == width && self.render_pixmap.height() == height {
+            return Ok(());
+        }
+
+        self.surface
+            .resize(w, h)
+            .map_err(|error| UiError::Softbuffer {
+                message: format!("调整截图帧缓冲尺寸失败: {error}"),
+            })?;
+
+        self.base_bg = scale_pixmap_to(&self.base_bg, width, height)
+            .ok_or(UiError::PixmapAlloc { width, height })?;
+        *bg_image = image::imageops::resize(
+            bg_image,
+            width,
+            height,
+            image::imageops::FilterType::Triangle,
+        );
+        self.render_pixmap =
+            Pixmap::new(width, height).ok_or(UiError::PixmapAlloc { width, height })?;
+        let pixel_count = (width as usize)
+            .checked_mul(height as usize)
+            .ok_or(UiError::PixmapAlloc { width, height })?;
+        self.frame_words.clear();
+        self.frame_words.resize(pixel_count, 0);
+        self.overlay = None;
+        Ok(())
     }
 
     /// 执行全屏离屏光栅化并将成果绘制呈现至物理屏幕表面。
@@ -345,6 +391,26 @@ impl SnipperPresenter {
     }
 }
 
+/// 将底图缩放/裁剪到目标尺寸；缩放失败时返回 `None`。
+fn scale_pixmap_to(source: &Pixmap, width: u32, height: u32) -> Option<Pixmap> {
+    let mut target = Pixmap::new(width, height)?;
+    target.fill(Color::BLACK);
+    let scale_x = width as f32 / source.width() as f32;
+    let scale_y = height as f32 / source.height() as f32;
+    target.draw_pixmap(
+        0,
+        0,
+        source.as_ref(),
+        &PixmapPaint {
+            quality: FilterQuality::Bilinear,
+            ..PixmapPaint::default()
+        },
+        Transform::from_scale(scale_x, scale_y),
+        None,
+    );
+    Some(target)
+}
+
 /// 生成放大镜配置签名，用于判断卡片几何或外观是否发生变化。
 fn magnifier_signature(magnifier: &Magnifier) -> MagnifierSignature {
     (
@@ -443,5 +509,14 @@ mod tests {
             ),
             Some((99, 99, 1, 1))
         );
+    }
+
+    /// 窗口尺寸变化后底图必须匹配新缓冲尺寸，否则渲染会因切片长度不一致 panic。
+    #[test]
+    fn test_scale_pixmap_to_target_size() {
+        let mut source = Pixmap::new(4, 2).expect("创建源位图失败");
+        source.fill(Color::from_rgba8(10, 20, 30, 255));
+        let scaled = scale_pixmap_to(&source, 8, 4).expect("缩放应成功");
+        assert_eq!((scaled.width(), scaled.height()), (8, 4));
     }
 }
