@@ -10,6 +10,7 @@ description = "Snapin 核心领域模型、配置、错误定义、矢量标注�
 tiny-skia.workspace = true
 cosmic-text.workspace = true
 serde.workspace = true
+serde_ignored.workspace = true
 toml.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

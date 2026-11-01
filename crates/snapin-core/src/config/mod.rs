@@ -50,12 +50,12 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreE
         source: e,
     })?;
 
-    let file: ConfigFile = match toml::from_str(&content) {
+    let file = match parse_config_file(&content) {
         Ok(file) => file,
-        Err(error) => {
-            // 配置损坏不应让所有依赖配置的进程永久无法启动：先保留原始文件，
-            // 再写入默认配置并告警，用户仍可从 .bak 中手工恢复。
-            return recover_invalid_config(&target_path, error);
+        Err(reason) => {
+            // 配置损坏或含未知字段时先保留原始文件，再重建默认配置并告警，
+            // 用户仍可从 .bak 中手工恢复。
+            return recover_invalid_config(&target_path, &reason);
         }
     };
     let file = file.migrate(&target_path)?;
@@ -66,14 +66,78 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreE
     Ok(config)
 }
 
+/// 解析配置并检查未知字段。
+///
+/// `ConfigFile` 使用 `flatten` 兼容扁平板块布局，但 `serde` 的
+/// `deny_unknown_fields` 与 flatten 组合不可靠，因此用 `serde_ignored` 显式
+/// 收集未知键；拼写错误或未来版本字段会被当成损坏配置备份并重建，而不是静默忽略。
+fn parse_config_file(content: &str) -> Result<ConfigFile, String> {
+    // flatten 会把顶层未知板块吞进 Config，serde_ignored 未必能回报；先按 TOML
+    // 表结构做一次顶层键白名单检查，再把 schema_version 摘掉后直接反序列化 Config，
+    // 让 serde_ignored 能发现嵌套未知字段。
+    const KNOWN_TOP_LEVEL: &[&str] = &[
+        "schema_version",
+        "general",
+        "interface",
+        "snip",
+        "paster",
+        "output",
+        "hotkeys",
+        "ocr",
+        "translate",
+    ];
+    let raw: toml::Value =
+        toml::from_str(content).map_err(|error| format!("TOML 解析失败: {error}"))?;
+    let mut table = raw
+        .as_table()
+        .cloned()
+        .ok_or_else(|| "配置文件顶层必须是 TOML 表".to_string())?;
+
+    let mut unknown_fields: Vec<String> = Vec::new();
+    for key in table.keys() {
+        if !KNOWN_TOP_LEVEL.contains(&key.as_str()) {
+            unknown_fields.push(key.clone());
+        }
+    }
+    if !unknown_fields.is_empty() {
+        return Err(format!(
+            "配置文件包含未知字段: {}",
+            unknown_fields.join(", ")
+        ));
+    }
+
+    let schema_version = table
+        .remove("schema_version")
+        .and_then(|value| value.as_integer())
+        .unwrap_or(CONFIG_SCHEMA_VERSION as i64);
+    let schema_version = u32::try_from(schema_version)
+        .map_err(|_| format!("schema_version 超出 u32 范围: {schema_version}"))?;
+
+    let config_toml = toml::to_string(&toml::Value::Table(table))
+        .map_err(|error| format!("配置规范化失败: {error}"))?;
+    let deserializer = toml::de::Deserializer::new(&config_toml);
+    let mut unknown_fields = Vec::new();
+    let config: Config =
+        serde_ignored::deserialize(deserializer, |path| unknown_fields.push(path.to_string()))
+            .map_err(|error| format!("TOML 解析失败: {error}"))?;
+    if !unknown_fields.is_empty() {
+        return Err(format!(
+            "配置文件包含未知字段: {}",
+            unknown_fields.join(", ")
+        ));
+    }
+
+    Ok(ConfigFile {
+        schema_version,
+        config,
+    })
+}
+
 /// 备份损坏配置并写入默认配置。
 ///
 /// 备份失败时不覆盖原文件，宁可把错误向上抛出，也不能在未保留用户数据的情况下
 /// 用默认值静默替换包含翻译密钥的配置。
-fn recover_invalid_config(
-    target_path: &Path,
-    parse_error: toml::de::Error,
-) -> Result<Config, CoreError> {
+fn recover_invalid_config(target_path: &Path, reason: &str) -> Result<Config, CoreError> {
     let backup_path = target_path.with_extension("toml.bak");
     fs::rename(target_path, &backup_path).map_err(|error| CoreError::IoError {
         path: target_path.to_path_buf(),
@@ -83,9 +147,8 @@ fn recover_invalid_config(
     let default_config = Config::default().sanitized();
     save_config(&default_config, target_path)?;
     tracing::warn!(
-        "配置文件解析失败，已备份至 {:?} 并重建默认配置，原因: {}",
-        backup_path,
-        parse_error
+        "配置文件解析失败，已备份至 {:?} 并重建默认配置，原因: {reason}",
+        backup_path
     );
     Ok(default_config)
 }
@@ -201,7 +264,21 @@ provider = "deepl"
         );
     }
 
-    /// 保存时必须写入 schema 版本，加载时能识别并拒绝未来版本。
+    /// 未知字段必须在解析边界报错，避免用户拼写错误被静默忽略。
+    #[test]
+    fn test_unknown_config_fields_are_rejected() {
+        let unknown_section =
+            parse_config_file("schema_version = 1\n[unknown_section]\nvalue = 1\n")
+                .expect_err("未知板块必须报错");
+        assert!(unknown_section.contains("unknown_section"));
+
+        let unknown_field = parse_config_file(
+            "schema_version = 1\n[general]\nautostart = true\nunknown_field = 1\n",
+        )
+        .expect_err("未知字段必须报错");
+        assert!(unknown_field.contains("unknown_field"));
+    }
+
     /// 语义校验必须拒绝重复快捷键与非法更新源，且不能把它们静默写回磁盘。
     #[test]
     fn test_validate_rejects_duplicate_hotkeys_and_invalid_url() {
