@@ -133,13 +133,17 @@ pub fn get_platform_capabilities() -> Arc<PlatformCapabilities> {
         }
     }
 
-    // 兜底同步构造
+    Arc::new(fallback_capabilities())
+}
+
+/// 构建未初始化时的同步兜底能力快照。
+fn fallback_capabilities() -> PlatformCapabilities {
     let (is_wayland, desktop_env) = probe_desktop_environment();
-    Arc::new(PlatformCapabilities {
+    PlatformCapabilities {
         is_wayland,
         desktop_env,
         gnome_extension_active: false,
-    })
+    }
 }
 
 #[cfg(test)]
@@ -167,8 +171,9 @@ mod tests {
     }
 
     #[test]
-    fn test_capabilities_fallback_singleton() {
-        let caps = get_platform_capabilities();
+    fn test_capabilities_fallback_is_offline() {
+        let caps = fallback_capabilities();
         assert!(!caps.gnome_extension_active);
+        assert!(!caps.desktop_env.is_empty());
     }
 }
