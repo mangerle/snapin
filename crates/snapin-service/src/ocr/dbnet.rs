@@ -4,6 +4,7 @@
 //! unclip 外扩，最终输出原图坐标系下的水平文本框。水平膨胀用于把同一行内的字符
 //! 合并为一个文本框，避免逐字切分成大量碎片。
 
+use std::cmp::Ordering;
 use std::collections::VecDeque;
 
 /// DBNet 后处理参数（与模型 `ppocrv6_small_det.yml` 中的配置保持一致）
@@ -161,20 +162,81 @@ pub fn extract_bounding_boxes(
         }
     }
 
-    boxes.sort_by(|left, right| {
+    sort_by_reading_order(&mut boxes);
+    boxes.truncate(params.max_candidates);
+    boxes
+}
+
+/// 按阅读顺序重排检测框：先按垂直重叠聚成行，行内自左向右。
+///
+/// 不能直接按 `(y, x)` 字典序排序：同一视觉行内左右两栏的检测框只要上边缘存在
+/// 亚像素差异，整行就会左右颠倒。实测表格截图中左右两格的上边缘只差 0.11px，
+/// 排序结果便是右列排在左列之前，复制出来的文本整行错序。
+///
+/// 这里改用垂直重叠判定同一行（重叠达到较矮框高度的一半），再在行内按 x 排序。
+/// 相比「垂直中心距离小于固定容差」的做法，重叠判定不受 unclip 外扩干扰：外扩会
+/// 把每行框的上下边界一起推出去，相邻行之间的间隙同步变大，不会因框高虚增而误并。
+///
+/// 已知局限：不解析多栏文档的列结构，只保证同一视觉行内从左到右；若相邻两行的
+/// 框垂直重叠达到较矮框高度的一半（行距异常紧凑），会被并成同一行。
+fn sort_by_reading_order(boxes: &mut [DetectedBox]) {
+    if boxes.len() <= 1 {
+        return;
+    }
+
+    let mut ordered: Vec<DetectedBox> = boxes.to_vec();
+    ordered.sort_by(|left, right| {
         left.bbox
             .1
             .partial_cmp(&right.bbox.1)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| {
-                left.bbox
-                    .0
-                    .partial_cmp(&right.bbox.0)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
+            .unwrap_or(Ordering::Equal)
     });
-    boxes.truncate(params.max_candidates);
-    boxes
+
+    let mut rows: Vec<Vec<DetectedBox>> = Vec::new();
+    for detected in ordered {
+        let starts_new_row = match rows.last() {
+            None => true,
+            Some(row) => !same_visual_row(row[0].bbox, detected.bbox),
+        };
+        if starts_new_row {
+            rows.push(Vec::with_capacity(4));
+        }
+        if let Some(row) = rows.last_mut() {
+            row.push(detected);
+        }
+    }
+
+    let mut index = 0usize;
+    for row in &mut rows {
+        row.sort_by(|left, right| {
+            left.bbox
+                .0
+                .partial_cmp(&right.bbox.0)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| {
+                    left.bbox
+                        .1
+                        .partial_cmp(&right.bbox.1)
+                        .unwrap_or(Ordering::Equal)
+                })
+        });
+        for detected in row.iter() {
+            boxes[index] = *detected;
+            index += 1;
+        }
+    }
+}
+
+/// 判断两个检测框是否属于同一视觉行：垂直重叠达到较矮框高度的一半。
+fn same_visual_row(left: (f32, f32, f32, f32), right: (f32, f32, f32, f32)) -> bool {
+    let left_bottom = left.1 + left.3;
+    let right_bottom = right.1 + right.3;
+    let overlap = left_bottom.min(right_bottom) - left.1.max(right.1);
+    let smaller_height = left.3.min(right.3);
+    if !smaller_height.is_finite() || smaller_height <= 0.0 {
+        return false;
+    }
+    overlap > 0.0 && overlap >= smaller_height * 0.5
 }
 
 /// 对二值掩码执行水平膨胀，将同一文本行内相邻字符连接为同一连通域。
@@ -274,6 +336,68 @@ mod tests {
     fn test_extract_invalid_input_is_safe() {
         assert!(extract_bounding_boxes(&[], 0, 0, 100, 100, &Default::default()).is_empty());
         assert!(extract_bounding_boxes(&[0.9], 100, 100, 100, 100, &Default::default()).is_empty());
+    }
+
+    fn detected_box(bbox: (f32, f32, f32, f32)) -> DetectedBox {
+        DetectedBox {
+            bbox,
+            polygon: [
+                (bbox.0, bbox.1),
+                (bbox.0 + bbox.2, bbox.1),
+                (bbox.0 + bbox.2, bbox.1 + bbox.3),
+                (bbox.0, bbox.1 + bbox.3),
+            ],
+            score: 0.9,
+        }
+    }
+
+    /// 表格同一行内左右两格必须输出为「自左向右」，不能因为上边缘的亚像素差异
+    /// （实测 0.11px）导致整行颠倒。用例数据取自真实截图识别结果。
+    #[test]
+    fn test_reading_order_groups_table_rows() {
+        let mut boxes = vec![
+            detected_box((343.09, 40.13, 57.81, 46.31)),
+            detected_box((41.93, 40.24, 56.61, 46.08)),
+            detected_box((43.36, 101.64, 55.68, 43.28)),
+            detected_box((343.29, 103.20, 38.04, 43.91)),
+            detected_box((342.25, 159.32, 58.52, 45.12)),
+            detected_box((43.61, 160.95, 55.20, 41.85)),
+        ];
+
+        sort_by_reading_order(&mut boxes);
+
+        let xs: Vec<f32> = boxes.iter().map(|box_| box_.bbox.0).collect();
+        let expected = [41.93, 343.09, 43.36, 343.29, 43.61, 342.25];
+        for (actual, wanted) in xs.iter().zip(expected.iter()) {
+            assert!(
+                (actual - wanted).abs() < 0.01,
+                "阅读顺序不符合行优先，实际 x 序列: {xs:?}"
+            );
+        }
+    }
+
+    /// 行距正常的两行文本必须保持上下顺序，不得被并成一行。
+    #[test]
+    fn test_reading_order_keeps_lines_separate() {
+        let mut boxes = vec![
+            detected_box((10.0, 100.0, 80.0, 20.0)),
+            detected_box((10.0, 10.0, 80.0, 20.0)),
+        ];
+
+        sort_by_reading_order(&mut boxes);
+
+        assert!(boxes[0].bbox.1 < boxes[1].bbox.1);
+    }
+
+    #[test]
+    fn test_reading_order_handles_empty_and_single() {
+        let mut empty: Vec<DetectedBox> = Vec::new();
+        sort_by_reading_order(&mut empty);
+        assert!(empty.is_empty());
+
+        let mut single = vec![detected_box((1.0, 2.0, 3.0, 4.0))];
+        sort_by_reading_order(&mut single);
+        assert_eq!(single.len(), 1);
     }
 
     #[test]
