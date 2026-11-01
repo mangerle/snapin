@@ -273,6 +273,8 @@ jobs:
                   --package "$file" \
                   --url "$download_url" \
                   --package-type installer \
+                  --require-elevation \
+                  --wait-for-exit \
                   --key "$KEY_FILE" \
                   --manifest "release-files/latest.json" \
                   "${NOTES_ARG[@]}"
@@ -284,17 +286,8 @@ jobs:
                   --package "$file" \
                   --url "$download_url" \
                   --package-type installer \
-                  --key "$KEY_FILE" \
-                  --manifest "release-files/latest.json" \
-                  "${NOTES_ARG[@]}"
-                ;;
-              *setup*.exe|*x64*setup*.exe|*x86_64*setup*.exe)
-                shipup-cli release \
-                  --version "$CLEAN_VERSION" \
-                  --target "x86_64-pc-windows-msvc" \
-                  --package "$file" \
-                  --url "$download_url" \
-                  --package-type installer \
+                  --require-elevation \
+                  --wait-for-exit \
                   --key "$KEY_FILE" \
                   --manifest "release-files/latest.json" \
                   "${NOTES_ARG[@]}"
@@ -306,17 +299,21 @@ jobs:
                   --package "$file" \
                   --url "$download_url" \
                   --package-type installer \
+                  --require-elevation \
+                  --wait-for-exit \
                   --key "$KEY_FILE" \
                   --manifest "release-files/latest.json" \
                   "${NOTES_ARG[@]}"
                 ;;
-              *x64*.zip|*x86_64*.zip)
+              *setup*.exe|*x64*setup*.exe|*x86_64*setup*.exe)
                 shipup-cli release \
                   --version "$CLEAN_VERSION" \
                   --target "x86_64-pc-windows-msvc" \
                   --package "$file" \
                   --url "$download_url" \
-                  --package-type archive \
+                  --package-type installer \
+                  --require-elevation \
+                  --wait-for-exit \
                   --key "$KEY_FILE" \
                   --manifest "release-files/latest.json" \
                   "${NOTES_ARG[@]}"
@@ -332,10 +329,43 @@ jobs:
                   --manifest "release-files/latest.json" \
                   "${NOTES_ARG[@]}"
                 ;;
-              *.dmg)
+              *x64*.zip|*x86_64*.zip)
+                shipup-cli release \
+                  --version "$CLEAN_VERSION" \
+                  --target "x86_64-pc-windows-msvc" \
+                  --package "$file" \
+                  --url "$download_url" \
+                  --package-type archive \
+                  --key "$KEY_FILE" \
+                  --manifest "release-files/latest.json" \
+                  "${NOTES_ARG[@]}"
+                ;;
+              *arm64*.dmg|*aarch64*.dmg)
+                shipup-cli release \
+                  --version "$CLEAN_VERSION" \
+                  --target "aarch64-apple-darwin" \
+                  --package "$file" \
+                  --url "$download_url" \
+                  --package-type archive \
+                  --key "$KEY_FILE" \
+                  --manifest "release-files/latest.json" \
+                  "${NOTES_ARG[@]}"
+                ;;
+              *x64*.dmg|*x86_64*.dmg)
                 shipup-cli release \
                   --version "$CLEAN_VERSION" \
                   --target "x86_64-apple-darwin" \
+                  --package "$file" \
+                  --url "$download_url" \
+                  --package-type archive \
+                  --key "$KEY_FILE" \
+                  --manifest "release-files/latest.json" \
+                  "${NOTES_ARG[@]}"
+                ;;
+              *.dmg)
+                shipup-cli release \
+                  --version "$CLEAN_VERSION" \
+                  --target "aarch64-apple-darwin" \
                   --package "$file" \
                   --url "$download_url" \
                   --package-type archive \

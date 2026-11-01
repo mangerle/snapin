@@ -56,9 +56,8 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
         .set_size(slint::LogicalSize::new(900.0, 620.0));
     window.set_app_version(SharedString::from(env!("CARGO_PKG_VERSION")));
 
-    let caps = get_platform_capabilities();
     #[cfg(target_os = "linux")]
-    let status_text = if caps.gnome_extension_active {
+    let status_text = if get_platform_capabilities().gnome_extension_active {
         "GNOME Shell 窗口特权扩展已在线运行（贴图可强制置顶并精确落位）"
     } else {
         "GNOME Shell 窗口特权扩展未激活（贴图无法强制置顶与精确落位）"

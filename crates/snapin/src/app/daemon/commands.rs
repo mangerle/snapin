@@ -18,12 +18,15 @@ const STATUS_QUERY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// 向扩展登记贴图放置请求的超时上限。扩展缺席时 D-Bus 会立即报错，
 /// 该超时仅用于兜底会话总线偶发挂起，避免拖慢 IPC 响应。
+#[cfg(target_os = "linux")]
 const PLACEMENT_TIMEOUT: Duration = Duration::from_millis(400);
 
 /// 窗口投递后等待其可被定位并完成放置的总时限
+#[cfg(target_os = "linux")]
 const PLACEMENT_CONFIRM_WINDOW: Duration = Duration::from_millis(800);
 
 /// 窗口投递后的放置确认轮询间隔
+#[cfg(target_os = "linux")]
 const PLACEMENT_CONFIRM_INTERVAL: Duration = Duration::from_millis(40);
 
 /// 向配套 GNOME 扩展登记贴图窗口的精确放置坐标。

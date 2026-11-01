@@ -5,6 +5,7 @@
 
 use crate::error::PlatformError;
 use snapin_core::config::{Hotkey, HotkeyConfig};
+#[cfg(target_os = "linux")]
 use std::process::Command;
 
 /// 跨平台同步系统全局快捷键配置。
@@ -255,36 +256,45 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError>
 
 /// 临时清空 Snapin 在 GNOME 中的快捷键绑定，避免在设置中心录制按键时被系统全局拦截
 pub fn suspend_hotkeys_for_settings() -> Result<(), PlatformError> {
-    let base_path = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
-    let schemas = [
-        format!(
-            "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-snip/"
-        ),
-        format!(
-            "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-translate/"
-        ),
-        format!(
-            "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-paste/"
-        ),
-        format!(
-            "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-toggle/"
-        ),
-        format!(
-            "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-switch-group/"
-        ),
-    ];
+    #[cfg(not(target_os = "linux"))]
+    {
+        return Ok(());
+    }
 
-    let items: Vec<(&str, &str, &str)> = schemas
-        .iter()
-        .map(|s| (s.as_str(), "binding", ""))
-        .collect();
+    #[cfg(target_os = "linux")]
+    {
+        let base_path = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
+        let schemas = [
+            format!(
+                "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-snip/"
+            ),
+            format!(
+                "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-translate/"
+            ),
+            format!(
+                "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-paste/"
+            ),
+            format!(
+                "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-toggle/"
+            ),
+            format!(
+                "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/snapin-switch-group/"
+            ),
+        ];
 
-    execute_gsettings_batch(&items);
-    tracing::info!("已临时挂起 Snapin 全局快捷键，以确保设置中心自由录入按键");
-    Ok(())
+        let items: Vec<(&str, &str, &str)> = schemas
+            .iter()
+            .map(|s| (s.as_str(), "binding", ""))
+            .collect();
+
+        execute_gsettings_batch(&items);
+        tracing::info!("已临时挂起 Snapin 全局快捷键，以确保设置中心自由录入按键");
+        Ok(())
+    }
 }
 
 /// 确保指定的自定义按键路径已写入 GNOME custom-keybindings 列表
+#[cfg(target_os = "linux")]
 fn ensure_custom_keybindings_registered(paths: &[&str]) -> Result<(), PlatformError> {
     let output = Command::new("gsettings")
         .args([
@@ -336,6 +346,7 @@ fn ensure_custom_keybindings_registered(paths: &[&str]) -> Result<(), PlatformEr
 }
 
 /// 获取 Snapin 当前或系统安装的可执行文件路径
+#[cfg(target_os = "linux")]
 fn get_snapin_executable_path() -> String {
     if let Ok(exe) = std::env::current_exe() {
         if exe.exists() {
@@ -354,6 +365,7 @@ fn get_snapin_executable_path() -> String {
 /// 旧实现把若干条命令拼接成脚本交给 `sh -c` 执行，虽然对单引号做了转义，但仍让
 /// 用户可编辑的快捷键文本与可执行路径进入 shell 解析上下文，属于无必要的命令注入面。
 /// gsettings 单次调用本身仅毫秒级，改为直接传参既消除注入面又保持行为一致。
+#[cfg(target_os = "linux")]
 fn execute_gsettings_batch(items: &[(&str, &str, &str)]) {
     for (schema, key, value) in items {
         match Command::new("gsettings")

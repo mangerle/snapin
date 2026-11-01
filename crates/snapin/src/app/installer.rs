@@ -3,10 +3,15 @@
 //! 在编译期内嵌 GNOME Shell 扩展全部资源文件，摆脱对当前工作目录的路径依赖，
 //! 支持在任意系统目录下安全部署至用户扩展目录并调用系统启用命令。
 
-use anyhow::{Context, Result};
+#[cfg(target_os = "linux")]
+use anyhow::Context;
+use anyhow::Result;
 
+#[cfg(target_os = "linux")]
 const EXT_METADATA: &str = include_str!("../../../../extension/metadata.json");
+#[cfg(target_os = "linux")]
 const EXT_JAVASCRIPT: &str = include_str!("../../../../extension/extension.js");
+#[cfg(target_os = "linux")]
 const EXT_ICON_SVG: &[u8] = include_bytes!("../../../../assets/icons/snapin.svg");
 
 /// 安装配套 GNOME Shell 扩展到用户目录并向系统请求启用

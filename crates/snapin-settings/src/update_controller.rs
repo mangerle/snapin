@@ -6,6 +6,8 @@
 use crate::SettingsWindow;
 use shipup::{DownloadedUpdate, Update, UpdateEvent};
 use slint::{ComponentHandle, SharedString};
+use snapin_daemon::{send_request_to_daemon, DaemonRequest};
+use snapin_platform::lifecycle::spawn_detached_system_command;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -244,6 +246,19 @@ fn setup_install_callback(
                 });
                 return;
             }
+
+            // 安装完成：停机旧后台守护进程
+            if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                rt.block_on(async {
+                    let _ = send_request_to_daemon(&DaemonRequest::Shutdown).await;
+                });
+            }
+
+            // 重新拉起已升级的新版后台守护进程
+            spawn_detached_system_command("snapin", &["daemon"]);
 
             // 安装就绪，关闭设置中心窗口并优雅退出
             let _ = slint::invoke_from_event_loop(|| {
