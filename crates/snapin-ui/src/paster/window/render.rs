@@ -12,11 +12,10 @@ use crate::paster::window::input_region::{
     compute_input_rects, input_layout_from_state, physical_rects_to_surface, InputRegionCache,
 };
 use crate::paster::window::text_session::render_text_session_preview;
+use crate::status_badge;
 use snapin_core::render::with_thread_local_text_renderer;
 use std::time::Instant;
-use tiny_skia::{
-    Color, FillRule, FilterQuality, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform,
-};
+use tiny_skia::{Color, FilterQuality, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform};
 
 /// 判定当前帧是否需要为被撑大的窗口空白区域铺设不透明底色。
 ///
@@ -177,9 +176,7 @@ fn render_pending_annotation_preview(state: &PasterWindowState, target: &mut Pix
 
 /// 在图像顶部居中绘制半透明深色胶囊与白色状态文字。
 ///
-/// 贴图没有独立状态栏，OCR / 翻译的进度与结果必须直接覆盖在图像上。
-/// 胶囊宽度按字符粗略估算并夹取在图像宽度内，保证窄贴图不会被提示撑出窗口；
-/// 过期提示由事件循环负责清除，这里额外做一次判定以避免最后一帧闪出旧提示。
+/// 布局与截图侧共用 [`crate::status_badge`]，贴图只覆盖宽度来源、顶部距离与配色。
 fn render_status_message(state: &PasterWindowState, target: &mut Pixmap, image_w: f32) {
     let Some((message, _)) = state.status_message.as_ref() else {
         return;
@@ -187,78 +184,18 @@ fn render_status_message(state: &PasterWindowState, target: &mut Pixmap, image_w
     if message.is_empty() || state.is_status_expired(Instant::now()) {
         return;
     }
-
-    let scale = state.ui_scale.max(0.1);
-    let font_size = 13.0 * scale;
-    let padding_x = 12.0 * scale;
-    let padding_y = 7.0 * scale;
-    let estimated_width = message
-        .chars()
-        .map(|ch| if ch.is_ascii() { 7.0 } else { 13.0 })
-        .sum::<f32>()
-        * scale;
-
-    // 提示条始终位于图像内部，图像矩形本身已参与输入区域声明，无需额外扩张命中范围。
-    let available_width = (image_w - 16.0 * scale).max(1.0);
-    let box_width = (estimated_width + padding_x * 2.0).min(available_width);
-    let box_height = font_size * 1.4 + padding_y * 2.0;
-    let box_x = ((image_w - box_width) / 2.0).max(0.0);
-    let box_y = 12.0 * scale;
-
-    let radius = 6.0 * scale;
-    let mut path = PathBuilder::new();
-    path.move_to(box_x + radius, box_y);
-    path.line_to(box_x + box_width - radius, box_y);
-    path.quad_to(box_x + box_width, box_y, box_x + box_width, box_y + radius);
-    path.line_to(box_x + box_width, box_y + box_height - radius);
-    path.quad_to(
-        box_x + box_width,
-        box_y + box_height,
-        box_x + box_width - radius,
-        box_y + box_height,
+    let layout = status_badge::layout(
+        message,
+        image_w,
+        state.ui_scale,
+        status_badge::PASTER_STATUS_STYLE,
     );
-    path.line_to(box_x + radius, box_y + box_height);
-    path.quad_to(
-        box_x,
-        box_y + box_height,
-        box_x,
-        box_y + box_height - radius,
+    status_badge::render(
+        &mut target.as_mut(),
+        message,
+        &layout,
+        status_badge::PASTER_STATUS_STYLE,
     );
-    path.line_to(box_x, box_y + radius);
-    path.quad_to(box_x, box_y, box_x + radius, box_y);
-    path.close();
-
-    if let Some(path) = path.finish() {
-        let mut paint = Paint::default();
-        paint.set_color_rgba8(20, 22, 28, 210);
-        target.fill_path(
-            &path,
-            &paint,
-            FillRule::Winding,
-            Transform::identity(),
-            None,
-        );
-
-        let mut border = Paint::default();
-        border.set_color_rgba8(255, 255, 255, 36);
-        let stroke = Stroke {
-            width: scale,
-            ..Default::default()
-        };
-        target.stroke_path(&path, &border, &stroke, Transform::identity(), None);
-    }
-
-    with_thread_local_text_renderer(|renderer| {
-        let mut target_mut = target.as_mut();
-        renderer.draw_text_rgba(
-            &mut target_mut,
-            message,
-            box_x + padding_x,
-            box_y + padding_y,
-            font_size,
-            (240, 243, 250, 255),
-        );
-    });
 }
 
 /// 绘制贴图边缘微反光边框与立体阴影

@@ -7,9 +7,9 @@ use crate::editor::toolbar::{Tool, Toolbar};
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::window::annotation_builder::{render_draft_preview, AnnotationDraftParams};
+use crate::status_badge;
 use image::RgbaImage;
 use snapin_core::annotation::AnnotationHistory;
-use snapin_core::render::with_thread_local_text_renderer;
 use tiny_skia::{
     Paint, PathBuilder, Pixmap, PixmapMut, Rect as SkiaRect, Stroke, StrokeDash, Transform,
 };
@@ -24,46 +24,6 @@ pub struct SelectedAnnotation {
     pub rect: Rect,
     /// 是否允许通过手柄拉伸（原位翻译块只允许整体移动）
     pub resizable: bool,
-}
-
-/// 顶部状态提示框布局参数
-struct StatusLayout {
-    scale: f32,
-    box_x: f32,
-    box_y: f32,
-    box_w: f32,
-    box_h: f32,
-    padding_x: f32,
-    padding_y: f32,
-    font_size: f32,
-}
-
-/// 计算顶部状态提示框布局；[`SnipperCanvas::render_status_message`] 与脏区计算共用。
-fn status_layout(message: &str, canvas_w: u32, ui_scale: f32) -> StatusLayout {
-    let scale = ui_scale.max(0.5);
-    let font_size = 13.0 * scale;
-    let padding_x = 14.0 * scale;
-    let padding_y = 8.0 * scale;
-    let estimated_width = message
-        .chars()
-        .map(|ch| if ch.is_ascii() { 7.5 } else { 13.0 })
-        .sum::<f32>()
-        * scale;
-    let max_width = (canvas_w as f32 - 16.0 * scale).max(120.0 * scale);
-    let box_width = (estimated_width + padding_x * 2.0).min(max_width);
-    let box_height = font_size * 1.4 + padding_y * 2.0;
-    let box_x = ((canvas_w as f32 - box_width) / 2.0).max(8.0 * scale);
-
-    StatusLayout {
-        scale,
-        box_x,
-        box_y: 16.0 * scale,
-        box_w: box_width,
-        box_h: box_height,
-        padding_x,
-        padding_y,
-        font_size,
-    }
 }
 
 /// 全屏选区画布渲染上下文
@@ -186,15 +146,13 @@ impl<'a> SnipperCanvas<'a> {
         if message.is_empty() {
             return None;
         }
-        let layout = status_layout(message, canvas_w, ui_scale);
-        // 外扩 1 像素吸收描边与抗锯齿溢出
-        let margin = layout.scale;
-        Some(Rect {
-            x: layout.box_x - margin,
-            y: layout.box_y - margin,
-            width: layout.box_w + margin * 2.0,
-            height: layout.box_h + margin * 2.0,
-        })
+        let layout = status_badge::layout(
+            message,
+            canvas_w as f32,
+            ui_scale,
+            status_badge::SNIPPER_STATUS_STYLE,
+        );
+        Some(status_badge::dirty_rect(&layout))
     }
 
     /// 在画布顶部居中绘制操作失败或空结果提示
@@ -206,68 +164,13 @@ impl<'a> SnipperCanvas<'a> {
             return;
         }
 
-        let layout = status_layout(message, pixmap.width(), self.ui_scale);
-        let scale = layout.scale;
-        let box_width = layout.box_w;
-        let box_height = layout.box_h;
-        let box_x = layout.box_x;
-        let box_y = layout.box_y;
-        let padding_x = layout.padding_x;
-        let padding_y = layout.padding_y;
-        let font_size = layout.font_size;
-
-        let mut path = PathBuilder::new();
-        let radius = 6.0 * scale;
-        path.move_to(box_x + radius, box_y);
-        path.line_to(box_x + box_width - radius, box_y);
-        path.quad_to(box_x + box_width, box_y, box_x + box_width, box_y + radius);
-        path.line_to(box_x + box_width, box_y + box_height - radius);
-        path.quad_to(
-            box_x + box_width,
-            box_y + box_height,
-            box_x + box_width - radius,
-            box_y + box_height,
+        let layout = status_badge::layout(
+            message,
+            pixmap.width() as f32,
+            self.ui_scale,
+            status_badge::SNIPPER_STATUS_STYLE,
         );
-        path.line_to(box_x + radius, box_y + box_height);
-        path.quad_to(
-            box_x,
-            box_y + box_height,
-            box_x,
-            box_y + box_height - radius,
-        );
-        path.line_to(box_x, box_y + radius);
-        path.quad_to(box_x, box_y, box_x + radius, box_y);
-        path.close();
-
-        if let Some(path) = path.finish() {
-            let mut paint = Paint::default();
-            paint.set_color_rgba8(28, 30, 38, 238);
-            pixmap.fill_path(
-                &path,
-                &paint,
-                tiny_skia::FillRule::Winding,
-                Transform::identity(),
-                None,
-            );
-            let mut border = Paint::default();
-            border.set_color_rgba8(255, 255, 255, 36);
-            let stroke = Stroke {
-                width: 1.0 * scale,
-                ..Default::default()
-            };
-            pixmap.stroke_path(&path, &border, &stroke, Transform::identity(), None);
-        }
-
-        with_thread_local_text_renderer(|renderer| {
-            renderer.draw_text(
-                pixmap,
-                message,
-                box_x + padding_x,
-                box_y + padding_y,
-                font_size,
-                tiny_skia::Color::from_rgba8(240, 243, 250, 255),
-            );
-        });
+        status_badge::render(pixmap, message, &layout, status_badge::SNIPPER_STATUS_STYLE);
     }
 
     /// 通过直接内存行切片快速将原图像素恢复到选区内（亚毫秒级完成镂空透出）

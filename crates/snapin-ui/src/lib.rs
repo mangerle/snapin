@@ -10,6 +10,7 @@ pub(crate) mod model;
 pub mod paster;
 pub(crate) mod ports;
 pub mod snipper;
+mod status_badge;
 pub(crate) mod surface;
 
 pub use error::UiError;
