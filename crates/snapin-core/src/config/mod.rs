@@ -60,6 +60,8 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreE
 
 /// 将已存在配置文件的权限收紧为 0600，避免历史版本创建的 0644 文件泄露 API 密钥。
 fn tighten_config_permissions(path: &Path) {
+    #[cfg(not(unix))]
+    let _ = path;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

@@ -1,7 +1,9 @@
 //! 贴图窗口管理器与剪贴板便签化模块。
 
 /// 贴图 ARGB8888 共享内存呈现通路的私有实现模块，仅经 `surface::ArgbShmSurface` 对外暴露
+#[cfg(target_os = "linux")]
 mod alpha_surface;
+
 pub mod context_menu;
 pub mod manager;
 pub mod surface;
