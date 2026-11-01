@@ -8,7 +8,9 @@
 //! GUI 线程的派生与后台执行器生命周期属于应用层职责。
 
 pub mod event_handler;
+pub mod job_events;
 pub mod paster_events;
+pub mod persistence;
 pub mod proxy;
 pub mod window_builder;
 
