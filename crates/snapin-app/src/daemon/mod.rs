@@ -100,7 +100,7 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
     let mut sigterm = signal(SignalKind::terminate()).context("注册 SIGTERM 信号监听失败")?;
 
     tracing::info!("Snapin 守护服务已就绪，等待热键指令...");
-    let _ = snapin_core::confirm_update_success();
+    let _ = snapin_updater::confirm_update_success();
 
     if cfg.general.notify_on_startup {
         if let Err(error) = send_desktop_notification(
@@ -278,7 +278,7 @@ async fn run_update_check_loop(
 
     loop {
         tracing::debug!("后台轻量检查 Snapin 新版本...");
-        let check = snapin_core::check_update_async(custom_url.as_deref());
+        let check = snapin_updater::check_update_async(custom_url.as_deref());
         let check_result = tokio::select! {
             _ = cancel.cancelled() => return,
             result = check => result,

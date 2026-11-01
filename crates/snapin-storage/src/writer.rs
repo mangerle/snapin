@@ -1,7 +1,7 @@
 //! 图像编码输出与防覆盖写盘模块。
 
 use super::template::{expand_home_dir, format_template};
-use crate::error::PlatformError;
+use crate::error::StorageError;
 use chrono::Local;
 use image::RgbaImage;
 use snapin_core::config::{ImageFormat, OutputConfig};
@@ -38,7 +38,7 @@ pub fn resolve_save_path(cfg: &OutputConfig) -> PathBuf {
 pub fn save_image_with_config(
     img: &RgbaImage,
     cfg: &OutputConfig,
-) -> Result<PathBuf, PlatformError> {
+) -> Result<PathBuf, StorageError> {
     let out_path = resolve_save_path(cfg);
     encode_image_to_path(img, &out_path, cfg.default_format, cfg.jpeg_quality)?;
     Ok(out_path)
@@ -53,13 +53,13 @@ pub fn save_image_to_path(
     img: &RgbaImage,
     path: &Path,
     cfg: &OutputConfig,
-) -> Result<PathBuf, PlatformError> {
+) -> Result<PathBuf, StorageError> {
     let has_extension = path.extension().is_some();
     let format = match image_format_from_path(path) {
         Some(format) => format,
         None if !has_extension => cfg.default_format,
         None => {
-            return Err(PlatformError::InvalidSavePath {
+            return Err(StorageError::InvalidSavePath {
                 path: path.display().to_string(),
                 message: "仅支持 .png、.jpg、.jpeg 或 .webp 扩展名".to_string(),
             });
@@ -72,7 +72,7 @@ pub fn save_image_to_path(
         path.with_extension(format.extension())
     };
     if !has_extension && out_path.exists() {
-        return Err(PlatformError::InvalidSavePath {
+        return Err(StorageError::InvalidSavePath {
             path: out_path.display().to_string(),
             message: "自动补齐扩展名后的目标文件已存在，请重新选择文件名".to_string(),
         });
@@ -99,7 +99,7 @@ fn encode_image_to_path(
     out_path: &Path,
     format: ImageFormat,
     jpeg_quality: u8,
-) -> Result<(), PlatformError> {
+) -> Result<(), StorageError> {
     match format {
         ImageFormat::Jpeg => {
             let (w, h) = (img.width(), img.height());
@@ -108,11 +108,11 @@ fn encode_image_to_path(
                 rgb_bytes.extend_from_slice(&chunk[0..3]);
             }
             let rgb =
-                image::RgbImage::from_raw(w, h, rgb_bytes).ok_or_else(|| PlatformError::Io {
+                image::RgbImage::from_raw(w, h, rgb_bytes).ok_or_else(|| StorageError::Io {
                     path: out_path.display().to_string(),
                     source: std::io::Error::other("构建 RGB 图像缓冲区失败"),
                 })?;
-            let mut file = std::fs::File::create(out_path).map_err(|e| PlatformError::Io {
+            let mut file = std::fs::File::create(out_path).map_err(|e| StorageError::Io {
                 path: out_path.display().to_string(),
                 source: e,
             })?;
@@ -120,13 +120,13 @@ fn encode_image_to_path(
                 &mut file,
                 jpeg_quality.clamp(1, 100),
             );
-            encoder.encode_image(&rgb).map_err(|e| PlatformError::Io {
+            encoder.encode_image(&rgb).map_err(|e| StorageError::Io {
                 path: out_path.display().to_string(),
                 source: std::io::Error::other(e.to_string()),
             })?;
         }
         ImageFormat::Png | ImageFormat::Webp => {
-            img.save(out_path).map_err(|e| PlatformError::Io {
+            img.save(out_path).map_err(|e| StorageError::Io {
                 path: out_path.display().to_string(),
                 source: std::io::Error::other(e.to_string()),
             })?;

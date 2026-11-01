@@ -5997,6 +5997,7 @@ dependencies = [
  "snapin-platform",
  "snapin-settings",
  "snapin-ui",
+ "snapin-updater",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -6015,7 +6016,9 @@ dependencies = [
  "snapin-runtime",
  "snapin-service",
  "snapin-settings",
+ "snapin-storage",
  "snapin-ui",
+ "snapin-updater",
  "thiserror 1.0.69",
  "tiny-skia 0.11.4",
  "tokio",
@@ -6030,7 +6033,6 @@ dependencies = [
  "cosmic-text",
  "rustix 0.38.44",
  "serde",
- "shipup",
  "tempfile",
  "thiserror 1.0.69",
  "tiny-skia 0.11.4",
@@ -6058,7 +6060,6 @@ version = "1.2.0"
 dependencies = [
  "arboard",
  "ashpd 0.8.2",
- "chrono",
  "global-hotkey",
  "image 0.24.9",
  "ksni",
@@ -6070,7 +6071,6 @@ dependencies = [
  "snapin-runtime",
  "thiserror 1.0.69",
  "tokio",
- "toml 0.8.23",
  "tracing",
  "tray-icon",
  "xcap",
@@ -6124,9 +6124,22 @@ dependencies = [
  "snapin-daemon",
  "snapin-platform",
  "snapin-runtime",
+ "snapin-updater",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "snapin-storage"
+version = "1.2.0"
+dependencies = [
+ "chrono",
+ "image 0.24.9",
+ "serde",
+ "snapin-core",
+ "thiserror 1.0.69",
+ "toml 0.8.23",
 ]
 
 [[package]]
@@ -6146,6 +6159,16 @@ dependencies = [
  "wayland-backend",
  "wayland-client",
  "winit 0.29.15",
+]
+
+[[package]]
+name = "snapin-updater"
+version = "1.2.0"
+dependencies = [
+ "shipup",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
 ]
 
 [[package]]

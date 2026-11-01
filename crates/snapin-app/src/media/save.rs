@@ -7,9 +7,9 @@
 use snapin_core::config::{Config, OutputConfig};
 use snapin_core::AppPaths;
 use snapin_platform::{
-    open_path_in_file_manager, pick_save_path, resolve_save_path, save_image_to_path,
-    save_image_with_config, send_desktop_notification, write_image_to_clipboard,
+    open_path_in_file_manager, pick_save_path, send_desktop_notification, write_image_to_clipboard,
 };
+use snapin_storage::{resolve_save_path, save_image_to_path, save_image_with_config};
 use snapin_ui::MediaJobOutcome;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

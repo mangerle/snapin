@@ -1,0 +1,15 @@
+[package]
+name = "snapin-storage"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Snapin 图像编码保存、文件名模板、选区缓存与原生像素载荷校验"
+
+[dependencies]
+snapin-core.workspace = true
+image.workspace = true
+chrono.workspace = true
+serde.workspace = true
+toml.workspace = true
+thiserror.workspace = true

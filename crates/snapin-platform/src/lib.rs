@@ -12,7 +12,6 @@ pub mod lifecycle;
 pub mod notification;
 #[cfg(target_os = "linux")]
 pub mod portal;
-pub mod storage;
 pub mod tray;
 pub mod window;
 
@@ -73,9 +72,5 @@ pub use notification::send_desktop_notification;
 pub use dialog::pick_save_path;
 #[cfg(target_os = "linux")]
 pub use portal::{capture_fullscreen_portal, ensure_portal_screenshot_permission, pick_save_path};
-pub use storage::{
-    checked_rgba_byte_len, clear_selection_cache, load_last_selection, resolve_save_path,
-    save_image_to_path, save_image_with_config, save_last_selection, MAX_RAW_PIXELS,
-};
 pub use tray::{PlatformTray, TrayAction};
 pub use window::enumerate_visible_windows;

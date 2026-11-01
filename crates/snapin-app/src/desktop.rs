@@ -14,11 +14,11 @@
 
 use crate::config::{config_snapshot, SharedConfig};
 use snapin_platform::{
-    load_last_selection, open_path_in_file_manager, read_clipboard_image, read_clipboard_text,
-    save_last_selection, send_desktop_notification, write_image_to_clipboard,
-    write_text_to_clipboard,
+    open_path_in_file_manager, read_clipboard_image, read_clipboard_text,
+    send_desktop_notification, write_image_to_clipboard, write_text_to_clipboard,
 };
 use snapin_runtime::TaskRuntime;
+use snapin_storage::{load_last_selection, save_last_selection};
 use snapin_ui::snipper::Rect;
 use snapin_ui::{DesktopPort, PortError};
 use std::path::PathBuf;

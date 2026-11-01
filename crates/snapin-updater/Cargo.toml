@@ -1,0 +1,15 @@
+[package]
+name = "snapin-updater"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Snapin 跨平台自更新：清单检查、下载验签、崩溃回滚与更新信息模型"
+
+[dependencies]
+shipup.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

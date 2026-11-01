@@ -104,7 +104,7 @@ fn setup_check_callback(win: &SettingsWindow, context: UpdateContext) {
         let reset_runtime = runtime.clone();
         let reset_cancel = cancel.clone();
         let spawn_result = runtime.spawn_blocking(move || {
-            let result = snapin_core::check_update(None);
+            let result = snapin_updater::check_update(None);
             if task_cancel.is_cancelled() {
                 return;
             }

@@ -101,7 +101,7 @@ fn load_single_session_config() -> Config {
 fn load_pixmap_from_file(path: &Path) -> Result<Pixmap> {
     if path.extension().and_then(|ext| ext.to_str()) == Some("raw") {
         let metadata = std::fs::metadata(path).context("读取贴图原生像素文件元数据失败")?;
-        let max_bytes = snapin_platform::MAX_RAW_PIXELS
+        let max_bytes = snapin_storage::MAX_RAW_PIXELS
             .saturating_mul(4)
             .saturating_add(8);
         if metadata.len() > max_bytes {
@@ -121,7 +121,7 @@ fn load_pixmap_from_file(path: &Path) -> Result<Pixmap> {
                 .try_into()
                 .map_err(|_| anyhow::anyhow!("贴图原生像素高度头部长度异常"))?,
         );
-        let pixel_bytes = snapin_platform::checked_rgba_byte_len(width, height)
+        let pixel_bytes = snapin_storage::checked_rgba_byte_len(width, height)
             .ok_or_else(|| anyhow::anyhow!("贴图像素尺寸非法或超过上限"))?;
         let expected_len = 8usize
             .checked_add(pixel_bytes)

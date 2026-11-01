@@ -28,8 +28,4 @@ pub enum CoreError {
     /// TOML 配置文件序列化与生成失败
     #[error("TOML 配置文件序列化失败，原因: {0}")]
     ConfigSerializeError(#[from] toml::ser::Error),
-
-    /// 自动更新检查、下载或替换失败
-    #[error("自更新操作失败，原因: {0}")]
-    UpdateError(String),
 }

@@ -274,7 +274,7 @@ async fn create_paster(
         return DaemonResponse::Error("非法贴图临时物理路径".to_string());
     }
 
-    let Some(expected_len) = snapin_platform::checked_rgba_byte_len(width, height) else {
+    let Some(expected_len) = snapin_storage::checked_rgba_byte_len(width, height) else {
         return DaemonResponse::Error("贴图像素尺寸非法或超过上限".to_string());
     };
 

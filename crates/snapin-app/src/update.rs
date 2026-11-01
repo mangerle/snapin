@@ -9,7 +9,7 @@ pub async fn run_cli_update(config: Option<Config>, check_only: bool) -> Result<
     let custom_url = config.and_then(|c| c.general.custom_update_url);
     println!("正在检查 Snapin 最新版本...");
 
-    let update = snapin_core::check_update_async(custom_url.as_deref())
+    let update = snapin_updater::check_update_async(custom_url.as_deref())
         .await
         .context("检查更新失败")?;
 

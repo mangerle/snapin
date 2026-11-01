@@ -355,15 +355,17 @@ systemd 用户服务与第三方许可文件一并装入 deb 包。
 - `snapin`：CLI 解析与进程装配，不承载业务编排。
 - `snapin-app`：应用层用例编排、媒体任务执行器、守护进程运行时与系统集成调度。
 - `snapin-runtime`：统一后台任务运行时，提供有界准入、任务追踪、取消令牌与 panic 感知。
-- `snapin-core`：配置模型、标注图元、文本排版与路径约定。
+- `snapin-updater`：自更新清单检查、下载验签与崩溃回滚，隔离网络与 `shipup` 依赖。
+- `snapin-storage`：图像编码保存、文件名模板、选区缓存与原生像素载荷校验。
+- `snapin-core`：配置模型、标注图元、文本排版与路径约定，不依赖网络或自更新基础设施。
 - `snapin-ui`：纯表现层，提供 winit 截图窗口、贴图工作区、工具栏、渲染与交互；通过 `ports` 请求宿主能力，不直接读写系统剪贴板、配置文件或网络服务。
-- `snapin-platform`：Portal、GNOME 扩展 D-Bus、剪贴板、热键、通知、存储与自启动。
+- `snapin-platform`：Portal、GNOME 扩展 D-Bus、剪贴板、热键、通知、窗口与自启动等桌面集成。
 - `snapin-service`：PP-OCRv6 推理与多服务商翻译。
 - `snapin-settings`：Slint 设置中心及配置双向同步。
 - `snapin-daemon`：本地 IPC 协议、服务端与客户端。
 - `extension`：配套 GNOME Shell 扩展。
 
-依赖方向为 `snapin` → `snapin-app` → `snapin-ui` / `snapin-platform` / `snapin-service` → `snapin-core`；`snapin-ui` 不直接依赖平台与服务 crate。
+依赖方向为 `snapin` → `snapin-app` → `snapin-ui` / `snapin-platform` / `snapin-service` / `snapin-storage` / `snapin-updater` → `snapin-core`；`snapin-ui` 不直接依赖平台与服务 crate，`snapin-core` 不依赖网络与自更新基础设施。
 
 ## 参与贡献
 

@@ -155,6 +155,7 @@ mod tests {
     }
 
     /// 空节点（扩展已停用但路径仍在）必须判为离线，接口已导出才判为在线
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_interface_probe_rejects_empty_node() {
         assert!(!xml_declares_snapin_interface(

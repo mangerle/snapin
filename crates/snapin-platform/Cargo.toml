@@ -13,10 +13,8 @@ arboard.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 image.workspace = true
-chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-toml.workspace = true
 thiserror.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]

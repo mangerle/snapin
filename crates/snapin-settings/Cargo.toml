@@ -11,6 +11,7 @@ snapin-core.workspace = true
 snapin-daemon.workspace = true
 snapin-platform.workspace = true
 snapin-runtime.workspace = true
+snapin-updater.workspace = true
 tokio.workspace = true
 slint.workspace = true
 tracing.workspace = true

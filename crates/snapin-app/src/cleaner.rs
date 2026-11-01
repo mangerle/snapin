@@ -2,7 +2,8 @@
 
 use anyhow::Result;
 use snapin_core::AppPaths;
-use snapin_platform::{clear_selection_cache, send_desktop_notification};
+use snapin_platform::send_desktop_notification;
+use snapin_storage::clear_selection_cache;
 
 /// 清理本用户所有截屏共享内存与历史选区缓存
 pub async fn clear_snip_history() -> Result<()> {
