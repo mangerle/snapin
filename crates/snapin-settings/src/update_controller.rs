@@ -12,11 +12,11 @@
 
 use crate::config_store::ConfigStore;
 use crate::SettingsWindow;
-use shipup::{DownloadedUpdate, Update, UpdateEvent};
 use slint::{ComponentHandle, SharedString};
 use snapin_daemon::{send_request_to_daemon, DaemonRequest, DaemonResponse};
 use snapin_platform::lifecycle::spawn_detached_system_command;
 use snapin_runtime::{CancellationToken, TaskPool, TaskRuntime};
+use snapin_updater::{DownloadedUpdate, UpdateEvent, UpdateInfo, UpdateStage};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -65,7 +65,7 @@ struct UpdateContext {
     runtime: TaskRuntime,
     cancel: CancellationToken,
     config: Arc<ConfigStore>,
-    pending_update: Arc<Mutex<Option<Update>>>,
+    pending_update: Arc<Mutex<Option<UpdateInfo>>>,
     downloaded_update: Arc<Mutex<Option<DownloadedUpdate>>>,
 }
 
@@ -83,7 +83,7 @@ pub(crate) fn register_update_callbacks(
         runtime,
         cancel,
         config,
-        pending_update: Arc::new(Mutex::new(None::<Update>)),
+        pending_update: Arc::new(Mutex::new(None::<UpdateInfo>)),
         downloaded_update: Arc::new(Mutex::new(None::<DownloadedUpdate>)),
     };
 
@@ -130,8 +130,8 @@ fn setup_check_callback(win: &SettingsWindow, context: UpdateContext) {
                 };
                 match result {
                     Ok(Some(update)) => {
-                        let version = update.version().to_string();
-                        let notes = update.notes().unwrap_or("").to_string();
+                        let version = update.version();
+                        let notes = update.notes().unwrap_or_default();
                         if let Ok(mut guard) = update_holder.lock() {
                             *guard = Some(update);
                         }
@@ -239,7 +239,7 @@ fn setup_download_callback(win: &SettingsWindow, context: UpdateContext) {
         let spawn_result = runtime.spawn_blocking_in(TaskPool::Maintenance, move || {
             let win_progress = win_weak_async.clone();
             let progress_cancel = task_cancel.clone();
-            let download_res = update.download(move |event| {
+            let download_res = update.download_blocking(move |event| {
                 if progress_cancel.is_cancelled() {
                     return;
                 }
@@ -259,7 +259,7 @@ fn setup_download_callback(win: &SettingsWindow, context: UpdateContext) {
                             }
                         });
                     }
-                    UpdateEvent::VerifyingSignature => {
+                    UpdateEvent::Stage(UpdateStage::VerifyingSignature) => {
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(window) = win_clone.upgrade() {
                                 window.set_download_speed_text(SharedString::from(

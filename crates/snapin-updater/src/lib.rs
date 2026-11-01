@@ -2,7 +2,7 @@
 //!
 //! 基于 `shipup` 提供开箱即用的更新检测、下载验签、物理替换、崩溃回滚与偏好管理。
 
-use shipup::{Update, Updater};
+use shipup::{Update, UpdateEvent as ShipupEvent, Updater};
 use std::time::Duration;
 use thiserror::Error;
 
@@ -60,20 +60,190 @@ fn build_updater(custom_manifest_url: Option<&str>) -> Result<Updater, UpdaterEr
 /// 当网络超时、Manifest 解析异常或签名校验失败时返回错误。
 pub async fn check_update_async(
     custom_manifest_url: Option<&str>,
-) -> Result<Option<Update>, UpdaterError> {
+) -> Result<Option<UpdateInfo>, UpdaterError> {
     let updater = build_updater(custom_manifest_url)?;
     updater
         .check_async()
         .await
+        .map(|update| update.map(UpdateInfo::new))
         .map_err(|e| updater_error("异步检查更新失败", e))
 }
 
 /// 同步阻塞检查是否有可用新版本（适用于独立工作线程）
-pub fn check_update(custom_manifest_url: Option<&str>) -> Result<Option<Update>, UpdaterError> {
+pub fn check_update(custom_manifest_url: Option<&str>) -> Result<Option<UpdateInfo>, UpdaterError> {
     let updater = build_updater(custom_manifest_url)?;
     updater
         .check()
+        .map(|update| update.map(UpdateInfo::new))
         .map_err(|e| updater_error("检查更新失败", e))
+}
+
+/// 已确认可用的新版本信息。
+///
+/// 对外只暴露版本、发布日期与更新日志，不把 `shipup::Update` 泄漏到应用层；
+/// 下载与安装也必须经过本 crate 的统一入口。
+#[derive(Debug, Clone)]
+pub struct UpdateInfo {
+    inner: Update,
+}
+
+impl UpdateInfo {
+    fn new(inner: Update) -> Self {
+        Self { inner }
+    }
+
+    /// 新版本号。
+    pub fn version(&self) -> String {
+        self.inner.version().to_string()
+    }
+
+    /// 更新日志。
+    pub fn notes(&self) -> Option<String> {
+        self.inner.notes().map(str::to_string)
+    }
+
+    /// 发布日期。
+    pub fn pub_date(&self) -> Option<String> {
+        self.inner.pub_date().map(str::to_string)
+    }
+
+    /// 异步下载并验签；回调只接收本 crate 的稳定事件类型。
+    ///
+    /// # Errors
+    ///
+    /// 网络失败、哈希或签名校验失败时返回 [`UpdaterError`]。
+    pub async fn download_async<F>(&self, mut callback: F) -> Result<DownloadedUpdate, UpdaterError>
+    where
+        F: FnMut(UpdateEvent) + Send + 'static,
+    {
+        self.inner
+            .download_async(|event| callback(map_event(event)))
+            .await
+            .map(DownloadedUpdate::new)
+            .map_err(|error| updater_error("下载或验签更新包失败", error))
+    }
+
+    /// 同步下载并验签；供设置中心阻塞线程池调用。
+    ///
+    /// # Errors
+    ///
+    /// 网络失败、哈希或签名校验失败时返回 [`UpdaterError`]。
+    pub fn download_blocking<F>(&self, mut callback: F) -> Result<DownloadedUpdate, UpdaterError>
+    where
+        F: FnMut(UpdateEvent),
+    {
+        self.inner
+            .download(|event| callback(map_event(event)))
+            .map(DownloadedUpdate::new)
+            .map_err(|error| updater_error("下载或验签更新包失败", error))
+    }
+}
+
+/// 已下载并验签、等待安装的更新包。
+#[derive(Debug, Clone)]
+pub struct DownloadedUpdate {
+    inner: shipup::DownloadedUpdate,
+}
+
+impl DownloadedUpdate {
+    fn new(inner: shipup::DownloadedUpdate) -> Self {
+        Self { inner }
+    }
+
+    /// 目标版本号。
+    pub fn version(&self) -> String {
+        self.inner.version().to_string()
+    }
+
+    /// 执行物理安装；回调接收统一的安装阶段事件。
+    ///
+    /// # Errors
+    ///
+    /// 归档解压、二进制替换或安装器派生失败时返回 [`UpdaterError`]。
+    pub fn install<F>(&self, mut callback: F) -> Result<(), UpdaterError>
+    where
+        F: FnMut(UpdateEvent),
+    {
+        self.inner
+            .install(|event| callback(map_event(event)))
+            .map_err(|error| updater_error("应用更新包失败", error))
+    }
+}
+
+/// 更新下载/安装阶段。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum UpdateStage {
+    CheckingManifest,
+    DownloadStarted,
+    VerifyingChecksum,
+    VerifyingSignature,
+    ExtractingArchive,
+    Installing,
+    ReadyToRestart,
+    DeferredToReboot,
+    Completed,
+    Other,
+}
+
+/// 自更新进度事件。
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum UpdateEvent {
+    /// 下载进度
+    DownloadProgress {
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
+        percent: Option<f32>,
+        speed_bytes_per_sec: Option<u64>,
+    },
+    /// 阶段切换
+    Stage(UpdateStage),
+    /// 失败重试中
+    Retrying {
+        attempt: u32,
+        max_retries: u32,
+        error: String,
+    },
+    /// 不可恢复失败
+    Failed { reason: String },
+}
+
+fn map_event(event: ShipupEvent) -> UpdateEvent {
+    match event {
+        ShipupEvent::CheckingManifest => UpdateEvent::Stage(UpdateStage::CheckingManifest),
+        ShipupEvent::DownloadStarted { .. } => UpdateEvent::Stage(UpdateStage::DownloadStarted),
+        ShipupEvent::DownloadProgress {
+            downloaded_bytes,
+            total_bytes,
+            percent,
+            speed_bytes_per_sec,
+            ..
+        } => UpdateEvent::DownloadProgress {
+            downloaded_bytes,
+            total_bytes,
+            percent,
+            speed_bytes_per_sec,
+        },
+        ShipupEvent::VerifyingChecksum => UpdateEvent::Stage(UpdateStage::VerifyingChecksum),
+        ShipupEvent::VerifyingSignature => UpdateEvent::Stage(UpdateStage::VerifyingSignature),
+        ShipupEvent::ExtractingArchive => UpdateEvent::Stage(UpdateStage::ExtractingArchive),
+        ShipupEvent::Installing => UpdateEvent::Stage(UpdateStage::Installing),
+        ShipupEvent::ReadyToRestart => UpdateEvent::Stage(UpdateStage::ReadyToRestart),
+        ShipupEvent::DeferredToReboot { .. } => UpdateEvent::Stage(UpdateStage::DeferredToReboot),
+        ShipupEvent::Retrying {
+            attempt,
+            max_retries,
+            error,
+            ..
+        } => UpdateEvent::Retrying {
+            attempt,
+            max_retries,
+            error,
+        },
+        ShipupEvent::Failed { reason } => UpdateEvent::Failed { reason },
+        ShipupEvent::Completed => UpdateEvent::Stage(UpdateStage::Completed),
+    }
 }
 
 /// 客户端启动入口的崩溃自检与自动回滚
@@ -99,6 +269,39 @@ pub fn confirm_update_success() -> Result<(), UpdaterError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 外部事件必须映射为稳定的本 crate 事件，供应用与设置中心共用。
+    #[test]
+    fn test_shipup_event_mapping_is_stable() {
+        let progress = map_event(ShipupEvent::DownloadProgress {
+            downloaded_bytes: 10,
+            total_bytes: Some(100),
+            percent: Some(10.0),
+            speed_bytes_per_sec: Some(1024),
+            eta: None,
+        });
+        assert_eq!(
+            progress,
+            UpdateEvent::DownloadProgress {
+                downloaded_bytes: 10,
+                total_bytes: Some(100),
+                percent: Some(10.0),
+                speed_bytes_per_sec: Some(1024),
+            }
+        );
+
+        let retry = map_event(ShipupEvent::Retrying {
+            attempt: 1,
+            max_retries: 3,
+            delay: Duration::from_millis(100),
+            error: "网络抖动".to_string(),
+        });
+        assert!(matches!(retry, UpdateEvent::Retrying { attempt: 1, .. }));
+        assert!(matches!(
+            map_event(ShipupEvent::VerifyingSignature),
+            UpdateEvent::Stage(UpdateStage::VerifyingSignature)
+        ));
+    }
 
     /// 测试默认配置下 Updater 能够成功构建且参数合法
     #[test]

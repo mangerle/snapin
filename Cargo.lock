@@ -6019,7 +6019,6 @@ dependencies = [
  "anyhow",
  "image 0.24.9",
  "serde",
- "shipup",
  "snapin-core",
  "snapin-daemon",
  "snapin-platform",
@@ -6129,7 +6128,6 @@ name = "snapin-settings"
 version = "1.2.0"
 dependencies = [
  "arc-swap",
- "shipup",
  "slint",
  "slint-build",
  "snapin-core",

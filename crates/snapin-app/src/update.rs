@@ -1,8 +1,8 @@
 //! Snapin CLI 在线自更新子命令执行模块。
 
 use anyhow::{Context, Result};
-use shipup::{Update, UpdateEvent};
 use snapin_core::config::Config;
+use snapin_updater::{DownloadedUpdate, UpdateEvent, UpdateInfo, UpdateStage};
 
 /// 执行 CLI 更新流程
 pub async fn run_cli_update(config: Option<Config>, check_only: bool) -> Result<()> {
@@ -42,7 +42,7 @@ pub async fn run_cli_update(config: Option<Config>, check_only: bool) -> Result<
 }
 
 /// 输出新版本摘要信息
-fn log_update_info(update: &Update) {
+fn log_update_info(update: &UpdateInfo) {
     tracing::info!("发现可用新版本: v{}", update.version());
     if let Some(date) = update.pub_date() {
         tracing::info!("发布时间: {date}");
@@ -53,7 +53,7 @@ fn log_update_info(update: &Update) {
 }
 
 /// 执行带控制台进度的异步下载与验签
-async fn download_with_progress(update: Update) -> Result<shipup::DownloadedUpdate> {
+async fn download_with_progress(update: UpdateInfo) -> Result<DownloadedUpdate> {
     update
         .download_async(|event| match event {
             UpdateEvent::DownloadProgress {
@@ -72,7 +72,7 @@ async fn download_with_progress(update: Update) -> Result<shipup::DownloadedUpda
                 let p = percent.unwrap_or(0.0);
                 tracing::debug!("下载进度: {p:.1}% 速率: {speed_str}");
             }
-            UpdateEvent::VerifyingSignature => {
+            UpdateEvent::Stage(UpdateStage::VerifyingSignature) => {
                 tracing::info!("正在验证 Ed25519 数字签名与 SHA-256 哈希完整性...");
             }
             _ => {}
