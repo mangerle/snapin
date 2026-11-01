@@ -106,8 +106,8 @@ fn submit_paster_save(state: &mut PasterWindowState, as_dialog: bool, open_folde
     };
 
     match runtime.submit_save(state.item.id, image, as_dialog, open_folder_after) {
-        Ok((job_id, _)) => {
-            state.begin_job(job_id);
+        Ok((job_id, cancel)) => {
+            state.begin_job(job_id, cancel);
             state.set_status_message(if as_dialog {
                 "正在选择保存位置..."
             } else {

@@ -4,7 +4,7 @@
 //! 又允许父模块继续对结构体字段保持私有。
 
 use super::PasterWindowState;
-use crate::ports::JobId;
+use crate::ports::{JobCancel, JobId};
 use tiny_skia::Pixmap;
 
 impl PasterWindowState {
@@ -33,18 +33,55 @@ impl PasterWindowState {
         self.pending_job_id.is_some()
     }
 
-    /// 记录新提交的后台任务 ID。
-    pub(crate) fn begin_job(&mut self, job_id: JobId) {
+    /// 记录新提交的后台任务 ID 与取消闭包。
+    pub(crate) fn begin_job(&mut self, job_id: JobId, cancel: JobCancel) {
         self.pending_job_id = Some(job_id);
+        self.pending_job_cancel = Some(cancel);
+    }
+
+    /// 取消当前后台任务；窗口关闭或用户主动放弃时调用。
+    pub(crate) fn cancel_pending_job(&mut self) {
+        if let Some(cancel) = self.pending_job_cancel.take() {
+            cancel();
+        }
+        self.pending_job_id = None;
     }
 
     /// 结束匹配任务；过期任务返回 false，由调用方丢弃结果。
     pub(crate) fn finish_job(&mut self, job_id: JobId) -> bool {
         if self.pending_job_id == Some(job_id) {
             self.pending_job_id = None;
+            self.pending_job_cancel = None;
             true
         } else {
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::PasterItem;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use tiny_skia::Pixmap;
+
+    /// 关闭窗口时必须真正触发协作式取消，而不是只清掉任务 ID。
+    #[test]
+    fn test_cancel_pending_job_invokes_cancel_closure() {
+        let pixmap = Pixmap::new(2, 2).expect("创建测试位图失败");
+        let item = PasterItem::new(1, "测试".to_string(), pixmap, (0, 0));
+        let mut state = PasterWindowState::new(item);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let flag = cancelled.clone();
+        state.begin_job(
+            JobId::new(7),
+            Box::new(move || flag.store(true, Ordering::Release)),
+        );
+
+        state.cancel_pending_job();
+        assert!(cancelled.load(Ordering::Acquire));
+        assert!(!state.has_pending_job());
     }
 }

@@ -10,7 +10,7 @@ use crate::paster::window::annotation::{
 };
 use crate::paster::window::input_region::InputRegionCache;
 use crate::paster::window::jobs::PasterJobRuntime;
-use crate::ports::{DesktopPort, JobId, NoopDesktop};
+use crate::ports::{DesktopPort, JobCancel, JobId, NoopDesktop};
 
 mod jobs;
 
@@ -54,6 +54,8 @@ pub struct PasterWindowState {
     pub(crate) desktop: Arc<dyn DesktopPort>,
     /// 当前后台任务 ID；`Some` 表示有 OCR / 翻译 / 保存任务在执行
     pending_job_id: Option<JobId>,
+    /// 当前后台任务的协作式取消闭包；窗口关闭时必须调用，避免任务继续占用资源
+    pending_job_cancel: Option<JobCancel>,
     /// 图像顶部状态提示及其产生时刻，超过 [`STATUS_MESSAGE_TTL`] 后自动失效
     pub(crate) status_message: Option<(String, Instant)>,
     pub(crate) last_click_time: Option<Instant>,
@@ -89,6 +91,7 @@ impl PasterWindowState {
             job_runtime: None,
             desktop: Arc::new(NoopDesktop),
             pending_job_id: None,
+            pending_job_cancel: None,
             status_message: None,
             last_click_time: None,
             pending_stroke_points: Vec::with_capacity(64),

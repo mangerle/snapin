@@ -202,8 +202,8 @@ fn submit_paster_ocr(state: &mut PasterWindowState) {
     };
 
     match runtime.submit_ocr(state.item.id, image) {
-        Ok((job_id, _)) => {
-            state.begin_job(job_id);
+        Ok((job_id, cancel)) => {
+            state.begin_job(job_id, cancel);
             state.set_status_message("正在识别文字...");
         }
         Err(message) => state.set_status_message(format!("提交文字识别任务失败: {message}")),
@@ -229,8 +229,8 @@ fn submit_paster_translate(state: &mut PasterWindowState) {
     };
 
     match runtime.submit_translate(state.item.id, image, state.config.translate.cover_mode) {
-        Ok((job_id, _)) => {
-            state.begin_job(job_id);
+        Ok((job_id, cancel)) => {
+            state.begin_job(job_id, cancel);
             state.set_status_message("正在翻译文字...");
         }
         Err(message) => state.set_status_message(format!("提交翻译任务失败: {message}")),

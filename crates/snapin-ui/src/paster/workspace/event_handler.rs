@@ -154,6 +154,7 @@ fn shutdown_workspace(
     }
     // 工作区停机时逐个结束会话并关闭 IME，再统一释放窗口实例
     for inst in runtime.instances.values_mut() {
+        inst.state.cancel_pending_job();
         inst.state.cancel_text_session();
         inst.window.set_ime_allowed(false);
     }

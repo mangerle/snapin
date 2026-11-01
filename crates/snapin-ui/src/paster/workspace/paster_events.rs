@@ -26,7 +26,9 @@ pub(crate) fn handle_paster_window_event(
     }
 
     if let Some(mut removed) = runtime.instances.remove(&window_id) {
-        // 关闭前结束文字会话并显式关闭 IME，避免输入法候选框残留在桌面上
+        // 关闭前取消后台 OCR/翻译/保存任务，并结束文字会话与 IME，
+        // 避免窗口销毁后任务继续占用推理与网络资源。
+        removed.state.cancel_pending_job();
         removed.state.cancel_text_session();
         removed.window.set_ime_allowed(false);
         runtime.manager.remove_paster(removed.item_id);
