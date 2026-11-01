@@ -51,6 +51,7 @@ pub async fn handle_command(
         }
         DaemonRequest::TogglePasters => status::toggle(workspace),
         DaemonRequest::SwitchGroup(target_id) => status::switch_group(workspace, target_id).await,
+        DaemonRequest::ClearHistory => clear_history().await,
         DaemonRequest::Shutdown => DaemonResponse::Ok,
         DaemonRequest::Ping => DaemonResponse::Pong,
         DaemonRequest::GetStatus => status::query(workspace).await,
@@ -73,6 +74,17 @@ fn start_snip(
         Err(error) => {
             tracing::warn!("提交截图覆盖层任务失败: {error}");
             DaemonResponse::Error(format!("提交截图任务失败: {error}"))
+        }
+    }
+}
+
+/// 在守护进程内执行清理，保证与媒体任务共享同一运行时并避免外部进程竞态。
+async fn clear_history() -> DaemonResponse {
+    match crate::cleaner::clear_snip_history().await {
+        Ok(()) => DaemonResponse::Ok,
+        Err(error) => {
+            tracing::warn!("清理截屏历史失败: {error:#}");
+            DaemonResponse::Error(format!("清理截屏历史失败: {error}"))
         }
     }
 }

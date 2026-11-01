@@ -146,7 +146,12 @@ fn run_async_command(
                 }
                 Ok(())
             }
-            Commands::ClearHistory => clear_snip_history().await,
+            Commands::ClearHistory => {
+                if !send_or_absent(DaemonRequest::ClearHistory).await? {
+                    clear_snip_history().await?;
+                }
+                Ok(())
+            }
             Commands::Exit => exit_snapin_application().await,
             Commands::Update { check } => run_cli_update(config, check).await,
             Commands::Prefs

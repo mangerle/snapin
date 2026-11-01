@@ -39,6 +39,8 @@ pub enum DaemonRequest {
     TogglePasters,
     /// 切换活动贴图分组（若为 None 则循环切换至下一个分组）
     SwitchGroup(Option<usize>),
+    /// 清理截屏历史临时文件与选区缓存
+    ClearHistory,
     /// 请求守护进程优雅平滑停机
     Shutdown,
     /// 心跳与存活检测
