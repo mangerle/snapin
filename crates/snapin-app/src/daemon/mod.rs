@@ -60,6 +60,12 @@ pub fn run_daemon_process(cfg: Config) -> Result<()> {
         return Ok(());
     }
 
+    // 只有真正的长驻入口才参与更新健康观察：短命令不会确认升级，不能累加崩溃计数。
+    // 守护进程完成启动后会调用 confirm_update_success 闭环，避免正常使用触发误回滚。
+    if let Err(error) = snapin_updater::check_and_recover_on_startup() {
+        tracing::warn!("自更新启动自检失败，继续启动: {error}");
+    }
+
     tracing::info!("Snapin 守护服务启动中...");
     runtime.block_on(snapin_platform::init_platform_capabilities());
     runtime.block_on(run_startup_hotkeys_and_extension(&cfg));

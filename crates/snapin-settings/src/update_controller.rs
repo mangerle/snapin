@@ -14,10 +14,11 @@ use crate::SettingsWindow;
 use shipup::{DownloadedUpdate, Update, UpdateEvent};
 use slint::{ComponentHandle, SharedString};
 use snapin_core::config::Config;
-use snapin_daemon::{send_request_to_daemon, DaemonRequest};
+use snapin_daemon::{send_request_to_daemon, DaemonRequest, DaemonResponse};
 use snapin_platform::lifecycle::spawn_detached_system_command;
 use snapin_runtime::{CancellationToken, TaskRuntime};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 /// 更新状态机定义（与 Slint about_tab.slint 中的 update_status 严格对齐）
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -307,6 +308,71 @@ fn setup_download_callback(win: &SettingsWindow, context: UpdateContext) {
     });
 }
 
+/// 重启升级后的守护进程：等待旧实例退出、用当前绝对路径派生新版并确认 IPC 就绪。
+///
+/// # 设计原理
+///
+/// 安装刚完成时旧守护进程可能仍在处理 Shutdown 请求并持有单实例锁。若像旧实现那样
+/// 立即 `spawn("snapin")`，新进程会因锁竞争而退出，用户看到“更新成功但热键全部失效”。
+/// 因此这里按“发停机 → 等离线 → 用当前可执行文件绝对路径拉起 → 等 Ping 就绪”的顺序收口，
+/// 并给每一步设置明确上限，避免设置中心无限等待。
+///
+/// # Errors
+///
+/// 无法定位当前可执行文件，或新守护进程在时限内未恢复 IPC 响应时返回可直接展示的中文原因。
+async fn restart_daemon_after_update() -> Result<(), String> {
+    let _ = send_request_to_daemon(&DaemonRequest::Shutdown).await;
+
+    if !wait_for_daemon_offline(Duration::from_secs(5)).await {
+        return Err("旧守护进程未能在 5 秒内退出".to_string());
+    }
+
+    let executable =
+        std::env::current_exe().map_err(|error| format!("无法定位当前可执行文件: {error}"))?;
+    let executable = executable
+        .to_str()
+        .ok_or_else(|| "当前可执行文件路径包含非法编码".to_string())?;
+    spawn_detached_system_command(executable, &["daemon"]);
+
+    if wait_for_daemon_ready(Duration::from_secs(8)).await {
+        Ok(())
+    } else {
+        Err("新守护进程未能在 8 秒内响应心跳".to_string())
+    }
+}
+
+/// 轮询等待守护进程离线；超时仍未离线返回 `false`。
+async fn wait_for_daemon_offline(timeout: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + timeout;
+    while tokio::time::Instant::now() < deadline {
+        if !daemon_is_online().await {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    !daemon_is_online().await
+}
+
+/// 轮询等待升级后的守护进程恢复心跳；超时返回 `false`。
+async fn wait_for_daemon_ready(timeout: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + timeout;
+    while tokio::time::Instant::now() < deadline {
+        if daemon_is_online().await {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    false
+}
+
+/// 发送 Ping 并判断守护进程是否明确返回 Pong。
+async fn daemon_is_online() -> bool {
+    matches!(
+        send_request_to_daemon(&DaemonRequest::Ping).await,
+        Ok(Some(DaemonResponse::Pong))
+    )
+}
+
 /// 注册【立即重启并安装】按钮回调
 fn setup_install_callback(win: &SettingsWindow, context: UpdateContext) {
     let UpdateContext {
@@ -378,12 +444,29 @@ fn setup_install_callback(win: &SettingsWindow, context: UpdateContext) {
                 }
             }
 
-            // 安装完成：停机旧后台守护进程并拉起新版；该流程不因设置窗口关闭而取消。
-            let _ = send_request_to_daemon(&DaemonRequest::Shutdown).await;
-            spawn_detached_system_command("snapin", &["daemon"]);
-            let _ = slint::invoke_from_event_loop(|| {
-                let _ = slint::quit_event_loop();
-            });
+            // 安装完成：先等待旧守护进程释放单实例锁，再用当前绝对路径拉起新版。
+            // 该流程不因设置窗口关闭而取消，否则可能留下“更新成功但服务已消失”的状态。
+            match restart_daemon_after_update().await {
+                Ok(()) => {
+                    let _ = slint::invoke_from_event_loop(|| {
+                        let _ = slint::quit_event_loop();
+                    });
+                }
+                Err(error) => {
+                    tracing::error!("更新安装完成但守护进程重启失败: {error}");
+                    if install_cancel.is_cancelled() {
+                        return;
+                    }
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(window) = win_thread.upgrade() {
+                            window.set_update_status(UpdateUiStatus::Error as i32);
+                            window.set_update_status_text(SharedString::from(format!(
+                                "更新已安装，但守护进程重启失败: {error}"
+                            )));
+                        }
+                    });
+                }
+            }
         });
         if let Err(error) = spawn_result {
             window.set_update_status(UpdateUiStatus::Error as i32);

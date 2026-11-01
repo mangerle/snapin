@@ -211,11 +211,11 @@ fn main() -> Result<()> {
     );
     let config = config_for(&command, loaded_config)?;
 
-    // 3. 自更新崩溃自愈必须在进入 GUI/服务主流程之前完成
-    if let Err(error) = snapin_updater::check_and_recover_on_startup() {
-        tracing::warn!("自更新启动自检失败，继续启动: {error}");
-    }
-
+    // 3. 自更新健康自检只在长驻守护进程入口执行。
+    //
+    // `snapin snip/paste/pin-file` 是热键高频拉起的短命令，进程正常退出也不会确认
+    // 升级成功；若在 CLI 入口累加未确认启动计数，更新后的正常使用会被误判为连续崩溃
+    // 并回滚刚安装的健康版本。守护进程启动平稳后会调用确认接口闭环。
     match command {
         Commands::Daemon => {
             let config = config.context("守护进程启动缺少用户配置")?;
