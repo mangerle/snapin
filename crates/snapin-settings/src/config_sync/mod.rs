@@ -5,6 +5,7 @@
 
 mod apply;
 mod extract;
+mod scalar_table;
 
 pub(crate) use apply::sync_config_to_window;
 pub(crate) use extract::extract_config_from_window;

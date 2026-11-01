@@ -4,10 +4,12 @@ use super::super::mapping::{
     accent_color_to_index, magnifier_scale_to_index, snip_color_to_index, SettingEnum,
 };
 use super::super::SettingsWindow;
+use super::scalar_table::apply_scalar_fields;
 use slint::SharedString;
 use snapin_core::config::{self, Config};
 
 pub(crate) fn sync_config_to_window(win: &SettingsWindow, cfg: &Config) {
+    apply_scalar_fields(win, cfg);
     sync_general_to_window(win, &cfg.general);
     sync_interface_to_window(win, &cfg.interface);
     sync_snip_to_window(win, &cfg.snip);
@@ -20,28 +22,20 @@ pub(crate) fn sync_config_to_window(win: &SettingsWindow, cfg: &Config) {
 
 /// 同步常规板块设置
 fn sync_general_to_window(win: &SettingsWindow, g: &config::model::GeneralConfig) {
-    win.set_autostart(g.autostart);
-    win.set_notify_on_startup(g.notify_on_startup);
-    win.set_auto_check_update(g.auto_check_update);
     win.set_log_level_index(g.log_level.to_index());
 }
 
 /// 同步界面外观板块设置
 fn sync_interface_to_window(win: &SettingsWindow, i: &config::model::InterfaceConfig) {
     win.set_accent_color_index(accent_color_to_index(&i.accent_color));
-    win.set_enable_magnifier(i.enable_magnifier);
     win.set_magnifier_scale_index(magnifier_scale_to_index(i.magnifier_scale));
     win.set_color_format_index(i.color_format.to_index());
-    win.set_show_grid_lines(i.show_grid_lines);
     win.set_toolbar_scale_percent(i.toolbar_scale * 100.0);
 }
 
 /// 同步截图流程板块设置
 fn sync_snip_to_window(win: &SettingsWindow, s: &config::model::SnipConfig) {
-    win.set_remember_last_selection(s.remember_last_selection);
     win.set_default_color_index(snip_color_to_index(&s.default_color));
-    win.set_default_stroke_width(s.default_stroke_width);
-    win.set_snip_font_size(s.default_font_size);
 }
 
 /// 同步贴图板块设置
@@ -53,13 +47,8 @@ fn sync_paster_to_window(win: &SettingsWindow, p: &config::model::PasterConfig) 
 
 /// 同步输出与存储板块设置
 fn sync_output_to_window(win: &SettingsWindow, o: &config::model::OutputConfig) {
-    win.set_quick_save_dir(SharedString::from(&o.quick_save_dir));
-    win.set_file_name_template(SharedString::from(&o.file_name_template));
     win.set_format_index(o.default_format.to_index());
     win.set_jpeg_quality(o.jpeg_quality as f32);
-    win.set_notify_on_copy(o.notify_on_copy);
-    win.set_notify_on_save(o.notify_on_save);
-    win.set_prompt_save_path(o.prompt_save_path);
 }
 
 /// 同步快捷键板块设置

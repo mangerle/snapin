@@ -4,12 +4,14 @@ use super::super::mapping::{
     index_to_accent_color, index_to_magnifier_scale, index_to_snip_color, SettingEnum,
 };
 use super::super::SettingsWindow;
+use super::scalar_table::extract_scalar_fields;
 use snapin_core::config::{
     self, ColorFormat, Config, CoverMode, DoubleClickAction, Hotkey, ImageFormat, LogLevel,
     TargetLanguage, TranslateProvider, ZoomAnchor,
 };
 
 pub(crate) fn extract_config_from_window(win: &SettingsWindow, cfg: &mut Config) {
+    extract_scalar_fields(win, cfg);
     extract_general_from_window(win, &mut cfg.general);
     extract_interface_from_window(win, &mut cfg.interface);
     extract_snip_from_window(win, &mut cfg.snip);
@@ -22,29 +24,21 @@ pub(crate) fn extract_config_from_window(win: &SettingsWindow, cfg: &mut Config)
 
 /// 提取常规设置
 fn extract_general_from_window(win: &SettingsWindow, g: &mut config::model::GeneralConfig) {
-    g.autostart = win.get_autostart();
-    g.notify_on_startup = win.get_notify_on_startup();
-    g.auto_check_update = win.get_auto_check_update();
     g.log_level = LogLevel::from_index(win.get_log_level_index());
 }
 
 /// 提取界面外观设置
 fn extract_interface_from_window(win: &SettingsWindow, i: &mut config::model::InterfaceConfig) {
     i.accent_color = index_to_accent_color(win.get_accent_color_index(), i.accent_color);
-    i.enable_magnifier = win.get_enable_magnifier();
     i.magnifier_scale =
         index_to_magnifier_scale(win.get_magnifier_scale_index(), i.magnifier_scale);
     i.color_format = ColorFormat::from_index(win.get_color_format_index());
-    i.show_grid_lines = win.get_show_grid_lines();
     i.toolbar_scale = win.get_toolbar_scale_percent() / 100.0;
 }
 
 /// 提取截图设置
 fn extract_snip_from_window(win: &SettingsWindow, s: &mut config::model::SnipConfig) {
-    s.remember_last_selection = win.get_remember_last_selection();
     s.default_color = index_to_snip_color(win.get_default_color_index(), s.default_color);
-    s.default_stroke_width = win.get_default_stroke_width();
-    s.default_font_size = win.get_snip_font_size();
 }
 
 /// 提取贴图设置
@@ -56,13 +50,8 @@ fn extract_paster_from_window(win: &SettingsWindow, p: &mut config::model::Paste
 
 /// 提取输出保存设置
 fn extract_output_from_window(win: &SettingsWindow, o: &mut config::model::OutputConfig) {
-    o.quick_save_dir = win.get_quick_save_dir().to_string();
-    o.file_name_template = win.get_file_name_template().to_string();
     o.default_format = ImageFormat::from_index(win.get_format_index());
     o.jpeg_quality = win.get_jpeg_quality() as u8;
-    o.notify_on_copy = win.get_notify_on_copy();
-    o.notify_on_save = win.get_notify_on_save();
-    o.prompt_save_path = win.get_prompt_save_path();
 }
 
 /// 提取快捷键设置。
