@@ -57,7 +57,7 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError>
             let schema = format!(
                 "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{base_path}/{suffix}/"
             );
-            let command = format!("{current_exe} {}", args.join(" "));
+            let command = format!("{} {}", quote_shell_arg(&current_exe), args.join(" "));
             let binding_text = hotkey_to_gnome_accelerator(binding.hotkey);
             batch_items.push((schema.clone(), "name".to_string(), name.to_string()));
             batch_items.push((schema.clone(), "command".to_string(), command));
@@ -68,7 +68,7 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError>
             .iter()
             .map(|(schema, key, value)| (schema.as_str(), key.as_str(), value.as_str()))
             .collect();
-        execute_gsettings_batch(&batch_refs);
+        execute_gsettings_batch(&batch_refs)?;
 
         tracing::info!("GNOME 快捷键同步完成");
         Ok(())
@@ -89,6 +89,14 @@ fn ensure_custom_keybindings_registered(paths: &[String]) -> Result<(), Platform
             path: "gsettings".to_string(),
             source: e,
         })?;
+    if !output.status.success() {
+        return Err(PlatformError::Hotkey {
+            message: format!(
+                "读取 GNOME custom-keybindings 失败: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+        });
+    }
 
     let current_list = String::from_utf8_lossy(&output.stdout);
     let mut bindings: Vec<String> = current_list
@@ -121,7 +129,7 @@ fn ensure_custom_keybindings_registered(paths: &[String]) -> Result<(), Platform
             "org.gnome.settings-daemon.plugins.media-keys",
             "custom-keybindings",
             &formatted_list,
-        )]);
+        )])?;
     }
 
     Ok(())
@@ -148,21 +156,42 @@ fn get_snapin_executable_path() -> String {
 /// 用户可编辑的快捷键文本与可执行路径进入 shell 解析上下文，属于无必要的命令注入面。
 /// gsettings 单次调用本身仅毫秒级，改为直接传参既消除注入面又保持行为一致。
 #[cfg(target_os = "linux")]
-fn execute_gsettings_batch(items: &[(&str, &str, &str)]) {
+fn execute_gsettings_batch(items: &[(&str, &str, &str)]) -> Result<(), PlatformError> {
+    let mut failures: Vec<String> = Vec::new();
     for (schema, key, value) in items {
         match Command::new("gsettings")
             .args(["set", schema, key, value])
             .output()
         {
             Ok(out) if !out.status.success() => {
-                let err = String::from_utf8_lossy(&out.stderr);
-                tracing::warn!("调用 gsettings set 失败 [{schema} {key}={value}]: {err}");
+                failures.push(format!(
+                    "{schema} {key}: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
             }
             Ok(_) => {}
-            Err(error) => {
-                tracing::warn!("无法执行 gsettings 命令，原因: {error}");
-            }
+            Err(error) => failures.push(format!("{schema} {key}: {error}")),
         }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(PlatformError::Hotkey {
+            message: format!("写入 GNOME 快捷键设置失败: {}", failures.join("；")),
+        })
+    }
+}
+
+/// 给含空白的可执行路径加 shell 引号，避免 GNOME 解析 command 时被拆成多个参数。
+#[cfg(target_os = "linux")]
+fn quote_shell_arg(value: &str) -> String {
+    let safe = value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '/' | '.' | '_' | '-'));
+    if safe {
+        value.to_string()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
     }
 }
 
@@ -178,6 +207,20 @@ mod tests {
         HotkeyAction::TogglePasters,
         HotkeyAction::SwitchGroup,
     ];
+
+    /// 含空格的路径必须加引用，单引号需按 POSIX 规则转义。
+    #[test]
+    fn test_quote_shell_arg_for_command_path() {
+        assert_eq!(quote_shell_arg("/usr/bin/snapin"), "/usr/bin/snapin");
+        assert_eq!(
+            quote_shell_arg("/home/my tools/snapin"),
+            "'/home/my tools/snapin'"
+        );
+        assert_eq!(
+            quote_shell_arg("/home/a'b/snapin"),
+            "'/home/a'\\''b/snapin'"
+        );
+    }
 
     /// GNOME 自定义快捷键路径后缀必须唯一，否则后注册项会覆盖前一项。
     #[test]
