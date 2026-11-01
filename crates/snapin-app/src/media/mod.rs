@@ -67,11 +67,12 @@ impl MediaJobRunner for MediaService {
         let cancel = Arc::new(AtomicBool::new(false));
         let cancel_flag = cancel.clone();
         let task_cancel = cancel.clone();
+        let worker_cancel = task_cancel.clone();
         let cache = self.ocr_cache.clone();
 
         self.runtime
             .spawn(async move {
-                let outcome = worker::execute_job(job, config, cache).await;
+                let outcome = worker::execute_job(job, config, cache, worker_cancel).await;
                 if !task_cancel.load(Ordering::Acquire) {
                     sink(job_id, outcome);
                 }

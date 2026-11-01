@@ -2,7 +2,8 @@
 //!
 //! 任务运行在统一 [`snapin_runtime::TaskRuntime`] 的异步上下文内；OCR 推理与
 //! 图像排版通过 `spawn_blocking` 移出异步 worker。OCR 引擎按模型目录缓存，
-//! 缓存锁只在阻塞线程内短暂持有，绝不跨越 `.await`。
+//! 缓存锁只在阻塞线程内短暂持有，绝不跨越 `.await`。取消标志在 OCR、翻译、排版等
+//! 阶段边界检查；单次 ONNX 推理本身不可中断，取消会丢弃其结果并阻止后续阶段。
 
 use super::save::{execute_save_paster, execute_save_screenshot, SavePasterRequest};
 use super::translate::{build_translation_items, to_service_provider, TranslationPlacement};
@@ -12,6 +13,7 @@ use snapin_service::ocr::{LocalPpOcrEngine, OcrEngine};
 use snapin_service::{create_translator, Translator, TranslatorOptions};
 use snapin_ui::{MediaJob, MediaJobOutcome};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// 执行一条媒体任务。
@@ -19,9 +21,13 @@ pub(super) async fn execute_job(
     job: MediaJob,
     config: Arc<Config>,
     cache: Arc<Mutex<OcrCache>>,
+    cancel: Arc<AtomicBool>,
 ) -> MediaJobOutcome {
+    if cancel.load(Ordering::Acquire) {
+        return cancelled();
+    }
     match job {
-        MediaJob::Ocr { image } => execute_ocr(&cache, image, &config).await,
+        MediaJob::Ocr { image } => execute_ocr(&cache, image, &config, &cancel).await,
         MediaJob::Translate {
             image,
             origin,
@@ -32,6 +38,7 @@ pub(super) async fn execute_job(
                 Arc::new(image),
                 &config,
                 TranslationPlacement { origin, cover_mode },
+                &cancel,
             )
             .await
         }
@@ -106,12 +113,22 @@ async fn execute_ocr(
     cache: &Arc<Mutex<OcrCache>>,
     image: image::RgbaImage,
     config: &Config,
+    cancel: &Arc<AtomicBool>,
 ) -> MediaJobOutcome {
+    if cancel.load(Ordering::Acquire) {
+        return cancelled();
+    }
     let engine = match get_ocr_engine(cache, config).await {
         Ok(engine) => engine,
         Err(message) => return MediaJobOutcome::Failed { message },
     };
+    if cancel.load(Ordering::Acquire) {
+        return cancelled();
+    }
     let outcome = tokio::task::spawn_blocking(move || engine.recognize(&image)).await;
+    if cancel.load(Ordering::Acquire) {
+        return cancelled();
+    }
     match outcome {
         Ok(Ok(result)) => MediaJobOutcome::Ocr {
             text: result.full_text,
@@ -131,11 +148,18 @@ async fn execute_translate(
     image: Arc<image::RgbaImage>,
     config: &Config,
     placement: TranslationPlacement,
+    cancel: &Arc<AtomicBool>,
 ) -> MediaJobOutcome {
+    if cancel.load(Ordering::Acquire) {
+        return cancelled();
+    }
     let engine = match get_ocr_engine(cache, config).await {
         Ok(engine) => engine,
         Err(message) => return MediaJobOutcome::Failed { message },
     };
+    if cancel.load(Ordering::Acquire) {
+        return cancelled();
+    }
 
     let ocr_input = image.clone();
     let ocr_result = tokio::task::spawn_blocking(move || engine.recognize(&ocr_input)).await;
@@ -152,6 +176,9 @@ async fn execute_translate(
             }
         }
     };
+    if cancel.load(Ordering::Acquire) {
+        return cancelled();
+    }
     if ocr_result.blocks.is_empty() {
         return MediaJobOutcome::Translated { items: Vec::new() };
     }
@@ -161,6 +188,9 @@ async fn execute_translate(
         texts.push(block.text.clone());
     }
 
+    if cancel.load(Ordering::Acquire) {
+        return cancelled();
+    }
     let translator = build_translator(config);
     let translated = translator
         .translate_batch(&texts, "auto", config.translate.target_language.as_str())
@@ -173,6 +203,9 @@ async fn execute_translate(
             }
         }
     };
+    if cancel.load(Ordering::Acquire) {
+        return cancelled();
+    }
 
     let layout = tokio::task::spawn_blocking(move || {
         build_translation_items(&image, &ocr_result.blocks, &translated, placement)
@@ -183,6 +216,13 @@ async fn execute_translate(
         Err(error) => MediaJobOutcome::Failed {
             message: format!("译文排版任务异常: {error}"),
         },
+    }
+}
+
+/// 用户主动取消后的统一结果；正常回调路径会因取消标志丢弃该结果。
+fn cancelled() -> MediaJobOutcome {
+    MediaJobOutcome::Failed {
+        message: "任务已取消".to_string(),
     }
 }
 
