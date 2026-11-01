@@ -315,46 +315,6 @@ impl SettingEnum for CoverMode {
     }
 }
 
-pub fn log_level_to_index(level: LogLevel) -> i32 {
-    level.to_index()
-}
-
-pub fn index_to_log_level(index: i32) -> LogLevel {
-    SettingEnum::from_index(index)
-}
-
-pub fn color_format_to_index(format: ColorFormat) -> i32 {
-    format.to_index()
-}
-
-pub fn index_to_color_format(index: i32) -> ColorFormat {
-    SettingEnum::from_index(index)
-}
-
-pub fn zoom_anchor_to_index(anchor: ZoomAnchor) -> i32 {
-    anchor.to_index()
-}
-
-pub fn index_to_zoom_anchor(index: i32) -> ZoomAnchor {
-    SettingEnum::from_index(index)
-}
-
-pub fn double_click_action_to_index(action: DoubleClickAction) -> i32 {
-    action.to_index()
-}
-
-pub fn index_to_double_click_action(index: i32) -> DoubleClickAction {
-    SettingEnum::from_index(index)
-}
-
-pub fn image_format_to_index(format: ImageFormat) -> i32 {
-    format.to_index()
-}
-
-pub fn index_to_image_format(index: i32) -> ImageFormat {
-    SettingEnum::from_index(index)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

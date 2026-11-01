@@ -1,9 +1,7 @@
 //! 将强类型配置写入 Slint 控件属性。
 
 use super::super::mapping::{
-    accent_color_to_index, color_format_to_index, double_click_action_to_index,
-    image_format_to_index, log_level_to_index, magnifier_scale_to_index, snip_color_to_index,
-    zoom_anchor_to_index, SettingEnum,
+    accent_color_to_index, magnifier_scale_to_index, snip_color_to_index, SettingEnum,
 };
 use super::super::SettingsWindow;
 use slint::SharedString;
@@ -25,7 +23,7 @@ fn sync_general_to_window(win: &SettingsWindow, g: &config::model::GeneralConfig
     win.set_autostart(g.autostart);
     win.set_notify_on_startup(g.notify_on_startup);
     win.set_auto_check_update(g.auto_check_update);
-    win.set_log_level_index(log_level_to_index(g.log_level));
+    win.set_log_level_index(g.log_level.to_index());
 }
 
 /// 同步界面外观板块设置
@@ -33,7 +31,7 @@ fn sync_interface_to_window(win: &SettingsWindow, i: &config::model::InterfaceCo
     win.set_accent_color_index(accent_color_to_index(&i.accent_color));
     win.set_enable_magnifier(i.enable_magnifier);
     win.set_magnifier_scale_index(magnifier_scale_to_index(i.magnifier_scale));
-    win.set_color_format_index(color_format_to_index(i.color_format));
+    win.set_color_format_index(i.color_format.to_index());
     win.set_show_grid_lines(i.show_grid_lines);
     win.set_toolbar_scale_percent(i.toolbar_scale * 100.0);
 }
@@ -49,15 +47,15 @@ fn sync_snip_to_window(win: &SettingsWindow, s: &config::model::SnipConfig) {
 /// 同步贴图板块设置
 fn sync_paster_to_window(win: &SettingsWindow, p: &config::model::PasterConfig) {
     win.set_initial_opacity_percent(p.initial_opacity * 100.0);
-    win.set_zoom_anchor_index(zoom_anchor_to_index(p.zoom_anchor));
-    win.set_double_click_action_index(double_click_action_to_index(p.double_click_action));
+    win.set_zoom_anchor_index(p.zoom_anchor.to_index());
+    win.set_double_click_action_index(p.double_click_action.to_index());
 }
 
 /// 同步输出与存储板块设置
 fn sync_output_to_window(win: &SettingsWindow, o: &config::model::OutputConfig) {
     win.set_quick_save_dir(SharedString::from(&o.quick_save_dir));
     win.set_file_name_template(SharedString::from(&o.file_name_template));
-    win.set_format_index(image_format_to_index(o.default_format));
+    win.set_format_index(o.default_format.to_index());
     win.set_jpeg_quality(o.jpeg_quality as f32);
     win.set_notify_on_copy(o.notify_on_copy);
     win.set_notify_on_save(o.notify_on_save);

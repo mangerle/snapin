@@ -1,12 +1,13 @@
 //! 从 Slint 控件属性提取强类型配置。
 
 use super::super::mapping::{
-    index_to_accent_color, index_to_color_format, index_to_double_click_action,
-    index_to_image_format, index_to_log_level, index_to_magnifier_scale, index_to_snip_color,
-    index_to_zoom_anchor, SettingEnum,
+    index_to_accent_color, index_to_magnifier_scale, index_to_snip_color, SettingEnum,
 };
 use super::super::SettingsWindow;
-use snapin_core::config::{self, Config, CoverMode, Hotkey, TargetLanguage, TranslateProvider};
+use snapin_core::config::{
+    self, ColorFormat, Config, CoverMode, DoubleClickAction, Hotkey, ImageFormat, LogLevel,
+    TargetLanguage, TranslateProvider, ZoomAnchor,
+};
 
 pub(crate) fn extract_config_from_window(win: &SettingsWindow, cfg: &mut Config) {
     extract_general_from_window(win, &mut cfg.general);
@@ -24,7 +25,7 @@ fn extract_general_from_window(win: &SettingsWindow, g: &mut config::model::Gene
     g.autostart = win.get_autostart();
     g.notify_on_startup = win.get_notify_on_startup();
     g.auto_check_update = win.get_auto_check_update();
-    g.log_level = index_to_log_level(win.get_log_level_index());
+    g.log_level = LogLevel::from_index(win.get_log_level_index());
 }
 
 /// 提取界面外观设置
@@ -33,7 +34,7 @@ fn extract_interface_from_window(win: &SettingsWindow, i: &mut config::model::In
     i.enable_magnifier = win.get_enable_magnifier();
     i.magnifier_scale =
         index_to_magnifier_scale(win.get_magnifier_scale_index(), i.magnifier_scale);
-    i.color_format = index_to_color_format(win.get_color_format_index());
+    i.color_format = ColorFormat::from_index(win.get_color_format_index());
     i.show_grid_lines = win.get_show_grid_lines();
     i.toolbar_scale = win.get_toolbar_scale_percent() / 100.0;
 }
@@ -49,15 +50,15 @@ fn extract_snip_from_window(win: &SettingsWindow, s: &mut config::model::SnipCon
 /// 提取贴图设置
 fn extract_paster_from_window(win: &SettingsWindow, p: &mut config::model::PasterConfig) {
     p.initial_opacity = win.get_initial_opacity_percent() / 100.0;
-    p.zoom_anchor = index_to_zoom_anchor(win.get_zoom_anchor_index());
-    p.double_click_action = index_to_double_click_action(win.get_double_click_action_index());
+    p.zoom_anchor = ZoomAnchor::from_index(win.get_zoom_anchor_index());
+    p.double_click_action = DoubleClickAction::from_index(win.get_double_click_action_index());
 }
 
 /// 提取输出保存设置
 fn extract_output_from_window(win: &SettingsWindow, o: &mut config::model::OutputConfig) {
     o.quick_save_dir = win.get_quick_save_dir().to_string();
     o.file_name_template = win.get_file_name_template().to_string();
-    o.default_format = index_to_image_format(win.get_format_index());
+    o.default_format = ImageFormat::from_index(win.get_format_index());
     o.jpeg_quality = win.get_jpeg_quality() as u8;
     o.notify_on_copy = win.get_notify_on_copy();
     o.notify_on_save = win.get_notify_on_save();
