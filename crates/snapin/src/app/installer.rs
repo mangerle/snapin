@@ -1,7 +1,7 @@
-//! GNOME Shell 扩展部署与热重载模块。
+//! GNOME Shell 扩展部署模块。
 //!
 //! 在编译期内嵌 GNOME Shell 扩展全部资源文件，摆脱对当前工作目录的路径依赖，
-//! 支持在任意系统目录下安全部署与原地热重载。
+//! 支持在任意系统目录下安全部署至用户扩展目录并调用系统启用命令。
 
 use anyhow::{Context, Result};
 
@@ -9,7 +9,7 @@ const EXT_METADATA: &str = include_str!("../../../../extension/metadata.json");
 const EXT_JAVASCRIPT: &str = include_str!("../../../../extension/extension.js");
 const EXT_ICON_SVG: &[u8] = include_bytes!("../../../../assets/icons/snapin.svg");
 
-/// 安装配套 GNOME Shell 扩展并触发桌面热重载
+/// 安装配套 GNOME Shell 扩展到用户目录并向系统请求启用
 pub fn install_gnome_extension() -> Result<()> {
     let uuid = "snapin@wangle.local";
     let target_dir = snapin_core::AppPaths::gnome_extension_dir(uuid);
@@ -27,34 +27,11 @@ pub fn install_gnome_extension() -> Result<()> {
 
     tracing::info!("GNOME 扩展文件已成功部署至: {:?}", target_dir);
 
-    // 原地热重载扩展：
-    // 1. 若支持包热安装，生成临时 zip 并触发 install（模拟 extensions.gnome.org 流程）
-    let temp_zip = std::env::temp_dir().join(format!("{uuid}.shell-extension.zip"));
-    let pack_status = std::process::Command::new("gnome-extensions")
-        .args([
-            "pack",
-            &target_dir.to_string_lossy(),
-            "--out-dir",
-            &std::env::temp_dir().to_string_lossy(),
-            "-f",
-        ])
-        .output();
-
-    if pack_status.is_ok() && temp_zip.exists() {
-        let _ = std::process::Command::new("gnome-extensions")
-            .args(["install", &temp_zip.to_string_lossy(), "--force"])
-            .output();
-        let _ = std::fs::remove_file(&temp_zip);
-    }
-
-    // 2. 依次发送 disable 与 enable 指令唤醒 Shell 运行时对象
-    let _ = std::process::Command::new("gnome-extensions")
-        .args(["disable", uuid])
-        .output();
+    // 请求 GNOME 启用该扩展（登录或重启 Shell 后将自动加载生效）
     let _ = std::process::Command::new("gnome-extensions")
         .args(["enable", uuid])
         .output();
 
-    tracing::info!("已向 GNOME 发送扩展自愈安装与热重载启用指令。");
+    tracing::info!("已向 GNOME 发送扩展启用指令。");
     Ok(())
 }
