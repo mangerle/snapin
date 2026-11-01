@@ -6,6 +6,7 @@ use snapin_ui::paster::{PasterItem, PasterWorkspaceProxy};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tiny_skia::Pixmap;
+use tokio::io::AsyncReadExt;
 use tokio::time::timeout;
 
 #[cfg(target_os = "linux")]
@@ -111,11 +112,7 @@ pub(super) async fn create(
     if let Err(response) = verify_runtime_file(&file_path).await {
         return response;
     }
-    let bytes = match read_pixel_bytes(&file_path, expected_len).await {
-        Ok(bytes) => bytes,
-        Err(response) => return response,
-    };
-    let pixmap = match build_pixmap(width, height, &bytes) {
+    let pixmap = match read_pixel_pixmap(&file_path, width, height, expected_len).await {
         Ok(pixmap) => pixmap,
         Err(response) => return response,
     };
@@ -155,11 +152,13 @@ async fn verify_runtime_file(file_path: &Path) -> Result<(), DaemonResponse> {
     }
 }
 
-/// 读取并回收一次性像素文件，要求实际长度与声明分辨率严格一致。
-async fn read_pixel_bytes(
+/// 读取并回收一次性像素文件，直接把像素流入预分配位图，避免整文件中间缓冲。
+async fn read_pixel_pixmap(
     file_path: &Path,
+    width: u32,
+    height: u32,
     expected_len: usize,
-) -> Result<Vec<u8>, DaemonResponse> {
+) -> Result<Pixmap, DaemonResponse> {
     let metadata_matches = tokio::fs::metadata(file_path)
         .await
         .map(|metadata| metadata.len() == expected_len as u64)
@@ -170,42 +169,43 @@ async fn read_pixel_bytes(
         ));
     }
 
-    let bytes = match tokio::fs::read(file_path).await {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            tracing::warn!("读取贴图临时文件失败: {error}");
-            return Err(DaemonResponse::Error(format!(
-                "读取贴图临时文件失败: {error}"
-            )));
-        }
-    };
-    let _ = tokio::fs::remove_file(file_path).await;
-    if bytes.len() != expected_len {
-        return Err(DaemonResponse::Error(
-            "像素数据长度与图像分辨率不匹配".to_string(),
-        ));
-    }
-    Ok(bytes)
-}
-
-/// 将校验后的 RGBA 字节复制进 tiny-skia 位图。
-fn build_pixmap(width: u32, height: u32, bytes: &[u8]) -> Result<Pixmap, DaemonResponse> {
     let Some(mut pixmap) = Pixmap::new(width, height) else {
         return Err(DaemonResponse::Error("分配像素缓冲区失败".to_string()));
     };
-    pixmap.data_mut().copy_from_slice(bytes);
-    Ok(pixmap)
+    let read_result = async {
+        let mut file = tokio::fs::File::open(file_path)
+            .await
+            .map_err(|error| format!("打开贴图临时文件失败: {error}"))?;
+        file.read_exact(pixmap.data_mut())
+            .await
+            .map_err(|error| format!("读取贴图像素数据失败: {error}"))?;
+        Ok::<(), String>(())
+    }
+    .await;
+    let _ = tokio::fs::remove_file(file_path).await;
+    match read_result {
+        Ok(()) => Ok(pixmap),
+        Err(message) => Err(DaemonResponse::Error(message)),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// 构建位图后必须保留 RGBA 原始字节，避免尺寸与内容错位。
-    #[test]
-    fn test_build_pixmap_copies_rgba_bytes() {
-        let pixmap = build_pixmap(1, 1, &[1, 2, 3, 255]).expect("1x1 RGBA 位图应可分配");
+    /// 像素文件应直接流入预分配位图，并在成功后回收临时文件。
+    #[tokio::test]
+    async fn test_read_pixel_pixmap_streams_and_removes_file() {
+        let file = tempfile::NamedTempFile::new().expect("应可创建临时测试文件");
+        tokio::fs::write(file.path(), [1u8, 2, 3, 255])
+            .await
+            .expect("应可写入测试像素");
+        let path = file.path().to_path_buf();
+        let pixmap = read_pixel_pixmap(&path, 1, 1, 4)
+            .await
+            .expect("应可读取 1x1 像素");
         assert_eq!(pixmap.data(), &[1, 2, 3, 255]);
+        assert!(!path.exists(), "读取成功后必须回收临时文件");
     }
 
     /// 运行时目录外的任意文件不得通过贴图 IPC 读取，防止路径穿越。

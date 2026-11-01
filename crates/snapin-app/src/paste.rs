@@ -6,6 +6,7 @@ use snapin_platform::{read_clipboard_image, read_clipboard_text, send_desktop_no
 use snapin_ui::paster::{
     render_color_swatch_card, render_simple_text_card, try_parse_hex_color, PasterItem,
 };
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use tiny_skia::Pixmap;
 
@@ -69,17 +70,17 @@ fn load_pixmap_from_file(path: &Path) -> Result<Pixmap> {
         if metadata.len() > max_bytes {
             anyhow::bail!("贴图原生像素文件过大: {} 字节", metadata.len());
         }
-        let bytes = std::fs::read(path).context("读取贴图原生像素文件失败")?;
-        if bytes.len() < 8 {
-            anyhow::bail!("贴图原生像素数据损坏，长度: {}", bytes.len());
-        }
+        let mut file = std::fs::File::open(path).context("打开贴图原生像素文件失败")?;
+        let mut header = [0u8; 8];
+        file.read_exact(&mut header)
+            .context("读取贴图原生像素头部失败")?;
         let width = u32::from_be_bytes(
-            bytes[0..4]
+            header[0..4]
                 .try_into()
                 .map_err(|_| anyhow::anyhow!("贴图原生像素宽度头部长度异常"))?,
         );
         let height = u32::from_be_bytes(
-            bytes[4..8]
+            header[4..8]
                 .try_into()
                 .map_err(|_| anyhow::anyhow!("贴图原生像素高度头部长度异常"))?,
         );
@@ -88,15 +89,17 @@ fn load_pixmap_from_file(path: &Path) -> Result<Pixmap> {
         let expected_len = 8usize
             .checked_add(pixel_bytes)
             .ok_or_else(|| anyhow::anyhow!("贴图像素长度溢出"))?;
-        if bytes.len() != expected_len {
+        let actual_len = usize::try_from(metadata.len())
+            .map_err(|_| anyhow::anyhow!("贴图原生像素文件长度超出平台寻址范围"))?;
+        if actual_len != expected_len {
             anyhow::bail!(
-                "贴图像素尺寸与数据长度不一致，宽度: {width}，高度: {height}，实际长度: {}",
-                bytes.len()
+                "贴图像素尺寸与数据长度不一致，宽度: {width}，高度: {height}，实际长度: {actual_len}"
             );
         }
         let mut pixmap =
             Pixmap::new(width, height).ok_or_else(|| anyhow::anyhow!("分配贴图 Pixmap 失败"))?;
-        write_rgba_into(&mut pixmap, &bytes[8..])?;
+        file.read_exact(pixmap.data_mut())
+            .context("读取贴图像素数据失败")?;
         return Ok(pixmap);
     }
 
