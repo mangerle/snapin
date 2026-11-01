@@ -7,14 +7,32 @@ use commands::handle_command;
 use snapin_core::config::Config;
 use snapin_daemon::{send_command_to_daemon, DaemonRequest, IpcListener};
 use snapin_platform::{
-    enable_gnome_extension, send_desktop_notification, sync_hotkeys_to_gnome, PlatformTray,
-    TrayAction,
+    enable_gnome_extension, send_desktop_notification, spawn_detached_system_command,
+    sync_hotkeys_to_gnome, PlatformTray, TrayAction,
 };
 use snapin_ui::paster::spawn_paster_workspace_thread;
 #[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
+
+/// 派生独立的截图子进程执行交互截屏。
+///
+/// 架构设计原理：
+/// Wayland 与 winit 的 EventLoop 在同一进程生命周期内只允许存在一个活跃实例。
+/// 常驻守护进程已经持有集中贴图工作区的 GUI 事件循环，若直接在守护进程内部新创
+/// 第二个 EventLoop 渲染全屏截图，会触发底层的事件循环锁死或崩溃。
+/// 因此由守护进程派生极轻量的独立 `snapin snip` 子进程，既能干净分配窗口上下文，
+/// 又保证截图结束后立即回收系统资源，并由系统进程守护安全收割。
+fn spawn_snip_subprocess(args: &[&str]) {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_str) = exe.to_str() {
+            spawn_detached_system_command(exe_str, args);
+            return;
+        }
+    }
+    spawn_detached_system_command("snapin", args);
+}
 
 /// 运行后台守护服务
 pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
@@ -131,88 +149,23 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
                         tracing::debug!("托盘触发操作: {:?}", action);
                         match action {
                             TrayAction::Snip => {
-                                let snip_cfg = cfg.clone();
-                                tokio::spawn(async move {
-                                    if let Err(e) = super::snip::run_oneshot_snip(
-                                        snip_cfg,
-                                        snapin_ui::snipper::SnipMode::Normal,
-                                        0,
-                                    )
-                                    .await
-                                    {
-                                        tracing::warn!("托盘触发截图失败: {e}");
-                                    }
-                                });
+                                spawn_snip_subprocess(&["snip"]);
                             }
                             TrayAction::Fullscreen => {
-                                let snip_cfg = cfg.clone();
-                                tokio::spawn(async move {
-                                    if let Err(e) = super::snip::run_oneshot_snip(
-                                        snip_cfg,
-                                        snapin_ui::snipper::SnipMode::Fullscreen,
-                                        0,
-                                    )
-                                    .await
-                                    {
-                                        tracing::warn!("托盘触发全屏截图失败: {e}");
-                                    }
-                                });
+                                spawn_snip_subprocess(&["snip", "--fullscreen"]);
                             }
                             TrayAction::DelaySnip(seconds) => {
-                                let snip_cfg = cfg.clone();
-                                tokio::spawn(async move {
-                                    if let Err(e) = super::snip::run_oneshot_snip(
-                                        snip_cfg,
-                                        snapin_ui::snipper::SnipMode::Normal,
-                                        seconds,
-                                    )
-                                    .await
-                                    {
-                                        tracing::warn!("托盘触发延时截图失败: {e}");
-                                    }
-                                });
+                                let sec_str = seconds.to_string();
+                                spawn_snip_subprocess(&["snip", "--delay", &sec_str]);
                             }
                             TrayAction::PickColor => {
-                                let snip_cfg = cfg.clone();
-                                tokio::spawn(async move {
-                                    if let Err(e) = super::snip::run_oneshot_snip(
-                                        snip_cfg,
-                                        snapin_ui::snipper::SnipMode::PickColor,
-                                        0,
-                                    )
-                                    .await
-                                    {
-                                        tracing::warn!("托盘触发取色器失败: {e}");
-                                    }
-                                });
+                                spawn_snip_subprocess(&["pick-color"]);
                             }
                             TrayAction::AutoCopy => {
-                                let snip_cfg = cfg.clone();
-                                tokio::spawn(async move {
-                                    if let Err(e) = super::snip::run_oneshot_snip(
-                                        snip_cfg,
-                                        snapin_ui::snipper::SnipMode::AutoCopy,
-                                        0,
-                                    )
-                                    .await
-                                    {
-                                        tracing::warn!("托盘触发截图并自动复制失败: {e}");
-                                    }
-                                });
+                                spawn_snip_subprocess(&["snip", "--auto-copy"]);
                             }
                             TrayAction::CustomSnip => {
-                                let snip_cfg = cfg.clone();
-                                tokio::spawn(async move {
-                                    if let Err(e) = super::snip::run_oneshot_snip(
-                                        snip_cfg,
-                                        snapin_ui::snipper::SnipMode::Custom,
-                                        0,
-                                    )
-                                    .await
-                                    {
-                                        tracing::warn!("托盘触发自定义截图失败: {e}");
-                                    }
-                                });
+                                spawn_snip_subprocess(&["snip", "--custom"]);
                             }
                             TrayAction::Paste => {
                                 let _ = handle_command(DaemonRequest::Paste, &workspace_proxy).await;
@@ -250,32 +203,10 @@ pub async fn run_daemon_server(cfg: Config) -> anyhow::Result<()> {
                         tracing::debug!("系统全局热键触发: {:?}", action);
                         match action {
                             snapin_platform::HotkeyAction::Snip => {
-                                let snip_cfg = cfg.clone();
-                                tokio::spawn(async move {
-                                    if let Err(e) = super::snip::run_oneshot_snip(
-                                        snip_cfg,
-                                        snapin_ui::snipper::SnipMode::Normal,
-                                        0,
-                                    )
-                                    .await
-                                    {
-                                        tracing::warn!("全局热键触发截图失败: {e}");
-                                    }
-                                });
+                                spawn_snip_subprocess(&["snip"]);
                             }
                             snapin_platform::HotkeyAction::Translate => {
-                                let snip_cfg = cfg.clone();
-                                tokio::spawn(async move {
-                                    if let Err(e) = super::snip::run_oneshot_snip(
-                                        snip_cfg,
-                                        snapin_ui::snipper::SnipMode::Translate,
-                                        0,
-                                    )
-                                    .await
-                                    {
-                                        tracing::warn!("全局热键触发截图翻译失败: {e}");
-                                    }
-                                });
+                                spawn_snip_subprocess(&["snip", "--translate"]);
                             }
                             snapin_platform::HotkeyAction::Paste => {
                                 let _ = handle_command(DaemonRequest::Paste, &workspace_proxy).await;

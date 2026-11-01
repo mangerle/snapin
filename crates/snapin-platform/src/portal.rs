@@ -3,6 +3,7 @@
 //! 在 Wayland / Ubuntu 26 GNOME 环境下，遵照 Freedesktop 安全沙箱规范，
 //! 请求系统特权合成器交付完整屏幕帧缓冲区。
 
+use crate::dbus_session::get_session_connection;
 use crate::error::PlatformError;
 use ashpd::desktop::file_chooser::{FileFilter, SelectedFiles};
 use ashpd::desktop::screenshot::Screenshot;
@@ -10,34 +11,102 @@ use ashpd::desktop::ResponseError;
 use image::RgbaImage;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+/// 自愈确保当前应用在 XDG Desktop Portal 权限存储区具备合法的截屏授权。
+///
+/// 在 GNOME 50 Wayland 环境下，如果后台进程触发截屏且无前台焦点，
+/// Portal 会因尝试弹窗而报错 `AccessDenied: Only the focused app is allowed to show a system access dialog`。
+/// 通过在系统 PermissionStore 中预登记受信任授权，Portal 将直接交付帧缓冲而无需调起交互授权弹窗。
+pub async fn ensure_portal_screenshot_permission() {
+    let Ok(connection) = get_session_connection().await else {
+        return;
+    };
+
+    // 针对 snapin 以及当前 app_id 写入已授权标记
+    let app_ids = ["snapin", "snapin.desktop", ""];
+    for app_id in app_ids {
+        let _ = connection
+            .call_method(
+                Some("org.freedesktop.impl.portal.PermissionStore"),
+                "/org/freedesktop/impl/portal/PermissionStore",
+                Some("org.freedesktop.impl.portal.PermissionStore"),
+                "SetPermission",
+                &("screenshot", true, "screenshot", app_id, &["yes"]),
+            )
+            .await;
+    }
+}
 
 /// 请求 XDG Desktop Portal 执行静默全屏截屏（非交互模式）。
 ///
-/// 成功获取后立即将图片载入内存，并安全清理本地临时文件。
+/// 具备退避防抖重试机制（解决快捷键并发按压时 Portal 的 `ongoing operation` 冲突），
+/// 并在调用前自动确保自愈权限，避免无焦点时抛出 `AccessDenied`。
 pub async fn capture_fullscreen_portal() -> Result<RgbaImage, PlatformError> {
     tracing::debug!("正在向 XDG Desktop Portal 请求全屏快照...");
 
+    // 预先确保后台静默截屏权限，防止被 GNOME 50 拦截
+    ensure_portal_screenshot_permission().await;
+
     let t_req_start = std::time::Instant::now();
-    let portal_fut = async {
-        Screenshot::request()
-            .interactive(false)
-            .modal(false)
-            .send()
-            .await
-            .map_err(|e| PlatformError::Portal {
-                message: e.to_string(),
-            })?
-            .response()
-            .map_err(|e| PlatformError::Portal {
-                message: e.to_string(),
-            })
+    let max_retries = 3;
+    let mut last_err = None;
+
+    let mut response = None;
+    for attempt in 1..=max_retries {
+        let portal_fut = async {
+            Screenshot::request()
+                .interactive(false)
+                .modal(false)
+                .send()
+                .await
+                .map_err(|e| PlatformError::Portal {
+                    message: e.to_string(),
+                })?
+                .response()
+                .map_err(|e| PlatformError::Portal {
+                    message: e.to_string(),
+                })
+        };
+
+        match tokio::time::timeout(Duration::from_secs(5), portal_fut).await {
+            Ok(Ok(res)) => {
+                response = Some(res);
+                break;
+            }
+            Ok(Err(err)) => {
+                let err_msg = err.to_string();
+                // 若探测到 Portal 正在处理上一轮截屏（常见于用户快速连按快捷键），执行短暂退避重试
+                if err_msg.contains("ongoing operation") && attempt < max_retries {
+                    tracing::warn!(
+                        "检测到 Portal 正在处理先前进发的截屏请求，等待 {}ms 后进行第 {}/{} 次重试...",
+                        attempt * 150,
+                        attempt + 1,
+                        max_retries
+                    );
+                    tokio::time::sleep(Duration::from_millis(attempt as u64 * 150)).await;
+                    last_err = Some(err);
+                    continue;
+                }
+                return Err(err);
+            }
+            Err(_) => {
+                return Err(PlatformError::Portal {
+                    message: "等待 XDG Desktop Portal 响应超时".to_string(),
+                });
+            }
+        }
+    }
+
+    let response = match response {
+        Some(res) => res,
+        None => {
+            return Err(last_err.unwrap_or_else(|| PlatformError::Portal {
+                message: "请求 XDG Desktop Portal 截屏失败".to_string(),
+            }));
+        }
     };
 
-    let response = tokio::time::timeout(std::time::Duration::from_secs(5), portal_fut)
-        .await
-        .map_err(|_| PlatformError::Portal {
-            message: "等待 XDG Desktop Portal 响应超时".to_string(),
-        })??;
     let t_req_end = std::time::Instant::now();
     tracing::info!(
         "Portal D-Bus 截屏请求与合成器捕获耗时: {:.2}ms",

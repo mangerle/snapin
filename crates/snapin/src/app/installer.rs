@@ -27,7 +27,27 @@ pub fn install_gnome_extension() -> Result<()> {
 
     tracing::info!("GNOME 扩展文件已成功部署至: {:?}", target_dir);
 
-    // 原地热重载扩展 (先 disable 再 enable，无需登出即可立即刷新托盘菜单)
+    // 原地热重载扩展：
+    // 1. 若支持包热安装，生成临时 zip 并触发 install（模拟 extensions.gnome.org 流程）
+    let temp_zip = std::env::temp_dir().join(format!("{uuid}.shell-extension.zip"));
+    let pack_status = std::process::Command::new("gnome-extensions")
+        .args([
+            "pack",
+            &target_dir.to_string_lossy(),
+            "--out-dir",
+            &std::env::temp_dir().to_string_lossy(),
+            "-f",
+        ])
+        .output();
+
+    if pack_status.is_ok() && temp_zip.exists() {
+        let _ = std::process::Command::new("gnome-extensions")
+            .args(["install", &temp_zip.to_string_lossy(), "--force"])
+            .output();
+        let _ = std::fs::remove_file(&temp_zip);
+    }
+
+    // 2. 依次发送 disable 与 enable 指令唤醒 Shell 运行时对象
     let _ = std::process::Command::new("gnome-extensions")
         .args(["disable", uuid])
         .output();
@@ -35,6 +55,6 @@ pub fn install_gnome_extension() -> Result<()> {
         .args(["enable", uuid])
         .output();
 
-    tracing::info!("已向 GNOME 发送扩展热重载启用指令。");
+    tracing::info!("已向 GNOME 发送扩展自愈安装与热重载启用指令。");
     Ok(())
 }
