@@ -134,7 +134,8 @@ fn run_async_command(
             }
             Commands::SwitchGroup { id } => {
                 if let Some(group) = id {
-                    if !snapin_ui::paster::is_valid_group_id(group) {
+                    if !snapin_ui::paster::is_valid_group_id(snapin_ui::paster::GroupId::new(group))
+                    {
                         bail!(
                             "贴图分组 ID 越界: {group}，有效范围: 0..={}",
                             snapin_ui::paster::TOTAL_PIN_GROUPS.saturating_sub(1)

@@ -11,7 +11,7 @@ pub mod text_to_pin;
 pub mod window;
 pub mod workspace;
 
-pub use crate::model::{PasterItem, PasterTransform};
+pub use crate::model::{GroupId, PasterId, PasterItem, PasterTransform};
 pub use manager::PasterManager;
 pub use surface::PasterSurface;
 pub use text_to_pin::{render_color_swatch_card, render_simple_text_card, try_parse_hex_color};

@@ -3,31 +3,31 @@
 //! 管理器只维护贴图 ID、分组与可见性等轻量元数据，不持有像素缓冲区，
 //! 像素数据由各贴图窗口独占，避免每张图在窗口与管理器之间发生多次深拷贝。
 
-use crate::model::PasterId;
+use crate::model::{GroupId, PasterId};
 
 /// 单张贴图的元数据条目
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PasterEntry {
     id: PasterId,
-    group_id: usize,
+    group_id: GroupId,
     is_visible: bool,
 }
 
 /// 贴图分组管理器
 #[derive(Default)]
 pub struct PasterManager {
-    active_group: usize,
+    active_group: GroupId,
     entries: Vec<PasterEntry>,
 }
 
 impl PasterManager {
     /// 获取当前活动分组 ID
-    pub fn active_group(&self) -> usize {
+    pub fn active_group(&self) -> GroupId {
         self.active_group
     }
 
     /// 登记一张新贴图；ID 重复时返回 `false`，可见性由当前活动分组决定。
-    pub fn add_entry(&mut self, id: PasterId, group_id: usize) -> bool {
+    pub fn add_entry(&mut self, id: PasterId, group_id: GroupId) -> bool {
         if self.entries.iter().any(|entry| entry.id == id) {
             return false;
         }
@@ -41,7 +41,7 @@ impl PasterManager {
     }
 
     /// 切换当前活动分组，并同步组内贴图可见性。
-    pub fn switch_group(&mut self, group_id: usize) {
+    pub fn switch_group(&mut self, group_id: GroupId) {
         self.active_group = group_id;
         for entry in &mut self.entries {
             entry.is_visible = entry.group_id == group_id;
@@ -89,15 +89,15 @@ mod tests {
     #[test]
     fn test_paster_grouping_and_toggle() {
         let mut manager = PasterManager::default();
-        assert!(manager.add_entry(1.into(), 0));
+        assert!(manager.add_entry(1.into(), 0.into()));
         assert_eq!(manager.count_in_active_group(), 1);
 
-        manager.switch_group(1);
+        manager.switch_group(1.into());
         assert_eq!(manager.count_in_active_group(), 0);
-        assert!(manager.add_entry(2.into(), 1));
+        assert!(manager.add_entry(2.into(), 1.into()));
         assert_eq!(manager.count_in_active_group(), 1);
 
-        manager.switch_group(0);
+        manager.switch_group(0.into());
         assert_eq!(manager.count_in_active_group(), 1);
 
         assert!(!manager.toggle_current_group_visibility());
@@ -110,8 +110,8 @@ mod tests {
     #[test]
     fn test_duplicate_id_is_rejected() {
         let mut manager = PasterManager::default();
-        assert!(manager.add_entry(7.into(), 0));
-        assert!(!manager.add_entry(7.into(), 0));
+        assert!(manager.add_entry(7.into(), 0.into()));
+        assert!(!manager.add_entry(7.into(), 0.into()));
         assert_eq!(manager.count_in_active_group(), 1);
     }
 }
