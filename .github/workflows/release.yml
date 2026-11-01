@@ -1,7 +1,7 @@
 name: Release
 # Snapin 全平台跨架构自动化发布流水线
-# 采用 Tauri 官方打包核心 cargo-packager，零手写构建脚本，全自动矩阵出包:
-# - Linux: Debian (.deb x64/arm64)
+# 采用 Tauri 官方打包核心 cargo-packager 与 alien，全自动矩阵出包:
+# - Linux: .deb (x64/arm64) + .rpm (x64/arm64) + 免安装 .AppImage (x64/arm64)
 # - Windows: NSIS 现代向导安装包 (.exe) + 绿色便携包 (.zip) (x64/arm64)
 # - macOS: 苹果标准安装包 (.dmg / .app)
 
@@ -45,8 +45,20 @@ jobs:
           path: RELEASE_CHANGELOG.md
 
   build-linux:
-    name: 构建 Linux 软件包 (cargo-packager)
-    runs-on: ubuntu-latest
+    name: 构建 Linux 软件包 (${{ matrix.arch }} deb/rpm/appimage)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+            rpm_arch: x86_64
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            rpm_arch: aarch64
+            target: aarch64-unknown-linux-gnu
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -56,8 +68,10 @@ jobs:
 
       - name: 启用 Rust 依赖缓存
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
 
-      - name: 安装系统开发依赖库
+      - name: 安装系统开发依赖库与打包转换工具 (alien/rpm)
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -66,7 +80,9 @@ jobs:
             libfontconfig1-dev \
             libfreetype6-dev \
             libdbus-1-dev \
-            pkg-config
+            pkg-config \
+            alien \
+            rpm
 
       - name: 安装 cargo-packager CLI
         run: cargo install cargo-packager --locked
@@ -74,15 +90,30 @@ jobs:
       - name: 编译 Release 二进制文件
         run: cargo build --release -p snapin
 
-      - name: 编译并打包 Linux DEB
+      - name: 编译并打包 Linux DEB 与 AppImage
         run: |
-          cargo packager --release -p snapin --formats deb
+          cargo packager --release -p snapin --formats deb,appimage
 
-      - name: 上传 Linux 构建产物
+      - name: 基于 DEB 包转换生成 RPM 软件包
+        run: |
+          mkdir -p target/release/dist-rpm
+          for deb in target/release/snapin_*_${{ matrix.arch }}.deb target/release/snapin_*.deb; do
+            if [ -f "$deb" ]; then
+              echo "正在将 $deb 转换为 RPM 格式..."
+              sudo alien --to-rpm --scripts --target ${{ matrix.rpm_arch }} "$deb" || sudo alien --to-rpm --scripts "$deb"
+              mv *.rpm target/release/dist-rpm/ 2>/dev/null || true
+              break
+            fi
+          done
+
+      - name: 规整并上传 Linux 构建产物 (${{ matrix.arch }})
         uses: actions/upload-artifact@v4
         with:
-          name: linux-artifacts
-          path: target/release/snapin_*.deb
+          name: linux-${{ matrix.arch }}-artifacts
+          path: |
+            target/release/snapin_*.deb
+            target/release/snapin_*.AppImage
+            target/release/dist-rpm/*.rpm
 
   build-windows:
     name: 构建 Windows 软件包 (cargo-packager x64/arm64)
@@ -167,10 +198,16 @@ jobs:
         with:
           name: release-changelog
 
-      - name: 下载 Linux 产物
+      - name: 下载 Linux amd64 产物
         uses: actions/download-artifact@v4
         with:
-          name: linux-artifacts
+          name: linux-amd64-artifacts
+          path: release-files
+
+      - name: 下载 Linux arm64 产物
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-arm64-artifacts
           path: release-files
 
       - name: 下载 Windows x64 产物
