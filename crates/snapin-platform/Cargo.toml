@@ -8,10 +8,7 @@ description = "Snapin Linux Wayland 平台底层驱动：Portal截屏、GNOME Sh
 
 [dependencies]
 snapin-core.workspace = true
-ashpd.workspace = true
-zbus.workspace = true
 arboard.workspace = true
-rustix.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 image.workspace = true
@@ -22,6 +19,9 @@ toml.workspace = true
 thiserror.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
+ashpd.workspace = true
+zbus.workspace = true
+rustix.workspace = true
 ksni = { version = "0.3", default-features = false, features = ["async-io", "blocking"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]

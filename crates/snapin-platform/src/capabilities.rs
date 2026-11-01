@@ -5,6 +5,7 @@
 //! 无效的 D-Bus 探测与超时降级。业务侧据此决定截屏走扩展原生通道还是 XDG Portal，
 //! 以及设置中心展示的扩展部署状态。
 
+#[cfg(target_os = "linux")]
 use crate::dbus_session::get_session_connection;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
@@ -57,10 +58,7 @@ fn probe_desktop_environment() -> (bool, String) {
 }
 
 /// 快速轻量探测 GNOME Shell 扩展是否真正导出了 Snapin 特权接口。
-///
-/// 不能用 `Peer.Ping`：它只验证对象路径存在，扩展被停用后 shell 仍会在导出树里保留该节点，
-/// 于是探测报告"在线"而 `PlaceWindowByTitle` 实际返回 UnknownMethod，贴图静默失去定位能力。
-/// 改为请求接口自省并要求自省结果里出现本扩展的接口名，只有接口真的导出才算在线。
+#[cfg(target_os = "linux")]
 async fn probe_gnome_extension() -> bool {
     let Ok(connection) = get_session_connection().await else {
         return false;
@@ -88,7 +86,13 @@ async fn probe_gnome_extension() -> bool {
     )
 }
 
+#[cfg(not(target_os = "linux"))]
+async fn probe_gnome_extension() -> bool {
+    false
+}
+
 /// 判断接口自省 XML 中是否声明了 Snapin 特权接口
+#[cfg(target_os = "linux")]
 fn xml_declares_snapin_interface(xml: &str) -> bool {
     xml.contains("org.gnome.Shell.Extensions.Snapin")
 }

@@ -1,17 +1,27 @@
 //! 基于 Freedesktop 标准的桌面通知发送实现。
 
-use crate::dbus_session::get_session_connection;
 use crate::error::PlatformError;
+
+#[cfg(target_os = "linux")]
+use crate::dbus_session::get_session_connection;
+#[cfg(target_os = "linux")]
 use std::collections::HashMap;
+#[cfg(target_os = "linux")]
 use std::time::Duration;
+#[cfg(target_os = "linux")]
 use tokio::time::timeout;
+#[cfg(target_os = "linux")]
 use zbus::zvariant::Value;
 
+#[cfg(target_os = "linux")]
 const NOTIFICATION_BUS_NAME: &str = "org.freedesktop.Notifications";
+#[cfg(target_os = "linux")]
 const NOTIFICATION_PATH: &str = "/org/freedesktop/Notifications";
+#[cfg(target_os = "linux")]
 const NOTIFICATION_INTERFACE: &str = "org.freedesktop.Notifications";
 
 /// 向系统通知中心发送一条自消除的气泡通知
+#[cfg(target_os = "linux")]
 pub async fn send_desktop_notification(summary: &str, body: &str) -> Result<u32, PlatformError> {
     let connection = get_session_connection().await?;
 
@@ -57,4 +67,11 @@ pub async fn send_desktop_notification(summary: &str, body: &str) -> Result<u32,
     })?;
 
     Ok(reply.0)
+}
+
+/// 非 Linux 平台暂未接入系统原生通知中心，记录追踪日志并返回成功
+#[cfg(not(target_os = "linux"))]
+pub async fn send_desktop_notification(summary: &str, body: &str) -> Result<u32, PlatformError> {
+    tracing::info!(summary = %summary, body = %body, "发送系统桌面通知");
+    Ok(0)
 }

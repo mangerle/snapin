@@ -119,7 +119,14 @@ async fn capture_xcap() -> Result<RgbaImage, PlatformError> {
                     message: format!("显示器捕获失败: {e}{hint}"),
                 }
             })?;
-            return Ok(captured);
+            let width = captured.width();
+            let height = captured.height();
+            let raw_pixels = captured.into_raw();
+            return RgbaImage::from_raw(width, height, raw_pixels).ok_or_else(|| {
+                PlatformError::Capture {
+                    message: "显示器捕获像素缓冲区转换为图像失败".to_string(),
+                }
+            });
         }
 
         // 多显示器场景：计算包围整个虚拟桌面的联合边界
@@ -130,19 +137,27 @@ async fn capture_xcap() -> Result<RgbaImage, PlatformError> {
 
         let mut monitor_frames = Vec::with_capacity(monitors.len());
         for m in &monitors {
-            let x = m.x();
-            let y = m.y();
-            let w = m.width();
-            let h = m.height();
+            let x = m.x().unwrap_or(0);
+            let y = m.y().unwrap_or(0);
+            let w = m.width().unwrap_or(0);
+            let h = m.height().unwrap_or(0);
             min_x = min_x.min(x);
             min_y = min_y.min(y);
             max_x = max_x.max(x + w as i32);
             max_y = max_y.max(y + h as i32);
 
             let frame = m.capture_image().map_err(|e| PlatformError::Capture {
-                message: format!("多屏环境中捕获显示器 {} 失败: {e}", m.name()),
+                message: format!(
+                    "多屏环境中捕获显示器 {} 失败: {e}",
+                    m.name().unwrap_or_else(|_| "未知".to_string())
+                ),
             })?;
-            monitor_frames.push((x, y, frame));
+            let fw = frame.width();
+            let fh = frame.height();
+            let raw = frame.into_raw();
+            if let Some(rgba_frame) = RgbaImage::from_raw(fw, fh, raw) {
+                monitor_frames.push((x, y, rgba_frame));
+            }
         }
 
         let total_w = (max_x - min_x).max(1) as u32;

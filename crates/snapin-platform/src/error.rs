@@ -55,6 +55,10 @@ pub enum PlatformError {
     #[error("系统托盘操作失败，原因: {message}")]
     Tray { message: String },
 
+    /// 跨平台系统全局热键操作失败
+    #[error("系统全局快捷键操作失败，原因: {message}")]
+    Hotkey { message: String },
+
     /// 核心领域错误透明转换
     #[error(transparent)]
     Core(#[from] CoreError),

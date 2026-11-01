@@ -5,15 +5,18 @@ pub mod capabilities;
 pub mod capture;
 pub mod clipboard;
 pub mod error;
+#[cfg(target_os = "linux")]
 pub mod extension_client;
 pub mod hotkey_manager;
 pub mod lifecycle;
 pub mod notification;
+#[cfg(target_os = "linux")]
 pub mod portal;
 pub mod storage;
 pub mod tray;
 pub mod window;
 
+#[cfg(target_os = "linux")]
 pub(crate) mod dbus_session;
 
 pub use autostart::sync_autostart;
@@ -27,9 +30,11 @@ pub use clipboard::{
     write_raw_image_to_clipboard, write_text_to_clipboard,
 };
 pub use error::PlatformError;
-pub use extension_client::{
-    capture_fullscreen_extension, list_windows, place_paster_window, WindowRect,
-};
+pub use window::WindowRect;
+
+#[cfg(target_os = "linux")]
+pub use extension_client::{capture_fullscreen_extension, list_windows, place_paster_window};
+
 pub use hotkey_manager::{
     hotkey_to_gnome_accelerator, suspend_hotkeys_for_settings, sync_global_hotkeys,
     sync_hotkeys_to_gnome, HotkeyAction, PlatformHotkeyListener,
@@ -39,6 +44,8 @@ pub use lifecycle::{
     stop_systemd_service,
 };
 pub use notification::send_desktop_notification;
+
+#[cfg(target_os = "linux")]
 pub use portal::{capture_fullscreen_portal, ensure_portal_screenshot_permission, pick_save_path};
 pub use storage::{
     checked_rgba_byte_len, clear_selection_cache, load_last_selection, resolve_save_path,

@@ -5,7 +5,15 @@
 //! 在 Windows 与 macOS 平台直接基于底层系统窗口树接口枚举。
 
 use crate::error::PlatformError;
-use crate::extension_client::WindowRect;
+
+/// 可见窗口几何边界矩形（物理像素坐标与尺寸）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
 
 #[cfg(target_os = "linux")]
 use crate::capabilities::get_platform_capabilities;
@@ -54,22 +62,28 @@ async fn enumerate_xcap() -> Result<Vec<WindowRect>, PlatformError> {
         let mut rects = Vec::with_capacity(windows.len());
         for win in windows {
             // 过滤最小化、零面积以及不可见窗口
-            if win.is_minimized() || win.width() == 0 || win.height() == 0 {
+            let is_minimized = win.is_minimized().unwrap_or(false);
+            let width = win.width().unwrap_or(0);
+            let height = win.height().unwrap_or(0);
+            if is_minimized || width == 0 || height == 0 {
                 continue;
             }
 
             // 过滤 snapin 自身界面窗口
-            let app_name = win.app_name().to_lowercase();
-            let title = win.title().to_lowercase();
+            let app_name = win.app_name().unwrap_or_default().to_lowercase();
+            let title = win.title().unwrap_or_default().to_lowercase();
             if app_name.contains("snapin") || title.contains("snapin") {
                 continue;
             }
 
+            let x = win.x().unwrap_or(0);
+            let y = win.y().unwrap_or(0);
+
             rects.push(WindowRect {
-                x: win.x(),
-                y: win.y(),
-                width: win.width(),
-                height: win.height(),
+                x,
+                y,
+                width,
+                height,
             });
         }
 

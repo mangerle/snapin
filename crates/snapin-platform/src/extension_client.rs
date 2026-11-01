@@ -21,14 +21,7 @@ const EXT_OBJECT_PATH: &str = "/org/gnome/Shell/Extensions/Snapin";
 const EXT_INTERFACE: &str = "org.gnome.Shell.Extensions.Snapin";
 const EXT_DBUS_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// 扩展返回的窗口矩形（物理像素，已按各窗口所在显示器的缩放比换算）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WindowRect {
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-}
+pub use crate::window::WindowRect;
 
 /// 扩展返回的原始窗口几何：逻辑坐标 + 所在显示器缩放比。
 #[derive(Debug, Deserialize)]
