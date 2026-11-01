@@ -1,5 +1,6 @@
 //! 常规基础设置模型定义。
 
+use crate::config::defaults::{default_true, DEFAULT_UPDATE_INTERVAL_HOURS};
 use crate::config::enums::LogLevel;
 use serde::{Deserialize, Serialize};
 
@@ -38,16 +39,12 @@ impl Default for GeneralConfig {
             log_level: LogLevel::default(),
             notify_on_startup: false,
             auto_check_update: true,
-            update_check_interval_hours: 24,
+            update_check_interval_hours: DEFAULT_UPDATE_INTERVAL_HOURS,
             custom_update_url: None,
         }
     }
 }
 
-fn default_true() -> bool {
-    true
-}
-
 fn default_check_interval() -> u32 {
-    24
+    DEFAULT_UPDATE_INTERVAL_HOURS
 }

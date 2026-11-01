@@ -2,6 +2,7 @@
 //!
 //! 负责配置文件的定位、自动创建默认配置、TOML 反序列化与安全保存。
 
+pub mod defaults;
 pub mod enums;
 pub mod model;
 pub mod sections;

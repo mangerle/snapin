@@ -1,5 +1,8 @@
 //! 输出存储与剪贴板设置模型定义。
 
+use crate::config::defaults::{
+    DEFAULT_FILE_NAME_TEMPLATE, DEFAULT_JPEG_QUALITY, DEFAULT_QUICK_SAVE_DIR,
+};
 use crate::config::enums::ImageFormat;
 use serde::{Deserialize, Serialize};
 
@@ -53,13 +56,13 @@ impl Default for OutputConfig {
 }
 
 fn default_quick_save_dir() -> String {
-    "~/Pictures/Screenshots".to_string()
+    DEFAULT_QUICK_SAVE_DIR.to_string()
 }
 
 fn default_file_name_template() -> String {
-    "Snapin_{YYYY}{MM}{DD}_{HH}{mm}{ss}".to_string()
+    DEFAULT_FILE_NAME_TEMPLATE.to_string()
 }
 
 fn default_jpeg_quality() -> u8 {
-    90
+    DEFAULT_JPEG_QUALITY
 }

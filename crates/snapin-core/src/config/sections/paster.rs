@@ -1,5 +1,6 @@
 //! 贴图浮动置顶窗口与历史栈设置模型定义。
 
+use crate::config::defaults::DEFAULT_PASTER_OPACITY;
 use crate::config::enums::{DoubleClickAction, ZoomAnchor};
 use serde::{Deserialize, Serialize};
 
@@ -30,5 +31,5 @@ impl Default for PasterConfig {
 }
 
 fn default_opacity() -> f32 {
-    1.0
+    DEFAULT_PASTER_OPACITY
 }

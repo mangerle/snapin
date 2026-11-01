@@ -3,6 +3,10 @@
 //! 包含常规、界面、截图、贴图、输出、快捷键等所有板块的配置结构体组合，
 //! 所有字段均标注 `#[serde(default)]`，提供完全防崩溃的开箱即用默认值。
 
+use crate::config::defaults::{
+    DEFAULT_FILE_NAME_TEMPLATE, DEFAULT_FONT_SIZE, DEFAULT_MAGNIFIER_SCALE, DEFAULT_PASTER_OPACITY,
+    DEFAULT_QUICK_SAVE_DIR, DEFAULT_STROKE_WIDTH, DEFAULT_TOOLBAR_SCALE,
+};
 pub use crate::config::enums::*;
 pub use crate::config::sections::*;
 use serde::{Deserialize, Serialize};
@@ -90,32 +94,35 @@ impl Config {
         self.general.update_check_interval_hours = self.general.update_check_interval_hours.max(1);
 
         if !self.interface.toolbar_scale.is_finite() {
-            self.interface.toolbar_scale = 1.0;
+            self.interface.toolbar_scale = DEFAULT_TOOLBAR_SCALE;
         }
         self.interface.toolbar_scale = self.interface.toolbar_scale.clamp(0.5, 3.0);
-        self.interface.magnifier_scale = self.interface.magnifier_scale.clamp(1, 32);
+        self.interface.magnifier_scale = self
+            .interface
+            .magnifier_scale
+            .clamp(1, DEFAULT_MAGNIFIER_SCALE.saturating_mul(4));
 
         if !self.snip.default_stroke_width.is_finite() {
-            self.snip.default_stroke_width = 4.0;
+            self.snip.default_stroke_width = DEFAULT_STROKE_WIDTH;
         }
         self.snip.default_stroke_width = self.snip.default_stroke_width.clamp(1.0, 30.0);
         if !self.snip.default_font_size.is_finite() {
-            self.snip.default_font_size = 20.0;
+            self.snip.default_font_size = DEFAULT_FONT_SIZE;
         }
         self.snip.default_font_size = self.snip.default_font_size.clamp(8.0, 96.0);
 
         if !self.paster.initial_opacity.is_finite() {
-            self.paster.initial_opacity = 1.0;
+            self.paster.initial_opacity = DEFAULT_PASTER_OPACITY;
         }
         self.paster.initial_opacity = self.paster.initial_opacity.clamp(0.1, 1.0);
 
         self.output.jpeg_quality = self.output.jpeg_quality.clamp(1, 100);
         if self.output.quick_save_dir.trim().is_empty() {
-            self.output.quick_save_dir = "~/Pictures/Screenshots".to_string();
+            self.output.quick_save_dir = DEFAULT_QUICK_SAVE_DIR.to_string();
         }
         let template = normalize_file_name_template(&self.output.file_name_template);
         self.output.file_name_template = if template.is_empty() {
-            "Snapin_{YYYY}{MM}{DD}_{HH}{mm}{ss}".to_string()
+            DEFAULT_FILE_NAME_TEMPLATE.to_string()
         } else {
             template
         };

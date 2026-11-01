@@ -1,5 +1,8 @@
 //! 截图交互流程与标注工具默认设置模型定义。
 
+use crate::config::defaults::{
+    default_true, DEFAULT_FONT_SIZE, DEFAULT_SNIP_COLOR, DEFAULT_STROKE_WIDTH,
+};
 use crate::config::types::HexColor;
 use serde::{Deserialize, Serialize};
 
@@ -34,18 +37,14 @@ impl Default for SnipConfig {
     }
 }
 
-fn default_true() -> bool {
-    true
-}
-
 fn default_draw_color() -> HexColor {
-    HexColor::new(255, 59, 48, 255)
+    DEFAULT_SNIP_COLOR
 }
 
 fn default_stroke_width() -> f32 {
-    4.0
+    DEFAULT_STROKE_WIDTH
 }
 
 fn default_font_size() -> f32 {
-    20.0
+    DEFAULT_FONT_SIZE
 }

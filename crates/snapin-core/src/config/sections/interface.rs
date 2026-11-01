@@ -1,5 +1,8 @@
 //! 界面视觉与外观设置模型定义。
 
+use crate::config::defaults::{
+    default_true, DEFAULT_ACCENT_COLOR, DEFAULT_MAGNIFIER_SCALE, DEFAULT_TOOLBAR_SCALE,
+};
 use crate::config::enums::ColorFormat;
 use crate::config::types::HexColor;
 use serde::{Deserialize, Serialize};
@@ -45,18 +48,14 @@ impl Default for InterfaceConfig {
     }
 }
 
-fn default_true() -> bool {
-    true
-}
-
 fn default_accent_color() -> HexColor {
-    HexColor::new(0, 174, 255, 255)
+    DEFAULT_ACCENT_COLOR
 }
 
 fn default_magnifier_scale() -> u32 {
-    8
+    DEFAULT_MAGNIFIER_SCALE
 }
 
 fn default_toolbar_scale() -> f32 {
-    1.0
+    DEFAULT_TOOLBAR_SCALE
 }
