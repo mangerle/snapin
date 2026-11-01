@@ -120,6 +120,7 @@ fn tighten_config_permissions(path: &Path) {
 pub fn save_config(config: &Config, target_path: &Path) -> Result<(), CoreError> {
     // 保存前再次收敛外部输入，保证 UI 手工输入与历史配置都不会把越界值写回磁盘。
     let sanitized = config.clone().sanitized();
+    sanitized.validate()?;
     let toml_string = toml::to_string_pretty(&ConfigFile::current(sanitized)).map_err(|error| {
         CoreError::ConfigSerializeError {
             reason: error.to_string(),
@@ -207,6 +208,31 @@ provider = "deepl"
     }
 
     /// 保存时必须写入 schema 版本，加载时能识别并拒绝未来版本。
+    /// 语义校验必须拒绝重复快捷键与非法更新源，且不能把它们静默写回磁盘。
+    #[test]
+    fn test_validate_rejects_duplicate_hotkeys_and_invalid_url() {
+        let mut config = Config::default();
+        config.hotkeys.paste = config.hotkeys.snip.clone();
+        assert!(matches!(
+            config.validate(),
+            Err(CoreError::ValidationError { .. })
+        ));
+
+        let mut config = Config::default();
+        config.general.custom_update_url = Some("ftp://example.com/latest.json".to_string());
+        assert!(matches!(
+            config.validate(),
+            Err(CoreError::ValidationError { .. })
+        ));
+
+        let temp_dir = tempdir().expect("创建临时目录失败");
+        let config_file = temp_dir.path().join("config.toml");
+        let mut duplicate = Config::default();
+        duplicate.hotkeys.paste = duplicate.hotkeys.snip.clone();
+        assert!(save_config(&duplicate, &config_file).is_err());
+        assert!(!config_file.exists(), "校验失败不得写出配置文件");
+    }
+
     #[test]
     fn test_schema_version_is_written_and_newer_version_is_rejected() {
         let temp_dir = tempdir().expect("创建临时目录失败");

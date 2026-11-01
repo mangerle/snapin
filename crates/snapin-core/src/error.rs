@@ -27,6 +27,10 @@ pub enum CoreError {
     #[error("TOML 配置文件序列化失败，原因: {reason}")]
     ConfigSerializeError { reason: String },
 
+    /// 配置语义校验失败
+    #[error("配置语义校验失败: {reason}")]
+    ValidationError { reason: String },
+
     /// 配置文件 schema 版本高于当前程序支持范围
     #[error("配置文件 schema 版本过新，路径: {}，文件版本: {found}，支持上限: {supported}", path.display())]
     UnsupportedConfigVersion {

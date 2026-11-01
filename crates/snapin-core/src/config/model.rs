@@ -139,6 +139,58 @@ impl Config {
     }
 }
 
+impl Config {
+    /// 语义校验：检查数值收敛无法修复的跨字段约束。
+    ///
+    /// `sanitized()` 只负责范围收敛；重复快捷键、非法更新源等属于保存前必须
+    /// 明确拒绝的语义错误，不能静默改写用户配置。
+    ///
+    /// # Errors
+    ///
+    /// 快捷键重复或自定义更新源协议非法时返回 [`crate::error::CoreError::ValidationError`]。
+    pub fn validate(&self) -> Result<(), crate::error::CoreError> {
+        let hotkeys = [
+            ("区域截图", &self.hotkeys.snip),
+            ("截图翻译", &self.hotkeys.translate),
+            ("贴图", &self.hotkeys.paste),
+            ("贴图显隐", &self.hotkeys.toggle_pasters),
+            ("贴图分组", &self.hotkeys.switch_group),
+        ];
+        for (index, (name, hotkey)) in hotkeys.iter().enumerate() {
+            if hotkey.is_disabled() {
+                continue;
+            }
+            for (other_name, other) in hotkeys.iter().skip(index + 1) {
+                if !other.is_disabled() && other.to_display_string() == hotkey.to_display_string() {
+                    return Err(crate::error::CoreError::ValidationError {
+                        reason: format!(
+                            "快捷键重复：{name} 与 {other_name} 均为 {}",
+                            hotkey.to_display_string()
+                        ),
+                    });
+                }
+            }
+        }
+
+        if let Some(url) = self.general.custom_update_url.as_deref() {
+            let url = url.trim();
+            if !url.is_empty()
+                && !url.starts_with("https://")
+                && !url.starts_with("http://")
+                && !url.starts_with("file://")
+            {
+                return Err(crate::error::CoreError::ValidationError {
+                    reason: format!(
+                        "自定义更新源必须使用 http://、https:// 或 file:// 协议，实际: {url}"
+                    ),
+                });
+            }
+        }
+
+        Ok(())
+    }
+}
+
 /// 将文件名模板末尾的图片扩展名剥离，扩展名统一由输出格式决定。
 ///
 /// 历史默认模板曾包含 `.png`，而保存路径又追加当前格式扩展名，导致 `.png.png`
