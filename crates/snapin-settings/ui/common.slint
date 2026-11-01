@@ -53,16 +53,18 @@ export component PrimaryButton inherits Rectangle {
 
 export component SecondaryButton inherits Rectangle {
     in property <string> text;
+    in property <bool> enabled: true;
     callback clicked();
 
     height: 30px;
     min-width: 96px;
     border-radius: 6px;
     border-width: 1px;
-    border-color: touch.has-hover ? #94a3b8 : #cbd5e1;
-    background: touch.pressed ? #e2e8f0 : (touch.has-hover ? #f8fafc : #ffffff);
+    border-color: !root.enabled ? #e2e8f0 : (touch.has-hover ? #94a3b8 : #cbd5e1);
+    background: !root.enabled ? #f1f5f9 : (touch.pressed ? #e2e8f0 : (touch.has-hover ? #f8fafc : #ffffff));
 
     touch := TouchArea {
+        enabled: root.enabled;
         clicked => { root.clicked(); }
     }
 

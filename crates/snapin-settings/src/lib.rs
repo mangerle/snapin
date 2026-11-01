@@ -78,8 +78,11 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
     let config = config::load_or_create_config(None)?;
     let config_arc = Arc::new(Mutex::new(config.clone()));
 
-    // 1. 同步初始配置到 Slint 界面
+    // 1. 同步初始配置到 Slint 界面并确保系统全局快捷键处于激活状态
     sync_config_to_window(&window, &config);
+    if let Err(e) = sync_hotkeys_to_gnome(&config.hotkeys) {
+        tracing::warn!("进入设置中心同步系统全局快捷键失败: {e}");
+    }
 
     // 2. 注册界面交互与保存回调
     register_callbacks(&window, config_arc);

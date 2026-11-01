@@ -85,11 +85,35 @@ fn setup_check_callback(win: &SettingsWindow, pending_update: Arc<Mutex<Option<U
                     }
                     Ok(None) => {
                         w.set_update_status(UpdateUiStatus::UpToDate as i32);
+                        let w_reset = win_weak_async.clone();
+                        thread::spawn(move || {
+                            thread::sleep(std::time::Duration::from_secs(6));
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if let Some(target) = w_reset.upgrade() {
+                                    if target.get_update_status() == UpdateUiStatus::UpToDate as i32
+                                    {
+                                        target.set_update_status(UpdateUiStatus::Idle as i32);
+                                    }
+                                }
+                            });
+                        });
                     }
                     Err(error) => {
                         tracing::warn!("用户主动检查更新失败: {error}");
                         w.set_update_status(UpdateUiStatus::Error as i32);
                         w.set_update_status_text(SharedString::from(format!("检查失败: {error}")));
+                        let w_reset = win_weak_async.clone();
+                        thread::spawn(move || {
+                            thread::sleep(std::time::Duration::from_secs(6));
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if let Some(target) = w_reset.upgrade() {
+                                    if target.get_update_status() == UpdateUiStatus::Error as i32 {
+                                        target.set_update_status(UpdateUiStatus::Idle as i32);
+                                        target.set_update_status_text(SharedString::from(""));
+                                    }
+                                }
+                            });
+                        });
                     }
                 }
             });
