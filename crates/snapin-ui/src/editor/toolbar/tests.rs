@@ -1,8 +1,8 @@
 //! 截图工具栏布局计算与交互行为单元测试。
 
 use super::*;
-use crate::snipper::selection::Rect;
-use crate::snipper::toolbar::items::ToolbarItem;
+use crate::editor::toolbar::items::ToolbarItem;
+use crate::geometry::Rect;
 
 #[test]
 fn test_toolbar_layout_adaptation() {

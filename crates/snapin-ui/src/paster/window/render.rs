@@ -1,6 +1,8 @@
 //! 贴图变换光栅化合成、精致边框与右键上下文菜单渲染。
 
 use super::events::PasterWindowState;
+use crate::editor::annotation_builder::{render_draft_preview, AnnotationDraftParams};
+use crate::editor::toolbar::ToolbarItem;
 use crate::error::UiError;
 use crate::paster::context_menu::render::render_context_menu;
 use crate::paster::surface::PasterSurface;
@@ -9,8 +11,6 @@ use crate::paster::window::input_region::{
     compute_input_rects, input_layout_from_state, physical_rects_to_surface,
 };
 use crate::paster::window::text_session::render_text_session_preview;
-use crate::snipper::toolbar::ToolbarItem;
-use crate::snipper::window::annotation_builder::{render_draft_preview, AnnotationDraftParams};
 use snapin_core::render::with_thread_local_text_renderer;
 use std::time::Instant;
 use tiny_skia::{

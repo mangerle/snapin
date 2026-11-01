@@ -7,8 +7,8 @@
 
 use super::annotation::image_to_screen_point;
 use super::state::PasterWindowState;
-use crate::snipper::toolbar::ToolbarItem;
-use crate::snipper::window::text_input::TextInputSession;
+use crate::editor::text_input::TextInputSession;
+use crate::editor::toolbar::ToolbarItem;
 use tiny_skia::{Color, Pixmap};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::keyboard::{Key, NamedKey};
@@ -175,7 +175,7 @@ fn color_to_rgba(color: Color) -> (u8, u8, u8, u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paster::manager::PasterItem;
+    use crate::model::PasterItem;
     use snapin_core::annotation::AnnotationShape;
     use tiny_skia::Pixmap;
 

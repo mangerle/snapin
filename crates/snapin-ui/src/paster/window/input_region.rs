@@ -6,8 +6,8 @@
 //! 以及高 DPI 下的 surface-local 坐标换算。
 
 use super::state::PasterWindowState;
+use crate::geometry::Rect;
 use crate::paster::context_menu::ContextMenuState;
-use crate::snipper::selection::Rect;
 
 /// 右键菜单二级子菜单的面板宽度（界面像素），与菜单命中逻辑保持一致。
 const CONTEXT_SUBMENU_WIDTH: f32 = 160.0;

@@ -7,7 +7,7 @@ use super::metrics::{
     button_size, divider_width, drag_handle_width, has_separator_before, padding, spacing,
 };
 use super::Toolbar;
-use crate::snipper::selection::Rect;
+use crate::geometry::Rect;
 use snapin_core::annotation::{ArrowStyle, BadgeStyle, LineStyle};
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 

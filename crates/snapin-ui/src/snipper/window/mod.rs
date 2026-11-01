@@ -12,7 +12,6 @@ pub mod mouse;
 pub mod presenter;
 pub mod session;
 pub mod state;
-pub mod text_input;
 pub mod types;
 
 pub use event_dispatcher::SnipperEventDispatcher;

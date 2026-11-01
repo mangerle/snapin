@@ -50,7 +50,6 @@ pub(crate) fn handle_workspace_user_event(
             let active = runtime.manager.active_group();
             for inst in runtime.instances.values_mut() {
                 if inst.state.item.group_id == active {
-                    inst.state.item.is_visible = new_visible;
                     inst.window.set_visible(new_visible);
                 }
             }
@@ -83,7 +82,6 @@ pub(crate) fn handle_workspace_user_event(
             );
             for inst in runtime.instances.values_mut() {
                 let visible = inst.state.item.group_id == next_group;
-                inst.state.item.is_visible = visible;
                 inst.window.set_visible(visible);
                 if visible {
                     inst.state.set_status_message(group_label.clone());

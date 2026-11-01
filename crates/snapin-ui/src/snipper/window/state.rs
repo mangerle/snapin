@@ -2,12 +2,12 @@
 
 use super::annotation_edit::AnnotationDrag;
 use super::jobs::{SnipperJobKind, SnipperJobRuntime};
-use super::text_input::TextInputSession;
 use super::types::{SnipMode, SnipperOutcome};
+use crate::editor::text_input::TextInputSession;
+use crate::editor::toolbar::Toolbar;
 use crate::ports::{DesktopPort, JobCancel, NoopDesktop};
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionHistory, SelectionState};
-use crate::snipper::toolbar::Toolbar;
 use crate::snipper::window_rect::WindowRect;
 use snapin_core::annotation::AnnotationHistory;
 use snapin_core::config::{Config, InterfaceConfig, SnipConfig};

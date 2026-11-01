@@ -3,7 +3,7 @@
 use super::events::SnipperState;
 use super::jobs::SnipperJobKind;
 use super::types::SnipperOutcome;
-use crate::paster::PasterItem;
+use crate::model::PasterItem;
 use crate::ports::MediaJob;
 use crate::snipper::selection::SelectionState;
 use image::{GenericImageView, RgbaImage};

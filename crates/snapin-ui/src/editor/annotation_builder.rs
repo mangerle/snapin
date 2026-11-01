@@ -1,0 +1,206 @@
+//! 可复用标注图元工厂与即时预览渲染。
+
+use crate::editor::toolbar::{Toolbar, ToolbarItem};
+use crate::geometry::Rect;
+use snapin_core::annotation::action::AnnotationShape;
+use snapin_core::annotation::shapes::{
+    ArrowAction, BadgeAction, BlurAction, EllipseAction, MarkerAction, MosaicAction, PenAction,
+    RectAction, SpotlightAction,
+};
+use snapin_core::annotation::{ArrowStyle, BadgeStyle, LineStyle};
+use tiny_skia::{Paint, PixmapMut, Transform};
+
+/// 即时预览与提交时的几何与样式上下文参数
+pub struct AnnotationDraftParams<'a> {
+    pub tool: ToolbarItem,
+    pub points: &'a [(f32, f32)],
+    pub stroke_width: f32,
+    pub color_rgba: (u8, u8, u8, u8),
+    pub ui_scale: f32,
+    pub badge_number: u32,
+    pub line_style: LineStyle,
+    pub filled: bool,
+    pub corner_radius: f32,
+    pub badge_style: BadgeStyle,
+    pub arrow_style: ArrowStyle,
+}
+
+impl<'a> AnnotationDraftParams<'a> {
+    /// 从画布渲染即时上下文构建参数
+    pub fn from_toolbar_and_points(
+        toolbar: &Toolbar,
+        tool: ToolbarItem,
+        points: &'a [(f32, f32)],
+        badge_number: u32,
+    ) -> Option<Self> {
+        if points.is_empty() {
+            return None;
+        }
+        if tool != ToolbarItem::ToolBadge && points.len() < 2 {
+            return None;
+        }
+
+        let stroke_w = toolbar.sub_options.current_stroke_width();
+        let c = toolbar.sub_options.color;
+        let rgba = (
+            (c.red() * 255.0).round() as u8,
+            (c.green() * 255.0).round() as u8,
+            (c.blue() * 255.0).round() as u8,
+            (c.alpha() * 255.0).round() as u8,
+        );
+
+        Some(Self {
+            tool,
+            points,
+            stroke_width: stroke_w,
+            color_rgba: rgba,
+            ui_scale: toolbar.ui_scale,
+            badge_number,
+            line_style: toolbar.sub_options.line_style,
+            filled: toolbar.sub_options.filled,
+            corner_radius: toolbar.sub_options.corner_radius,
+            badge_style: toolbar.sub_options.badge_style,
+            arrow_style: toolbar.sub_options.arrow_style,
+        })
+    }
+}
+
+/// 统一图元工厂：直接在目标 Pixmap 上即时光栅化渲染正在交互绘制的预览图元
+///
+/// 核心优化：
+/// 画笔 (Pen) 与记号笔 (Marker) 直接借用点集切片 `&[(f32, f32)]` 进行光栅化绘制，
+/// 彻底根除在鼠标 60Hz~144Hz 高频移动事件中频繁触发的 `pts.to_vec()` 堆内存分配。
+pub fn render_draft_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
+    let pts = params.points;
+    match params.tool {
+        // Pen/Marker 直接借用点集绘制，避免高频鼠标移动事件中的临时 Vec 分配。
+        ToolbarItem::ToolPen => {
+            PenAction::draw_points_offset(
+                pts,
+                params.color_rgba,
+                params.stroke_width,
+                pixmap,
+                0.0,
+                0.0,
+            );
+        }
+        ToolbarItem::ToolMarker => {
+            MarkerAction::draw_points_offset(
+                pts,
+                (
+                    params.color_rgba.0,
+                    params.color_rgba.1,
+                    params.color_rgba.2,
+                ),
+                params.stroke_width * 2.0,
+                pixmap,
+                0.0,
+                0.0,
+            );
+        }
+        // 模糊在拖拽过程中只显示半透明占位框，避免每帧对选区做大面积卷积；
+        // 提交后由图元重放执行一次真正的模糊。
+        ToolbarItem::ToolBlur => {
+            draw_blur_placeholder(params, pixmap);
+        }
+        _ => {
+            // 其余图元复用同一构建工厂，保证预览与最终提交的几何和样式完全一致。
+            if let Some(shape) = build_shape(params) {
+                shape.draw(pixmap);
+            }
+        }
+    }
+}
+
+/// 绘制模糊拖拽预览：半透明灰框代替实时卷积。
+fn draw_blur_placeholder(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
+    let pts = params.points;
+    let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+    let Some(rect) = tiny_skia::Rect::from_xywh(rect.x, rect.y, rect.width, rect.height) else {
+        return;
+    };
+    let mut paint = Paint::default();
+    paint.set_color_rgba8(110, 110, 110, 120);
+    pixmap.fill_rect(rect, &paint, Transform::identity(), None);
+}
+
+/// 统一图元工厂：构建已完成绘制的持久化 AnnotationShape 图元
+pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
+    let pts = params.points;
+    match params.tool {
+        ToolbarItem::ToolRect => {
+            let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+            Some(AnnotationShape::Rect(RectAction {
+                rect: (rect.x, rect.y, rect.width, rect.height),
+                color: params.color_rgba,
+                stroke_width: params.stroke_width,
+                is_filled: params.filled,
+                corner_radius: params.corner_radius,
+                line_style: params.line_style,
+            }))
+        }
+        ToolbarItem::ToolEllipse => {
+            let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+            Some(AnnotationShape::Ellipse(EllipseAction {
+                rect: (rect.x, rect.y, rect.width, rect.height),
+                color: params.color_rgba,
+                stroke_width: params.stroke_width,
+                is_filled: params.filled,
+                line_style: params.line_style,
+            }))
+        }
+        ToolbarItem::ToolArrow => Some(AnnotationShape::Arrow(ArrowAction {
+            start: pts[0],
+            end: pts[pts.len() - 1],
+            color: params.color_rgba,
+            stroke_width: params.stroke_width,
+            style: params.arrow_style,
+        })),
+        ToolbarItem::ToolPen => Some(AnnotationShape::Pen(PenAction {
+            points: pts.to_vec(),
+            color: params.color_rgba,
+            stroke_width: params.stroke_width,
+        })),
+        ToolbarItem::ToolMarker => Some(AnnotationShape::Marker(MarkerAction {
+            points: pts.to_vec(),
+            color: (
+                params.color_rgba.0,
+                params.color_rgba.1,
+                params.color_rgba.2,
+            ),
+            stroke_width: params.stroke_width * 2.0,
+        })),
+        ToolbarItem::ToolMosaic => {
+            let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+            Some(AnnotationShape::Mosaic(MosaicAction {
+                rect: (rect.x, rect.y, rect.width, rect.height),
+                cell_size: 10,
+            }))
+        }
+        ToolbarItem::ToolBlur => {
+            let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+            Some(AnnotationShape::Blur(BlurAction {
+                rect: (rect.x, rect.y, rect.width, rect.height),
+                radius: (params.stroke_width * 2.0).clamp(4.0, 50.0) as u32,
+            }))
+        }
+        ToolbarItem::ToolSpotlight => {
+            let rect = Rect::from_points(pts[0], pts[pts.len() - 1]);
+            Some(AnnotationShape::Spotlight(SpotlightAction {
+                rect: (rect.x, rect.y, rect.width, rect.height),
+            }))
+        }
+        ToolbarItem::ToolBadge => {
+            let center = pts[pts.len() - 1];
+            let radius = (params.stroke_width * 3.0).clamp(10.0, 48.0) * params.ui_scale;
+            Some(AnnotationShape::Badge(BadgeAction {
+                center,
+                radius,
+                number: params.badge_number as usize,
+                color: params.color_rgba,
+                style: params.badge_style,
+            }))
+        }
+        _ => None,
+    }
+}

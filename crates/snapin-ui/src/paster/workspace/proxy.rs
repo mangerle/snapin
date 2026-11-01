@@ -1,7 +1,7 @@
 //! 贴图工作区事件定义与线程安全代理句柄。
 
-use super::super::manager::PasterItem;
 use crate::error::UiError;
+use crate::model::PasterItem;
 use snapin_core::annotation::shapes::TranslationShapeItem;
 use snapin_core::config::Config;
 use std::path::PathBuf;

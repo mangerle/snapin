@@ -1,15 +1,15 @@
 //! 贴图窗口运行时状态封装与窗口尺寸缩放管理。
 
+use crate::editor::annotation_builder::{build_shape, AnnotationDraftParams};
+use crate::editor::text_input::TextInputSession;
+use crate::editor::toolbar::{Toolbar, ToolbarItem};
+use crate::model::PasterItem;
 use crate::paster::context_menu::ContextMenuState;
-use crate::paster::manager::PasterItem;
 use crate::paster::window::annotation::{
     create_paster_toolbar, screen_to_image_point, toolbar_required_extent,
 };
 use crate::paster::window::jobs::PasterJobRuntime;
 use crate::ports::{DesktopPort, NoopDesktop};
-use crate::snipper::toolbar::{Toolbar, ToolbarItem};
-use crate::snipper::window::annotation_builder::{build_shape, AnnotationDraftParams};
-use crate::snipper::window::text_input::TextInputSession;
 use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::{TranslationAction, TranslationShapeItem};
 use snapin_core::annotation::AnnotationHistory;
@@ -100,7 +100,7 @@ impl PasterWindowState {
 
     /// 顺时针旋转 90 度并同步调整物理窗口尺寸
     pub fn rotate_cw(&mut self, window: &Window) -> bool {
-        if let Some(rotated) = crate::paster::transform::rotate_pixmap_cw(&self.item.pixmap) {
+        if let Some(rotated) = crate::model::transform::rotate_pixmap_cw(&self.item.pixmap) {
             self.item.pixmap = rotated;
             self.reset_annotation_baseline();
             apply_window_scale_resize(self, window);
@@ -112,7 +112,7 @@ impl PasterWindowState {
 
     /// 逆时针旋转 90 度并同步调整物理窗口尺寸
     pub fn rotate_ccw(&mut self, window: &Window) -> bool {
-        if let Some(rotated) = crate::paster::transform::rotate_pixmap_ccw(&self.item.pixmap) {
+        if let Some(rotated) = crate::model::transform::rotate_pixmap_ccw(&self.item.pixmap) {
             self.item.pixmap = rotated;
             self.reset_annotation_baseline();
             apply_window_scale_resize(self, window);
@@ -124,7 +124,7 @@ impl PasterWindowState {
 
     /// 水平翻转图像
     pub fn flip_horizontal(&mut self) -> bool {
-        if let Some(flipped) = crate::paster::transform::flip_pixmap_horizontal(&self.item.pixmap) {
+        if let Some(flipped) = crate::model::transform::flip_pixmap_horizontal(&self.item.pixmap) {
             self.item.pixmap = flipped;
             self.reset_annotation_baseline();
             true
@@ -135,7 +135,7 @@ impl PasterWindowState {
 
     /// 垂直翻转图像
     pub fn flip_vertical(&mut self) -> bool {
-        if let Some(flipped) = crate::paster::transform::flip_pixmap_vertical(&self.item.pixmap) {
+        if let Some(flipped) = crate::model::transform::flip_pixmap_vertical(&self.item.pixmap) {
             self.item.pixmap = flipped;
             self.reset_annotation_baseline();
             true

@@ -3,36 +3,6 @@
 //! 管理器只维护贴图 ID、分组与可见性等轻量元数据，不持有像素缓冲区，
 //! 像素数据由各贴图窗口独占，避免每张图在窗口与管理器之间发生多次深拷贝。
 
-use crate::paster::transform::PasterTransform;
-use tiny_skia::Pixmap;
-
-/// 单张贴图的数据上下文（像素数据由所属窗口独占）
-#[derive(Debug)]
-pub struct PasterItem {
-    pub id: u64,
-    pub title: String,
-    pub pixmap: Pixmap,
-    pub position: (i32, i32),
-    pub transform: PasterTransform,
-    pub is_visible: bool,
-    pub group_id: usize,
-}
-
-impl PasterItem {
-    /// 构造新的贴图图元项
-    pub fn new(id: u64, title: String, pixmap: Pixmap, position: (i32, i32)) -> Self {
-        Self {
-            id,
-            title,
-            pixmap,
-            position,
-            transform: PasterTransform::default(),
-            is_visible: true,
-            group_id: 0,
-        }
-    }
-}
-
 /// 单张贴图的元数据条目
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PasterEntry {

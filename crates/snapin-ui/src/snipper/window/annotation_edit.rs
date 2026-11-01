@@ -153,8 +153,8 @@ pub fn clear(state: &mut SnipperState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::editor::toolbar::ToolbarItem;
     use crate::snipper::selection::SelectionState;
-    use crate::snipper::toolbar::ToolbarItem;
     use snapin_core::annotation::shapes::RectAction;
     use snapin_core::annotation::LineStyle;
 

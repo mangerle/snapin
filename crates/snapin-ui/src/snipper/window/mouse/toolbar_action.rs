@@ -2,10 +2,10 @@
 
 use super::super::actions::{handle_action_copy, handle_action_pin, handle_action_save};
 use super::super::events::{commit_active_text_input, SnipperState};
-use super::super::text_input::TextInputSession;
 use super::super::types::SnipperOutcome;
+use crate::editor::text_input::TextInputSession;
+use crate::editor::toolbar::ToolbarItem;
 use crate::snipper::selection::SelectionState;
-use crate::snipper::toolbar::ToolbarItem;
 use image::RgbaImage;
 
 /// 执行工具栏动作派发

@@ -6,7 +6,7 @@
 use super::jobs::pixmap_to_rgba_image;
 use super::menu_actions::{copy_paster_to_clipboard, save_paster_to_disk};
 use super::state::PasterWindowState;
-use crate::snipper::toolbar::{Toolbar, ToolbarItem};
+use crate::editor::toolbar::{Toolbar, ToolbarItem};
 use winit::window::Window;
 
 /// 贴图窗口主栏按钮序列：绘制工具、撤销/重做、整图识别/翻译与贴图动作。
@@ -16,7 +16,7 @@ use winit::window::Window;
 /// 分隔线由 `metrics::has_separator_before` 按按钮语义自动插入，
 /// 因此撤销与关闭动作之前各会有一条分隔线。
 ///
-/// [`TextInputSession`]: crate::snipper::window::text_input::TextInputSession
+/// [`TextInputSession`]: crate::editor::text_input::TextInputSession
 pub const PASTER_MAIN_ITEMS: &[ToolbarItem] = &[
     ToolbarItem::ToolRect,
     ToolbarItem::ToolBadge,
@@ -240,7 +240,7 @@ fn submit_paster_translate(state: &mut PasterWindowState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paster::manager::PasterItem;
+    use crate::model::PasterItem;
     use snapin_core::annotation::shapes::TranslationShapeItem;
     use snapin_core::annotation::AnnotationShape;
     use snapin_core::config::CoverMode;

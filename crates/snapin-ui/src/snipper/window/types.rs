@@ -1,6 +1,6 @@
 //! 截图会话输出结果与交互配置类型定义。
 
-use crate::paster::PasterItem;
+use crate::model::PasterItem;
 use crate::ports::{DesktopPort, MediaJobRunner};
 use snapin_core::config::Config;
 use std::path::PathBuf;

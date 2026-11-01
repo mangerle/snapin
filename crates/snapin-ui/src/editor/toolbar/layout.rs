@@ -3,11 +3,11 @@
 //! 主栏根据选区与屏幕边界自适应定位；二级栏按当前工具的可用选项生成控件序列，
 //! 控件坐标只在此处计算一次，渲染与命中测试共用同一份结果，避免两处各写一套坐标而漂移。
 
-use crate::snipper::selection::Rect;
-use crate::snipper::toolbar::items::{
+use crate::editor::toolbar::items::{
     preset_colors, StrokeWidthLevel, ToolbarItem, CORNER_RADIUS_PRESETS,
 };
-use crate::snipper::toolbar::metrics::{button_size, padding};
+use crate::editor::toolbar::metrics::{button_size, padding};
+use crate::geometry::Rect;
 
 /// 二级栏下拉菜单种类
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -338,8 +338,8 @@ mod tests {
     /// 全屏选区的工具条必须回落到屏幕内，不能停到屏幕底边之外
     #[test]
     fn test_fullscreen_selection_toolbar_inside_screen() {
-        use crate::snipper::toolbar::metrics::main_toolbar_width;
-        use crate::snipper::toolbar::Toolbar;
+        use crate::editor::toolbar::metrics::main_toolbar_width;
+        use crate::editor::toolbar::Toolbar;
 
         let selection = Rect {
             x: 0.0,

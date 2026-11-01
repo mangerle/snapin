@@ -17,7 +17,7 @@ mod tests;
 pub(crate) use items::CORNER_RADIUS_PRESETS;
 pub use items::{preset_colors, StrokeWidthLevel, SubToolOptions, ToolbarItem};
 
-use crate::snipper::selection::Rect;
+use crate::geometry::Rect;
 use interaction::hit_test_main_items;
 pub(crate) use layout::SubControl;
 use layout::{calculate_main_layout, calculate_sub_layout, SubDropdown, SubLayout};

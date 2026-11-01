@@ -7,7 +7,7 @@ pub mod tools;
 pub use primitives::{add_round_rect, make_paint};
 
 use super::items::ToolbarItem;
-use crate::snipper::selection::Rect;
+use crate::geometry::Rect;
 use tiny_skia::{Color, PixmapMut, Stroke};
 
 /// 绘制各项具体矢量图标 (严格对齐经典工具栏图标造型，深炭黑灰线条)

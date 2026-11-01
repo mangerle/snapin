@@ -2,11 +2,11 @@
 //!
 //! 基于 tiny-skia 实现全屏暗色遮罩、选区镂空聚焦、8 手柄线框以及像素放大镜复合渲染。
 
+use crate::editor::text_input::TextInputSession;
+use crate::editor::toolbar::{Toolbar, ToolbarItem};
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionState};
-use crate::snipper::toolbar::{Toolbar, ToolbarItem};
 use crate::snipper::window::annotation_builder::{render_draft_preview, AnnotationDraftParams};
-use crate::snipper::window::text_input::TextInputSession;
 use image::RgbaImage;
 use snapin_core::annotation::AnnotationHistory;
 use snapin_core::render::with_thread_local_text_renderer;
