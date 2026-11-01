@@ -13,6 +13,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+/// 等待用户在保存对话框中作出选择的超时上限。
+///
+/// ashpd 0.8 的 `send()` 内部会等待 Portal 的 Response 信号，因此该超时覆盖
+/// “建立请求 + 用户交互”的完整过程；没有上限时，用户打开对话框后离开会让
+/// 保存任务永久挂起并拖住守护进程停机。
+const PORTAL_DIALOG_TIMEOUT: Duration = Duration::from_secs(300);
+
 /// 自愈确保当前应用在 XDG Desktop Portal 权限存储区具备合法的截屏授权。
 ///
 /// 在 GNOME 50 Wayland 环境下，如果后台进程触发截屏且无前台焦点，
@@ -188,17 +195,23 @@ pub async fn pick_save_path(
         None => request,
     };
 
-    let response = request
-        .send()
+    // `send()` 会等待用户在 Portal 对话框作出选择；必须设置上限，
+    // 否则对话框无人应答时保存任务会永久挂起并拖住守护进程停机。
+    let dialog = tokio::time::timeout(PORTAL_DIALOG_TIMEOUT, request.send())
         .await
+        .map_err(|_| PlatformError::Portal {
+            message: format!(
+                "等待保存对话框结果超时（{} 秒）",
+                PORTAL_DIALOG_TIMEOUT.as_secs()
+            ),
+        })?
         .map_err(|error| PlatformError::Portal {
             message: format!("请求系统保存对话框失败: {error}"),
-        })?
-        .response();
+        })?;
 
     // Portal 将用户关闭对话框视为请求被取消而非故障，必须与真实错误区分：
     // 取消是正常用户操作，调用方据此保留当前界面而不提示保存失败。
-    let files = match response {
+    let files = match dialog.response() {
         Ok(files) => files,
         Err(ashpd::Error::Response(ResponseError::Cancelled)) => return Ok(None),
         Err(error) => {

@@ -133,9 +133,15 @@ fn finish_daemon(
     server: JoinHandle<Result<()>>,
     gui_result: Result<(), snapin_ui::UiError>,
 ) -> Result<()> {
-    let server_result = runtime
-        .block_on(server)
-        .context("等待守护进程服务任务退出失败");
+    let server_result = runtime.block_on(async {
+        match tokio::time::timeout(Duration::from_secs(10), server).await {
+            Ok(result) => result.context("等待守护进程服务任务退出失败"),
+            Err(_) => {
+                tracing::warn!("等待守护进程服务任务退出超时（10 秒），继续收尾后台运行时");
+                Ok(Ok(()))
+            }
+        }
+    });
     runtime.shutdown_timeout(Duration::from_secs(5));
 
     match (gui_result, server_result) {
@@ -344,13 +350,17 @@ async fn shutdown_daemon(
     services: &Arc<AppServices>,
 ) -> Result<()> {
     if !*gui_closed.borrow() {
-        let _ = workspace_proxy.shutdown_and_wait().await;
+        if let Err(error) = workspace_proxy.shutdown_and_wait().await {
+            tracing::warn!("请求 GUI 工作区停机未得到确认，继续收尾后台服务: {error}");
+        }
     }
     let _ = shutdown_tx.send(true);
-    match listener_handle.await {
-        Ok(()) => {}
-        Err(error) => tracing::warn!("IPC 监听任务异常退出: {error}"),
+    match tokio::time::timeout(Duration::from_secs(5), listener_handle).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::warn!("IPC 监听任务异常退出: {error}"),
+        Err(_) => tracing::warn!("等待 IPC 监听任务退出超时（5 秒），继续收尾后台运行时"),
     }
-    services.runtime().shutdown().await;
+    // 设置明确上限：ONNX 推理等阻塞任务无法被强制中断，不能让他们拖住进程退出。
+    services.runtime().shutdown(Duration::from_secs(5)).await;
     Ok(())
 }

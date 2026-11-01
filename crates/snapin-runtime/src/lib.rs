@@ -21,6 +21,7 @@
 
 use std::future::Future;
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 use thiserror::Error;
 use tokio::runtime::{Builder, Handle, Runtime};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -197,14 +198,33 @@ impl TaskRuntime {
         self.inner.capacity
     }
 
-    /// 请求取消并等待已提交任务全部结束。
+    /// 请求取消并等待已提交任务结束，最多等待 `timeout`。
+    ///
+    /// 返回 `true` 表示在时限内排空全部任务；返回 `false` 表示仍有任务未退出
+    /// （例如正在执行的阻塞式 ONNX 推理无法被强制中断），调用方可以继续执行进程
+    /// 退出流程，但必须记录仍在运行的任务，避免无限等待。
     ///
     /// 该方法只能在 Tokio 运行时之外或独立运行时中调用；在异步任务内部调用
     /// 会等待自身而永久挂起，调用方必须避免自等待。
-    pub async fn shutdown(&self) {
+    pub async fn shutdown(&self, timeout: Duration) -> bool {
         self.inner.cancel.cancel();
         self.inner.tracker.close();
-        self.inner.tracker.wait().await;
+
+        if timeout.is_zero() {
+            self.inner.tracker.wait().await;
+            return true;
+        }
+
+        match tokio::time::timeout(timeout, self.inner.tracker.wait()).await {
+            Ok(()) => true,
+            Err(_) => {
+                tracing::warn!(
+                    "等待后台任务退出超时，已等待 {}ms；仍有任务未响应取消，继续执行退出流程",
+                    timeout.as_millis()
+                );
+                false
+            }
+        }
     }
 
     /// 尝试获取一个并发名额；失败时给出明确容量。
@@ -239,7 +259,7 @@ mod tests {
                 })
                 .expect("任务应成功入队");
         }
-        runtime.shutdown().await;
+        assert!(runtime.shutdown(Duration::from_secs(1)).await);
         assert_eq!(completed.load(Ordering::Acquire), 3);
     }
 
@@ -260,7 +280,7 @@ mod tests {
             Err(TaskRuntimeError::QueueFull { capacity: 1 })
         ));
         let _ = release_tx.send(());
-        runtime.shutdown().await;
+        assert!(runtime.shutdown(Duration::from_secs(1)).await);
     }
 
     /// 阻塞任务也必须纳入统一追踪。
@@ -272,7 +292,22 @@ mod tests {
         runtime
             .spawn_blocking(move || task_flag.fetch_add(1, Ordering::AcqRel))
             .expect("阻塞任务应成功入队");
-        runtime.shutdown().await;
+        assert!(runtime.shutdown(Duration::from_secs(1)).await);
         assert_eq!(flag.load(Ordering::Acquire), 1);
+    }
+
+    /// 不响应取消的任务不得让停机等待无限挂起，超时应返回 false 供调用方兜底退出。
+    #[tokio::test]
+    async fn test_shutdown_times_out_when_task_ignores_cancellation() {
+        let runtime = TaskRuntime::current(1).expect("测试运行时必须可用");
+        runtime
+            .spawn(async {
+                // 模拟无法被内核级抢占的阻塞式推理：不检查取消令牌，持续挂起。
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            })
+            .expect("任务应成功入队");
+
+        let drained = runtime.shutdown(Duration::from_millis(10)).await;
+        assert!(!drained, "超时后必须如实返回未排空");
     }
 }
