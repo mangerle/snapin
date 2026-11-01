@@ -1,6 +1,7 @@
 //! 贴图变换光栅化合成、精致边框与右键上下文菜单渲染。
 
 use super::events::PasterWindowState;
+use crate::drawing::make_paint;
 use crate::editor::annotation_builder::{render_draft_preview, AnnotationDraftParams};
 use crate::editor::toolbar::Tool;
 use crate::error::UiError;
@@ -16,16 +17,6 @@ use std::time::Instant;
 use tiny_skia::{
     Color, FillRule, FilterQuality, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform,
 };
-
-/// 创建开启抗锯齿的基础画笔
-fn make_paint(color: Color) -> Paint<'static> {
-    let mut paint = Paint {
-        anti_alias: true,
-        ..Default::default()
-    };
-    paint.set_color(color);
-    paint
-}
 
 /// 判定当前帧是否需要为被撑大的窗口空白区域铺设不透明底色。
 ///

@@ -1,34 +1,10 @@
 //! 贴图右键上下文菜单的现代化毛玻璃视觉光栅化渲染。
 
 use super::{ContextMenuState, MenuItem};
-use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Stroke, Transform};
-
-/// 创建开启抗锯齿的基础画笔
-fn make_paint(color: Color) -> Paint<'static> {
-    let mut paint = Paint {
-        anti_alias: true,
-        ..Default::default()
-    };
-    paint.set_color(color);
-    paint
-}
+use crate::drawing::{add_round_rect, make_paint};
+use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
 pub use snapin_core::render::TextRenderer;
-
-/// 绘制圆角矩形路径辅助方法
-fn add_round_rect(pb: &mut PathBuilder, x: f32, y: f32, w: f32, h: f32, r: f32) {
-    let r = r.min(w / 2.0).min(h / 2.0);
-    pb.move_to(x + r, y);
-    pb.line_to(x + w - r, y);
-    pb.quad_to(x + w, y, x + w, y + r);
-    pb.line_to(x + w, y + h - r);
-    pb.quad_to(x + w, y + h, x + w - r, y + h);
-    pb.line_to(x + r, y + h);
-    pb.quad_to(x, y + h, x, y + h - r);
-    pb.line_to(x, y + r);
-    pb.quad_to(x, y, x + r, y);
-    pb.close();
-}
 
 /// 菜单面板布局参数
 #[derive(Debug, Clone, Copy)]
