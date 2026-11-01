@@ -5,6 +5,8 @@ use crate::error::StorageError;
 use chrono::Local;
 use image::RgbaImage;
 use snapin_core::config::{normalize_file_name_template, ImageFormat, OutputConfig};
+use std::fs::OpenOptions;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 /// 根据输出配置生成目标文件绝对路径（具备重名自增防覆盖安全保障）
@@ -45,8 +47,15 @@ pub fn save_image_with_config(
     img: &RgbaImage,
     cfg: &OutputConfig,
 ) -> Result<PathBuf, StorageError> {
-    let out_path = resolve_save_path(cfg);
-    encode_image_to_path(img, &out_path, cfg.default_format, cfg.jpeg_quality)?;
+    // 通过 create_new 原子抢占文件名，消除“先 exists 再写入”的 TOCTOU；
+    // 编码先落到同目录临时文件，成功后再原子替换占位文件，失败不会留下半截图像。
+    let out_path = reserve_output_path(cfg)?;
+    if let Err(error) =
+        encode_image_atomically(img, &out_path, cfg.default_format, cfg.jpeg_quality)
+    {
+        let _ = std::fs::remove_file(&out_path);
+        return Err(error);
+    }
     Ok(out_path)
 }
 
@@ -84,8 +93,59 @@ pub fn save_image_to_path(
         });
     }
 
-    encode_image_to_path(img, &out_path, format, cfg.jpeg_quality)?;
+    encode_image_atomically(img, &out_path, format, cfg.jpeg_quality)?;
     Ok(out_path)
+}
+
+/// 原子预占一个不存在的输出路径，返回可写入的目标路径。
+fn reserve_output_path(cfg: &OutputConfig) -> Result<PathBuf, StorageError> {
+    let base_dir = expand_home_dir(&cfg.quick_save_dir);
+    std::fs::create_dir_all(&base_dir).map_err(|error| StorageError::Io {
+        path: base_dir.display().to_string(),
+        source: error,
+    })?;
+
+    let file_name = rendered_file_name(cfg);
+    let ext = cfg.default_format.extension();
+
+    for counter in 0usize.. {
+        let candidate = if counter == 0 {
+            base_dir.join(format!("{file_name}.{ext}"))
+        } else {
+            base_dir.join(format!("{file_name}_{counter}.{ext}"))
+        };
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(_) => return Ok(candidate),
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(StorageError::Io {
+                    path: candidate.display().to_string(),
+                    source: error,
+                })
+            }
+        }
+    }
+
+    Err(StorageError::Io {
+        path: base_dir.display().to_string(),
+        source: std::io::Error::other("无法找到可用的输出文件名"),
+    })
+}
+
+/// 提取经过模板渲染与路径净化后的基础文件名。
+fn rendered_file_name(cfg: &OutputConfig) -> String {
+    let template = normalize_file_name_template(&cfg.file_name_template);
+    let rendered = format_template(&template, &Local::now());
+    Path::new(&rendered)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("Snapin")
+        .to_string()
 }
 
 /// 根据文件扩展名推断受支持的图像格式。
@@ -97,6 +157,54 @@ fn image_format_from_path(path: &Path) -> Option<ImageFormat> {
         "webp" => Some(ImageFormat::Webp),
         _ => None,
     }
+}
+
+/// 先写同目录临时文件，再原子替换目标路径。
+fn encode_image_atomically(
+    img: &RgbaImage,
+    out_path: &Path,
+    format: ImageFormat,
+    jpeg_quality: u8,
+) -> Result<(), StorageError> {
+    let parent = out_path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = out_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("snapin");
+    let temp_path = parent.join(format!(
+        ".{stem}.{}.{}.{}",
+        std::process::id(),
+        snapin_core::AppPaths::generate_unique_id(),
+        format.extension()
+    ));
+
+    let encoded = encode_image_to_path(img, &temp_path, format, jpeg_quality);
+    if let Err(error) = encoded {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(error);
+    }
+
+    // Windows 的 rename 不能覆盖已存在文件：目标可能是刚 create_new 的占位文件，
+    // 也可能是用户在 Portal 中确认覆盖的旧文件，先移除再替换；Unix 直接原子替换。
+    #[cfg(target_os = "windows")]
+    if out_path.exists() {
+        if let Err(error) = std::fs::remove_file(out_path) {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(StorageError::Io {
+                path: out_path.display().to_string(),
+                source: error,
+            });
+        }
+    }
+
+    if let Err(error) = std::fs::rename(&temp_path, out_path) {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(StorageError::Io {
+            path: out_path.display().to_string(),
+            source: error,
+        });
+    }
+    Ok(())
 }
 
 /// 将图像按指定格式编码到目标路径。
@@ -330,5 +438,23 @@ mod template_extension_tests {
             path.file_name().and_then(|name| name.to_str()),
             Some("shot.webp")
         );
+    }
+
+    /// 连续保存同名模板时必须原子占名，不能互相覆盖。
+    #[test]
+    fn test_save_with_config_reserves_unique_paths() {
+        let dir = tempdir().expect("应可创建临时目录");
+        let cfg = OutputConfig {
+            quick_save_dir: dir.path().to_string_lossy().to_string(),
+            file_name_template: "fixed".to_string(),
+            default_format: ImageFormat::Png,
+            ..OutputConfig::default()
+        };
+        let img = RgbaImage::from_pixel(2, 2, Rgba([1, 2, 3, 255]));
+
+        let first = save_image_with_config(&img, &cfg).expect("首次保存应成功");
+        let second = save_image_with_config(&img, &cfg).expect("第二次保存应成功");
+        assert_ne!(first, second, "同名模板必须自动递增，不能覆盖");
+        assert!(first.exists() && second.exists());
     }
 }
