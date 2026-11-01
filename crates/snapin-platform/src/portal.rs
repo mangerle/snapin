@@ -11,6 +11,7 @@ use ashpd::desktop::ResponseError;
 use image::RgbaImage;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 /// 等待用户在保存对话框中作出选择的超时上限。
@@ -20,29 +21,67 @@ use std::time::Duration;
 /// 保存任务永久挂起并拖住守护进程停机。
 const PORTAL_DIALOG_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// 允许预登记截屏授权的应用标识列表。
+///
+/// 禁止出现空字符串：在 PermissionStore 中空 app_id 通常代表“无 app id 客户端”，
+/// 写入它等于给所有无法标识自身身份的宿主程序长期放行截屏，绕过 Portal 的用户授权语义。
+const PORTAL_PERMISSION_APP_IDS: &[&str] = &["snapin", "snapin.desktop"];
+
+/// 单次 PermissionStore 调用的超时上限
+const PORTAL_PERMISSION_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// 本轮进程是否已成功预登记截屏授权，避免每次截图重复写后端权限存储。
+static PORTAL_PERMISSION_ENSURED: AtomicBool = AtomicBool::new(false);
+
 /// 自愈确保当前应用在 XDG Desktop Portal 权限存储区具备合法的截屏授权。
 ///
 /// 在 GNOME 50 Wayland 环境下，如果后台进程触发截屏且无前台焦点，
 /// Portal 会因尝试弹窗而报错 `AccessDenied: Only the focused app is allowed to show a system access dialog`。
 /// 通过在系统 PermissionStore 中预登记受信任授权，Portal 将直接交付帧缓冲而无需调起交互授权弹窗。
-pub async fn ensure_portal_screenshot_permission() {
-    let Ok(connection) = get_session_connection().await else {
-        return;
-    };
-
-    // 针对 snapin 以及当前 app_id 写入已授权标记
-    let app_ids = ["snapin", "snapin.desktop", ""];
-    for app_id in app_ids {
-        let _ = connection
-            .call_method(
-                Some("org.freedesktop.impl.portal.PermissionStore"),
-                "/org/freedesktop/impl/portal/PermissionStore",
-                Some("org.freedesktop.impl.portal.PermissionStore"),
-                "SetPermission",
-                &("screenshot", true, "screenshot", app_id, &["yes"]),
-            )
-            .await;
+///
+/// # 风险与降级
+///
+/// `org.freedesktop.impl.portal.PermissionStore` 属于 Portal 后端内部接口，并非稳定的
+/// 客户端契约。这里仅对明确的 Snapin 应用标识做一次性登记，绝不写入空 app_id；
+/// 调用失败会返回错误，由调用方记录告警并回退到 Portal 的常规交互授权路径。
+///
+/// # Errors
+///
+/// 会话总线不可用、PermissionStore 拒绝调用或调用超时时返回 [`PlatformError::DBus`]。
+pub async fn ensure_portal_screenshot_permission() -> Result<(), PlatformError> {
+    if PORTAL_PERMISSION_ENSURED.load(Ordering::Acquire) {
+        return Ok(());
     }
+
+    let connection = get_session_connection().await?;
+    let mut failures: Vec<String> = Vec::with_capacity(PORTAL_PERMISSION_APP_IDS.len());
+
+    for app_id in PORTAL_PERMISSION_APP_IDS {
+        let arguments = ("screenshot", true, "screenshot", *app_id, &["yes"]);
+        let call = connection.call_method(
+            Some("org.freedesktop.impl.portal.PermissionStore"),
+            "/org/freedesktop/impl/portal/PermissionStore",
+            Some("org.freedesktop.impl.portal.PermissionStore"),
+            "SetPermission",
+            &arguments,
+        );
+
+        match tokio::time::timeout(PORTAL_PERMISSION_TIMEOUT, call).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => failures.push(format!("{app_id}: {error}")),
+            Err(_) => failures.push(format!("{app_id}: 调用超时")),
+        }
+    }
+
+    if failures.is_empty() {
+        PORTAL_PERMISSION_ENSURED.store(true, Ordering::Release);
+        return Ok(());
+    }
+
+    Err(PlatformError::DBus {
+        service: "org.freedesktop.impl.portal.PermissionStore".to_string(),
+        message: format!("预登记截屏授权失败: {}", failures.join("；")),
+    })
 }
 
 /// 请求 XDG Desktop Portal 执行静默全屏截屏（非交互模式）。
@@ -52,8 +91,11 @@ pub async fn ensure_portal_screenshot_permission() {
 pub async fn capture_fullscreen_portal() -> Result<RgbaImage, PlatformError> {
     tracing::debug!("正在向 XDG Desktop Portal 请求全屏快照...");
 
-    // 预先确保后台静默截屏权限，防止被 GNOME 50 拦截
-    ensure_portal_screenshot_permission().await;
+    // 预先确保后台静默截屏权限，防止被 GNOME 50 拦截；
+    // 内部接口不可用时记录告警并继续走 Portal 常规交互授权路径。
+    if let Err(error) = ensure_portal_screenshot_permission().await {
+        tracing::warn!("预登记 Portal 截屏权限失败，回退到常规授权路径: {error}");
+    }
 
     let t_req_start = std::time::Instant::now();
     let max_retries = 3;
@@ -229,4 +271,21 @@ pub async fn pick_save_path(
         .map_err(|_| PlatformError::Portal {
             message: format!("保存对话框返回的 URI 无法转换为本地路径: {uri}"),
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// 预登记授权只能针对明确应用标识，绝不能出现空 app_id 或重复项。
+    #[test]
+    fn test_permission_app_ids_are_non_empty_and_unique() {
+        assert!(!PORTAL_PERMISSION_APP_IDS.is_empty());
+        let unique: HashSet<&str> = PORTAL_PERMISSION_APP_IDS.iter().copied().collect();
+        assert_eq!(unique.len(), PORTAL_PERMISSION_APP_IDS.len());
+        for app_id in PORTAL_PERMISSION_APP_IDS {
+            assert!(!app_id.trim().is_empty(), "app_id 不得为空");
+        }
+    }
 }
