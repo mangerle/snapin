@@ -19,9 +19,10 @@
 //! 强制中断已经进入阻塞线程的任务。因此取消语义是“丢弃结果 + 尽快返回”，
 //! 不是内核级抢占。
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::runtime::{Builder, Handle, Runtime};
@@ -131,6 +132,8 @@ struct RuntimeInner {
     cancel: CancellationToken,
     shutting_down: AtomicBool,
     next_task_id: AtomicU64,
+    /// 仍在运行的任务中止句柄；停机超时后统一 abort，避免异步任务继续存活。
+    active_tasks: Mutex<HashMap<u64, tokio::task::AbortHandle>>,
     /// 仅进程级共享运行时持有；普通调用方复用当前运行时。
     _owned: Option<Runtime>,
 }
@@ -211,6 +214,7 @@ impl TaskRuntime {
                 cancel: CancellationToken::new(),
                 shutting_down: AtomicBool::new(false),
                 next_task_id: AtomicU64::new(1),
+                active_tasks: Mutex::new(HashMap::new()),
                 _owned: owned,
             }),
         }
@@ -249,6 +253,10 @@ impl TaskRuntime {
             task.await;
         });
         let abort = join.abort_handle();
+        if let Ok(mut active) = self.inner.active_tasks.lock() {
+            active.insert(id, abort.clone());
+        }
+        let inner = Arc::clone(&self.inner);
         // 监视 JoinHandle 以感知任务 panic；监控 Future 本身也纳入 TaskTracker。
         let tracked = self.inner.tracker.track_future(async move {
             if let Err(error) = join.await {
@@ -257,6 +265,9 @@ impl TaskRuntime {
                 } else {
                     tracing::debug!("后台异步任务在完成前被取消，任务序号: {id}");
                 }
+            }
+            if let Ok(mut active) = inner.active_tasks.lock() {
+                active.remove(&id);
             }
         });
         drop(self.inner.handle.spawn(tracked));
@@ -299,6 +310,10 @@ impl TaskRuntime {
         let id = self.inner.next_task_id.fetch_add(1, Ordering::Relaxed);
         let join = self.inner.handle.spawn_blocking(task);
         let abort = join.abort_handle();
+        if let Ok(mut active) = self.inner.active_tasks.lock() {
+            active.insert(id, abort.clone());
+        }
+        let inner = Arc::clone(&self.inner);
         let tracked = self.inner.tracker.track_future(async move {
             let _permit = permit;
             match join.await {
@@ -307,6 +322,9 @@ impl TaskRuntime {
                     tracing::error!("后台阻塞任务发生 panic，任务序号: {id}，已隔离该任务");
                 }
                 Err(_) => tracing::debug!("后台阻塞任务在完成前被取消，任务序号: {id}"),
+            }
+            if let Ok(mut active) = inner.active_tasks.lock() {
+                active.remove(&id);
             }
         });
         drop(self.inner.handle.spawn(tracked));
@@ -347,8 +365,20 @@ impl TaskRuntime {
         match tokio::time::timeout(timeout, self.inner.tracker.wait()).await {
             Ok(()) => true,
             Err(_) => {
+                let stalled: Vec<tokio::task::AbortHandle> = match self.inner.active_tasks.lock() {
+                    Ok(mut active) => active.drain().map(|(_, handle)| handle).collect(),
+                    Err(poisoned) => poisoned
+                        .into_inner()
+                        .drain()
+                        .map(|(_, handle)| handle)
+                        .collect(),
+                };
+                let stalled_count = stalled.len();
+                for handle in stalled {
+                    handle.abort();
+                }
                 tracing::warn!(
-                    "等待后台任务退出超时，已等待 {}ms；仍有任务未响应取消，继续执行退出流程",
+                    "等待后台任务退出超时，已等待 {}ms；仍有 {stalled_count} 个任务未响应取消，已请求 abort 并继续退出",
                     timeout.as_millis()
                 );
                 false
@@ -446,6 +476,34 @@ mod tests {
 
         let drained = runtime.shutdown(Duration::from_millis(10)).await;
         assert!(!drained, "超时后必须如实返回未排空");
+    }
+
+    /// 停机超时后必须主动 abort 未退出任务，而不是让其在运行时外继续存活。
+    #[tokio::test]
+    async fn test_shutdown_timeout_aborts_remaining_tasks() {
+        struct DropFlag(Arc<AtomicBool>);
+        impl Drop for DropFlag {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+
+        let runtime = TaskRuntime::current(1).expect("测试运行时必须可用");
+        let dropped = Arc::new(AtomicBool::new(false));
+        let flag = dropped.clone();
+        runtime
+            .spawn(async move {
+                let _guard = DropFlag(flag);
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            })
+            .expect("任务应成功入队");
+
+        assert!(!runtime.shutdown(Duration::from_millis(10)).await);
+        tokio::task::yield_now().await;
+        assert!(
+            dropped.load(Ordering::Acquire),
+            "超时停机必须 abort 并丢弃未退出异步任务"
+        );
     }
 
     /// 停机完成后必须拒绝新任务，不能返回 Ok 让调用方误以为任务已被纳管。
