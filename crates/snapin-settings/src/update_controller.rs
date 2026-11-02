@@ -10,6 +10,9 @@
 //! 竞态 UI 更新。改用统一运行时后，任务准入、panic 观测与退出等待由运行时负责，
 //! 设置中心只保留“状态机 + UI 回调”。
 
+mod state;
+
+use self::state::{InstallStart, UpdateArtifact, UpdateContext};
 use crate::config_store::ConfigStore;
 use crate::SettingsWindow;
 use slint::{ComponentHandle, SharedString};
@@ -18,7 +21,7 @@ use snapin_platform::start_daemon_process;
 use snapin_runtime::{CancellationToken, TaskPool, TaskRuntime};
 use snapin_updater::{DownloadedUpdate, UpdateEvent, UpdateInfo, UpdateStage};
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// 更新状态机定义（与 Slint about_tab.slint 中的 update_status 严格对齐）
@@ -60,79 +63,6 @@ fn format_download_speed(speed: Option<u64>, percent: Option<f32>) -> String {
     }
 }
 
-/// 自更新回调共享的运行时、取消令牌与状态容器。
-#[derive(Clone)]
-struct UpdateContext {
-    runtime: TaskRuntime,
-    cancel: CancellationToken,
-    config: Arc<ConfigStore>,
-    artifact: Arc<Mutex<UpdateArtifact>>,
-}
-
-/// 当前可用的更新载荷。
-///
-/// 使用单一枚举替代两个独立 `Option`，确保“待下载版本”和“已下载安装包”
-/// 不可能同时存在，也把安装中的状态纳入同一台状态机，阻止重复安装。
-#[derive(Default)]
-enum UpdateArtifact {
-    #[default]
-    Empty,
-    Available(UpdateInfo),
-    Downloaded(DownloadedUpdate),
-    Installing,
-}
-
-/// 安装按钮尝试读取载荷后的状态机结果。
-enum InstallStart {
-    Started(Box<DownloadedUpdate>),
-    AlreadyInstalling,
-    Unavailable,
-}
-
-impl UpdateArtifact {
-    fn begin_install(&mut self) -> InstallStart {
-        if matches!(*self, Self::Installing) {
-            return InstallStart::AlreadyInstalling;
-        }
-        match std::mem::take(self) {
-            Self::Downloaded(downloaded) => {
-                *self = Self::Installing;
-                InstallStart::Started(Box::new(downloaded))
-            }
-            _ => InstallStart::Unavailable,
-        }
-    }
-}
-
-impl UpdateContext {
-    fn lock_artifact(&self) -> MutexGuard<'_, UpdateArtifact> {
-        self.artifact
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    fn replace_artifact(&self, artifact: UpdateArtifact) {
-        *self.lock_artifact() = artifact;
-    }
-
-    fn available_update(&self) -> Option<UpdateInfo> {
-        match &*self.lock_artifact() {
-            UpdateArtifact::Available(update) => Some(update.clone()),
-            UpdateArtifact::Empty | UpdateArtifact::Downloaded(_) | UpdateArtifact::Installing => {
-                None
-            }
-        }
-    }
-
-    fn begin_install(&self) -> InstallStart {
-        self.lock_artifact().begin_install()
-    }
-
-    fn restore_downloaded(&self, downloaded: DownloadedUpdate) {
-        self.replace_artifact(UpdateArtifact::Downloaded(downloaded));
-    }
-}
-
 /// 注册自更新相关的界面回调与事件调度器。
 ///
 /// `cancel` 在设置窗口关闭时触发，所有后台任务在更新 UI 前都会检查该令牌，
@@ -143,12 +73,7 @@ pub(crate) fn register_update_callbacks(
     cancel: CancellationToken,
     config: Arc<ConfigStore>,
 ) {
-    let context = UpdateContext {
-        runtime,
-        cancel,
-        config,
-        artifact: Arc::new(Mutex::new(UpdateArtifact::Empty)),
-    };
+    let context = UpdateContext::new(runtime, cancel, config);
 
     setup_check_callback(win, context.clone());
     setup_download_callback(win, context.clone());
@@ -576,21 +501,5 @@ mod tests {
         assert!(!update_is_busy(UpdateUiStatus::Idle as i32));
         assert!(!update_is_busy(UpdateUiStatus::Available as i32));
         assert!(!update_is_busy(UpdateUiStatus::Error as i32));
-    }
-
-    /// 空状态与安装中状态都必须拒绝再次取得安装包。
-    #[test]
-    fn test_install_state_machine_rejects_unavailable_and_duplicate_start() {
-        let mut artifact = UpdateArtifact::Empty;
-        assert!(matches!(
-            artifact.begin_install(),
-            InstallStart::Unavailable
-        ));
-
-        artifact = UpdateArtifact::Installing;
-        assert!(matches!(
-            artifact.begin_install(),
-            InstallStart::AlreadyInstalling
-        ));
     }
 }
