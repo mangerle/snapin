@@ -9,6 +9,11 @@ export component ShortcutsTab inherits VerticalLayout {
     in-out property <string> paste_hotkey: "F1";
     in-out property <string> toggle_hotkey: "Ctrl+F3";
     in-out property <string> switch_group_hotkey: "Shift+F3";
+    in-out property <string> smart_redact_hotkey: "Ctrl+Alt+R";
+    in-out property <string> qr_hotkey: "Ctrl+Alt+Q";
+    in-out property <string> beautify_hotkey: "Ctrl+Alt+B";
+    in-out property <string> workspace_hotkey: "Ctrl+Alt+W";
+    in-out property <string> clipboard_history_hotkey: "Ctrl+Shift+V";
 
     SettingCard {
         title: "系统全局快捷键";
@@ -93,6 +98,76 @@ export component ShortcutsTab inherits VerticalLayout {
                 ShortcutRecorder {
                     shortcut <=> root.switch_group_hotkey;
                 }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                VerticalLayout {
+                    spacing: 2px;
+                    alignment: center;
+                    Text { text: "智能打码 (Smart Redact)"; font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: "自动识别选区全部文字并进入马赛克或模糊遮挡预览"; font-size: 12px; color: #64748b; }
+                }
+                ShortcutRecorder { shortcut <=> root.smart_redact_hotkey; }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                VerticalLayout {
+                    spacing: 2px;
+                    alignment: center;
+                    Text { text: "二维码识别 (QR)"; font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: "框选后自动检测二维码并复制内容或打开安全网页链接"; font-size: 12px; color: #64748b; }
+                }
+                ShortcutRecorder { shortcut <=> root.qr_hotkey; }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                VerticalLayout {
+                    spacing: 2px;
+                    alignment: center;
+                    Text { text: "美化导出 (Beautify)"; font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: "为截图添加背景、圆角、阴影和水印后导出"; font-size: 12px; color: #64748b; }
+                }
+                ShortcutRecorder { shortcut <=> root.beautify_hotkey; }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                VerticalLayout {
+                    spacing: 2px;
+                    alignment: center;
+                    Text { text: "贴图工作区 (Workspace)"; font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: "打开缩略图墙并集中管理工作区内的全部贴图"; font-size: 12px; color: #64748b; }
+                }
+                ShortcutRecorder { shortcut <=> root.workspace_hotkey; }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                VerticalLayout {
+                    spacing: 2px;
+                    alignment: center;
+                    Text { text: "剪贴板历史 (Clipboard)"; font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: "打开最近十条文本、图像与颜色记录，快速再次贴图"; font-size: 12px; color: #64748b; }
+                }
+                ShortcutRecorder { shortcut <=> root.clipboard_history_hotkey; }
             }
 
             Rectangle { height: 1px; background: #f1f5f9; }

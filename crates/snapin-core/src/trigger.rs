@@ -21,6 +21,23 @@ pub enum SnipMode {
     PickColor,
 }
 
+/// 框选完成后的自动动作。
+///
+/// 这些动作不影响屏幕捕获方式和选区来源，因此与 [`SnipMode`] 分离，避免每新增
+/// 一项后处理都扩张截图模式枚举并产生互斥组合。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PostCaptureAction {
+    /// 识别文字并进入马赛克/模糊预览
+    SmartRedact,
+    /// 识别二维码
+    Qr,
+    /// 进入美化导出
+    Beautify,
+    /// 打开 OCR 结果面板
+    OcrPanel,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -41,6 +58,21 @@ mod tests {
             assert_eq!(encoded, expected);
             let decoded: SnipMode = serde_json::from_str(&encoded).expect("触发模式应可反序列化");
             assert_eq!(decoded, mode);
+        }
+    }
+
+    /// 后处理动作使用稳定的 snake_case IPC 名称。
+    #[test]
+    fn test_post_capture_action_serde_names_are_stable() {
+        let cases = [
+            (PostCaptureAction::SmartRedact, "\"smart_redact\""),
+            (PostCaptureAction::Qr, "\"qr\""),
+            (PostCaptureAction::Beautify, "\"beautify\""),
+            (PostCaptureAction::OcrPanel, "\"ocr_panel\""),
+        ];
+        for (action, expected) in cases {
+            let encoded = serde_json::to_string(&action).expect("后处理动作应可序列化");
+            assert_eq!(encoded, expected);
         }
     }
 }

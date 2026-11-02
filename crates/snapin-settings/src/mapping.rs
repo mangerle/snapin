@@ -8,6 +8,7 @@ use snapin_core::config::{
     ColorFormat, CoverMode, DoubleClickAction, HexColor, ImageFormat, LogLevel, TargetLanguage,
     TranslateProvider, ZoomAnchor,
 };
+use snapin_core::render::{BeautifyBackground, SocialSize};
 
 /// 预设强调色表（顺序与 Slint interface_tab 中的 ComboBox 严格一一对应）
 pub const ACCENT_COLORS: &[&str] = &["#00AEFF", "#10B981", "#F59E0B", "#8B5CF6"];
@@ -311,6 +312,54 @@ impl SettingEnum for CoverMode {
         match index {
             1 => Self::FrostedGlass,
             _ => Self::SolidColor,
+        }
+    }
+}
+
+impl SettingEnum for SocialSize {
+    fn all_variants() -> &'static [Self] {
+        &[Self::Original, Self::Square, Self::Portrait, Self::Wide]
+    }
+
+    fn to_index(self) -> i32 {
+        match self {
+            Self::Original => 0,
+            Self::Square => 1,
+            Self::Portrait => 2,
+            Self::Wide => 3,
+        }
+    }
+
+    fn from_index(index: i32) -> Self {
+        match index {
+            1 => Self::Square,
+            2 => Self::Portrait,
+            3 => Self::Wide,
+            _ => Self::Original,
+        }
+    }
+}
+
+impl SettingEnum for BeautifyBackground {
+    fn all_variants() -> &'static [Self] {
+        &[Self::Dark, Self::Indigo, Self::Sunset, Self::Mint]
+    }
+
+    fn to_index(self) -> i32 {
+        match self {
+            Self::Dark => 0,
+            Self::Indigo => 1,
+            Self::Sunset => 2,
+            Self::Mint => 3,
+        }
+    }
+
+    fn from_index(index: i32) -> Self {
+        match index {
+            1 => Self::Indigo,
+            2 => Self::Sunset,
+            3 => Self::Mint,
+            _ => Self::Dark,
         }
     }
 }

@@ -33,6 +33,10 @@ pub struct InterfaceConfig {
     /// 浮动工具栏 UI 缩放比例
     #[serde(default = "default_toolbar_scale")]
     pub toolbar_scale: f32,
+
+    /// 截屏时是否包含鼠标指针（Linux GNOME 扩展通道支持）
+    #[serde(default)]
+    pub capture_mouse_cursor: bool,
 }
 
 impl Default for InterfaceConfig {
@@ -44,6 +48,7 @@ impl Default for InterfaceConfig {
             color_format: ColorFormat::default(),
             show_grid_lines: true,
             toolbar_scale: default_toolbar_scale(),
+            capture_mouse_cursor: false,
         }
     }
 }

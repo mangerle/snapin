@@ -12,6 +12,12 @@ export component OutputTab inherits VerticalLayout {
     in-out property <bool> notify_on_copy: false;
     in-out property <bool> notify_on_save: true;
     in-out property <bool> prompt_save_path: false;
+    in-out property <bool> beautify_enabled: false;
+    in-out property <int> beautify_social_size_index: 0;
+    in-out property <int> beautify_background_index: 0;
+    in-out property <float> beautify_corner_radius: 20;
+    in-out property <bool> beautify_shadow: true;
+    in-out property <string> beautify_watermark: "Snapin";
 
     SettingCard {
         title: "文件存储与自动命名";
@@ -85,6 +91,67 @@ export component OutputTab inherits VerticalLayout {
                         value <=> root.jpeg_quality;
                     }
                 }
+            }
+        }
+    }
+
+    SettingCard {
+        title: "截图美化导出";
+        subtitle: "开启后，后续保存截图会自动应用以下圆角、阴影、背景、水印和社交尺寸设置";
+
+        VerticalLayout {
+            spacing: 14px;
+
+            AppSwitch {
+                title: "保存截图时自动应用美化";
+                subtitle: "复制到剪贴板不受影响，仅处理保存与导出文件";
+                checked <=> root.beautify_enabled;
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            HorizontalLayout {
+                spacing: 24px;
+                VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "输出尺寸:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    ComboBox {
+                        model: ["原始尺寸", "1:1 方形 1080x1080", "4:5 竖版 1080x1350", "16:9 横版 1920x1080"];
+                        current-index <=> root.beautify_social_size_index;
+                        width: 230px;
+                    }
+                }
+                VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "背景样式:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    ComboBox {
+                        model: ["深色", "蓝紫渐变", "日落渐变", "薄荷渐变"];
+                        current-index <=> root.beautify_background_index;
+                        width: 180px;
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            AppSlider {
+                title: "图像圆角半径";
+                unit: " px";
+                minimum: 0;
+                maximum: 80;
+                value <=> root.beautify_corner_radius;
+            }
+
+            AppSwitch {
+                title: "启用投影阴影";
+                subtitle: "在截图下方增加柔和阴影层次";
+                checked <=> root.beautify_shadow;
+            }
+
+            VerticalLayout {
+                spacing: 6px;
+                Text { text: "水印文字（留空则不显示）:"; font-size: 13px; font-weight: 600; color: #334155; }
+                LineEdit { text <=> root.beautify_watermark; placeholder-text: "Snapin"; }
             }
         }
     }

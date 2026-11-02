@@ -10,10 +10,10 @@ pub mod types;
 
 use crate::error::CoreError;
 pub use model::{
-    normalize_file_name_template, ColorFormat, Config, ConfigFile, CoverMode, DoubleClickAction,
-    GeneralConfig, HotkeyConfig, ImageFormat, InterfaceConfig, LogLevel, OcrConfig, OutputConfig,
-    PasterConfig, SnipConfig, TargetLanguage, TranslateConfig, TranslateProvider, ZoomAnchor,
-    CONFIG_SCHEMA_VERSION,
+    normalize_file_name_template, BeautifyConfig, ColorFormat, Config, ConfigFile, CoverMode,
+    DoubleClickAction, GeneralConfig, HotkeyConfig, ImageFormat, InterfaceConfig, LogLevel,
+    OcrConfig, OutputConfig, PasterConfig, SnipConfig, TargetLanguage, TranslateConfig,
+    TranslateProvider, ZoomAnchor, CONFIG_SCHEMA_VERSION,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -63,6 +63,21 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreE
 
     tighten_config_permissions(&target_path);
     tracing::debug!("成功加载配置文件: {:?}", target_path);
+    Ok(config)
+}
+
+/// 严格解析导入的配置文本，不修改源文件，也不在失败时创建备份或默认配置。
+///
+/// # Errors
+///
+/// 未知字段、非法快捷键、未来 schema 版本或语义校验失败时返回 [`CoreError`]。
+pub fn parse_imported_config(content: &str, source_path: &Path) -> Result<Config, CoreError> {
+    let file = parse_config_file(content).map_err(|reason| CoreError::ConfigParseError {
+        path: source_path.to_path_buf(),
+        reason,
+    })?;
+    let config = file.migrate(source_path)?.config.sanitized();
+    config.validate()?;
     Ok(config)
 }
 
@@ -373,6 +388,25 @@ provider = "deepl"
             .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
             .collect();
         assert!(temp_files.is_empty(), "原子写入后不得遗留临时文件");
+    }
+
+    /// 导入解析不得改写源文件，且必须严格拒绝非法语义。
+    #[test]
+    fn test_parse_imported_config_is_strict_and_non_destructive() {
+        let path = Path::new("/tmp/imported-config.toml");
+        let config = parse_imported_config(
+            "schema_version = 1\n[hotkeys]\nsnip = \"Ctrl+Alt+A\"\n",
+            path,
+        )
+        .expect("合法导入配置应解析成功");
+        assert_eq!(config.hotkeys.snip.to_display_string(), "Ctrl+Alt+A");
+
+        let error = parse_imported_config(
+            "schema_version = 1\n[hotkeys]\nsnip = \"Ctrl+Alt+A\"\ntranslate = \"Ctrl+Alt+A\"\n",
+            path,
+        )
+        .expect_err("重复快捷键必须在导入边界拒绝");
+        assert!(error.to_string().contains("快捷键重复"));
     }
 }
 

@@ -24,6 +24,23 @@ fn gnome_hotkey_metadata(
             "Snapin 切换贴图组",
             &["switch-group"],
         ),
+        HotkeyAction::SmartRedact => (
+            "snapin-smart-redact",
+            "Snapin 智能打码",
+            &["snip", "--redact"],
+        ),
+        HotkeyAction::Qr => ("snapin-qr", "Snapin 二维码识别", &["snip", "--qr"]),
+        HotkeyAction::Beautify => (
+            "snapin-beautify",
+            "Snapin 美化导出",
+            &["snip", "--beautify"],
+        ),
+        HotkeyAction::Workspace => ("snapin-workspace", "Snapin 贴图工作区", &["workspace"]),
+        HotkeyAction::ClipboardHistory => (
+            "snapin-clipboard-history",
+            "Snapin 剪贴板历史",
+            &["clipboard-history"],
+        ),
     }
 }
 
@@ -200,12 +217,17 @@ mod tests {
     use super::*;
 
     /// 测试覆盖的稳定动作顺序。
-    const HOTKEY_ACTIONS: [HotkeyAction; 5] = [
+    const HOTKEY_ACTIONS: [HotkeyAction; 10] = [
         HotkeyAction::Snip,
         HotkeyAction::Translate,
         HotkeyAction::Paste,
         HotkeyAction::TogglePasters,
         HotkeyAction::SwitchGroup,
+        HotkeyAction::SmartRedact,
+        HotkeyAction::Qr,
+        HotkeyAction::Beautify,
+        HotkeyAction::Workspace,
+        HotkeyAction::ClipboardHistory,
     ];
 
     /// 含空格的路径必须加引用，单引号需按 POSIX 规则转义。

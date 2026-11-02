@@ -10,6 +10,7 @@ use snapin_core::config::{
     TranslateProvider, ZoomAnchor,
 };
 use snapin_core::config::{Config, Hotkey};
+use snapin_core::render::{BeautifyBackground, SocialSize};
 
 /// 构造一份逐字段都不同于默认值的样本配置。
 ///
@@ -48,6 +49,13 @@ fn sample_config() -> Config {
     cfg.output.notify_on_copy = true;
     cfg.output.notify_on_save = false;
     cfg.output.prompt_save_path = true;
+
+    cfg.beautify.enabled = true;
+    cfg.beautify.social_size = SocialSize::Portrait;
+    cfg.beautify.background = BeautifyBackground::Sunset;
+    cfg.beautify.corner_radius = 24.0;
+    cfg.beautify.shadow = false;
+    cfg.beautify.watermark = "Snapin Test".to_string();
 
     cfg.ocr.local.model_dir = "/opt/models/ppocrv6".to_string();
 

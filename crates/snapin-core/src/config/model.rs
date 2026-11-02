@@ -12,7 +12,7 @@ pub use crate::config::sections::*;
 use serde::{Deserialize, Serialize};
 
 /// 当前配置文件 schema 版本。
-pub const CONFIG_SCHEMA_VERSION: u32 = 1;
+pub const CONFIG_SCHEMA_VERSION: u32 = 3;
 
 /// 配置文件顶层封装：schema 版本 + 扁平化的配置板块。
 ///
@@ -44,7 +44,9 @@ impl ConfigFile {
 
     /// 将旧 schema 迁移到当前版本。
     ///
-    /// 版本 0 代表历史无版本号配置，字段布局与 v1 相同；未来字段变更应在此按
+    /// 版本 0 代表历史无版本号配置；v1 为新增热键与截图指针选项前的布局，
+    /// v2 为新增美化设置前的布局。历史版本都可使用 serde 默认值补齐新字段，
+    /// 未来非兼容变更仍须在此逐级转换。
     /// 版本逐级转换，读取路径不允许把未来版本静默当成当前版本。
     ///
     /// # Errors
@@ -101,6 +103,10 @@ pub struct Config {
     /// 机器翻译与原位覆盖设置
     #[serde(default)]
     pub translate: TranslateConfig,
+
+    /// 美化导出设置
+    #[serde(default)]
+    pub beautify: BeautifyConfig,
 }
 
 impl Config {
@@ -135,6 +141,12 @@ impl Config {
             self.paster.initial_opacity = DEFAULT_PASTER_OPACITY;
         }
         self.paster.initial_opacity = self.paster.initial_opacity.clamp(0.1, 1.0);
+
+        if !self.beautify.corner_radius.is_finite() {
+            self.beautify.corner_radius = 20.0;
+        }
+        self.beautify.corner_radius = self.beautify.corner_radius.clamp(0.0, 120.0);
+        self.beautify.watermark = self.beautify.watermark.trim().chars().take(100).collect();
 
         self.output.jpeg_quality = self.output.jpeg_quality.clamp(1, 100);
         if self.output.quick_save_dir.trim().is_empty() {
@@ -175,6 +187,11 @@ impl Config {
             ("贴图", &self.hotkeys.paste),
             ("贴图显隐", &self.hotkeys.toggle_pasters),
             ("贴图分组", &self.hotkeys.switch_group),
+            ("智能打码", &self.hotkeys.smart_redact),
+            ("二维码识别", &self.hotkeys.qr),
+            ("美化导出", &self.hotkeys.beautify),
+            ("贴图工作区", &self.hotkeys.workspace),
+            ("剪贴板历史", &self.hotkeys.clipboard_history),
         ];
         for (index, (name, hotkey)) in hotkeys.iter().enumerate() {
             if hotkey.is_disabled() {

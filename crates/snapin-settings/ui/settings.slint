@@ -52,6 +52,7 @@ export component SettingsWindow inherits Window {
     in-out property <int> color_format_index: 0;
     in-out property <bool> show_grid_lines: true;
     in-out property <float> toolbar_scale_percent: 100;
+    in-out property <bool> capture_mouse_cursor: false;
 
     // 3. 截图流程
     in-out property <bool> remember_last_selection: true;
@@ -72,6 +73,12 @@ export component SettingsWindow inherits Window {
     in-out property <bool> notify_on_copy: false;
     in-out property <bool> notify_on_save: true;
     in-out property <bool> prompt_save_path: false;
+    in-out property <bool> beautify_enabled: false;
+    in-out property <int> beautify_social_size_index: 0;
+    in-out property <int> beautify_background_index: 0;
+    in-out property <float> beautify_corner_radius: 20;
+    in-out property <bool> beautify_shadow: true;
+    in-out property <string> beautify_watermark: "Snapin";
 
     // 6. 文字识别与翻译
     in-out property <string> ocr_model_dir: "";
@@ -91,9 +98,16 @@ export component SettingsWindow inherits Window {
     in-out property <string> paste_hotkey: "F1";
     in-out property <string> toggle_hotkey: "Ctrl+F3";
     in-out property <string> switch_group_hotkey: "Shift+F3";
+    in-out property <string> smart_redact_hotkey: "Ctrl+Alt+R";
+    in-out property <string> qr_hotkey: "Ctrl+Alt+Q";
+    in-out property <string> beautify_hotkey: "Ctrl+Alt+B";
+    in-out property <string> workspace_hotkey: "Ctrl+Alt+W";
+    in-out property <string> clipboard_history_hotkey: "Ctrl+Shift+V";
 
     // 回调事件
     callback save_and_apply();
+    callback import_config();
+    callback export_config();
     callback restore_defaults();
     callback open_config_folder();
     callback check_for_updates();
@@ -228,7 +242,7 @@ export component SettingsWindow inherits Window {
                           root.active_tab == 1 ? "定制选区高亮强调色、鼠标跟随像素放大镜与浮动工具条缩放比" :
                           root.active_tab == 2 ? "配置选区记忆、默认标注颜色、笔触粗细与文字字号" :
                           root.active_tab == 3 ? "配置新贴图初始不透明度、滚轮缩放锚点以及双击响应行为" :
-                          root.active_tab == 4 ? "配置截图另存路径、自动时间戳命名规则、图片编码格式与通知偏好" :
+                          root.active_tab == 4 ? "配置截图另存路径、自动时间戳命名规则、图片编码格式、美化导出与通知偏好" :
                           root.active_tab == 5 ? "配置轻量离线 PP-OCRv6 引擎路径、五大多语言翻译服务商凭证与截图原位智能背景擦除策略" :
                           root.active_tab == 6 ? "自定义全局截图与贴图唤起热键，查看贴图窗口单键旋转、翻转、缩放快捷操作指南" : "查看 Snapin 架构设计、纯 Rust 软件光栅化特性与自由开源许可声明";
                     font-size: 12px;
@@ -263,6 +277,7 @@ export component SettingsWindow inherits Window {
                         color_format_index <=> root.color_format_index;
                         show_grid_lines <=> root.show_grid_lines;
                         toolbar_scale_percent <=> root.toolbar_scale_percent;
+                        capture_mouse_cursor <=> root.capture_mouse_cursor;
                     }
 
                     if root.active_tab == 2: SnipTab {
@@ -286,6 +301,12 @@ export component SettingsWindow inherits Window {
                         notify_on_copy <=> root.notify_on_copy;
                         notify_on_save <=> root.notify_on_save;
                         prompt_save_path <=> root.prompt_save_path;
+                        beautify_enabled <=> root.beautify_enabled;
+                        beautify_social_size_index <=> root.beautify_social_size_index;
+                        beautify_background_index <=> root.beautify_background_index;
+                        beautify_corner_radius <=> root.beautify_corner_radius;
+                        beautify_shadow <=> root.beautify_shadow;
+                        beautify_watermark <=> root.beautify_watermark;
                     }
 
                     if root.active_tab == 5: OcrTab {
@@ -307,6 +328,11 @@ export component SettingsWindow inherits Window {
                         paste_hotkey <=> root.paste_hotkey;
                         toggle_hotkey <=> root.toggle_hotkey;
                         switch_group_hotkey <=> root.switch_group_hotkey;
+                        smart_redact_hotkey <=> root.smart_redact_hotkey;
+                        qr_hotkey <=> root.qr_hotkey;
+                        beautify_hotkey <=> root.beautify_hotkey;
+                        workspace_hotkey <=> root.workspace_hotkey;
+                        clipboard_history_hotkey <=> root.clipboard_history_hotkey;
                     }
 
                     if root.active_tab == 7: AboutTab {
@@ -345,6 +371,14 @@ export component SettingsWindow inherits Window {
                     SecondaryButton {
                         text: "恢复默认设置";
                         clicked => { root.restore_defaults(); }
+                    }
+                    SecondaryButton {
+                        text: "导入配置";
+                        clicked => { root.import_config(); }
+                    }
+                    SecondaryButton {
+                        text: "导出配置";
+                        clicked => { root.export_config(); }
                     }
                     if root.status_message != "": Text {
                         text: root.status_message;

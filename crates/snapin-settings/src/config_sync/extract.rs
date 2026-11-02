@@ -9,6 +9,7 @@ use snapin_core::config::{
     self, ColorFormat, Config, CoverMode, DoubleClickAction, Hotkey, ImageFormat, LogLevel,
     TargetLanguage, TranslateProvider, ZoomAnchor,
 };
+use snapin_core::render::{BeautifyBackground, SocialSize};
 
 pub(crate) fn extract_config_from_window(win: &SettingsWindow, cfg: &mut Config) {
     extract_scalar_fields(win, cfg);
@@ -17,6 +18,7 @@ pub(crate) fn extract_config_from_window(win: &SettingsWindow, cfg: &mut Config)
     extract_snip_from_window(win, &mut cfg.snip);
     extract_paster_from_window(win, &mut cfg.paster);
     extract_output_from_window(win, &mut cfg.output);
+    extract_beautify_from_window(win, &mut cfg.beautify);
     extract_ocr_from_window(win, &mut cfg.ocr);
     extract_translate_from_window(win, &mut cfg.translate);
     extract_hotkeys_from_window(win, &mut cfg.hotkeys);
@@ -54,6 +56,12 @@ fn extract_output_from_window(win: &SettingsWindow, o: &mut config::model::Outpu
     o.jpeg_quality = win.get_jpeg_quality() as u8;
 }
 
+/// 提取美化导出设置。
+fn extract_beautify_from_window(win: &SettingsWindow, b: &mut config::model::BeautifyConfig) {
+    b.social_size = SocialSize::from_index(win.get_beautify_social_size_index());
+    b.background = BeautifyBackground::from_index(win.get_beautify_background_index());
+}
+
 /// 提取快捷键设置。
 ///
 /// 录入值非法时保留原有绑定并告警，避免一次误录（或界面拼接出的畸形字符串）把用户既有快捷键清空。
@@ -74,6 +82,23 @@ fn extract_hotkeys_from_window(win: &SettingsWindow, h: &mut config::model::Hotk
         "贴图分组",
         win.get_switch_group_hotkey().as_str(),
         &h.switch_group,
+    );
+    h.smart_redact = parse_hotkey_or_keep(
+        "智能打码",
+        win.get_smart_redact_hotkey().as_str(),
+        &h.smart_redact,
+    );
+    h.qr = parse_hotkey_or_keep("二维码识别", win.get_qr_hotkey().as_str(), &h.qr);
+    h.beautify = parse_hotkey_or_keep("美化导出", win.get_beautify_hotkey().as_str(), &h.beautify);
+    h.workspace = parse_hotkey_or_keep(
+        "贴图工作区",
+        win.get_workspace_hotkey().as_str(),
+        &h.workspace,
+    );
+    h.clipboard_history = parse_hotkey_or_keep(
+        "剪贴板历史",
+        win.get_clipboard_history_hotkey().as_str(),
+        &h.clipboard_history,
     );
 }
 

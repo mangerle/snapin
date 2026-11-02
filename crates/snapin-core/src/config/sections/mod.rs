@@ -1,5 +1,6 @@
 //! 各配置板块子模块聚合门面。
 
+pub mod beautify;
 pub mod general;
 pub mod hotkeys;
 pub mod interface;
@@ -9,6 +10,7 @@ pub mod paster;
 pub mod snip;
 pub mod translate;
 
+pub use beautify::BeautifyConfig;
 pub use general::GeneralConfig;
 pub use hotkeys::HotkeyConfig;
 pub use interface::InterfaceConfig;

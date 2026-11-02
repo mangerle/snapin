@@ -25,6 +25,26 @@ pub struct HotkeyConfig {
     /// 切换贴图活动分组快捷键
     #[serde(default = "default_switch_group_hotkey")]
     pub switch_group: Hotkey,
+
+    /// 智能打码快捷键
+    #[serde(default = "default_smart_redact_hotkey")]
+    pub smart_redact: Hotkey,
+
+    /// 二维码识别快捷键
+    #[serde(default = "default_qr_hotkey")]
+    pub qr: Hotkey,
+
+    /// 美化导出快捷键
+    #[serde(default = "default_beautify_hotkey")]
+    pub beautify: Hotkey,
+
+    /// 贴图工作区面板快捷键
+    #[serde(default = "default_workspace_hotkey")]
+    pub workspace: Hotkey,
+
+    /// 剪贴板历史面板快捷键
+    #[serde(default = "default_clipboard_history_hotkey")]
+    pub clipboard_history: Hotkey,
 }
 
 impl Default for HotkeyConfig {
@@ -35,6 +55,11 @@ impl Default for HotkeyConfig {
             paste: default_paste_hotkey(),
             toggle_pasters: default_toggle_hotkey(),
             switch_group: default_switch_group_hotkey(),
+            smart_redact: default_smart_redact_hotkey(),
+            qr: default_qr_hotkey(),
+            beautify: default_beautify_hotkey(),
+            workspace: default_workspace_hotkey(),
+            clipboard_history: default_clipboard_history_hotkey(),
         }
     }
 }
@@ -65,4 +90,24 @@ fn default_toggle_hotkey() -> Hotkey {
 
 fn default_switch_group_hotkey() -> Hotkey {
     default_hotkey("Shift+F3")
+}
+
+fn default_smart_redact_hotkey() -> Hotkey {
+    default_hotkey("Ctrl+Alt+R")
+}
+
+fn default_qr_hotkey() -> Hotkey {
+    default_hotkey("Ctrl+Alt+Q")
+}
+
+fn default_beautify_hotkey() -> Hotkey {
+    default_hotkey("Ctrl+Alt+B")
+}
+
+fn default_workspace_hotkey() -> Hotkey {
+    default_hotkey("Ctrl+Alt+W")
+}
+
+fn default_clipboard_history_hotkey() -> Hotkey {
+    default_hotkey("Ctrl+Shift+V")
 }

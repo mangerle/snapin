@@ -52,6 +52,16 @@ pub enum HotkeyAction {
     TogglePasters,
     /// 触发切换贴图分组
     SwitchGroup,
+    /// 触发智能打码
+    SmartRedact,
+    /// 触发二维码识别
+    Qr,
+    /// 触发美化导出
+    Beautify,
+    /// 打开贴图工作区面板
+    Workspace,
+    /// 打开剪贴板历史面板
+    ClipboardHistory,
 }
 
 /// 一条快捷键绑定：动作与用户配置的按键组合。
@@ -64,7 +74,7 @@ struct HotkeyBinding<'a> {
 
 /// 统一的快捷键配置到动作映射，供原生监听器与 GNOME 注册共用。
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-fn configured_bindings(config: &HotkeyConfig) -> [HotkeyBinding<'_>; 5] {
+fn configured_bindings(config: &HotkeyConfig) -> [HotkeyBinding<'_>; 10] {
     [
         HotkeyBinding {
             action: HotkeyAction::Snip,
@@ -85,6 +95,26 @@ fn configured_bindings(config: &HotkeyConfig) -> [HotkeyBinding<'_>; 5] {
         HotkeyBinding {
             action: HotkeyAction::SwitchGroup,
             hotkey: &config.switch_group,
+        },
+        HotkeyBinding {
+            action: HotkeyAction::SmartRedact,
+            hotkey: &config.smart_redact,
+        },
+        HotkeyBinding {
+            action: HotkeyAction::Qr,
+            hotkey: &config.qr,
+        },
+        HotkeyBinding {
+            action: HotkeyAction::Beautify,
+            hotkey: &config.beautify,
+        },
+        HotkeyBinding {
+            action: HotkeyAction::Workspace,
+            hotkey: &config.workspace,
+        },
+        HotkeyBinding {
+            action: HotkeyAction::ClipboardHistory,
+            hotkey: &config.clipboard_history,
         },
     ]
 }
@@ -279,6 +309,11 @@ mod binding_tests {
             HotkeyAction::Paste,
             HotkeyAction::TogglePasters,
             HotkeyAction::SwitchGroup,
+            HotkeyAction::SmartRedact,
+            HotkeyAction::Qr,
+            HotkeyAction::Beautify,
+            HotkeyAction::Workspace,
+            HotkeyAction::ClipboardHistory,
         ];
         assert_eq!(bindings.len(), expected.len());
         for action in expected {

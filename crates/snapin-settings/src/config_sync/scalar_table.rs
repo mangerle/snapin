@@ -49,20 +49,25 @@ bool_table! {
     general.auto_check_update => set_auto_check_update / get_auto_check_update,
     interface.enable_magnifier => set_enable_magnifier / get_enable_magnifier,
     interface.show_grid_lines => set_show_grid_lines / get_show_grid_lines,
+    interface.capture_mouse_cursor => set_capture_mouse_cursor / get_capture_mouse_cursor,
     snip.remember_last_selection => set_remember_last_selection / get_remember_last_selection,
     output.notify_on_copy => set_notify_on_copy / get_notify_on_copy,
     output.notify_on_save => set_notify_on_save / get_notify_on_save,
     output.prompt_save_path => set_prompt_save_path / get_prompt_save_path,
+    beautify.enabled => set_beautify_enabled / get_beautify_enabled,
+    beautify.shadow => set_beautify_shadow / get_beautify_shadow,
 }
 
 number_table! {
     snip.default_stroke_width => set_default_stroke_width / get_default_stroke_width,
     snip.default_font_size => set_snip_font_size / get_snip_font_size,
+    beautify.corner_radius => set_beautify_corner_radius / get_beautify_corner_radius,
 }
 
 string_table! {
     output.quick_save_dir => set_quick_save_dir / get_quick_save_dir,
     output.file_name_template => set_file_name_template / get_file_name_template,
+    beautify.watermark => set_beautify_watermark / get_beautify_watermark,
 }
 
 /// 应用全部声明式标量字段。

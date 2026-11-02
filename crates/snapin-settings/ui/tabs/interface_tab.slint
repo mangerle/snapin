@@ -11,6 +11,7 @@ export component InterfaceTab inherits VerticalLayout {
     in-out property <int> color_format_index: 0;    // 0: HEX (#00AEFF), 1: RGB (0, 174, 255), 2: HSL (199, 100%, 50%)
     in-out property <bool> show_grid_lines: true;
     in-out property <float> toolbar_scale_percent: 100; // 80 ~ 150 %
+    in-out property <bool> capture_mouse_cursor: false;
 
     SettingCard {
         title: "强调色彩";
@@ -72,6 +73,14 @@ export component InterfaceTab inherits VerticalLayout {
                 title: "在放大镜内显示像素物理对齐网格线";
                 subtitle: "以细微虚线标出单个物理像素边界，便于精确定位目标像素";
                 checked <=> root.show_grid_lines;
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            AppSwitch {
+                title: "截屏时包含鼠标指针";
+                subtitle: "Linux GNOME 扩展通道可原生包含指针；其他平台暂由系统截屏能力决定";
+                checked <=> root.capture_mouse_cursor;
             }
         }
     }

@@ -15,6 +15,7 @@ pub(crate) fn sync_config_to_window(win: &SettingsWindow, cfg: &Config) {
     sync_snip_to_window(win, &cfg.snip);
     sync_paster_to_window(win, &cfg.paster);
     sync_output_to_window(win, &cfg.output);
+    sync_beautify_to_window(win, &cfg.beautify);
     sync_ocr_to_window(win, &cfg.ocr);
     sync_translate_to_window(win, &cfg.translate);
     sync_hotkeys_to_window(win, &cfg.hotkeys);
@@ -51,6 +52,12 @@ fn sync_output_to_window(win: &SettingsWindow, o: &config::model::OutputConfig) 
     win.set_jpeg_quality(o.jpeg_quality as f32);
 }
 
+/// 同步美化导出设置。
+fn sync_beautify_to_window(win: &SettingsWindow, b: &config::model::BeautifyConfig) {
+    win.set_beautify_social_size_index(b.social_size.to_index());
+    win.set_beautify_background_index(b.background.to_index());
+}
+
 /// 同步快捷键板块设置
 fn sync_hotkeys_to_window(win: &SettingsWindow, h: &config::model::HotkeyConfig) {
     win.set_snip_hotkey(SharedString::from(h.snip.to_display_string()));
@@ -58,6 +65,11 @@ fn sync_hotkeys_to_window(win: &SettingsWindow, h: &config::model::HotkeyConfig)
     win.set_paste_hotkey(SharedString::from(h.paste.to_display_string()));
     win.set_toggle_hotkey(SharedString::from(h.toggle_pasters.to_display_string()));
     win.set_switch_group_hotkey(SharedString::from(h.switch_group.to_display_string()));
+    win.set_smart_redact_hotkey(SharedString::from(h.smart_redact.to_display_string()));
+    win.set_qr_hotkey(SharedString::from(h.qr.to_display_string()));
+    win.set_beautify_hotkey(SharedString::from(h.beautify.to_display_string()));
+    win.set_workspace_hotkey(SharedString::from(h.workspace.to_display_string()));
+    win.set_clipboard_history_hotkey(SharedString::from(h.clipboard_history.to_display_string()));
 }
 
 /// 同步文字识别板块设置
