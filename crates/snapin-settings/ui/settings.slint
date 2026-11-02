@@ -397,3 +397,88 @@ export component SettingsWindow inherits Window {
         }
     }
 }
+
+export component ClipboardPanel inherits Window {
+    title: "Snapin 剪贴板历史";
+    preferred-width: 520px;
+    preferred-height: 620px;
+    background: #f8fafc;
+
+    in property <[string]> titles: [];
+    in property <[string]> previews: [];
+    in property <string> status_message: "";
+    callback activate(int);
+    callback clear_history();
+    callback close_panel();
+
+    VerticalLayout {
+        padding: 18px;
+        spacing: 12px;
+
+        HorizontalLayout {
+            Text {
+                text: "剪贴板历史";
+                font-size: 20px;
+                font-weight: 700;
+                color: #0f172a;
+                vertical-alignment: center;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            SecondaryButton {
+                text: "清空";
+                clicked => { root.clear_history(); }
+            }
+            SecondaryButton {
+                text: "关闭";
+                clicked => { root.close_panel(); }
+            }
+        }
+
+        Text {
+            text: "最多保留 10 条，自动删除超过 1 天的记录。点击条目立即复制并创建贴图。";
+            font-size: 12px;
+            color: #64748b;
+            wrap: word-wrap;
+        }
+
+        ScrollView {
+            VerticalLayout {
+                spacing: 8px;
+                for row[index] in root.titles : Rectangle {
+                    height: 72px;
+                    border-radius: 10px;
+                    border-width: 1px;
+                    border-color: #e2e8f0;
+                    background: touch.has-hover ? #eff6ff : #ffffff;
+
+                    touch := TouchArea {
+                        clicked => { root.activate(index); }
+                    }
+
+                    VerticalLayout {
+                        padding: 10px;
+                        spacing: 4px;
+                        Text {
+                            text: row;
+                            font-size: 14px;
+                            font-weight: 600;
+                            color: #0f172a;
+                        }
+                        Text {
+                            text: root.previews[index];
+                            font-size: 12px;
+                            color: #64748b;
+                            overflow: elide;
+                        }
+                    }
+                }
+            }
+        }
+
+        if root.status_message != "" : Text {
+            text: root.status_message;
+            font-size: 12px;
+            color: #2563eb;
+        }
+    }
+}

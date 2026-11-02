@@ -14,15 +14,20 @@ pub mod update_controller;
 use config_store::ConfigStore;
 use config_sync::{extract_config_from_window, sync_config_to_window};
 
-use slint::{ComponentHandle, SharedString};
+use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use snapin_core::config::{self, Config};
 use snapin_core::error::CoreError;
 use snapin_daemon::notify_daemon_reload_config;
 use snapin_platform::{
     get_platform_capabilities, open_path_in_file_manager, pick_config_export_path,
-    pick_config_import_path, sync_autostart, sync_hotkeys_to_gnome, PlatformError,
+    pick_config_import_path, sync_autostart, sync_hotkeys_to_gnome, write_image_to_clipboard,
+    write_text_to_clipboard, PlatformError,
 };
 use snapin_runtime::TaskRuntime;
+use snapin_storage::{
+    clear_clipboard_history, load_clipboard_history, load_clipboard_image, ClipboardEntry,
+    ClipboardEntryKind,
+};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -129,6 +134,106 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
 
     run_res?;
     Ok(())
+}
+
+/// 打开剪贴板历史独立面板。
+pub fn run_clipboard_history_panel() -> Result<(), SettingsError> {
+    let window =
+        ClipboardPanel::new().map_err(|error| SettingsError::InitFailed(error.to_string()))?;
+    let entries = std::sync::Arc::new(
+        load_clipboard_history().map_err(|error| SettingsError::Runtime(error.to_string()))?,
+    );
+    apply_clipboard_rows(&window, &entries);
+    let runtime = settings_runtime()?;
+
+    let weak = window.as_weak();
+    let entries_for_activate = entries.clone();
+    let panel_runtime = runtime.clone();
+    window.on_activate(move |index| {
+        let Some(entry) = entries_for_activate.get(index as usize).cloned() else {
+            return;
+        };
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        let result = match entry.kind {
+            ClipboardEntryKind::Text | ClipboardEntryKind::Color => entry
+                .text
+                .as_deref()
+                .ok_or_else(|| "文本历史缺少内容".to_string())
+                .and_then(|text| write_text_to_clipboard(text).map_err(|error| error.to_string())),
+            ClipboardEntryKind::Image => load_clipboard_image(&entry)
+                .map_err(|error| error.to_string())
+                .and_then(|image| {
+                    write_image_to_clipboard(&image).map_err(|error| error.to_string())
+                }),
+        };
+        match result {
+            Ok(()) => {
+                window.set_status_message(SharedString::from("已复制到剪贴板，正在创建贴图"));
+                let runtime = panel_runtime.clone();
+                let _ = runtime.spawn(async move {
+                    let _ =
+                        snapin_daemon::send_command_to_daemon(&snapin_daemon::DaemonRequest::Paste)
+                            .await;
+                });
+            }
+            Err(message) => window.set_status_message(SharedString::from(message)),
+        }
+    });
+
+    let weak = window.as_weak();
+    window.on_clear_history(move || {
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        match clear_clipboard_history() {
+            Ok(()) => {
+                apply_clipboard_rows(&window, &[]);
+                window.set_status_message(SharedString::from("剪贴板历史已清空"));
+            }
+            Err(error) => window
+                .set_status_message(SharedString::from(format!("清空剪贴板历史失败: {error}"))),
+        }
+    });
+
+    let weak = window.as_weak();
+    window.on_close_panel(move || {
+        if let Some(window) = weak.upgrade() {
+            let _ = window.hide();
+        }
+    });
+
+    let run_result = window
+        .run()
+        .map_err(|error| SettingsError::RuntimeFailed(error.to_string()));
+    runtime.shutdown_blocking(Duration::from_secs(3));
+    run_result
+}
+
+fn apply_clipboard_rows(window: &ClipboardPanel, entries: &[ClipboardEntry]) {
+    let mut titles = Vec::with_capacity(entries.len());
+    let mut previews = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let (title, preview) = match entry.kind {
+            ClipboardEntryKind::Text => (
+                "文本",
+                entry
+                    .text
+                    .as_deref()
+                    .unwrap_or_default()
+                    .chars()
+                    .take(120)
+                    .collect::<String>(),
+            ),
+            ClipboardEntryKind::Color => ("颜色", entry.text.clone().unwrap_or_default()),
+            ClipboardEntryKind::Image => ("图像", entry.image_file.clone().unwrap_or_default()),
+        };
+        titles.push(SharedString::from(title));
+        previews.push(SharedString::from(preview));
+    }
+    window.set_titles(ModelRc::new(VecModel::from(titles)));
+    window.set_previews(ModelRc::new(VecModel::from(previews)));
 }
 
 /// 获取设置中心后台任务运行时：优先复用当前 Tokio 上下文，否则使用进程级共享实例。

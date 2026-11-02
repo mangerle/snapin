@@ -90,6 +90,9 @@ pub fn run_daemon_process(cfg: Config) -> Result<()> {
     // 2. 统一后台任务运行时与应用服务
     let task_runtime = TaskRuntime::from_handle(handle.clone(), 8);
     let services = Arc::new(AppServices::with_runtime(cfg.clone(), task_runtime));
+    if let Err(error) = crate::run_clipboard_history_monitor(&services.runtime()) {
+        tracing::warn!("启动剪贴板历史监控失败: {error:#}");
+    }
 
     // 3. 主线程创建唯一的 GUI 事件循环
     let (event_loop, workspace_proxy) =

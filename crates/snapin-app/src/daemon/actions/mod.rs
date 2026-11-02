@@ -116,3 +116,16 @@ pub(super) fn spawn_preferences_subprocess() {
     };
     spawn_detached_system_command(exe, &["prefs"]);
 }
+
+/// 派生独立剪贴板历史面板进程。
+pub(super) fn spawn_clipboard_history_subprocess() {
+    let Ok(exe) = std::env::current_exe() else {
+        tracing::warn!("获取当前可执行文件路径失败，无法启动剪贴板历史面板");
+        return;
+    };
+    let Some(exe) = exe.to_str() else {
+        tracing::warn!("当前可执行文件路径包含非法编码，无法启动剪贴板历史面板");
+        return;
+    };
+    spawn_detached_system_command(exe, &["clipboard-history"]);
+}

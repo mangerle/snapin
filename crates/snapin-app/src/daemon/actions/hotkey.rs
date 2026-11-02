@@ -1,6 +1,6 @@
 //! 全局热键动作控制器。
 
-use super::{spawn_snipper, spawn_workspace_command};
+use super::{spawn_clipboard_history_subprocess, spawn_snipper, spawn_workspace_command};
 use crate::services::AppServices;
 use crate::snip::SnipStartRequest;
 use snapin_core::{PostCaptureAction, SnipMode};
@@ -73,7 +73,7 @@ pub(crate) fn handle_hotkey_action(
             spawn_workspace_command(services, workspace, DaemonRequest::OpenWorkspace);
         }
         snapin_platform::HotkeyAction::ClipboardHistory => {
-            spawn_workspace_command(services, workspace, DaemonRequest::OpenClipboardHistory);
+            spawn_clipboard_history_subprocess();
         }
     }
     true

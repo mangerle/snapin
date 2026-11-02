@@ -121,6 +121,8 @@ pub enum CommandRoute {
     InstallExtension,
     /// 同步注册系统快捷键
     SyncHotkeys,
+    /// 独立剪贴板历史面板
+    ClipboardPanel,
     /// 短生命周期 IPC 或运维命令
     Async,
 }
@@ -133,13 +135,13 @@ impl Commands {
             Self::Prefs => CommandRoute::Preferences,
             Self::InstallExtension => CommandRoute::InstallExtension,
             Self::SyncHotkeys => CommandRoute::SyncHotkeys,
+            Self::ClipboardHistory => CommandRoute::ClipboardPanel,
             Self::Snip { .. }
             | Self::PickColor
             | Self::Paste
             | Self::Toggle
             | Self::SwitchGroup { .. }
             | Self::Workspace
-            | Self::ClipboardHistory
             | Self::ClearHistory
             | Self::Exit
             | Self::PinFile { .. }

@@ -10,6 +10,7 @@ description = "Snapin 基于 Slint 的现代化偏好设置中心图形界面与
 snapin-core.workspace = true
 snapin-daemon.workspace = true
 snapin-platform.workspace = true
+snapin-storage.workspace = true
 snapin-runtime.workspace = true
 snapin-updater.workspace = true
 tokio.workspace = true

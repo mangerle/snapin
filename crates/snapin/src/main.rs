@@ -20,7 +20,7 @@ use snapin_core::config::{self, Config};
 use snapin_core::{PostCaptureAction, SnipMode};
 use snapin_daemon::{send_command_to_daemon, DaemonRequest};
 use snapin_platform::{init_platform_capabilities, sync_hotkeys_to_gnome};
-use snapin_settings::run_settings_gui;
+use snapin_settings::{run_clipboard_history_panel, run_settings_gui};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -247,6 +247,9 @@ fn main() -> Result<()> {
             run_daemon_process(config)
         }
         CommandRoute::Preferences => run_preferences(),
+        CommandRoute::ClipboardPanel => {
+            run_clipboard_history_panel().context("启动剪贴板历史面板失败")
+        }
         CommandRoute::InstallExtension => install_gnome_extension(),
         CommandRoute::SyncHotkeys => {
             let config = config.context("快捷键同步流程缺少用户配置")?;

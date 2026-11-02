@@ -1,6 +1,9 @@
 //! 托盘动作控制器。
 
-use super::{spawn_preferences_subprocess, spawn_snipper, spawn_workspace_command};
+use super::{
+    spawn_clipboard_history_subprocess, spawn_preferences_subprocess, spawn_snipper,
+    spawn_workspace_command,
+};
 use crate::services::AppServices;
 use crate::snip::SnipStartRequest;
 use snapin_core::{PostCaptureAction, SnipMode};
@@ -106,7 +109,7 @@ pub(crate) fn handle_tray_action(
             spawn_workspace_command(services, workspace, DaemonRequest::OpenWorkspace);
         }
         TrayAction::ClipboardHistory => {
-            spawn_workspace_command(services, workspace, DaemonRequest::OpenClipboardHistory);
+            spawn_clipboard_history_subprocess();
         }
         TrayAction::TogglePasters => {
             spawn_workspace_command(services, workspace, DaemonRequest::TogglePasters);
