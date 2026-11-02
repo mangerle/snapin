@@ -7,7 +7,7 @@ use super::super::SettingsWindow;
 use super::scalar_table::extract_scalar_fields;
 use snapin_core::config::{
     self, ColorFormat, Config, CoverMode, DoubleClickAction, Hotkey, ImageFormat, LogLevel,
-    TargetLanguage, TranslateProvider, ZoomAnchor,
+    TargetLanguage, TranslateProvider, UiLanguage, ZoomAnchor,
 };
 use snapin_core::render::{BeautifyBackground, SocialSize};
 
@@ -26,6 +26,7 @@ pub(crate) fn extract_config_from_window(win: &SettingsWindow, cfg: &mut Config)
 
 /// 提取常规设置
 fn extract_general_from_window(win: &SettingsWindow, g: &mut config::model::GeneralConfig) {
+    g.language = UiLanguage::from_index(win.get_language_index());
     g.log_level = LogLevel::from_index(win.get_log_level_index());
 }
 

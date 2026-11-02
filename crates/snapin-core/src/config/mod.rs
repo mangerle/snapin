@@ -13,7 +13,7 @@ pub use model::{
     normalize_file_name_template, BeautifyConfig, ColorFormat, Config, ConfigFile, CoverMode,
     DoubleClickAction, GeneralConfig, HotkeyConfig, ImageFormat, InterfaceConfig, LogLevel,
     OcrConfig, OutputConfig, PasterConfig, SnipConfig, TargetLanguage, TranslateConfig,
-    TranslateProvider, ZoomAnchor, CONFIG_SCHEMA_VERSION,
+    TranslateProvider, UiLanguage, ZoomAnchor, CONFIG_SCHEMA_VERSION,
 };
 use std::fs;
 use std::path::{Path, PathBuf};

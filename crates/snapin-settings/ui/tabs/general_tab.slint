@@ -6,6 +6,7 @@ export component GeneralTab inherits VerticalLayout {
     padding-right: 8px;
 
     in-out property <bool> autostart: true;
+    in-out property <int> language_index: 0;
     in-out property <bool> notify_on_startup: false;
     in-out property <bool> auto_check_update: true;
     in-out property <int> log_level_index: 2;   // 0: Trace, 1: Debug, 2: Info, 3: Warn, 4: Error
@@ -24,6 +25,18 @@ export component GeneralTab inherits VerticalLayout {
                 title: "登录系统时自动启动后台守护服务";
                 subtitle: "开机静默运行，无需手动打开终端，随时响应 F1 与 F3 全局热键";
                 checked <=> root.autostart;
+            }
+
+            Rectangle { height: 1px; background: #f1f5f9; }
+
+            VerticalLayout {
+                spacing: 6px;
+                Text { text: "界面语言:"; font-size: 13px; font-weight: 600; color: #334155; }
+                ComboBox {
+                    model: ["简体中文", "English"];
+                    current-index <=> root.language_index;
+                    width: 200px;
+                }
             }
 
             Rectangle { height: 1px; background: #f1f5f9; }

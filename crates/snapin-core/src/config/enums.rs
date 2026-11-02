@@ -5,6 +5,25 @@
 
 use serde::{Deserialize, Serialize};
 
+/// 用户界面语言。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UiLanguage {
+    #[default]
+    ZhCn,
+    EnUs,
+}
+
+impl UiLanguage {
+    /// Slint 与用户文案选择使用的稳定语言代码。
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::ZhCn => "zh-CN",
+            Self::EnUs => "en",
+        }
+    }
+}
+
 /// 系统日志记录级别强类型枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]

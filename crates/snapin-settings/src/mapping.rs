@@ -6,7 +6,7 @@
 
 use snapin_core::config::{
     ColorFormat, CoverMode, DoubleClickAction, HexColor, ImageFormat, LogLevel, TargetLanguage,
-    TranslateProvider, ZoomAnchor,
+    TranslateProvider, UiLanguage, ZoomAnchor,
 };
 use snapin_core::render::{BeautifyBackground, SocialSize};
 
@@ -133,6 +133,27 @@ impl SettingEnum for LogLevel {
             3 => Self::Warn,
             4 => Self::Error,
             _ => Self::Trace,
+        }
+    }
+}
+
+impl SettingEnum for UiLanguage {
+    fn all_variants() -> &'static [Self] {
+        &[Self::ZhCn, Self::EnUs]
+    }
+
+    fn to_index(self) -> i32 {
+        match self {
+            Self::ZhCn => 0,
+            Self::EnUs => 1,
+        }
+    }
+
+    fn from_index(index: i32) -> Self {
+        if index == 1 {
+            Self::EnUs
+        } else {
+            Self::ZhCn
         }
     }
 }

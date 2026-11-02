@@ -23,6 +23,7 @@ pub(crate) fn sync_config_to_window(win: &SettingsWindow, cfg: &Config) {
 
 /// 同步常规板块设置
 fn sync_general_to_window(win: &SettingsWindow, g: &config::model::GeneralConfig) {
+    win.set_language_index(g.language.to_index());
     win.set_log_level_index(g.log_level.to_index());
 }
 

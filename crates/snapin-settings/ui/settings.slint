@@ -31,6 +31,7 @@ export component SettingsWindow inherits Window {
 
     // 1. 常规设置
     in-out property <bool> autostart: true;
+    in-out property <int> language_index: 0;
     in-out property <bool> notify_on_startup: false;
     in-out property <bool> auto_check_update: true;
     in-out property <int> log_level_index: 2;
@@ -263,6 +264,7 @@ export component SettingsWindow inherits Window {
 
                     if root.active_tab == 0: GeneralTab {
                         autostart <=> root.autostart;
+                        language_index <=> root.language_index;
                         notify_on_startup <=> root.notify_on_startup;
                         auto_check_update <=> root.auto_check_update;
                         log_level_index <=> root.log_level_index;

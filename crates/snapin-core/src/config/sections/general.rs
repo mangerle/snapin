@@ -1,12 +1,15 @@
 //! 常规基础设置模型定义。
 
 use crate::config::defaults::{default_true, DEFAULT_UPDATE_INTERVAL_HOURS};
-use crate::config::enums::LogLevel;
+use crate::config::enums::{LogLevel, UiLanguage};
 use serde::{Deserialize, Serialize};
 
 /// 常规设置板块
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GeneralConfig {
+    /// 界面语言
+    #[serde(default)]
+    pub language: UiLanguage,
     /// 是否开机自动启动
     #[serde(default = "default_true")]
     pub autostart: bool,
@@ -35,6 +38,7 @@ pub struct GeneralConfig {
 impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
+            language: UiLanguage::default(),
             autostart: true,
             log_level: LogLevel::default(),
             notify_on_startup: false,
