@@ -14,6 +14,24 @@ use serde::{Deserialize, Serialize};
 /// 当前配置文件 schema 版本。
 pub const CONFIG_SCHEMA_VERSION: u32 = 3;
 
+/// 配置文件允许出现的全部顶层键。
+///
+/// 该列表是加载器拒绝未知板块的唯一契约来源。`ConfigFile` 使用 `flatten` 承载
+/// 各配置板块，仅依赖 `serde_ignored` 无法稳定识别未知顶层键，因此新增配置板块时
+/// 必须同步维护此列表，并由配置往返测试保证两者不会漂移。
+pub(crate) const CONFIG_FILE_TOP_LEVEL_KEYS: &[&str] = &[
+    "schema_version",
+    "general",
+    "interface",
+    "snip",
+    "paster",
+    "output",
+    "hotkeys",
+    "ocr",
+    "translate",
+    "beautify",
+];
+
 /// 配置文件顶层封装：schema 版本 + 扁平化的配置板块。
 ///
 /// `schema_version` 允许未来字段迁移在读取时显式分支；`flatten` 保证现有

@@ -130,20 +130,9 @@ fn parse_toml_table(content: &str) -> Result<toml::Table, String> {
 
 /// 检查顶层板块白名单，防止 flatten 吞掉未知板块。
 fn reject_unknown_top_level_keys(table: &toml::Table) -> Result<(), String> {
-    const KNOWN_TOP_LEVEL: &[&str] = &[
-        "schema_version",
-        "general",
-        "interface",
-        "snip",
-        "paster",
-        "output",
-        "hotkeys",
-        "ocr",
-        "translate",
-    ];
     let unknown_fields: Vec<String> = table
         .keys()
-        .filter(|key| !KNOWN_TOP_LEVEL.contains(&key.as_str()))
+        .filter(|key| !model::CONFIG_FILE_TOP_LEVEL_KEYS.contains(&key.as_str()))
         .cloned()
         .collect();
     if !unknown_fields.is_empty() {
@@ -496,6 +485,37 @@ provider = "deepl"
             config_file.with_extension("toml.bak.1").exists(),
             "第二次恢复必须创建递增后缀备份"
         );
+    }
+
+    /// 已保存的完整配置必须可以再次加载，所有顶层板块都不得被误判为未知字段。
+    #[test]
+    fn test_saved_config_roundtrip_preserves_all_sections() {
+        let temp_dir = tempdir().expect("创建临时目录失败");
+        let config_file = temp_dir.path().join("config.toml");
+        let mut config = Config::default();
+        config.beautify.corner_radius = 33.0;
+        config.general.update_check_interval_hours = 12;
+
+        save_config(&config, &config_file).expect("保存配置失败");
+        let loaded = load_or_create_config(Some(&config_file)).expect("重新加载配置失败");
+
+        assert_eq!(loaded, config.sanitized());
+        assert!(
+            !config_file.with_extension("toml.bak").exists(),
+            "合法配置不得被备份后重建"
+        );
+    }
+
+    /// 导出的配置文本必须能够被导入流程完整解析，不能因顶层板块白名单漂移而失败。
+    #[test]
+    fn test_exported_config_can_be_imported() {
+        let config = Config::default();
+        let exported = toml::to_string_pretty(&ConfigFile::current(config.clone()))
+            .expect("序列化导出配置失败");
+        let imported = parse_imported_config(&exported, Path::new("exported-config.toml"))
+            .expect("导出配置应可重新导入");
+
+        assert_eq!(imported, config.sanitized());
     }
 
     #[test]
