@@ -71,33 +71,41 @@ impl PasterWindowState {
             self.interaction.stroke.points.clear();
             return false;
         };
-
         if tool == Tool::Eraser {
-            let erase_changed = if self.interaction.toolbar.sub_options.eraser_rectangle_mode {
-                self.interaction
-                    .stroke
-                    .points
-                    .first()
-                    .zip(self.interaction.stroke.points.last())
-                    .map(|(start, end)| crate::geometry::Rect::from_points(*start, *end))
-                    .map(|rect| self.document.annotations.erase_intersecting(rect) > 0)
-                    .unwrap_or(false)
-            } else {
-                self.interaction
-                    .stroke
-                    .points
-                    .last()
-                    .copied()
-                    .map(|point| self.erase_annotations_at(point))
-                    .unwrap_or(false)
-            };
-            self.interaction.stroke.points.clear();
-            if erase_changed {
-                self.rebuild_item_pixmap();
-            }
-            return erase_changed;
+            return self.commit_eraser_stroke();
         }
+        self.commit_draw_stroke(tool)
+    }
 
+    /// 提交橡皮擦操作；矩形模式删除相交图元，画笔模式删除笔刷范围内图元。
+    fn commit_eraser_stroke(&mut self) -> bool {
+        let erase_changed = if self.interaction.toolbar.sub_options.eraser_rectangle_mode {
+            self.interaction
+                .stroke
+                .points
+                .first()
+                .zip(self.interaction.stroke.points.last())
+                .map(|(start, end)| crate::geometry::Rect::from_points(*start, *end))
+                .map(|rect| self.document.annotations.erase_intersecting(rect) > 0)
+                .unwrap_or(false)
+        } else {
+            self.interaction
+                .stroke
+                .points
+                .last()
+                .copied()
+                .map(|point| self.erase_annotations_at(point))
+                .unwrap_or(false)
+        };
+        self.interaction.stroke.points.clear();
+        if erase_changed {
+            self.rebuild_item_pixmap();
+        }
+        erase_changed
+    }
+
+    /// 从当前笔迹构造图元并提交到图像与历史。
+    fn commit_draw_stroke(&mut self, tool: Tool) -> bool {
         let shape = {
             let params = AnnotationDraftParams::from_toolbar_and_points(
                 &self.interaction.toolbar,

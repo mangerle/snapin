@@ -212,41 +212,47 @@ fn render_paster_border_and_shadow(pixmap: &mut Pixmap, w: f32, h: f32, has_shad
     if w <= 4.0 || h <= 4.0 {
         return;
     }
-
-    // 1. 窗口立体阴影层 (开启时呈现明显且自然的立体层次投影)
     if has_shadow {
-        let shadow_steps = [
-            (1.0, 90u8),
-            (2.0, 65u8),
-            (3.0, 45u8),
-            (4.0, 30u8),
-            (5.0, 18u8),
-            (6.0, 8u8),
-        ];
-        for (inset, alpha) in shadow_steps {
-            let mut pb_shadow = PathBuilder::new();
-            pb_shadow.move_to(inset, inset);
-            pb_shadow.line_to(w - inset, inset);
-            pb_shadow.line_to(w - inset, h - inset);
-            pb_shadow.line_to(inset, h - inset);
-            pb_shadow.close();
-            if let Some(path) = pb_shadow.finish() {
-                let sp = make_paint(Color::from_rgba8(0, 0, 0, alpha));
-                let stroke = Stroke {
-                    width: 1.0,
-                    ..Default::default()
-                };
-                pixmap.stroke_path(&path, &sp, &stroke, Transform::identity(), None);
-            }
+        draw_paster_shadow(pixmap, w, h);
+    }
+    draw_paster_borders(pixmap, w, h);
+}
+
+/// 绘制多层内缩阴影。
+fn draw_paster_shadow(pixmap: &mut Pixmap, width: f32, height: f32) {
+    let shadow_steps = [
+        (1.0, 90u8),
+        (2.0, 65u8),
+        (3.0, 45u8),
+        (4.0, 30u8),
+        (5.0, 18u8),
+        (6.0, 8u8),
+    ];
+    for (inset, alpha) in shadow_steps {
+        let mut builder = PathBuilder::new();
+        builder.move_to(inset, inset);
+        builder.line_to(width - inset, inset);
+        builder.line_to(width - inset, height - inset);
+        builder.line_to(inset, height - inset);
+        builder.close();
+        if let Some(path) = builder.finish() {
+            let paint = make_paint(Color::from_rgba8(0, 0, 0, alpha));
+            let stroke = Stroke {
+                width: 1.0,
+                ..Default::default()
+            };
+            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
         }
     }
+}
 
-    // 2. 贴图精致双层微边框
+/// 绘制外亮内暗双层微边框。
+fn draw_paster_borders(pixmap: &mut Pixmap, width: f32, height: f32) {
     let mut pb_border = PathBuilder::new();
     pb_border.move_to(0.5, 0.5);
-    pb_border.line_to(w - 0.5, 0.5);
-    pb_border.line_to(w - 0.5, h - 0.5);
-    pb_border.line_to(0.5, h - 0.5);
+    pb_border.line_to(width - 0.5, 0.5);
+    pb_border.line_to(width - 0.5, height - 0.5);
+    pb_border.line_to(0.5, height - 0.5);
     pb_border.close();
 
     if let Some(path) = pb_border.finish() {
@@ -259,9 +265,9 @@ fn render_paster_border_and_shadow(pixmap: &mut Pixmap, w: f32, h: f32, has_shad
 
         let mut pb_inner = PathBuilder::new();
         pb_inner.move_to(1.5, 1.5);
-        pb_inner.line_to(w - 1.5, 1.5);
-        pb_inner.line_to(w - 1.5, h - 1.5);
-        pb_inner.line_to(1.5, h - 1.5);
+        pb_inner.line_to(width - 1.5, 1.5);
+        pb_inner.line_to(width - 1.5, height - 1.5);
+        pb_inner.line_to(1.5, height - 1.5);
         pb_inner.close();
         if let Some(in_path) = pb_inner.finish() {
             let ip = make_paint(Color::from_rgba8(0, 0, 0, 80));

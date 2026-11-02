@@ -8,7 +8,7 @@ use super::super::window::text_session::{refresh_ime_cursor_area, sync_ime_state
 use super::window_builder::PasterInstance;
 use super::WorkspaceRuntime;
 use std::time::Instant;
-use winit::event::{Ime, WindowEvent};
+use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::window::WindowId;
 
 /// 处理一个贴图窗口事件，并在需要时关闭窗口。
@@ -43,79 +43,112 @@ pub(crate) fn handle_paster_window_event(
 /// 分发单个贴图窗口事件；返回是否应关闭该窗口。
 fn handle_paster_event(inst: &mut PasterInstance, event: WindowEvent) -> bool {
     match event {
-        WindowEvent::CloseRequested => return true,
+        WindowEvent::CloseRequested => true,
         WindowEvent::KeyboardInput {
             event: key_event, ..
-        } => {
-            let text_active = inst.state.has_active_text_session();
-            if handle_paster_key(
-                &mut inst.state,
-                &key_event.logical_key,
-                key_event.state,
-                &inst.window,
-            ) {
-                inst.window.request_redraw();
-            }
-            sync_ime_state(&inst.state, &inst.window, text_active);
-        }
+        } => handle_keyboard_event(inst, key_event),
         WindowEvent::CursorMoved { position, .. } => {
-            let size = inst.window.inner_size();
-            if handle_paster_cursor_move(
-                &mut inst.state,
-                (position.x, position.y),
-                (size.width as f32, size.height as f32),
-            ) {
-                inst.window.request_redraw();
-            }
+            handle_cursor_event(inst, (position.x, position.y))
         }
-        WindowEvent::MouseWheel { delta, .. } => {
-            if handle_paster_scroll(&mut inst.state, delta, &inst.window) {
-                // 缩放会改变文字会话的屏幕位置，同步刷新 IME 候选框锚点
-                refresh_ime_cursor_area(&inst.state, &inst.window);
-                inst.window.request_redraw();
-            }
-        }
+        WindowEvent::MouseWheel { delta, .. } => handle_wheel_event(inst, delta),
         WindowEvent::MouseInput { state, button, .. } => {
-            let text_active = inst.state.has_active_text_session();
-            if handle_paster_mouse_button(&mut inst.state, button, state, &inst.window) {
-                inst.window.request_redraw();
-            }
-            sync_ime_state(&inst.state, &inst.window, text_active);
+            handle_mouse_input_event(inst, button, state)
         }
-        WindowEvent::Ime(ime_event) => {
-            let need_redraw = match ime_event {
-                Ime::Commit(text) => inst.state.apply_ime_commit(&text),
-                Ime::Preedit(text, _cursor) => inst.state.apply_ime_preedit(&text),
-                _ => false,
-            };
-            if need_redraw {
-                refresh_ime_cursor_area(&inst.state, &inst.window);
-                inst.window.request_redraw();
-            }
-        }
+        WindowEvent::Ime(ime_event) => handle_ime_event(inst, ime_event),
         WindowEvent::ModifiersChanged(modifiers) => {
             inst.state.modifiers = modifiers.state();
+            false
         }
         WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-            let s = scale_factor as f32;
-            inst.state.viewport.ui_scale = s;
-            inst.state.interaction.context_menu.set_ui_scale(s);
-            inst.window.request_redraw();
+            handle_scale_factor_event(inst, scale_factor)
         }
-        WindowEvent::RedrawRequested => {
-            // 过期提示先清除再渲染，确保最后一帧不会闪出已失效的文字
-            inst.state.clear_expired_status(Instant::now());
-            let size = inst.window.inner_size();
-            if let Err(e) = render_paster_to_surface(
-                &mut inst.state,
-                &mut inst.surface,
-                size.width,
-                size.height,
-            ) {
-                tracing::error!("贴图渲染帧缓冲失败: {e}");
-            }
-        }
-        _ => {}
+        WindowEvent::RedrawRequested => handle_redraw_event(inst),
+        _ => false,
+    }
+}
+
+/// 处理键盘输入并同步 IME 状态。
+fn handle_keyboard_event(inst: &mut PasterInstance, event: KeyEvent) -> bool {
+    let text_active = inst.state.has_active_text_session();
+    if handle_paster_key(
+        &mut inst.state,
+        &event.logical_key,
+        event.state,
+        &inst.window,
+    ) {
+        inst.window.request_redraw();
+    }
+    sync_ime_state(&inst.state, &inst.window, text_active);
+    inst.state.should_close
+}
+
+/// 处理光标移动并按需重绘。
+fn handle_cursor_event(inst: &mut PasterInstance, position: (f64, f64)) -> bool {
+    let size = inst.window.inner_size();
+    if handle_paster_cursor_move(
+        &mut inst.state,
+        position,
+        (size.width as f32, size.height as f32),
+    ) {
+        inst.window.request_redraw();
+    }
+    inst.state.should_close
+}
+
+/// 处理滚轮缩放并刷新 IME 候选框锚点。
+fn handle_wheel_event(inst: &mut PasterInstance, delta: MouseScrollDelta) -> bool {
+    if handle_paster_scroll(&mut inst.state, delta, &inst.window) {
+        refresh_ime_cursor_area(&inst.state, &inst.window);
+        inst.window.request_redraw();
+    }
+    inst.state.should_close
+}
+
+/// 处理鼠标按键并同步 IME 状态。
+fn handle_mouse_input_event(
+    inst: &mut PasterInstance,
+    button: MouseButton,
+    state: ElementState,
+) -> bool {
+    let text_active = inst.state.has_active_text_session();
+    if handle_paster_mouse_button(&mut inst.state, button, state, &inst.window) {
+        inst.window.request_redraw();
+    }
+    sync_ime_state(&inst.state, &inst.window, text_active);
+    inst.state.should_close
+}
+
+/// 处理 IME 提交与预编辑文本。
+fn handle_ime_event(inst: &mut PasterInstance, event: Ime) -> bool {
+    let need_redraw = match event {
+        Ime::Commit(text) => inst.state.apply_ime_commit(&text),
+        Ime::Preedit(text, _cursor) => inst.state.apply_ime_preedit(&text),
+        _ => false,
+    };
+    if need_redraw {
+        refresh_ime_cursor_area(&inst.state, &inst.window);
+        inst.window.request_redraw();
+    }
+    inst.state.should_close
+}
+
+/// 处理显示器缩放变化。
+fn handle_scale_factor_event(inst: &mut PasterInstance, scale_factor: f64) -> bool {
+    let scale = scale_factor as f32;
+    inst.state.viewport.ui_scale = scale;
+    inst.state.interaction.context_menu.set_ui_scale(scale);
+    inst.window.request_redraw();
+    inst.state.should_close
+}
+
+/// 清理过期提示并渲染贴图帧。
+fn handle_redraw_event(inst: &mut PasterInstance) -> bool {
+    inst.state.clear_expired_status(Instant::now());
+    let size = inst.window.inner_size();
+    if let Err(error) =
+        render_paster_to_surface(&mut inst.state, &mut inst.surface, size.width, size.height)
+    {
+        tracing::error!("贴图渲染帧缓冲失败: {error}");
     }
     inst.state.should_close
 }

@@ -62,35 +62,46 @@ pub fn render_simple_text_card(lines: &[&str]) -> Option<Pixmap> {
     let padding_y = 20.0f32;
     let line_height = 28.0f32;
     let font_size = 17.0f32;
+    let (card_w, card_h) = text_card_size(lines, padding_x, padding_y, line_height);
+    let mut pixmap = Pixmap::new(card_w as u32, card_h as u32)?;
+    draw_text_card_background(&mut pixmap, card_w, card_h)?;
+    draw_text_lines(
+        &mut pixmap,
+        lines,
+        padding_x,
+        padding_y,
+        line_height,
+        font_size,
+    );
+    Some(pixmap)
+}
 
-    // 根据中英文字符实际排版特征精准估算宽度包围盒
+/// 按中英文字符宽度估算便签卡片尺寸。
+fn text_card_size(lines: &[&str], padding_x: f32, padding_y: f32, line_height: f32) -> (f32, f32) {
     let max_line_w = lines
         .iter()
-        .map(|l| {
-            l.chars()
-                .map(|c| if c.is_ascii() { 10.0 } else { 18.0 })
+        .map(|line| {
+            line.chars()
+                .map(|ch| if ch.is_ascii() { 10.0 } else { 18.0 })
                 .sum::<f32>()
         })
         .fold(0.0f32, f32::max);
     let card_w = (max_line_w + padding_x * 2.0).clamp(200.0, 1200.0);
     let card_h = (lines.len() as f32 * line_height + padding_y * 2.0 + 8.0).max(68.0);
+    (card_w, card_h)
+}
 
-    let mut pixmap = Pixmap::new(card_w as u32, card_h as u32)?;
-
-    // 1. 绘制浅色便签卡片主体，与设置中心、右键菜单的浅色系保持一致
+/// 绘制便签卡片主体、顶部指示条和描边。
+fn draw_text_card_background(pixmap: &mut Pixmap, card_w: f32, card_h: f32) -> Option<()> {
     let mut bg_paint = Paint::default();
     bg_paint.set_color_rgba8(255, 255, 255, 252);
     let card_rect = Rect::from_xywh(0.0, 0.0, card_w, card_h)?;
     pixmap.fill_rect(card_rect, &bg_paint, Transform::identity(), None);
-
-    // 2. 绘制顶部便签精致天蓝指示细线条
     let mut bar_paint = Paint::default();
     bar_paint.set_color_rgba8(59, 130, 246, 255);
     if let Some(bar_rect) = Rect::from_xywh(0.0, 0.0, card_w, 3.5) {
         pixmap.fill_rect(bar_rect, &bar_paint, Transform::identity(), None);
     }
-
-    // 3. 绘制卡片描边（浅底上用深色细边，避免白卡与白色背景糊在一起）
     let mut border_paint = Paint::default();
     border_paint.set_color_rgba8(15, 23, 42, 28);
     let stroke = Stroke {
@@ -102,8 +113,18 @@ pub fn render_simple_text_card(lines: &[&str]) -> Option<Pixmap> {
     if let Some(path) = pb.finish() {
         pixmap.stroke_path(&path, &border_paint, &stroke, Transform::identity(), None);
     }
+    Some(())
+}
 
-    // 4. 逐行真实排版渲染文本内容 (统一复用线程局部排版渲染器)
+/// 逐行渲染便签文本。
+fn draw_text_lines(
+    pixmap: &mut Pixmap,
+    lines: &[&str],
+    padding_x: f32,
+    padding_y: f32,
+    line_height: f32,
+    font_size: f32,
+) {
     let text_color = tiny_skia::Color::from_rgba8(15, 23, 42, 255);
     with_thread_local_text_renderer(|text_renderer| {
         let mut cur_y = padding_y + 4.0;
@@ -121,8 +142,6 @@ pub fn render_simple_text_card(lines: &[&str]) -> Option<Pixmap> {
             cur_y += line_height;
         }
     });
-
-    Some(pixmap)
 }
 
 #[cfg(test)]

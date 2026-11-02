@@ -186,24 +186,9 @@ pub fn handle_paster_mouse_button(
 /// 左键按下：优先处理菜单与工具栏，其次在激活标注工具时开始一笔，最后才拖动窗口。
 fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
     if state.interaction.context_menu.is_open {
-        let main_items =
-            ContextMenuState::build_main_items(state.chrome.show_toolbar, state.chrome.has_shadow);
-        let action = state.interaction.context_menu.handle_click(
-            state.viewport.cursor_pos.0,
-            state.viewport.cursor_pos.1,
-            &main_items,
-            state.chrome.smooth_scaling,
-        );
-        if let Some(act) = action {
-            dispatch_menu_action(state, act, window);
-        }
-        if !state.interaction.context_menu.is_open {
-            apply_window_scale_resize(state, window);
-        }
-        return true;
+        return handle_context_menu_press(state, window);
     }
 
-    // 工具条命中优先于标注起点，避免点击按钮时误落笔
     let win_size = window.inner_size();
     if handle_toolbar_click(
         state,
@@ -212,48 +197,75 @@ fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
     ) {
         return true;
     }
-
-    // 点击图像或窗口空白区域后，结束二级栏数值控件的滚轮焦点。
     state.interaction.toolbar.clear_sub_focus();
+    if handle_image_press(state) {
+        return true;
+    }
+    handle_window_press(state, window)
+}
 
-    // 文字工具在图像内按下时开启 IME 输入会话，而不是走拖拽笔迹路径
-    if state.interaction.toolbar.active_tool == Some(Tool::Text)
-        && state.screen_point_inside_image(state.viewport.cursor_pos)
-    {
+/// 处理右键菜单点击及其关闭后的窗口尺寸重算。
+fn handle_context_menu_press(state: &mut PasterWindowState, window: &Window) -> bool {
+    let main_items =
+        ContextMenuState::build_main_items(state.chrome.show_toolbar, state.chrome.has_shadow);
+    let action = state.interaction.context_menu.handle_click(
+        state.viewport.cursor_pos.0,
+        state.viewport.cursor_pos.1,
+        &main_items,
+        state.chrome.smooth_scaling,
+    );
+    if let Some(action) = action {
+        dispatch_menu_action(state, action, window);
+    }
+    if !state.interaction.context_menu.is_open {
+        apply_window_scale_resize(state, window);
+    }
+    true
+}
+
+/// 文字工具开始 IME 会话，绘制工具开始一笔；图像外点击不消费。
+fn handle_image_press(state: &mut PasterWindowState) -> bool {
+    if !state.screen_point_inside_image(state.viewport.cursor_pos) {
+        return false;
+    }
+    if state.interaction.toolbar.active_tool == Some(Tool::Text) {
         return state.begin_text_session(state.viewport.cursor_pos);
     }
-
-    // 有激活工具且按下点在贴图图像内：开始一笔，不触发窗口拖动与双击动作
-    if state.interaction.toolbar.active_tool.is_some()
-        && state.screen_point_inside_image(state.viewport.cursor_pos)
-    {
+    if state.interaction.toolbar.active_tool.is_some() {
         state.begin_stroke(state.viewport.cursor_pos);
         return true;
     }
+    false
+}
 
+/// 处理双击动作，否则记录点击并开始拖动窗口。
+fn handle_window_press(state: &mut PasterWindowState, window: &Window) -> bool {
     let now = Instant::now();
     if let Some(prev) = state.interaction.last_click_time {
         if now.duration_since(prev).as_millis() < 300 {
             state.interaction.last_click_time = None;
-            match state.services.config.paster.double_click_action {
-                DoubleClickAction::CopyAndClose => {
-                    if copy_paster_to_clipboard(state) {
-                        state.should_close = true;
-                    }
-                }
-                DoubleClickAction::Copy => {
-                    copy_paster_to_clipboard(state);
-                }
-                DoubleClickAction::Close => {
-                    state.should_close = true;
-                }
-            }
+            apply_double_click_action(state);
             return true;
         }
     }
     state.interaction.last_click_time = Some(now);
     let _ = window.drag_window();
     false
+}
+
+/// 按配置执行双击行为。
+fn apply_double_click_action(state: &mut PasterWindowState) {
+    match state.services.config.paster.double_click_action {
+        DoubleClickAction::CopyAndClose => {
+            if copy_paster_to_clipboard(state) {
+                state.should_close = true;
+            }
+        }
+        DoubleClickAction::Copy => {
+            copy_paster_to_clipboard(state);
+        }
+        DoubleClickAction::Close => state.should_close = true,
+    }
 }
 
 /// 左键松开：把当前笔迹提交进图像与标注历史，并清空预览状态。
