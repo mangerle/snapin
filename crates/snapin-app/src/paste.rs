@@ -116,10 +116,10 @@ fn load_pixmap_from_file(path: &Path) -> Result<Pixmap> {
 
     let bytes = snapin_foundation::read_file_limited(path, MAX_PASTER_IMAGE_FILE_BYTES)
         .context("读取外部贴图图像文件失败")?;
-    let mut reader = image::io::Reader::new(Cursor::new(bytes))
+    let mut reader = image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .context("无法识别外部贴图图像格式")?;
-    let mut limits = image::io::Limits::default();
+    let mut limits = image::Limits::default();
     limits.max_image_width = Some(MAX_PASTER_IMAGE_SIDE);
     limits.max_image_height = Some(MAX_PASTER_IMAGE_SIDE);
     limits.max_alloc = Some(snapin_storage::MAX_RAW_PIXELS.saturating_mul(4));

@@ -5,7 +5,7 @@
 
 use crate::error::StorageError;
 use crate::raw_image::MAX_RAW_PIXELS;
-use image::{ImageOutputFormat, RgbaImage};
+use image::{ImageFormat, RgbaImage};
 use serde::{Deserialize, Serialize};
 use snapin_foundation::AppPaths;
 use std::fs::OpenOptions;
@@ -129,13 +129,13 @@ fn load_clipboard_image_from(
             path: path.display().to_string(),
             source,
         })?;
-    let mut reader = image::io::Reader::new(Cursor::new(bytes))
+    let mut reader = image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .map_err(|error| StorageError::Io {
             path: path.display().to_string(),
             source: std::io::Error::other(format!("识别剪贴板图像格式失败: {error}")),
         })?;
-    let mut limits = image::io::Limits::default();
+    let mut limits = image::Limits::default();
     limits.max_image_width = Some(MAX_CLIPBOARD_IMAGE_SIDE);
     limits.max_image_height = Some(MAX_CLIPBOARD_IMAGE_SIDE);
     limits.max_alloc = Some(MAX_RAW_PIXELS.saturating_mul(4));
@@ -275,7 +275,7 @@ fn save_clipboard_image(dir: &Path, image: &RgbaImage) -> Result<(u64, String), 
     };
     let mut writer = BufWriter::new(file);
     let encoded = image
-        .write_to(&mut writer, ImageOutputFormat::Png)
+        .write_to(&mut writer, ImageFormat::Png)
         .map_err(|error| StorageError::Io {
             path: temp.display().to_string(),
             source: std::io::Error::other(format!("编码剪贴板图像失败: {error}")),

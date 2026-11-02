@@ -52,7 +52,7 @@ softbuffer = "0.4"
 tiny-skia = "0.12"
 
 # 图像操作与零拷贝像素裁剪
-image = { version = "0.24", default-features = false, features = ["png", "jpeg", "webp"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 chrono = "0.4"
 xcap = "0.9"
 
