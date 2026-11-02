@@ -67,13 +67,11 @@ pub(super) fn handle_left_press(
     if state.ocr.panel.is_some() {
         let scale = state.editor.annotation.toolbar.ui_scale;
         let handled = state.ocr.panel.as_mut().is_some_and(|panel| {
-            panel.handle_click(
-                cx,
-                cy,
-                original_rgba.width() as f32,
-                original_rgba.height() as f32,
+            panel.handle_click(crate::snipper::window::ocr_panel::OcrPanelClickRequest {
+                point: (cx, cy),
+                screen_size: (original_rgba.width() as f32, original_rgba.height() as f32),
                 scale,
-            )
+            })
         });
         if handled {
             commit_active_text_input(state);

@@ -186,15 +186,9 @@ impl OcrPanelState {
     }
 
     /// 处理面板内鼠标点击；命中面板时返回 `true` 以拦截画布交互。
-    pub(crate) fn handle_click(
-        &mut self,
-        x: f32,
-        y: f32,
-        screen_width: f32,
-        screen_height: f32,
-        scale: f32,
-    ) -> bool {
-        let layout = self.layout(screen_width, screen_height, scale);
+    pub(crate) fn handle_click(&mut self, request: OcrPanelClickRequest) -> bool {
+        let layout = self.layout(request.screen_size.0, request.screen_size.1, request.scale);
+        let (x, y) = request.point;
         if !layout.panel.contains(x, y) {
             return false;
         }
@@ -204,6 +198,13 @@ impl OcrPanelState {
         }
         true
     }
+}
+
+/// OCR 面板点击命中参数。
+pub(crate) struct OcrPanelClickRequest {
+    pub point: (f32, f32),
+    pub screen_size: (f32, f32),
+    pub scale: f32,
 }
 
 #[cfg(test)]
