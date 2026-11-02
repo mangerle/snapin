@@ -95,6 +95,16 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError>
 /// 确保指定的自定义按键路径已写入 GNOME custom-keybindings 列表
 #[cfg(target_os = "linux")]
 fn ensure_custom_keybindings_registered(paths: &[String]) -> Result<(), PlatformError> {
+    let current = read_registered_keybindings()?;
+    let (bindings, changed) = merge_keybindings(current, paths);
+    if changed {
+        write_keybindings(&bindings)?;
+    }
+    Ok(())
+}
+
+/// 读取 GNOME 当前已注册的自定义快捷键路径。
+fn read_registered_keybindings() -> Result<Vec<String>, PlatformError> {
     let output = Command::new("gsettings")
         .args([
             "get",
@@ -102,9 +112,9 @@ fn ensure_custom_keybindings_registered(paths: &[String]) -> Result<(), Platform
             "custom-keybindings",
         ])
         .output()
-        .map_err(|e| PlatformError::Io {
+        .map_err(|error| PlatformError::Io {
             path: "gsettings".to_string(),
-            source: e,
+            source: error,
         })?;
     if !output.status.success() {
         return Err(PlatformError::Hotkey {
@@ -114,16 +124,18 @@ fn ensure_custom_keybindings_registered(paths: &[String]) -> Result<(), Platform
             ),
         });
     }
-
     let current_list = String::from_utf8_lossy(&output.stdout);
-    let mut bindings: Vec<String> = current_list
+    Ok(current_list
         .split('\'')
-        .filter(|s| {
-            s.starts_with("/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/")
+        .filter(|path| {
+            path.starts_with("/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/")
         })
-        .map(|s| s.to_string())
-        .collect();
+        .map(str::to_string)
+        .collect())
+}
 
+/// 合并缺失路径并返回是否需要写回。
+fn merge_keybindings(mut bindings: Vec<String>, paths: &[String]) -> (Vec<String>, bool) {
     let mut changed = false;
     for path in paths {
         if !bindings.iter().any(|binding| binding == path) {
@@ -131,24 +143,24 @@ fn ensure_custom_keybindings_registered(paths: &[String]) -> Result<(), Platform
             changed = true;
         }
     }
+    (bindings, changed)
+}
 
-    if changed {
-        let formatted_list = format!(
-            "[{}]",
-            bindings
-                .iter()
-                .map(|s| format!("'{s}'"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-
-        execute_gsettings_batch(&[(
-            "org.gnome.settings-daemon.plugins.media-keys",
-            "custom-keybindings",
-            &formatted_list,
-        )])?;
-    }
-
+/// 将完整快捷键路径列表写回 GNOME。
+fn write_keybindings(bindings: &[String]) -> Result<(), PlatformError> {
+    let formatted_list = format!(
+        "[{}]",
+        bindings
+            .iter()
+            .map(|path| format!("'{path}'"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    execute_gsettings_batch(&[(
+        "org.gnome.settings-daemon.plugins.media-keys",
+        "custom-keybindings",
+        &formatted_list,
+    )])?;
     Ok(())
 }
 

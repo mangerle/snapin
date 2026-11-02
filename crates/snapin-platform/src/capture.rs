@@ -77,7 +77,6 @@ async fn capture_linux(include_cursor: bool) -> Result<RgbaImage, PlatformError>
 async fn capture_via_extension(include_cursor: bool) -> Result<RgbaImage, PlatformError> {
     let target_path = AppPaths::generate_temp_path("screen", "png");
     let target_str = target_path.to_string_lossy().to_string();
-
     let success = crate::extension_client::capture_fullscreen_extension_with_cursor(
         &target_str,
         include_cursor,
@@ -88,15 +87,23 @@ async fn capture_via_extension(include_cursor: bool) -> Result<RgbaImage, Platfo
             message: format!("GNOME 扩展返回截屏失败，目标路径: {target_str}"),
         });
     }
+    let file_bytes = read_extension_screenshot(&target_path, &target_str).await?;
+    decode_extension_screenshot(file_bytes).await
+}
 
-    let metadata = tokio::fs::metadata(&target_path)
+/// 读取扩展输出文件，限制大小并立即回收临时文件。
+async fn read_extension_screenshot(
+    target_path: &std::path::Path,
+    target_str: &str,
+) -> Result<Vec<u8>, PlatformError> {
+    let metadata = tokio::fs::metadata(target_path)
         .await
         .map_err(|source| PlatformError::Io {
-            path: target_str.clone(),
+            path: target_str.to_string(),
             source,
         })?;
     if metadata.len() > MAX_SCREENSHOT_FILE_BYTES {
-        let _ = tokio::fs::remove_file(&target_path).await;
+        let _ = tokio::fs::remove_file(target_path).await;
         return Err(PlatformError::Capture {
             message: format!(
                 "GNOME 扩展导出的截图文件过大，大小: {} 字节，上限: {MAX_SCREENSHOT_FILE_BYTES} 字节",
@@ -104,24 +111,25 @@ async fn capture_via_extension(include_cursor: bool) -> Result<RgbaImage, Platfo
             ),
         });
     }
-
-    let file_bytes = tokio::fs::read(&target_path)
+    let bytes = tokio::fs::read(target_path)
         .await
         .map_err(|source| PlatformError::Io {
-            path: target_str.clone(),
+            path: target_str.to_string(),
             source,
         })?;
+    let _ = tokio::fs::remove_file(target_path).await;
+    Ok(bytes)
+}
 
-    // 读取完成后立即清理临时文件
-    let _ = tokio::fs::remove_file(&target_path).await;
-
+/// 在阻塞池解码扩展导出的 PNG，避免阻塞异步 worker。
+async fn decode_extension_screenshot(file_bytes: Vec<u8>) -> Result<RgbaImage, PlatformError> {
     tokio::time::timeout(
         CAPTURE_TIMEOUT,
         tokio::task::spawn_blocking(move || {
             image::load_from_memory(&file_bytes)
                 .map(|dynamic_img| dynamic_img.to_rgba8())
-                .map_err(|e| PlatformError::ImageDecode {
-                    message: format!("从扩展导出的 PNG 图像解码失败: {e}"),
+                .map_err(|error| PlatformError::ImageDecode {
+                    message: format!("从扩展导出的 PNG 图像解码失败: {error}"),
                 })
         }),
     )
@@ -139,89 +147,116 @@ async fn capture_via_extension(include_cursor: bool) -> Result<RgbaImage, Platfo
 async fn capture_xcap() -> Result<RgbaImage, PlatformError> {
     tokio::time::timeout(
         CAPTURE_TIMEOUT,
-        tokio::task::spawn_blocking(|| {
-            let monitors = xcap::Monitor::all().map_err(|e| PlatformError::Capture {
-                message: format!("获取物理显示器列表失败: {e}"),
-            })?;
-
-            if monitors.is_empty() {
-                return Err(PlatformError::Capture {
-                    message: "未检测到任何可用的物理显示器".to_string(),
-                });
-            }
-
-            // 单显示器场景：直接极速捕获并转换
-            if monitors.len() == 1 {
-                let captured = monitors[0].capture_image().map_err(|e| {
-                    #[cfg(target_os = "macos")]
-                let hint =
-                    "（请检查是否已在“系统设置 -> 隐私与安全性 -> 屏幕录制”中授予 Snapin 权限）";
-                    #[cfg(not(target_os = "macos"))]
-                    let hint = "";
-                    PlatformError::Capture {
-                        message: format!("显示器捕获失败: {e}{hint}"),
-                    }
-                })?;
-                let width = captured.width();
-                let height = captured.height();
-                let raw_pixels = captured.into_raw();
-                return RgbaImage::from_raw(width, height, raw_pixels).ok_or_else(|| {
-                    PlatformError::Capture {
-                        message: "显示器捕获像素缓冲区转换为图像失败".to_string(),
-                    }
-                });
-            }
-
-            // 多显示器场景：计算包围整个虚拟桌面的联合边界
-            let mut min_x = i32::MAX;
-            let mut min_y = i32::MAX;
-            let mut max_x = i32::MIN;
-            let mut max_y = i32::MIN;
-
-            let mut monitor_frames = Vec::with_capacity(monitors.len());
-            for m in &monitors {
-                let x = m.x().unwrap_or(0);
-                let y = m.y().unwrap_or(0);
-                let w = m.width().unwrap_or(0);
-                let h = m.height().unwrap_or(0);
-                min_x = min_x.min(x);
-                min_y = min_y.min(y);
-                max_x = max_x.max(x + w as i32);
-                max_y = max_y.max(y + h as i32);
-
-                let frame = m.capture_image().map_err(|e| PlatformError::Capture {
-                    message: format!(
-                        "多屏环境中捕获显示器 {} 失败: {e}",
-                        m.name().unwrap_or_else(|_| "未知".to_string())
-                    ),
-                })?;
-                let fw = frame.width();
-                let fh = frame.height();
-                let raw = frame.into_raw();
-                if let Some(rgba_frame) = RgbaImage::from_raw(fw, fh, raw) {
-                    monitor_frames.push((x, y, rgba_frame));
-                }
-            }
-
-            let total_w = (max_x - min_x).max(1) as u32;
-            let total_h = (max_y - min_y).max(1) as u32;
-            let mut combined = RgbaImage::new(total_w, total_h);
-
-            // 将每个显示器捕获的帧写入合成虚拟桌面
-            for (x, y, frame) in monitor_frames {
-                let offset_x = (x - min_x) as u32;
-                let offset_y = (y - min_y) as u32;
-                image::imageops::overlay(&mut combined, &frame, offset_x.into(), offset_y.into());
-            }
-
-            Ok(combined)
-        }),
+        tokio::task::spawn_blocking(capture_xcap_blocking),
     )
     .await
     .map_err(|_| PlatformError::Capture {
         message: format!("屏幕捕获任务超时（{} 秒）", CAPTURE_TIMEOUT.as_secs()),
     })?
-    .map_err(|e| PlatformError::Capture {
-        message: format!("异步调度抓屏任务失败: {e}"),
+    .map_err(|error| PlatformError::Capture {
+        message: format!("异步调度抓屏任务失败: {error}"),
     })?
+}
+
+/// 在阻塞线程中枚举显示器并选择单屏直读或多屏合成。
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn capture_xcap_blocking() -> Result<RgbaImage, PlatformError> {
+    let monitors = xcap::Monitor::all().map_err(|error| PlatformError::Capture {
+        message: format!("获取物理显示器列表失败: {error}"),
+    })?;
+    if monitors.is_empty() {
+        return Err(PlatformError::Capture {
+            message: "未检测到任何可用的物理显示器".to_string(),
+        });
+    }
+    if monitors.len() == 1 {
+        return capture_single_monitor(&monitors[0]);
+    }
+    capture_monitor_desktop(&monitors)
+}
+
+/// 捕获单显示器并转换像素布局。
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn capture_single_monitor(monitor: &xcap::Monitor) -> Result<RgbaImage, PlatformError> {
+    let captured = monitor.capture_image().map_err(|error| {
+        #[cfg(target_os = "macos")]
+        let hint = "（请检查是否已在“系统设置 -> 隐私与安全性 -> 屏幕录制”中授予 Snapin 权限）";
+        #[cfg(not(target_os = "macos"))]
+        let hint = "";
+        PlatformError::Capture {
+            message: format!("显示器捕获失败: {error}{hint}"),
+        }
+    })?;
+    let (width, height) = (captured.width(), captured.height());
+    RgbaImage::from_raw(width, height, captured.into_raw()).ok_or_else(|| PlatformError::Capture {
+        message: "显示器捕获像素缓冲区转换为图像失败".to_string(),
+    })
+}
+
+/// 捕获全部显示器并合成到虚拟桌面坐标系。
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn capture_monitor_desktop(monitors: &[xcap::Monitor]) -> Result<RgbaImage, PlatformError> {
+    let mut bounds = DesktopBounds::default();
+    let mut frames = Vec::with_capacity(monitors.len());
+    for monitor in monitors {
+        let origin = (
+            monitor.x().unwrap_or(0),
+            monitor.y().unwrap_or(0),
+            monitor.width().unwrap_or(0),
+            monitor.height().unwrap_or(0),
+        );
+        bounds.include(origin);
+        let frame = monitor
+            .capture_image()
+            .map_err(|error| PlatformError::Capture {
+                message: format!(
+                    "多屏环境中捕获显示器 {} 失败: {error}",
+                    monitor.name().unwrap_or_else(|_| "未知".to_string())
+                ),
+            })?;
+        if let Some(frame) = RgbaImage::from_raw(frame.width(), frame.height(), frame.into_raw()) {
+            frames.push((origin.0, origin.1, frame));
+        }
+    }
+    Ok(bounds.compose(frames))
+}
+
+/// 多显示器虚拟桌面联合边界。
+#[derive(Default)]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+struct DesktopBounds {
+    min_x: i32,
+    min_y: i32,
+    max_x: i32,
+    max_y: i32,
+    initialized: bool,
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+impl DesktopBounds {
+    fn include(&mut self, (x, y, width, height): (i32, i32, u32, u32)) {
+        if !self.initialized {
+            (self.min_x, self.min_y, self.max_x, self.max_y) = (x, y, x, y);
+            self.initialized = true;
+        }
+        self.min_x = self.min_x.min(x);
+        self.min_y = self.min_y.min(y);
+        self.max_x = self.max_x.max(x.saturating_add(width as i32));
+        self.max_y = self.max_y.max(y.saturating_add(height as i32));
+    }
+
+    fn compose(&self, frames: Vec<(i32, i32, RgbaImage)>) -> RgbaImage {
+        let width = self.max_x.saturating_sub(self.min_x).max(1) as u32;
+        let height = self.max_y.saturating_sub(self.min_y).max(1) as u32;
+        let mut combined = RgbaImage::new(width, height);
+        for (x, y, frame) in frames {
+            image::imageops::overlay(
+                &mut combined,
+                &frame,
+                (x - self.min_x).into(),
+                (y - self.min_y).into(),
+            );
+        }
+        combined
+    }
 }

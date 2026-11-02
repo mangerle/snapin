@@ -104,100 +104,119 @@ fn permission_arguments(app_id: &str) -> (&'static str, bool, &'static str, &str
 /// 并在调用前自动确保自愈权限，避免无焦点时抛出 `AccessDenied`。
 pub async fn capture_fullscreen_portal() -> Result<RgbaImage, PlatformError> {
     tracing::debug!("正在向 XDG Desktop Portal 请求全屏快照...");
-
-    // 预先确保后台静默截屏权限，防止被 GNOME 50 拦截；
-    // 内部接口不可用时记录告警并继续走 Portal 常规交互授权路径。
     if let Err(error) = ensure_portal_screenshot_permission().await {
         tracing::warn!("预登记 Portal 截屏权限失败，回退到常规授权路径: {error}");
     }
+    let file_path = request_portal_screenshot_file().await?;
+    decode_portal_screenshot(file_path).await
+}
 
-    let t_req_start = std::time::Instant::now();
+/// 请求 Portal 生成截图文件，并对短暂 `ongoing operation` 冲突执行退避重试。
+async fn request_portal_screenshot_file() -> Result<PathBuf, PlatformError> {
+    let started = std::time::Instant::now();
     let max_retries = 3;
     let mut last_err = None;
-
-    let mut response = None;
     for attempt in 1..=max_retries {
-        let portal_fut = async {
-            Screenshot::request()
-                .interactive(false)
-                .modal(false)
-                .send()
-                .await
-                .map_err(|e| PlatformError::Portal {
-                    message: e.to_string(),
-                })?
-                .response()
-                .map_err(|e| PlatformError::Portal {
-                    message: e.to_string(),
-                })
-        };
-
-        match tokio::time::timeout(Duration::from_secs(5), portal_fut).await {
-            Ok(Ok(res)) => {
-                response = Some(res);
-                break;
+        match request_portal_once().await {
+            Ok(response) => {
+                tracing::info!(
+                    "Portal D-Bus 截屏请求与合成器捕获耗时: {:.2}ms",
+                    started.elapsed().as_secs_f64() * 1000.0
+                );
+                return portal_response_path(response, "请求 XDG Desktop Portal 截屏失败");
             }
-            Ok(Err(err)) => {
-                let err_msg = err.to_string();
-                // 若探测到 Portal 正在处理上一轮截屏（常见于用户快速连按快捷键），执行短暂退避重试
-                if err_msg.contains("ongoing operation") && attempt < max_retries {
-                    tracing::warn!(
-                        "检测到 Portal 正在处理先前进发的截屏请求，等待 {}ms 后进行第 {}/{} 次重试...",
-                        attempt * 150,
-                        attempt + 1,
-                        max_retries
-                    );
-                    tokio::time::sleep(Duration::from_millis(attempt as u64 * 150)).await;
-                    last_err = Some(err);
-                    continue;
-                }
-                return Err(err);
+            Err(RetryablePortalError::Retry(error)) if attempt < max_retries => {
+                tracing::warn!(
+                    "检测到 Portal 正在处理先前的截屏请求，等待 {}ms 后进行第 {}/{} 次重试...",
+                    attempt * 150,
+                    attempt + 1,
+                    max_retries
+                );
+                tokio::time::sleep(Duration::from_millis(attempt as u64 * 150)).await;
+                last_err = Some(error);
             }
-            Err(_) => {
-                return Err(PlatformError::Portal {
-                    message: "等待 XDG Desktop Portal 响应超时".to_string(),
-                });
-            }
+            Err(RetryablePortalError::Retry(error)) => last_err = Some(error),
+            Err(RetryablePortalError::Fatal(error)) => return Err(error),
         }
     }
+    Err(last_err.unwrap_or_else(|| PlatformError::Portal {
+        message: "请求 XDG Desktop Portal 截屏失败".to_string(),
+    }))
+}
 
-    let response = match response {
-        Some(res) => res,
-        None => {
-            return Err(last_err.unwrap_or_else(|| PlatformError::Portal {
-                message: "请求 XDG Desktop Portal 截屏失败".to_string(),
-            }));
-        }
+/// Portal 单次请求结果，区分可重试冲突与立即失败。
+enum RetryablePortalError {
+    Retry(PlatformError),
+    Fatal(PlatformError),
+}
+
+/// 发起一次 Portal 截屏请求。
+async fn request_portal_once(
+) -> Result<ashpd::desktop::screenshot::Screenshot, RetryablePortalError> {
+    let portal_fut = async {
+        Screenshot::request()
+            .interactive(false)
+            .modal(false)
+            .send()
+            .await
+            .map_err(|error| PlatformError::Portal {
+                message: error.to_string(),
+            })?
+            .response()
+            .map_err(|error| PlatformError::Portal {
+                message: error.to_string(),
+            })
     };
+    match tokio::time::timeout(Duration::from_secs(5), portal_fut).await {
+        Ok(Ok(response)) => Ok(response),
+        Ok(Err(error)) => {
+            if error.to_string().contains("ongoing operation") {
+                Err(RetryablePortalError::Retry(error))
+            } else {
+                Err(RetryablePortalError::Fatal(error))
+            }
+        }
+        Err(_) => Err(RetryablePortalError::Fatal(PlatformError::Portal {
+            message: "等待 XDG Desktop Portal 响应超时".to_string(),
+        })),
+    }
+}
 
-    let t_req_end = std::time::Instant::now();
-    tracing::info!(
-        "Portal D-Bus 截屏请求与合成器捕获耗时: {:.2}ms",
-        (t_req_end - t_req_start).as_secs_f64() * 1000.0
-    );
-
+/// 将 Portal 响应 URI 转换为本地文件路径。
+fn portal_response_path(
+    response: ashpd::desktop::screenshot::Screenshot,
+    fallback: &str,
+) -> Result<PathBuf, PlatformError> {
     let uri = response.uri();
-    let file_path = uri.to_file_path().map_err(|_| PlatformError::Portal {
+    let path = uri.to_file_path().map_err(|_| PlatformError::Portal {
         message: format!("无法将 Portal 返回的 URI 转换为文件路径: {uri:?}"),
     })?;
+    tracing::debug!("Portal 截屏文件就绪，路径: {:?}", path);
+    if path.as_os_str().is_empty() {
+        return Err(PlatformError::Portal {
+            message: fallback.to_string(),
+        });
+    }
+    Ok(path)
+}
 
-    tracing::debug!("Portal 截屏文件就绪，路径: {:?}", file_path);
-
-    let t_dec_start = std::time::Instant::now();
+/// 在阻塞池读取并解码 Portal 截图，随后清理临时文件。
+async fn decode_portal_screenshot(file_path: PathBuf) -> Result<RgbaImage, PlatformError> {
+    let started = std::time::Instant::now();
     let decode_path = file_path.clone();
-    let rgba_img = tokio::task::spawn_blocking(move || {
-        let bytes = fs::read(&decode_path).map_err(|e| PlatformError::Io {
+    let image = tokio::task::spawn_blocking(move || {
+        let bytes = fs::read(&decode_path).map_err(|error| PlatformError::Io {
             path: decode_path.to_string_lossy().to_string(),
-            source: e,
+            source: error,
         })?;
-        if let Err(e) = fs::remove_file(&decode_path) {
-            tracing::warn!("清理 Portal 临时图片文件失败: {e}");
+        if let Err(error) = fs::remove_file(&decode_path) {
+            tracing::warn!("清理 Portal 临时图片文件失败: {error}");
         }
         image::load_from_memory(&bytes)
             .map(|dynamic_img| dynamic_img.into_rgba8())
-            .map_err(|e| PlatformError::ImageDecode {
+            .map_err(|error| PlatformError::ImageDecode {
                 message: format!(
-                    "Portal 返回内容无法按受支持的图像格式解码，字节数: {}，原因: {e}",
+                    "Portal 返回内容无法按受支持的图像格式解码，字节数: {}，原因: {error}",
                     bytes.len()
                 ),
             })
@@ -206,18 +225,16 @@ pub async fn capture_fullscreen_portal() -> Result<RgbaImage, PlatformError> {
     .map_err(|error| PlatformError::Portal {
         message: format!("Portal 图像解码任务异常: {error}"),
     })??;
-    let t_dec_end = std::time::Instant::now();
     tracing::info!(
         "Portal 图片内存解码加载耗时: {:.2}ms",
-        (t_dec_end - t_dec_start).as_secs_f64() * 1000.0
+        started.elapsed().as_secs_f64() * 1000.0
     );
-
     tracing::info!(
         "全屏图像加载完成，分辨率: {}x{}",
-        rgba_img.width(),
-        rgba_img.height()
+        image.width(),
+        image.height()
     );
-    Ok(rgba_img)
+    Ok(image)
 }
 
 /// 打开 XDG Desktop Portal 保存对话框，让用户选择目标文件路径。
