@@ -96,55 +96,76 @@ impl PasterWindowState {
             return false;
         }
 
-        match (pending.action, result) {
-            (
-                PasterClipboardAction::CopyImage { close_on_success },
-                Ok(ClipboardResult::Written),
-            ) => {
+        match pending.action {
+            PasterClipboardAction::CopyImage { close_on_success } => {
+                self.handle_copy_image_finished(result, close_on_success);
+            }
+            PasterClipboardAction::TransientText {
+                success_message,
+                failure_label,
+            } => {
+                self.handle_transient_text_finished(result, success_message, failure_label);
+            }
+            PasterClipboardAction::ReplaceFromClipboard => {
+                self.handle_replace_finished(result, window);
+            }
+        }
+        true
+    }
+
+    /// 处理图像复制结果。
+    fn handle_copy_image_finished(
+        &mut self,
+        result: Result<ClipboardResult, PortError>,
+        close_on_success: bool,
+    ) {
+        match result {
+            Ok(ClipboardResult::Written) => {
                 self.set_status_message(snapin_foundation::i18n::tr("已复制图像到剪贴板"));
                 self.services.desktop.notify_copy("贴图图像已复制到剪贴板");
                 if close_on_success {
                     self.should_close = true;
                 }
             }
-            (PasterClipboardAction::CopyImage { .. }, Ok(ClipboardResult::Payload(_))) => {
+            Ok(ClipboardResult::Payload(_)) => {
                 self.set_status_message("复制图像失败: 宿主返回了不匹配的剪贴板结果");
             }
-            (PasterClipboardAction::CopyImage { .. }, Err(error)) => {
-                self.set_status_message(format!("复制图像失败: {error}"));
-            }
-            (
-                PasterClipboardAction::TransientText {
-                    success_message, ..
-                },
-                Ok(ClipboardResult::Written),
-            ) => {
-                self.set_status_message(success_message);
-            }
-            (PasterClipboardAction::TransientText { .. }, Ok(ClipboardResult::Payload(_))) => {
+            Err(error) => self.set_status_message(format!("复制图像失败: {error}")),
+        }
+    }
+
+    /// 处理临时文本复制结果。
+    fn handle_transient_text_finished(
+        &mut self,
+        result: Result<ClipboardResult, PortError>,
+        success_message: String,
+        failure_label: &'static str,
+    ) {
+        match result {
+            Ok(ClipboardResult::Written) => self.set_status_message(success_message),
+            Ok(ClipboardResult::Payload(_)) => {
                 self.set_status_message("复制文本失败: 宿主返回了不匹配的剪贴板结果");
             }
-            (PasterClipboardAction::TransientText { failure_label, .. }, Err(error)) => {
-                self.set_status_message(format!("{failure_label}失败: {error}"));
-            }
-            (
-                PasterClipboardAction::ReplaceFromClipboard,
-                Ok(ClipboardResult::Payload(payload)),
-            ) => {
-                if let Some(window) = window {
-                    self.apply_clipboard_payload(payload, window);
-                } else {
-                    self.set_status_message("应用剪贴板内容失败: 目标贴图窗口已关闭");
-                }
-            }
-            (PasterClipboardAction::ReplaceFromClipboard, Ok(ClipboardResult::Written)) => {
+            Err(error) => self.set_status_message(format!("{failure_label}失败: {error}")),
+        }
+    }
+
+    /// 处理从剪贴板替换贴图内容的结果。
+    fn handle_replace_finished(
+        &mut self,
+        result: Result<ClipboardResult, PortError>,
+        window: Option<&Window>,
+    ) {
+        match result {
+            Ok(ClipboardResult::Payload(payload)) => match window {
+                Some(window) => self.apply_clipboard_payload(payload, window),
+                None => self.set_status_message("应用剪贴板内容失败: 目标贴图窗口已关闭"),
+            },
+            Ok(ClipboardResult::Written) => {
                 self.set_status_message("读取剪贴板失败: 宿主返回了不匹配的剪贴板结果");
             }
-            (PasterClipboardAction::ReplaceFromClipboard, Err(error)) => {
-                self.set_status_message(format!("读取剪贴板失败: {error}"));
-            }
+            Err(error) => self.set_status_message(format!("读取剪贴板失败: {error}")),
         }
-        true
     }
 
     /// 将当前贴图转换为可用于系统剪贴板的 RGBA 图像。
