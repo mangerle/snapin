@@ -70,10 +70,21 @@ pub fn run_daemon_process(cfg: Config) -> Result<()> {
     recover_update_on_startup();
     initialize_daemon_platform(&runtime, &cfg);
 
-    let services = initialize_services(&cfg, &handle)?;
+    let services = match initialize_services(&cfg, &handle) {
+        Ok(services) => services,
+        Err(error) => return fail_startup(runtime, error),
+    };
     let (event_loop, workspace_proxy) =
-        create_paster_workspace().context("创建集中贴图工作区事件循环失败")?;
+        match create_paster_workspace().context("创建集中贴图工作区事件循环失败") {
+            Ok(workspace) => workspace,
+            Err(error) => return fail_startup(runtime, error),
+        };
     let (snipper_callback, snipper_rx) = create_snipper_channel(&services);
+    let options = match build_workspace_options(&cfg, &services, &workspace_proxy, snipper_callback)
+    {
+        Ok(options) => options,
+        Err(error) => return fail_startup(runtime, error),
+    };
     let (gui_closed_tx, gui_closed_rx) = watch::channel(false);
     let server = spawn_daemon_server(
         &handle,
@@ -83,10 +94,15 @@ pub fn run_daemon_process(cfg: Config) -> Result<()> {
         snipper_rx,
         gui_closed_rx,
     );
-    let options = build_workspace_options(&cfg, &services, &workspace_proxy, snipper_callback)?;
     let gui_result = run_paster_workspace_loop(event_loop, options);
     let _ = gui_closed_tx.send(true);
     finish_daemon(runtime, server, gui_result)
+}
+
+/// 启动中途失败时先有界停止后台运行时，避免 Runtime Drop 等待常驻任务而挂死。
+fn fail_startup(runtime: tokio::runtime::Runtime, error: anyhow::Error) -> Result<()> {
+    runtime.shutdown_timeout(Duration::from_secs(1));
+    Err(error)
 }
 
 /// 创建守护进程后台 Tokio 运行时。
