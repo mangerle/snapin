@@ -17,7 +17,8 @@ use snapin_storage::{resolve_save_path, save_image_to_path, save_image_with_conf
 use snapin_ui::{MediaJob, MediaJobOutcome, OcrExportFormat, OcrTextItem, QrCodeItem};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// 执行一条媒体任务。
 pub(super) async fn execute_job(
@@ -174,40 +175,28 @@ async fn get_ocr_engine(
     config: &Config,
 ) -> Result<Arc<LocalPpOcrEngine>, String> {
     let model_dir = config.ocr.local.model_dir.trim().to_string();
-    {
-        let guard = cache
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some((cached_dir, cached)) = &guard.entry {
-            if cached_dir == &model_dir {
-                return cached.clone();
-            }
+    let mut guard = cache.lock().await;
+    if let Some((cached_dir, cached)) = &guard.entry {
+        if cached_dir == &model_dir {
+            return cached.clone();
         }
     }
 
-    let cache = cache.clone();
-    tokio::task::spawn_blocking(move || {
-        let mut guard = cache
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some((cached_dir, cached)) = &guard.entry {
-            if cached_dir == &model_dir {
-                return cached.clone();
-            }
-        }
-        let custom_dir = if model_dir.is_empty() {
+    let init_dir = model_dir.clone();
+    let initialized = tokio::task::spawn_blocking(move || {
+        let custom_dir = if init_dir.is_empty() {
             None
         } else {
-            Some(Path::new(&model_dir))
+            Some(Path::new(&init_dir))
         };
-        let initialized = LocalPpOcrEngine::new(custom_dir)
+        LocalPpOcrEngine::new(custom_dir)
             .map(Arc::new)
-            .map_err(|error| error.to_string());
-        guard.entry = Some((model_dir, initialized.clone()));
-        initialized
+            .map_err(|error| error.to_string())
     })
     .await
-    .map_err(|error| format!("OCR 引擎初始化任务异常: {error}"))?
+    .map_err(|error| format!("OCR 引擎初始化任务异常: {error}"))?;
+    guard.entry = Some((model_dir, initialized.clone()));
+    initialized
 }
 
 /// 执行 OCR 并返回全文。
@@ -399,7 +388,6 @@ fn build_translator(config: &Config) -> Arc<dyn Translator> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
 
     /// 相同模型目录必须命中已有缓存，不同目录必须触发重建。
     #[tokio::test]
@@ -409,14 +397,14 @@ mod tests {
         config.ocr.local.model_dir = "/tmp/nonexistent-model-a".to_string();
         let first = get_ocr_engine(&cache, &config).await;
         assert!(first.is_err(), "不存在的模型目录必须返回错误");
-        let cached = cache.lock().expect("OCR 缓存锁可用").entry.clone();
+        let cached = cache.lock().await.entry.clone();
         let (cached_dir, _) = cached.expect("错误结果也必须按目录缓存");
         assert_eq!(cached_dir, "/tmp/nonexistent-model-a");
 
         config.ocr.local.model_dir = "/tmp/nonexistent-model-b".to_string();
         let second = get_ocr_engine(&cache, &config).await;
         assert!(second.is_err());
-        let cached = cache.lock().expect("OCR 缓存锁可用").entry.clone();
+        let cached = cache.lock().await.entry.clone();
         let (cached_dir, _) = cached.expect("新目录必须写入新缓存");
         assert_eq!(cached_dir, "/tmp/nonexistent-model-b");
     }

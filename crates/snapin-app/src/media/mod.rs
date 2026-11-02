@@ -31,7 +31,8 @@ use snapin_ui::{
     JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, PortError, PortErrorKind,
 };
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// OCR 引擎缓存；键为模型目录，初始化失败也按目录缓存，避免重复扫描。
 #[derive(Default)]
