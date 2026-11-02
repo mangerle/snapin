@@ -36,12 +36,12 @@ pub fn install_gnome_extension() -> Result<()> {
         let icons_dir = target_dir.join("icons");
         std::fs::create_dir_all(&icons_dir).context("创建 GNOME 扩展目标目录失败")?;
 
-        // 写入内嵌的元数据与脚本文件
-        std::fs::write(target_dir.join("metadata.json"), EXT_METADATA)
+        // 以同目录临时文件原子替换，避免 Shell 在升级过程中读到半截脚本。
+        write_embedded_file(target_dir.join("metadata.json"), EXT_METADATA.as_bytes())
             .context("写入 GNOME 扩展 metadata.json 失败")?;
-        std::fs::write(target_dir.join("extension.js"), EXT_JAVASCRIPT)
+        write_embedded_file(target_dir.join("extension.js"), EXT_JAVASCRIPT.as_bytes())
             .context("写入 GNOME 扩展 extension.js 失败")?;
-        std::fs::write(icons_dir.join("snapin-tray.svg"), EXT_ICON_SVG)
+        write_embedded_file(icons_dir.join("snapin-tray.svg"), EXT_ICON_SVG)
             .context("写入 GNOME 扩展图标文件失败")?;
 
         tracing::info!("GNOME 扩展文件已成功部署至: {:?}", target_dir);
@@ -65,5 +65,39 @@ pub fn install_gnome_extension() -> Result<()> {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn write_embedded_file(target: std::path::PathBuf, bytes: &[u8]) -> Result<()> {
+    let parent = target.parent().context("GNOME 扩展目标文件缺少父目录")?;
+    let temp = parent.join(format!(
+        ".extension.{}.{}.tmp",
+        std::process::id(),
+        snapin_foundation::AppPaths::generate_unique_id()
+    ));
+    snapin_foundation::AppPaths::write_secure_file(&temp, bytes)
+        .with_context(|| format!("写入 GNOME 扩展临时文件失败: {}", temp.display()))?;
+    if let Err(error) = snapin_foundation::AppPaths::replace_file_atomically(&temp, &target) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(error)
+            .with_context(|| format!("替换 GNOME 扩展文件失败: {}", target.display()));
+    }
+    Ok(())
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_write_embedded_file_atomically_replaces_existing_content() {
+        let dir = tempfile::tempdir().expect("应可创建测试目录");
+        let path = dir.path().join("extension.js");
+        std::fs::write(&path, b"old").expect("应可写入旧内容");
+
+        write_embedded_file(path.clone(), b"new").expect("嵌入式文件应可原子写入");
+
+        assert_eq!(std::fs::read(path).expect("应可读取新内容"), b"new");
     }
 }
