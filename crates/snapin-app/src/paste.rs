@@ -192,14 +192,20 @@ pub async fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
     let raw_temp = AppPaths::generate_temp_path("paster_pin", "raw");
 
     let raw_temp_for_write = raw_temp.clone();
-    let written = tokio::task::spawn_blocking(move || {
-        AppPaths::write_secure_file(&raw_temp_for_write, pixmap.data()).is_ok()
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        match AppPaths::write_secure_file(&raw_temp_for_write, pixmap.data()) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                let _ = std::fs::remove_file(&raw_temp_for_write);
+                Err(anyhow::anyhow!(
+                    "写入贴图像素临时文件失败，路径: {}，原因: {error}",
+                    raw_temp_for_write.display()
+                ))
+            }
+        }
     })
     .await
-    .context("贴图临时像素写入任务调度失败")?;
-    if !written {
-        bail!("贴图像素临时文件写入失败，请检查运行时目录权限");
-    }
+    .context("贴图临时像素写入任务调度失败")??;
 
     let request = snapin_daemon::DaemonRequest::CreatePaster {
         width,
