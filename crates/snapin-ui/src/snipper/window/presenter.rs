@@ -1,7 +1,8 @@
 //! 截图全屏窗口呈现器与底层双缓冲光栅化表面管理。
 
+use super::presenter_support::{covering_pixel_bounds, scale_pixmap_to, selected_annotation_view};
 use crate::error::UiError;
-use crate::snipper::canvas::{SelectedAnnotation, SnipperCanvas};
+use crate::snipper::canvas::SnipperCanvas;
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::window::events::SnipperState;
@@ -11,7 +12,7 @@ use crate::surface::{
 use image::RgbaImage;
 use std::num::NonZeroU32;
 use std::sync::Arc;
-use tiny_skia::{Color, FilterQuality, Pixmap, PixmapPaint, Transform};
+use tiny_skia::Pixmap;
 use winit::window::Window;
 
 /// 放大镜配置签名：任一字段变化都会改变卡片外观或尺寸，必须回退到全量重绘。
@@ -454,26 +455,6 @@ impl SnipperPresenter {
     }
 }
 
-/// 将底图缩放/裁剪到目标尺寸；缩放失败时返回 `None`。
-fn scale_pixmap_to(source: &Pixmap, width: u32, height: u32) -> Option<Pixmap> {
-    let mut target = Pixmap::new(width, height)?;
-    target.fill(Color::BLACK);
-    let scale_x = width as f32 / source.width() as f32;
-    let scale_y = height as f32 / source.height() as f32;
-    target.draw_pixmap(
-        0,
-        0,
-        source.as_ref(),
-        &PixmapPaint {
-            quality: FilterQuality::Bilinear,
-            ..PixmapPaint::default()
-        },
-        Transform::from_scale(scale_x, scale_y),
-        None,
-    );
-    Some(target)
-}
-
 /// 生成放大镜配置签名，用于判断卡片几何或外观是否发生变化。
 fn magnifier_signature(magnifier: &Magnifier) -> MagnifierSignature {
     (
@@ -484,34 +465,11 @@ fn magnifier_signature(magnifier: &Magnifier) -> MagnifierSignature {
     )
 }
 
-/// 仅在选择器锁定状态下构建选中标注的编辑框视图。
-fn selected_annotation_view(state: &SnipperState) -> Option<SelectedAnnotation> {
-    if !matches!(state.viewport.selection, SelectionState::Locked { .. }) {
-        return None;
-    }
-    let rect = super::annotation_edit::selected_bounds(state)?;
-    Some(SelectedAnnotation {
-        rect,
-        resizable: super::annotation_edit::selected_supports_resize(state),
-    })
-}
-
-/// 将浮点矩形向外取整为像素包围盒，并裁剪到画布范围。
-fn covering_pixel_bounds(rect: &Rect, max_w: u32, max_h: u32) -> Option<(u32, u32, u32, u32)> {
-    let x0 = rect.x.floor().max(0.0);
-    let y0 = rect.y.floor().max(0.0);
-    let x1 = (rect.x + rect.width).ceil().min(max_w as f32);
-    let y1 = (rect.y + rect.height).ceil().min(max_h as f32);
-    if x1 <= x0 || y1 <= y0 {
-        return None;
-    }
-    Some((x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use image::Rgba;
+    use tiny_skia::Color;
 
     #[test]
     fn test_create_dimmed_pixmap_fast_algorithm() {

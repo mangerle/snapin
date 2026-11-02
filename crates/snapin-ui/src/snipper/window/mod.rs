@@ -12,6 +12,7 @@ pub mod jobs;
 pub mod mouse;
 pub(crate) mod ocr_panel;
 pub mod presenter;
+mod presenter_support;
 pub(crate) mod redaction;
 pub mod state;
 pub mod types;
