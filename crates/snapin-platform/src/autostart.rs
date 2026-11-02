@@ -308,10 +308,32 @@ mod macos {
                 })?;
             }
 
-            std::fs::write(&plist_path, plist_content).map_err(|e| PlatformError::Io {
-                path: plist_path.to_string_lossy().to_string(),
-                source: e,
-            })?;
+            let parent = plist_path
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."));
+            let temp_path = parent.join(format!(
+                ".{}.{}.tmp",
+                PLIST_LABEL,
+                snapin_foundation::AppPaths::generate_unique_id()
+            ));
+            if let Err(source) =
+                snapin_foundation::AppPaths::write_secure_file(&temp_path, plist_content.as_bytes())
+            {
+                let _ = std::fs::remove_file(&temp_path);
+                return Err(PlatformError::Io {
+                    path: temp_path.to_string_lossy().to_string(),
+                    source,
+                });
+            }
+            if let Err(source) =
+                snapin_foundation::AppPaths::replace_file_atomically(&temp_path, &plist_path)
+            {
+                let _ = std::fs::remove_file(&temp_path);
+                return Err(PlatformError::Io {
+                    path: plist_path.to_string_lossy().to_string(),
+                    source,
+                });
+            }
             tracing::info!("已生成 macOS LaunchAgent 自启动清单: {:?}", plist_path);
         } else if plist_path.exists() {
             let _ = std::fs::remove_file(&plist_path);
