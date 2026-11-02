@@ -350,57 +350,72 @@ impl ArgbShmSurface {
     /// 轮询代替 `blocking_dispatch`，确保 GUI 事件循环不会被异常合成器永久挂起。
     fn acquire_writable_slot(&mut self, deadline: Instant) -> Result<Option<usize>, UiError> {
         loop {
-            let released = match &self.buffers {
-                Some(buffers) => [buffers.0.is_released(), buffers.1.is_released()],
-                // ensure_buffers 已保证缓冲区就绪；此分支仅作防御性兜底，避免无缓冲区时空转
-                None => {
-                    return Err(UiError::ShmSurface {
-                        message: "ARGB8888 共享内存缓冲区尚未创建，无法获取可写槽位".to_string(),
-                    });
-                }
-            };
+            let released = self.released_slots()?;
             if let Some(slot) = self.ping.acquire_writable(released) {
                 return Ok(Some(slot));
             }
-
-            let now = Instant::now();
-            if now >= deadline {
+            if Instant::now() >= deadline {
                 return Ok(None);
             }
-            let Some(guard) = self.event_queue.prepare_read() else {
-                self.dispatch_pending()?;
-                std::thread::yield_now();
-                continue;
-            };
-            let timeout_ms = duration_to_poll_timeout(deadline.saturating_duration_since(now));
-            let mut fds = [PollFd::from_borrowed_fd(
-                guard.connection_fd(),
-                PollFlags::IN,
-            )];
-            match poll(&mut fds, timeout_ms) {
-                Ok(0) => return Ok(None),
-                Ok(_) => {
-                    let ready = fds[0].revents();
-                    if ready.intersects(PollFlags::ERR | PollFlags::HUP | PollFlags::NVAL) {
-                        return Err(UiError::ShmSurface {
-                            message: format!(
-                                "等待 wl_buffer.release 时 Wayland 连接异常: {ready:?}"
-                            ),
-                        });
-                    }
-                    guard.read().map_err(|e| UiError::ShmSurface {
-                        message: format!("读取 wl_buffer.release 事件失败: {e}"),
-                    })?;
-                    self.dispatch_pending()?;
-                }
-                Err(error) => {
-                    return Err(UiError::ShmSurface {
-                        message: format!("轮询 Wayland 缓冲区释放事件失败: {error}"),
-                    });
-                }
+            if self.wait_for_release_event(deadline)? == BufferWait::Timeout {
+                return Ok(None);
             }
         }
     }
+
+    /// 读取两块缓冲区当前是否已被合成器归还。
+    fn released_slots(&self) -> Result<[bool; 2], UiError> {
+        let Some(buffers) = &self.buffers else {
+            return Err(UiError::ShmSurface {
+                message: "ARGB8888 共享内存缓冲区尚未创建，无法获取可写槽位".to_string(),
+            });
+        };
+        Ok([buffers.0.is_released(), buffers.1.is_released()])
+    }
+
+    /// 等待一次文件描述符可读事件并派发缓冲区归还消息。
+    fn wait_for_release_event(&mut self, deadline: Instant) -> Result<BufferWait, UiError> {
+        let now = Instant::now();
+        if now >= deadline {
+            return Ok(BufferWait::Timeout);
+        }
+        let Some(guard) = self.event_queue.prepare_read() else {
+            self.dispatch_pending()?;
+            std::thread::yield_now();
+            return Ok(BufferWait::Progress);
+        };
+        let timeout_ms = duration_to_poll_timeout(deadline.saturating_duration_since(now));
+        let mut fds = [PollFd::from_borrowed_fd(
+            guard.connection_fd(),
+            PollFlags::IN,
+        )];
+        match poll(&mut fds, timeout_ms) {
+            Ok(0) => Ok(BufferWait::Timeout),
+            Ok(_) => {
+                let ready = fds[0].revents();
+                if ready.intersects(PollFlags::ERR | PollFlags::HUP | PollFlags::NVAL) {
+                    return Err(UiError::ShmSurface {
+                        message: format!("等待 wl_buffer.release 时 Wayland 连接异常: {ready:?}"),
+                    });
+                }
+                guard.read().map_err(|error| UiError::ShmSurface {
+                    message: format!("读取 wl_buffer.release 事件失败: {error}"),
+                })?;
+                self.dispatch_pending()?;
+                Ok(BufferWait::Progress)
+            }
+            Err(error) => Err(UiError::ShmSurface {
+                message: format!("轮询 Wayland 缓冲区释放事件失败: {error}"),
+            }),
+        }
+    }
+}
+
+/// 等待缓冲区归还事件的单次结果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BufferWait {
+    Progress,
+    Timeout,
 }
 
 /// 将剩余等待时间转换为 `poll` 支持的毫秒上限。
