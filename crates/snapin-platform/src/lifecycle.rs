@@ -160,7 +160,7 @@ pub fn enable_gnome_extension() {
 
 /// 在后台运行预期会很快退出的系统命令，并自动收割其退出状态。
 ///
-/// 命令进入进程级后台运行时队列；超过 [`SYSTEM_COMMAND_TIMEOUT`] 会被强制终止，
+/// 命令进入进程级后台运行时队列；超过 `SYSTEM_COMMAND_TIMEOUT` 会被强制终止，
 /// 避免桌面打开器或系统工具挂死后长期占用任务名额。常驻守护进程、设置窗口等
 /// 长生命周期进程必须使用 [`spawn_independent_process`]，不能复用本入口。
 pub fn run_bounded_system_command<P: AsRef<OsStr>>(program: &str, args: &[P]) {

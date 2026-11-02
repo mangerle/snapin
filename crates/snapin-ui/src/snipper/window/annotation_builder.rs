@@ -1,6 +1,6 @@
 //! 截图会话标注草稿参数提取与提交适配。
 //!
-//! 可复用的图元工厂位于 [`crate::editor::annotation_builder`]；本模块只保留
+//! 可复用的图元工厂位于 `crate::editor::annotation_builder`；本模块只保留
 //! 依赖截图会话状态的参数提取与提交逻辑，供画布即时预览与鼠标释放提交复用。
 
 use super::events::SnipperState;

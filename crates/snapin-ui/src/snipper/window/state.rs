@@ -89,7 +89,7 @@ impl SnipperState {
     /// 使用宿主注入的桌面端口构建空状态。
     ///
     /// UI 不直接读写系统剪贴板或选区缓存文件，因此单元测试与渲染测试可以使用
-    /// [`NoopDesktop`] 构造完全无系统副作用的会话状态。
+    /// `NoopDesktop` 构造完全无系统副作用的会话状态。
     pub fn new_with_desktop(desktop: Arc<dyn DesktopPort>) -> Self {
         // 截图工具栏按选区自动摆放，可能遮挡标注区域，因此启用右端拖动手柄
         let mut toolbar = Toolbar::default();

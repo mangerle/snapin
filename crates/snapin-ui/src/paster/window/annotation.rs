@@ -11,12 +11,12 @@ use winit::window::Window;
 
 /// 贴图窗口主栏按钮序列：绘制工具、撤销/重做、整图识别/翻译与贴图动作。
 ///
-/// 文字工具通过窗口 IME 会话输入，与截图侧共用同一套 [`TextInputSession`]；
+/// 文字工具通过窗口 IME 会话输入，与截图侧共用同一套 `TextInputSession`；
 /// 不包含截图专属的贴图（ActionPin）按钮。
 /// 分隔线由 `metrics::has_separator_before` 按按钮语义自动插入，
 /// 因此撤销与关闭动作之前各会有一条分隔线。
 ///
-/// [`TextInputSession`]: crate::editor::text_input::TextInputSession
+/// `TextInputSession`: crate::editor::text_input::TextInputSession
 pub const PASTER_MAIN_ITEMS: &[ToolbarItem] = &[
     ToolbarItem::Tool(Tool::Rect),
     ToolbarItem::Tool(Tool::Badge),

@@ -3,7 +3,8 @@
 //! # 设计原理
 //!
 //! 截图窗口只负责生成“要处理哪一块图像”以及“结果如何呈现”，真正的 OCR、翻译、
-//! 保存与剪贴板写入由应用层通过 [`MediaJobRunner`] 与 [`DesktopPort`] 完成。
+//! 保存与剪贴板写入由应用层通过 [`MediaJobRunner`] 与
+//! [`DesktopPort`](crate::ports::DesktopPort) 完成。
 //! 任务完成后经 `EventLoopProxy` 以用户事件回传窗口线程，避免在事件循环中执行
 //! 阻塞推理或网络请求。
 //!

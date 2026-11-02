@@ -180,8 +180,8 @@ impl TextRenderer {
 
     /// 在指定矩形包围盒内自适应换行排版并绘制文字（支持自动折行与字号动态调整）
     ///
-    /// 文本高度溢出包围盒时按 [`FONT_SHRINK_STEP`] 逐次压缩字号，最多尝试
-    /// [`FONT_SHRINK_ATTEMPTS`] 次；无论最终是否收敛，落笔一律裁剪在盒形区域内。
+    /// 文本高度溢出包围盒时按 `FONT_SHRINK_STEP` 逐次压缩字号，最多尝试
+    /// `FONT_SHRINK_ATTEMPTS` 次；无论最终是否收敛，落笔一律裁剪在盒形区域内。
     pub fn draw_text_box_rgba(
         &mut self,
         pixmap: &mut PixmapMut,

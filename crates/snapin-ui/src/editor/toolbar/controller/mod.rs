@@ -112,7 +112,7 @@ impl Toolbar {
     ///
     /// 截图工具栏由 [`Self::update_layout`] 根据选区与屏幕边界自动摆放；
     /// 贴图窗口则需要把工具条精确锚定在缩放后图像的下方，位置完全由调用方计算。
-    /// 这里直接写入 `main_rect` 并复用 [`Self::update_sub_rect`] 重新定位二级属性栏，
+    /// 这里直接写入 `main_rect` 并复用 `update_sub_rect` 重新定位二级属性栏，
     /// 保证命中测试、渲染与下拉菜单避让共用同一份布局结果。
     pub fn place_main_bar(&mut self, x: f32, y: f32) {
         self.main_rect = Rect {

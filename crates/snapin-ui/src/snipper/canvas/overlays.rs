@@ -286,7 +286,7 @@ impl<'a> SnipperCanvas<'a> {
 
     /// 返回顶部状态提示框覆盖的像素矩形（无消息或空文本时返回 None）。
     ///
-    /// 与 [`Self::render_status_message`] 共用同一布局函数，供增量重绘精确抹除旧提示。
+    /// 与 `render_status_message` 共用同一布局函数，供增量重绘精确抹除旧提示。
     pub fn status_message_bounds(
         message: Option<&str>,
         canvas_w: u32,

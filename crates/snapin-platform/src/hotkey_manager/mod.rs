@@ -1,7 +1,7 @@
 //! 跨平台全局热键注册与监听。
 //!
 //! Linux 通过 GNOME 自定义快捷键将按键路由至命令行；Windows/macOS 使用原生
-//! global-hotkey 管理器。两条路径共享 [`configured_bindings`] 的配置映射与
+//! global-hotkey 管理器。两条路径共享 `configured_bindings` 的配置映射与
 //! [`HotkeyAction`] 动作契约。
 
 use crate::error::PlatformError;
@@ -160,7 +160,7 @@ impl PlatformHotkeyListener {
 
 /// 自动在 GNOME 设置中注册或更新 Snapin 快捷键。
 ///
-/// 快捷键表由 [`configured_bindings`] 单一维护，GNOME 与原生监听器共享同一份
+/// 快捷键表由 `configured_bindings` 单一维护，GNOME 与原生监听器共享同一份
 /// 动作映射，避免两套注册逻辑漏掉或错配某个动作。
 pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError> {
     #[cfg(target_os = "linux")]
@@ -199,7 +199,7 @@ pub fn hotkey_to_accelerator(hotkey: &Hotkey) -> String {
     parts.join("+")
 }
 
-/// 将强类型快捷键转换为 GNOME / GTK Accelerator 标准格式（如 "<Control><Alt>a"、"F1"）
+/// 将强类型快捷键转换为 GNOME / GTK Accelerator 标准格式（如 `<Control><Alt>a`、"F1"）
 pub fn hotkey_to_gnome_accelerator(hk: &Hotkey) -> String {
     if hk.is_disabled() {
         return String::new();
