@@ -15,9 +15,6 @@ path = "src/main.rs"
 snapin-app.workspace = true
 snapin-config.workspace = true
 snapin-foundation.workspace = true
-snapin-daemon.workspace = true
-snapin-platform.workspace = true
-snapin-ui.workspace = true
 snapin-settings.workspace = true
 
 clap.workspace = true

@@ -10,18 +10,15 @@
 pub mod cli;
 mod instance_lock;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, CommandRoute, Commands};
 use instance_lock::InstanceLock;
 use snapin_app::{
-    clear_snip_history, ensure_daemon_running, exit_snapin_application, install_gnome_extension,
-    run_cli_update, run_daemon_process, run_pin_file,
+    initialize_platform_capabilities, install_gnome_extension, is_daemon_online,
+    run_application_command, run_daemon_process, sync_system_hotkeys,
 };
 use snapin_config::config::{self, Config};
-use snapin_daemon::{send_command_to_daemon, DaemonRequest};
-use snapin_foundation::{PostCaptureAction, SnipMode};
-use snapin_platform::{init_platform_capabilities, sync_hotkeys_to_gnome};
 use snapin_settings::{run_clipboard_history_panel, run_settings_gui};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -70,10 +67,7 @@ fn cli_runtime() -> Result<tokio::runtime::Runtime> {
 /// 解析无子命令启动意图：守护进程在线时打开设置中心，否则启动常驻服务。
 fn resolve_bare_invocation() -> Result<Commands> {
     let runtime = cli_runtime()?;
-    let online = matches!(
-        runtime.block_on(send_command_to_daemon(&DaemonRequest::Ping)),
-        Ok(true)
-    );
+    let online = runtime.block_on(is_daemon_online());
     runtime.shutdown_timeout(std::time::Duration::from_secs(1));
     Ok(if online {
         Commands::Prefs
@@ -82,143 +76,22 @@ fn resolve_bare_invocation() -> Result<Commands> {
     })
 }
 
-/// 执行不依赖 GUI 主线程的 IPC 与运维命令。
-fn run_async_command(
+/// 将异步子命令交给应用层执行。
+fn run_application(
     runtime: &tokio::runtime::Runtime,
     command: Commands,
     config: Option<Config>,
 ) -> Result<()> {
-    runtime.block_on(async move {
-        match command {
-            Commands::Snip {
-                auto_copy,
-                custom,
-                translate,
-                fullscreen,
-                redact,
-                qr,
-                beautify,
-                ocr_panel,
-                delay,
-            } => {
-                tracing::info!("正在请求常驻守护服务启动截图覆盖层...");
-                let mode = if fullscreen {
-                    SnipMode::Fullscreen
-                } else if translate {
-                    SnipMode::Translate
-                } else if auto_copy {
-                    SnipMode::AutoCopy
-                } else if custom {
-                    SnipMode::Custom
-                } else {
-                    SnipMode::Normal
-                };
-                let post_action = if redact {
-                    Some(PostCaptureAction::SmartRedact)
-                } else if qr {
-                    Some(PostCaptureAction::Qr)
-                } else if beautify {
-                    Some(PostCaptureAction::Beautify)
-                } else if ocr_panel {
-                    Some(PostCaptureAction::OcrPanel)
-                } else {
-                    None
-                };
-                ensure_daemon_running().await?;
-                send_or_fail(DaemonRequest::StartSnip {
-                    mode,
-                    delay_seconds: delay,
-                    post_action,
-                })
-                .await
-            }
-            Commands::PickColor => {
-                tracing::info!("正在请求常驻守护服务启动取色覆盖层...");
-                ensure_daemon_running().await?;
-                send_or_fail(DaemonRequest::StartSnip {
-                    mode: SnipMode::PickColor,
-                    delay_seconds: 0,
-                    post_action: None,
-                })
-                .await
-            }
-            Commands::Paste => {
-                tracing::info!("正在请求常驻守护服务检查剪贴板生成贴图...");
-                ensure_daemon_running().await?;
-                send_or_fail(DaemonRequest::Paste).await
-            }
-            Commands::PinFile { path, x, y } => run_pin_file(path, x, y).await,
-            Commands::Toggle => {
-                if !send_or_absent(DaemonRequest::TogglePasters).await? {
-                    tracing::info!("未检测到常驻守护服务，无活动贴图需要切换");
-                }
-                Ok(())
-            }
-            Commands::SwitchGroup { id } => {
-                if let Some(group) = id {
-                    if !snapin_ui::paster::is_valid_group_id(snapin_ui::paster::GroupId::new(group))
-                    {
-                        bail!(
-                            "贴图分组 ID 越界: {group}，有效范围: 0..={}",
-                            snapin_ui::paster::TOTAL_PIN_GROUPS.saturating_sub(1)
-                        );
-                    }
-                }
-                if !send_or_absent(DaemonRequest::SwitchGroup(id)).await? {
-                    tracing::info!("未检测到常驻守护服务，无活动贴图分组需要切换");
-                }
-                Ok(())
-            }
-            Commands::Workspace => {
-                ensure_daemon_running().await?;
-                send_or_fail(DaemonRequest::OpenWorkspace).await
-            }
-            Commands::ClipboardHistory => {
-                ensure_daemon_running().await?;
-                send_or_fail(DaemonRequest::OpenClipboardHistory).await
-            }
-            Commands::ClearHistory => {
-                if !send_or_absent(DaemonRequest::ClearHistory).await? {
-                    clear_snip_history().await?;
-                }
-                Ok(())
-            }
-            Commands::Exit => exit_snapin_application().await,
-            Commands::Update { check } => run_cli_update(config, check).await,
-            Commands::Prefs
-            | Commands::Daemon
-            | Commands::InstallExtension
-            | Commands::SyncHotkeys => {
-                bail!("子命令必须由主线程同步流程处理，收到了错误的调度路径")
-            }
-        }
-    })
-}
-
-/// 发送请求并要求守护进程明确成功。
-async fn send_or_fail(request: DaemonRequest) -> Result<()> {
-    match send_command_to_daemon(&request).await {
-        Ok(true) => {
-            tracing::info!("已通过 IPC 委托常驻守护服务处理请求");
-            Ok(())
-        }
-        Ok(false) => bail!("常驻守护服务未响应请求"),
-        Err(error) => Err(error).context("常驻守护服务处理请求失败"),
-    }
-}
-
-/// 发送请求；守护进程缺席时返回 `false` 而不是错误。
-async fn send_or_absent(request: DaemonRequest) -> Result<bool> {
-    match send_command_to_daemon(&request).await {
-        Ok(handled) => Ok(handled),
-        Err(error) => Err(error).context("常驻守护服务处理请求失败"),
-    }
+    let operation = command
+        .into_application_command()
+        .context("异步子命令收到了错误的调度路径")?;
+    runtime.block_on(run_application_command(operation, config))
 }
 
 /// 在独立设置中心进程内初始化平台能力探测。
 fn run_preferences() -> Result<()> {
     let runtime = cli_runtime()?;
-    runtime.block_on(init_platform_capabilities());
+    runtime.block_on(initialize_platform_capabilities());
     runtime.shutdown_timeout(std::time::Duration::from_secs(1));
     tracing::info!("正在启动 Snapin 现代化偏好设置中心...");
     run_settings_gui().context("启动设置中心图形界面失败")
@@ -270,13 +143,13 @@ fn main() -> Result<()> {
         CommandRoute::InstallExtension => install_gnome_extension(),
         CommandRoute::SyncHotkeys => {
             let config = config.context("快捷键同步流程缺少用户配置")?;
-            sync_hotkeys_to_gnome(&config.hotkeys).context("同步快捷键至 GNOME 失败")?;
+            sync_system_hotkeys(&config)?;
             tracing::info!("成功将快捷键同步注册至 Ubuntu GNOME 系统！");
             Ok(())
         }
         CommandRoute::Async => {
             let runtime = cli_runtime()?;
-            run_async_command(&runtime, command, config)
+            run_application(&runtime, command, config)
         }
     }
 }

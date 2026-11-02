@@ -1,6 +1,7 @@
 //! Snapin 命令行参数与子命令模型定义。
 
 use clap::{Parser, Subcommand};
+use snapin_app::{ApplicationCommand, SnipOptions};
 use std::path::PathBuf;
 
 /// 命令行参数结构体
@@ -146,6 +147,50 @@ impl Commands {
             | Self::Exit
             | Self::PinFile { .. }
             | Self::Update { .. } => CommandRoute::Async,
+        }
+    }
+
+    /// 将异步子命令转换为应用层操作。
+    ///
+    /// 返回 `None` 表示该命令必须由守护进程主线程、设置中心、剪贴板面板或同步
+    /// 平台流程处理，调用方不得把它误送入异步命令通道。
+    pub fn into_application_command(self) -> Option<ApplicationCommand> {
+        match self {
+            Self::Snip {
+                auto_copy,
+                custom,
+                translate,
+                fullscreen,
+                redact,
+                qr,
+                beautify,
+                ocr_panel,
+                delay,
+            } => Some(ApplicationCommand::Snip(SnipOptions {
+                auto_copy,
+                custom,
+                translate,
+                fullscreen,
+                redact,
+                qr,
+                beautify,
+                ocr_panel,
+                delay_seconds: delay,
+            })),
+            Self::PickColor => Some(ApplicationCommand::PickColor),
+            Self::Paste => Some(ApplicationCommand::Paste),
+            Self::Toggle => Some(ApplicationCommand::TogglePasters),
+            Self::SwitchGroup { id } => Some(ApplicationCommand::SwitchGroup(id)),
+            Self::Workspace => Some(ApplicationCommand::Workspace),
+            Self::ClearHistory => Some(ApplicationCommand::ClearHistory),
+            Self::Exit => Some(ApplicationCommand::Exit),
+            Self::Update { check } => Some(ApplicationCommand::Update { check_only: check }),
+            Self::PinFile { path, x, y } => Some(ApplicationCommand::PinFile { path, x, y }),
+            Self::ClipboardHistory
+            | Self::Daemon
+            | Self::Prefs
+            | Self::InstallExtension
+            | Self::SyncHotkeys => None,
         }
     }
 
@@ -303,6 +348,54 @@ mod tests {
 
         let cli = Cli::try_parse_from(["snapin", "pick-color"]).unwrap();
         assert!(matches!(cli.command, Some(Commands::PickColor)));
+    }
+
+    /// 异步调度路径必须都能转换为应用命令，受保护路径必须拒绝误转换。
+    #[test]
+    fn test_application_command_mapping_matches_async_route() {
+        let async_commands = [
+            Commands::Snip {
+                auto_copy: false,
+                custom: false,
+                translate: false,
+                fullscreen: false,
+                redact: false,
+                qr: false,
+                beautify: false,
+                ocr_panel: false,
+                delay: 0,
+            },
+            Commands::PickColor,
+            Commands::Paste,
+            Commands::Toggle,
+            Commands::SwitchGroup { id: None },
+            Commands::Workspace,
+            Commands::ClearHistory,
+            Commands::Exit,
+            Commands::PinFile {
+                path: PathBuf::from("/tmp/a.png"),
+                x: 0,
+                y: 0,
+            },
+            Commands::Update { check: true },
+        ];
+        for command in async_commands {
+            assert_eq!(command.route(), CommandRoute::Async);
+            assert!(
+                command.into_application_command().is_some(),
+                "异步命令必须可转换为应用操作"
+            );
+        }
+
+        for command in [
+            Commands::Daemon,
+            Commands::Prefs,
+            Commands::InstallExtension,
+            Commands::SyncHotkeys,
+            Commands::ClipboardHistory,
+        ] {
+            assert!(command.into_application_command().is_none());
+        }
     }
 
     /// 调度路径必须覆盖全部子命令，且配置依赖与路径表保持一致。
