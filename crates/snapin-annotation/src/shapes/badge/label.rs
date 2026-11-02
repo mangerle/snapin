@@ -1,14 +1,14 @@
 //! 序号气泡标签测量、导向线、箭头与文字绘制。
 
 use super::{BadgeAction, BadgeCircle};
-use crate::geometry::Point;
+use crate::geometry::{Point, Rect};
 use crate::render::{
     with_thread_local_text_renderer, CenteredTextOptions, StyledTextDrawOptions, TextRenderer,
     TextStyleOptions,
 };
 use crate::shapes::arrow::ArrowAction;
 use crate::shapes::estimate_text_width;
-use crate::shapes::rect::rounded_rect_path;
+use crate::shapes::rect::{rounded_rect_path, RoundedRectSpec};
 use crate::style::{ArrowHeadStyle, LineStyle};
 use tiny_skia::{FillRule, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
@@ -132,13 +132,15 @@ impl BadgeAction {
         };
         let width = metrics.text_width + self.padding * 2.0;
         let height = metrics.text_height + self.padding * 2.0;
-        let Some(path) = rounded_rect_path(
-            metrics.text_x - self.padding,
-            metrics.text_y - self.padding,
-            width,
-            height,
-            self.corner_radius,
-        ) else {
+        let Some(path) = rounded_rect_path(RoundedRectSpec {
+            rect: Rect::new(
+                metrics.text_x - self.padding,
+                metrics.text_y - self.padding,
+                width,
+                height,
+            ),
+            radius: self.corner_radius,
+        }) else {
             return;
         };
         let mut paint = Paint::default();

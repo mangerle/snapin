@@ -28,8 +28,10 @@ impl RectAction {
             return;
         }
 
-        let Some(path) = rounded_rect_path(x + offset_x, y + offset_y, w, h, self.corner_radius)
-        else {
+        let Some(path) = rounded_rect_path(RoundedRectSpec {
+            rect: Rect::new(x + offset_x, y + offset_y, w, h),
+            radius: self.corner_radius,
+        }) else {
             return;
         };
 
@@ -76,12 +78,20 @@ impl RectAction {
     }
 }
 
+/// 圆角矩形路径的矩形与圆角半径。
+#[derive(Clone, Copy)]
+pub(crate) struct RoundedRectSpec {
+    pub(crate) rect: Rect,
+    pub(crate) radius: f32,
+}
+
 /// 构造圆角矩形路径。
 ///
-/// tiny-skia 0.11 未提供圆角矩形图元，这里用四段二次贝塞尔手工拼装；
+/// tiny-skia 未提供圆角矩形图元，这里用四段二次贝塞尔手工拼装；
 /// 半径自动收敛到短边一半，半径过大时不会产生自交路径。
-pub(crate) fn rounded_rect_path(x: f32, y: f32, w: f32, h: f32, radius: f32) -> Option<Path> {
-    let r = radius.clamp(0.0, (w.min(h) / 2.0).max(0.0));
+pub(crate) fn rounded_rect_path(spec: RoundedRectSpec) -> Option<Path> {
+    let (x, y, w, h) = (spec.rect.x, spec.rect.y, spec.rect.width, spec.rect.height);
+    let r = spec.radius.clamp(0.0, (w.min(h) / 2.0).max(0.0));
     let mut pb = PathBuilder::new();
 
     if r <= 0.5 {

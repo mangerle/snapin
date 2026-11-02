@@ -1,6 +1,6 @@
 //! 文本标注图元绘制实现。
 
-use super::rect::rounded_rect_path;
+use super::rect::{rounded_rect_path, RoundedRectSpec};
 use super::{estimate_text_width, map_point, SizeParam};
 use crate::geometry::{Point, Rect};
 use crate::render::{with_thread_local_text_renderer, StyledTextDrawOptions, TextStyleOptions};
@@ -47,6 +47,13 @@ fn default_corner() -> f32 {
     4.0
 }
 
+/// 文本正文与背景共享的位置和字号。
+#[derive(Clone, Copy)]
+struct TextPlacement {
+    position: Point,
+    font_size: f32,
+}
+
 impl TextAction {
     /// 使用默认文字样式构造基础文本。
     pub fn plain(pos: Point, text: String, color: ColorRgba, font_size: f32) -> Self {
@@ -72,26 +79,30 @@ impl TextAction {
             return;
         }
 
-        let (x, y) = (self.pos.x + offset_x, self.pos.y + offset_y);
-        let font_size = self.font_size.max(8.0);
-        self.draw_background(pixmap, x, y, font_size);
-        self.draw_text(pixmap, x, y, font_size);
+        let placement = TextPlacement {
+            position: Point::new(self.pos.x + offset_x, self.pos.y + offset_y),
+            font_size: self.font_size.max(8.0),
+        };
+        self.draw_background(pixmap, placement);
+        self.draw_text(pixmap, placement);
     }
 
     /// 绘制文字背景圆角矩形。
-    fn draw_background(&self, pixmap: &mut PixmapMut, x: f32, y: f32, font_size: f32) {
+    fn draw_background(&self, pixmap: &mut PixmapMut, placement: TextPlacement) {
         let Some(background) = self.background_color else {
             return;
         };
-        let width = estimate_text_width(&self.text, font_size) + self.padding * 2.0;
-        let height = font_size * 1.25 + self.padding * 2.0;
-        let Some(path) = rounded_rect_path(
-            x - self.padding,
-            y - self.padding,
-            width,
-            height,
-            self.corner_radius,
-        ) else {
+        let width = estimate_text_width(&self.text, placement.font_size) + self.padding * 2.0;
+        let height = placement.font_size * 1.25 + self.padding * 2.0;
+        let Some(path) = rounded_rect_path(RoundedRectSpec {
+            rect: Rect::new(
+                placement.position.x - self.padding,
+                placement.position.y - self.padding,
+                width,
+                height,
+            ),
+            radius: self.corner_radius,
+        }) else {
             return;
         };
         let mut paint = Paint::default();
@@ -111,7 +122,9 @@ impl TextAction {
     }
 
     /// 先绘制文字描边，再绘制正文。
-    fn draw_text(&self, pixmap: &mut PixmapMut, x: f32, y: f32, font_size: f32) {
+    fn draw_text(&self, pixmap: &mut PixmapMut, placement: TextPlacement) {
+        let (x, y) = (placement.position.x, placement.position.y);
+        let font_size = placement.font_size;
         with_thread_local_text_renderer(|renderer| {
             let style = TextStyleOptions {
                 bold: self.bold,
