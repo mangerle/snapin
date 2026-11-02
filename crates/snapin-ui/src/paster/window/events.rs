@@ -97,8 +97,7 @@ pub fn handle_paster_cursor_move(
         let items =
             ContextMenuState::build_main_items(state.chrome.show_toolbar, state.chrome.has_shadow);
         state.interaction.context_menu.handle_mouse_move(
-            state.viewport.cursor_pos.0,
-            state.viewport.cursor_pos.1,
+            state.viewport.cursor_pos.into(),
             &items,
             state.chrome.smooth_scaling,
         )
@@ -213,8 +212,7 @@ fn handle_context_menu_press(state: &mut PasterWindowState, window: &Window) -> 
     let main_items =
         ContextMenuState::build_main_items(state.chrome.show_toolbar, state.chrome.has_shadow);
     let action = state.interaction.context_menu.handle_click(
-        state.viewport.cursor_pos.0,
-        state.viewport.cursor_pos.1,
+        state.viewport.cursor_pos.into(),
         &main_items,
         state.chrome.smooth_scaling,
     );

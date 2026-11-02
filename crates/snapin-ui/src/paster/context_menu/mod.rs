@@ -5,6 +5,8 @@ pub mod render;
 
 pub use items::*;
 
+use crate::geometry::Point;
+
 /// 右键上下文菜单运行时状态
 pub struct ContextMenuState {
     pub is_open: bool,
@@ -160,33 +162,36 @@ impl ContextMenuState {
     /// 鼠标移动检测悬停与二级菜单触发
     pub fn handle_mouse_move(
         &mut self,
-        cx: f32,
-        cy: f32,
+        pointer: Point,
         items: &[MenuItem],
         smooth_scaling: bool,
     ) -> bool {
         if !self.is_open {
             return false;
         }
-        if let Some(changed) = self.handle_submenu_hover(cx, cy, smooth_scaling) {
+        if let Some(changed) = self.handle_submenu_hover(pointer, smooth_scaling) {
             return changed;
         }
-        self.handle_main_hover(cx, cy, items, smooth_scaling)
+        self.handle_main_hover(pointer, items, smooth_scaling)
     }
 
     /// 处理二级菜单内部悬停；返回 `None` 表示指针不在当前二级菜单内。
-    fn handle_submenu_hover(&mut self, cx: f32, cy: f32, smooth_scaling: bool) -> Option<bool> {
+    fn handle_submenu_hover(&mut self, pointer: Point, smooth_scaling: bool) -> Option<bool> {
         let (sub_type, sub_x, sub_y) = self.active_submenu?;
         let scale = self.ui_scale;
         let sub_items = Self::build_sub_items(sub_type, smooth_scaling);
         let sub_height = Self::items_total_height(&sub_items, self.item_height, scale);
         let sub_width = 160.0 * scale;
-        if cx < sub_x || cx > sub_x + sub_width || cy < sub_y || cy > sub_y + sub_height {
+        if pointer.x < sub_x
+            || pointer.x > sub_x + sub_width
+            || pointer.y < sub_y
+            || pointer.y > sub_y + sub_height
+        {
             return None;
         }
 
         let found = self
-            .row_hit(&sub_items, cy, sub_y + 5.0 * scale)
+            .row_hit(&sub_items, pointer.y, sub_y + 5.0 * scale)
             .map(|row| row.index);
         if self.hovered_sub_idx == found {
             Some(false)
@@ -199,17 +204,20 @@ impl ContextMenuState {
     /// 处理主菜单悬停并按需打开或关闭二级菜单。
     fn handle_main_hover(
         &mut self,
-        cx: f32,
-        cy: f32,
+        pointer: Point,
         items: &[MenuItem],
         smooth_scaling: bool,
     ) -> bool {
         let scale = self.ui_scale;
         let main_height = Self::items_total_height(items, self.item_height, scale);
-        if cx < self.x || cx > self.x + self.width || cy < self.y || cy > self.y + main_height {
+        if pointer.x < self.x
+            || pointer.x > self.x + self.width
+            || pointer.y < self.y
+            || pointer.y > self.y + main_height
+        {
             return false;
         }
-        let Some(row) = self.row_hit(items, cy, self.y + 5.0 * scale) else {
+        let Some(row) = self.row_hit(items, pointer.y, self.y + 5.0 * scale) else {
             return false;
         };
         let mut changed = false;
@@ -294,8 +302,7 @@ impl ContextMenuState {
     /// 点击菜单项判定
     pub fn handle_click(
         &mut self,
-        cx: f32,
-        cy: f32,
+        pointer: Point,
         main_items: &[MenuItem],
         smooth_scaling: bool,
     ) -> Option<MenuItemId> {
@@ -303,52 +310,79 @@ impl ContextMenuState {
             return None;
         }
 
-        let s = self.ui_scale;
-        let sep_h = 8.0 * s;
-        let pad_v = 5.0 * s;
-        let sub_w = 160.0 * s;
-
-        // 1. 检测二级子菜单点击
-        if let Some((sub_type, sx, sy)) = self.active_submenu {
-            let sub_items = Self::build_sub_items(sub_type, smooth_scaling);
-            let sub_h = Self::items_total_height(&sub_items, self.item_height, s);
-            if cx >= sx && cx <= sx + sub_w && cy >= sy && cy <= sy + sub_h {
-                let mut cur_y = sy + pad_v;
-                for it in sub_items.iter() {
-                    let h = if it.is_separator {
-                        sep_h
-                    } else {
-                        self.item_height
-                    };
-                    if cy >= cur_y && cy < cur_y + h && !it.is_separator {
-                        self.close();
-                        return it.id;
-                    }
-                    cur_y += h;
-                }
-            }
+        if let Some(id) = self.submenu_click(pointer, smooth_scaling) {
+            self.close();
+            return Some(id);
+        }
+        if let Some(id) = self.main_click(pointer, main_items) {
+            self.close();
+            return Some(id);
         }
 
-        // 2. 检测主菜单点击
-        let main_h = Self::items_total_height(main_items, self.item_height, s);
-        if cx >= self.x && cx <= self.x + self.width && cy >= self.y && cy <= self.y + main_h {
-            let mut cur_y = self.y + pad_v;
-            for it in main_items.iter() {
-                let h = if it.is_separator {
-                    sep_h
-                } else {
-                    self.item_height
-                };
-                if cy >= cur_y && cy < cur_y + h && !it.is_separator && it.submenu.is_none() {
-                    self.close();
-                    return it.id;
-                }
-                cur_y += h;
-            }
-        }
-
-        // 点击在菜单外部，关闭菜单
+        // 点击在菜单外部或不可执行行，关闭菜单。
         self.close();
+        None
+    }
+
+    /// 检测二级子菜单点击。
+    fn submenu_click(&self, pointer: Point, smooth_scaling: bool) -> Option<MenuItemId> {
+        let (sub_type, sub_x, sub_y) = self.active_submenu?;
+        let scale = self.ui_scale;
+        let sub_items = Self::build_sub_items(sub_type, smooth_scaling);
+        let sub_height = Self::items_total_height(&sub_items, self.item_height, scale);
+        let sub_width = 160.0 * scale;
+        if pointer.x < sub_x
+            || pointer.x > sub_x + sub_width
+            || pointer.y < sub_y
+            || pointer.y > sub_y + sub_height
+        {
+            return None;
+        }
+        self.row_id(&sub_items, pointer.y, sub_y + 5.0 * scale)
+    }
+
+    /// 检测主菜单可执行行点击；带子菜单的行只负责展开，不直接触发动作。
+    fn main_click(&self, pointer: Point, main_items: &[MenuItem]) -> Option<MenuItemId> {
+        let scale = self.ui_scale;
+        let main_height = Self::items_total_height(main_items, self.item_height, scale);
+        if pointer.x < self.x
+            || pointer.x > self.x + self.width
+            || pointer.y < self.y
+            || pointer.y > self.y + main_height
+        {
+            return None;
+        }
+        self.row_id_filtered(main_items, pointer.y, self.y + 5.0 * scale, |item| {
+            item.submenu.is_none()
+        })
+    }
+
+    /// 返回指定纵坐标命中的菜单项 ID。
+    fn row_id(&self, items: &[MenuItem], y: f32, start_y: f32) -> Option<MenuItemId> {
+        self.row_id_filtered(items, y, start_y, |_| true)
+    }
+
+    /// 返回指定纵坐标且满足过滤条件的菜单项 ID。
+    fn row_id_filtered(
+        &self,
+        items: &[MenuItem],
+        y: f32,
+        start_y: f32,
+        predicate: impl Fn(&MenuItem) -> bool,
+    ) -> Option<MenuItemId> {
+        let separator_height = 8.0 * self.ui_scale;
+        let mut top = start_y;
+        for item in items {
+            let height = if item.is_separator {
+                separator_height
+            } else {
+                self.item_height
+            };
+            if y >= top && y < top + height && !item.is_separator && predicate(item) {
+                return item.id;
+            }
+            top += height;
+        }
         None
     }
 }

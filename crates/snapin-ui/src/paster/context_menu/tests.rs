@@ -54,7 +54,7 @@ fn test_context_menu_click_action() {
     });
 
     // 点击第一项 "复制图像" (y 在 55.0 ~ 83.0 之间)
-    let clicked = menu.handle_click(60.0, 65.0, &items, true);
+    let clicked = menu.handle_click(Point::new(60.0, 65.0), &items, true);
     assert_eq!(clicked, Some(MenuItemId::CopyImage));
     assert!(!menu.is_open);
 }
