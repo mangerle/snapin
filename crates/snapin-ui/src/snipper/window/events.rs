@@ -234,28 +234,8 @@ fn handle_ocr_panel_key(state: &mut SnipperState, key: &Key, original_rgba: &Rgb
             state.set_status_message(snapin_foundation::i18n::tr("已关闭 OCR 结果面板"));
             true
         }
-        Key::Named(NamedKey::ArrowUp) => {
-            let visible = state
-                .ocr_panel
-                .as_ref()
-                .map(|panel| panel.visible_rows(screen_height, scale))
-                .unwrap_or(1);
-            if let Some(panel) = state.ocr_panel.as_mut() {
-                panel.move_cursor(-1, visible);
-            }
-            true
-        }
-        Key::Named(NamedKey::ArrowDown) => {
-            let visible = state
-                .ocr_panel
-                .as_ref()
-                .map(|panel| panel.visible_rows(screen_height, scale))
-                .unwrap_or(1);
-            if let Some(panel) = state.ocr_panel.as_mut() {
-                panel.move_cursor(1, visible);
-            }
-            true
-        }
+        Key::Named(NamedKey::ArrowUp) => move_ocr_cursor(state, -1, screen_height, scale),
+        Key::Named(NamedKey::ArrowDown) => move_ocr_cursor(state, 1, screen_height, scale),
         Key::Named(NamedKey::Space) => {
             if let Some(panel) = state.ocr_panel.as_mut() {
                 panel.toggle_cursor();
@@ -282,6 +262,19 @@ fn handle_ocr_panel_key(state: &mut SnipperState, key: &Key, original_rgba: &Rgb
         }
         _ => true,
     }
+}
+
+/// 在 OCR 可见行范围内移动结果面板光标。
+fn move_ocr_cursor(state: &mut SnipperState, delta: isize, screen_height: f32, scale: f32) -> bool {
+    let visible = state
+        .ocr_panel
+        .as_ref()
+        .map(|panel| panel.visible_rows(screen_height, scale))
+        .unwrap_or(1);
+    if let Some(panel) = state.ocr_panel.as_mut() {
+        panel.move_cursor(delta, visible);
+    }
+    true
 }
 
 /// 为当前 OCR 行创建文本编辑会话，提交时回写该行。

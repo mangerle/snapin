@@ -18,6 +18,7 @@ use winit::window::Window;
 type MagnifierSignature = (bool, u32, bool, f32);
 
 /// 上一帧光标覆盖层快照，用于判断能否只重绘局部脏区并精确恢复旧像素。
+#[derive(Clone, Copy)]
 struct OverlaySnapshot {
     /// 上一帧悬停的窗口；悬停切换会改变整块高亮区域，必须全量重绘
     hovered_window: Option<Rect>,
@@ -225,24 +226,38 @@ impl SnipperPresenter {
             return;
         };
         let (width, height) = (self.render_pixmap.width(), self.render_pixmap.height());
+        self.restore_previous_overlay(&prev, bg_image);
+        self.redraw_incremental_overlay(state, bg_image);
+        let next = self.next_overlay_snapshot(state, width, height);
+        self.sync_overlay_regions(&prev, &next, width, height);
+        self.overlay = Some(next);
+    }
 
-        // 1. 抹除上一帧覆盖层；悬停窗口内的像素用原始屏幕图恢复
-        if let Some(rect) = prev.magnifier_rect {
-            self.restore_covered_region(&rect, prev.hovered_window, bg_image);
+    /// 抹除上一帧覆盖层；悬停窗口内的像素使用原始屏幕图恢复。
+    fn restore_previous_overlay(&mut self, previous: &OverlaySnapshot, bg_image: &RgbaImage) {
+        if let Some(rect) = previous.magnifier_rect {
+            self.restore_covered_region(&rect, previous.hovered_window, bg_image);
         }
-        if let Some(rect) = prev.status_rect {
-            self.restore_covered_region(&rect, prev.hovered_window, bg_image);
+        if let Some(rect) = previous.status_rect {
+            self.restore_covered_region(&rect, previous.hovered_window, bg_image);
         }
+    }
 
-        // 2. 悬停区域未变化，跳过整块镂空恢复，只重绘边框、放大镜与状态提示
+    /// 悬停区域未变化时只重绘边框、放大镜与状态提示。
+    fn redraw_incremental_overlay(&mut self, state: &SnipperState, bg_image: &RgbaImage) {
         let canvas = Self::build_canvas(&self.base_bg, state, bg_image);
-        {
-            let mut pixmap_mut = self.render_pixmap.as_mut();
-            canvas.render_idle_overlay(&mut pixmap_mut, false);
-            canvas.render_status_message(&mut pixmap_mut);
-        }
+        let mut pixmap_mut = self.render_pixmap.as_mut();
+        canvas.render_idle_overlay(&mut pixmap_mut, false);
+        canvas.render_status_message(&mut pixmap_mut);
+    }
 
-        // 3. 新旧覆盖区域逐块重排，保持提交缓冲与画面一致
+    /// 计算本帧覆盖层快照，供下一帧增量恢复。
+    fn next_overlay_snapshot(
+        &self,
+        state: &SnipperState,
+        width: u32,
+        height: u32,
+    ) -> OverlaySnapshot {
         let (cx, cy) = (state.cursor_pos.0 as i32, state.cursor_pos.1 as i32);
         let magnifier_rect = if state.cursor_ready {
             state.magnifier.card_bounds(cx, cy, width, height)
@@ -254,26 +269,33 @@ impl SnipperPresenter {
             width,
             state.toolbar.ui_scale,
         );
-
-        let dirty = [
-            prev.magnifier_rect,
-            prev.status_rect,
+        OverlaySnapshot {
+            hovered_window: state.hovered_window,
             magnifier_rect,
             status_rect,
+            magnifier_signature: magnifier_signature(&state.magnifier),
+        }
+    }
+
+    /// 将新旧覆盖区域同步到提交缓冲，避免局部像素停留在旧帧。
+    fn sync_overlay_regions(
+        &mut self,
+        previous: &OverlaySnapshot,
+        next: &OverlaySnapshot,
+        width: u32,
+        height: u32,
+    ) {
+        let dirty = [
+            previous.magnifier_rect,
+            previous.status_rect,
+            next.magnifier_rect,
+            next.status_rect,
         ];
         for region in dirty.into_iter().flatten() {
             if let Some(bounds) = covering_pixel_bounds(&region, width, height) {
                 swizzle_pixmap_region(&self.render_pixmap, &mut self.frame_words, bounds);
             }
         }
-
-        // 4. 记录本帧覆盖层快照，供下一次增量恢复
-        self.overlay = Some(OverlaySnapshot {
-            hovered_window: state.hovered_window,
-            magnifier_rect,
-            status_rect,
-            magnifier_signature: magnifier_signature(&state.magnifier),
-        });
     }
 
     /// 用底图恢复指定覆盖区域：悬停窗口内使用原始屏幕像素，其余使用预计算底图。

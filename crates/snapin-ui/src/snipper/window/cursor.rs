@@ -5,7 +5,7 @@
 
 use super::annotation_edit::{self, AnnotationDrag};
 use super::events::SnipperState;
-use crate::snipper::selection::{hit_test_handle, DragMode, ResizeHandle, SelectionState};
+use crate::snipper::selection::{hit_test_handle, DragMode, Rect, ResizeHandle, SelectionState};
 use winit::window::{CursorIcon, Window};
 
 /// 根据当前交互状态刷新窗口光标形状。
@@ -24,52 +24,67 @@ fn desired_cursor_icon(state: &SnipperState) -> CursorIcon {
     let SelectionState::Locked { rect, active_drag } = &state.selection else {
         return CursorIcon::Default;
     };
+    let (cx, cy) = (state.cursor_pos.0 as f32, state.cursor_pos.1 as f32);
+    if let Some(icon) = active_drag_cursor(state, active_drag) {
+        return icon;
+    }
+    if let Some(icon) = toolbar_cursor(state, cx, cy) {
+        return icon;
+    }
+    if let Some(icon) = annotation_cursor(state, cx, cy) {
+        return icon;
+    }
+    selection_cursor(state, rect, cx, cy)
+}
 
-    // 拖拽中始终显示当前操作对应的形状，避免光标在拖动过程中闪回箭头
+/// 拖拽过程中固定显示当前操作对应的光标，避免闪回箭头。
+fn active_drag_cursor(state: &SnipperState, active_drag: &Option<DragMode>) -> Option<CursorIcon> {
     if let Some(drag) = &state.annotation_drag {
-        return match drag {
+        return Some(match drag {
             AnnotationDrag::Move { .. } => CursorIcon::Move,
             AnnotationDrag::Resize { handle, .. } => resize_cursor(*handle),
             AnnotationDrag::MagnifierSource { .. } | AnnotationDrag::MagnifierImage { .. } => {
                 CursorIcon::Move
             }
-        };
+        });
     }
-    if let Some(drag) = active_drag {
-        return match drag {
-            DragMode::Move { .. } => CursorIcon::Move,
-            DragMode::Resize(handle) => resize_cursor(*handle),
-        };
-    }
+    active_drag.as_ref().map(|drag| match drag {
+        DragMode::Move { .. } => CursorIcon::Move,
+        DragMode::Resize(handle) => resize_cursor(*handle),
+    })
+}
 
+/// 工具栏拖动、拖动把手与面板区域的光标。
+fn toolbar_cursor(state: &SnipperState, cx: f32, cy: f32) -> Option<CursorIcon> {
     if state.toolbar.is_dragging() {
-        return CursorIcon::Grabbing;
+        return Some(CursorIcon::Grabbing);
     }
-
-    let (cx, cy) = (state.cursor_pos.0 as f32, state.cursor_pos.1 as f32);
     if state.toolbar.hit_test_drag_handle(cx, cy) {
-        return CursorIcon::Grab;
+        return Some(CursorIcon::Grab);
     }
-    if state.toolbar.contains_point(cx, cy) {
-        return CursorIcon::Default;
-    }
+    state
+        .toolbar
+        .contains_point(cx, cy)
+        .then_some(CursorIcon::Default)
+}
 
-    // 标注编辑优先于选区与绘制：已选中标注的手柄可拉伸；默认可整体拖动的只有最新一条，
-    // 按住 Alt 悬停旧标注时同样给出可编辑提示，让"显式解锁"具备可发现性。
+/// 标注手柄、标注主体与锁定旧标注的光标。
+fn annotation_cursor(state: &SnipperState, cx: f32, cy: f32) -> Option<CursorIcon> {
     if let Some(handle) = annotation_edit::hit_test_selected_handle(state, cx, cy) {
-        return resize_cursor(handle);
+        return Some(resize_cursor(handle));
     }
-    let allow_locked_annotation = state.modifiers.alt_key();
+    let allow_locked = state.modifiers.alt_key();
     if annotation_edit::hit_test_selected_body(state, cx, cy)
-        || annotation_edit::hit_test_editable(state, (cx, cy), allow_locked_annotation).is_some()
+        || annotation_edit::hit_test_editable(state, (cx, cy), allow_locked).is_some()
     {
-        return CursorIcon::Move;
+        return Some(CursorIcon::Move);
     }
-    // 锁定的旧标注在未激活绘制工具时不再暗示"可拖动选区"，避免误导点击结果。
-    if state.toolbar.active_tool.is_none() && annotation_edit::hit_test_locked(state, (cx, cy)) {
-        return CursorIcon::Default;
-    }
+    (state.toolbar.active_tool.is_none() && annotation_edit::hit_test_locked(state, (cx, cy)))
+        .then_some(CursorIcon::Default)
+}
 
+/// 根据选区手柄、绘制工具与选区内部决定最终光标。
+fn selection_cursor(state: &SnipperState, rect: &Rect, cx: f32, cy: f32) -> CursorIcon {
     let tolerance = 8.0 * state.toolbar.ui_scale;
     if let Some(handle) = hit_test_handle(rect, cx, cy, tolerance) {
         return resize_cursor(handle);

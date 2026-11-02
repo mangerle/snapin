@@ -121,42 +121,64 @@ impl Magnifier {
         let Some(layout) = self.layout(cursor_x, cursor_y, pixmap.width(), pixmap.height()) else {
             return;
         };
+        MagnifierRenderContext {
+            magnifier: self,
+            pixmap,
+            image: img,
+            cursor: (cursor_x, cursor_y),
+            layout: &layout,
+        }
+        .render();
+    }
+}
 
-        let s = self.ui_scale;
-        let MagnifierLayout {
-            target_x,
-            target_y,
-            box_w,
-            box_h,
-            cell_size,
-            bottom_bar_h,
-            ..
-        } = layout;
+/// 一帧放大镜绘制所需的只读与可变上下文。
+struct MagnifierRenderContext<'a, 'p> {
+    magnifier: &'a Magnifier,
+    pixmap: &'a mut PixmapMut<'p>,
+    image: &'a RgbaImage,
+    cursor: (i32, i32),
+    layout: &'a MagnifierLayout,
+}
 
-        // 1. 逐像素色块绘制；网格线合并为单条路径，避免 225 次独立描边调用
+impl MagnifierRenderContext<'_, '_> {
+    fn render(mut self) {
+        self.render_sample_grid();
+        self.render_center_reticle();
+        self.render_frame();
+    }
+
+    /// 绘制采样色块，并在启用时将网格合并为单条路径。
+    fn render_sample_grid(&mut self) {
         let mut cell_paint = Paint::default();
         let mut grid_path = PathBuilder::new();
         for dy in -SAMPLE_RADIUS..=SAMPLE_RADIUS {
             for dx in -SAMPLE_RADIUS..=SAMPLE_RADIUS {
-                let px = cursor_x + dx;
-                let py = cursor_y + dy;
-                let (r, g, b, _) = self.get_pixel_color(img, px, py);
-
-                let cell_x = target_x + (dx + SAMPLE_RADIUS) as f32 * cell_size;
-                let cell_y = target_y + (dy + SAMPLE_RADIUS) as f32 * cell_size;
-
-                if let Some(rect) = SkiaRect::from_xywh(cell_x, cell_y, cell_size, cell_size) {
+                let (r, g, b, _) = self.magnifier.get_pixel_color(
+                    self.image,
+                    self.cursor.0 + dx,
+                    self.cursor.1 + dy,
+                );
+                let cell_x =
+                    self.layout.target_x + (dx + SAMPLE_RADIUS) as f32 * self.layout.cell_size;
+                let cell_y =
+                    self.layout.target_y + (dy + SAMPLE_RADIUS) as f32 * self.layout.cell_size;
+                if let Some(rect) = SkiaRect::from_xywh(
+                    cell_x,
+                    cell_y,
+                    self.layout.cell_size,
+                    self.layout.cell_size,
+                ) {
                     cell_paint.set_color_rgba8(r, g, b, 255);
-                    pixmap.fill_rect(rect, &cell_paint, Transform::identity(), None);
-
-                    if self.show_grid {
+                    self.pixmap
+                        .fill_rect(rect, &cell_paint, Transform::identity(), None);
+                    if self.magnifier.show_grid {
                         grid_path.push_rect(rect);
                     }
                 }
             }
         }
-
-        if self.show_grid {
+        if self.magnifier.show_grid {
             if let Some(path) = grid_path.finish() {
                 let mut grid_paint = Paint::default();
                 grid_paint.set_color_rgba8(0, 0, 0, 35);
@@ -164,51 +186,70 @@ impl Magnifier {
                     width: 0.5,
                     ..Default::default()
                 };
-                pixmap.stroke_path(&path, &grid_paint, &stroke, Transform::identity(), None);
+                self.pixmap
+                    .stroke_path(&path, &grid_paint, &stroke, Transform::identity(), None);
             }
         }
+    }
 
-        // 2. 绘制中心十字瞄准准星
-        let center_x = target_x + SAMPLE_RADIUS as f32 * cell_size;
-        let center_y = target_y + SAMPLE_RADIUS as f32 * cell_size;
-        if let Some(rect) = SkiaRect::from_xywh(center_x, center_y, cell_size, cell_size) {
-            let mut stroke_paint = Paint::default();
-            stroke_paint.set_color_rgba8(0, 174, 255, 255);
-            let stroke = Stroke {
-                width: 2.0 * s,
-                ..Default::default()
-            };
-            let mut pb = PathBuilder::new();
-            pb.push_rect(rect);
-            if let Some(path) = pb.finish() {
-                pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
-            }
+    /// 绘制中心十字瞄准准星。
+    fn render_center_reticle(&mut self) {
+        let center_x = self.layout.target_x + SAMPLE_RADIUS as f32 * self.layout.cell_size;
+        let center_y = self.layout.target_y + SAMPLE_RADIUS as f32 * self.layout.cell_size;
+        let Some(rect) = SkiaRect::from_xywh(
+            center_x,
+            center_y,
+            self.layout.cell_size,
+            self.layout.cell_size,
+        ) else {
+            return;
+        };
+        let mut paint = Paint::default();
+        paint.set_color_rgba8(0, 174, 255, 255);
+        let stroke = Stroke {
+            width: 2.0 * self.magnifier.ui_scale,
+            ..Default::default()
+        };
+        let mut builder = PathBuilder::new();
+        builder.push_rect(rect);
+        if let Some(path) = builder.finish() {
+            self.pixmap
+                .stroke_path(&path, &paint, &stroke, Transform::identity(), None);
         }
+    }
 
-        // 3. 绘制外边框与底部色值展示卡片背景
-        if let Some(border_rect) =
-            SkiaRect::from_xywh(target_x, target_y, box_w, box_h + bottom_bar_h)
-        {
-            let mut border_paint = Paint::default();
-            border_paint.set_color_rgba8(20, 20, 20, 220);
-            // 底部颜色文本卡槽
-            if let Some(text_bg) =
-                SkiaRect::from_xywh(target_x, target_y + box_h, box_w, bottom_bar_h)
-            {
-                pixmap.fill_rect(text_bg, &border_paint, Transform::identity(), None);
-            }
-
-            let stroke = Stroke {
-                width: 2.0 * s,
-                ..Default::default()
-            };
-            let mut outline_paint = Paint::default();
-            outline_paint.set_color_rgba8(80, 80, 80, 255);
-            let mut pb = PathBuilder::new();
-            pb.push_rect(border_rect);
-            if let Some(path) = pb.finish() {
-                pixmap.stroke_path(&path, &outline_paint, &stroke, Transform::identity(), None);
-            }
+    /// 绘制卡片外框与底部色值展示背景。
+    fn render_frame(&mut self) {
+        let Some(border_rect) = SkiaRect::from_xywh(
+            self.layout.target_x,
+            self.layout.target_y,
+            self.layout.box_w,
+            self.layout.box_h + self.layout.bottom_bar_h,
+        ) else {
+            return;
+        };
+        let mut background = Paint::default();
+        background.set_color_rgba8(20, 20, 20, 220);
+        if let Some(text_bg) = SkiaRect::from_xywh(
+            self.layout.target_x,
+            self.layout.target_y + self.layout.box_h,
+            self.layout.box_w,
+            self.layout.bottom_bar_h,
+        ) {
+            self.pixmap
+                .fill_rect(text_bg, &background, Transform::identity(), None);
+        }
+        let mut outline = Paint::default();
+        outline.set_color_rgba8(80, 80, 80, 255);
+        let stroke = Stroke {
+            width: 2.0 * self.magnifier.ui_scale,
+            ..Default::default()
+        };
+        let mut builder = PathBuilder::new();
+        builder.push_rect(border_rect);
+        if let Some(path) = builder.finish() {
+            self.pixmap
+                .stroke_path(&path, &outline, &stroke, Transform::identity(), None);
         }
     }
 }

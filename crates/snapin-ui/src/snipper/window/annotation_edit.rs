@@ -113,66 +113,11 @@ pub fn select_latest(state: &mut SnipperState) {
 /// 返回 true 表示事件已被标注编辑消费；点击不可编辑区域返回 false 并取消当前选中，
 /// 让选区移动、重新框选与继续绘制逻辑执行。
 pub fn handle_press(state: &mut SnipperState, cx: f32, cy: f32, allow_locked: bool) -> bool {
-    if let Some(handle) = hit_test_selected_handle(state, cx, cy) {
-        let Some(index) = state.selected_annotation else {
-            return false;
-        };
-        let bounds = selected_bounds(state);
-        let original = state.annotations.shape_at(index.get()).cloned();
-        if let (Some(original_bounds), Some(original)) = (bounds, original) {
-            state.annotation_drag = Some(AnnotationDrag::Resize {
-                handle,
-                original_bounds,
-                original,
-            });
-            return true;
-        }
-    }
-
-    if let Some(index) = state.selected_annotation {
-        if let Some(original) = state.annotations.shape_at(index.get()).cloned() {
-            if let AnnotationShape::Magnifier(action) = &original {
-                let source = Rect {
-                    x: action.source.0,
-                    y: action.source.1,
-                    width: action.source.2,
-                    height: action.source.3,
-                };
-                let dest = Rect {
-                    x: action.dest.0,
-                    y: action.dest.1,
-                    width: action.dest.2,
-                    height: action.dest.3,
-                };
-                if source.contains(cx, cy) {
-                    state.annotation_drag = Some(AnnotationDrag::MagnifierSource {
-                        origin: (cx, cy),
-                        original,
-                    });
-                    return true;
-                }
-                if dest.contains(cx, cy) {
-                    state.annotation_drag = Some(AnnotationDrag::MagnifierImage {
-                        origin: (cx, cy),
-                        original,
-                    });
-                    return true;
-                }
-            }
-        }
-    }
-
-    // 已选中的标注（可能是 Alt 解锁的旧图元）允许继续拖动，不再要求重复按住 Alt。
-    if hit_test_selected_body(state, cx, cy) {
-        if let Some(index) = state.selected_annotation {
-            if let Some(original) = state.annotations.shape_at(index.get()).cloned() {
-                state.annotation_drag = Some(AnnotationDrag::Move {
-                    origin: (cx, cy),
-                    original,
-                });
-                return true;
-            }
-        }
+    if try_start_handle_resize(state, cx, cy)
+        || try_start_magnifier_drag(state, cx, cy)
+        || try_start_selected_move(state, cx, cy)
+    {
+        return true;
     }
 
     if let Some(index) = hit_test_editable(state, (cx, cy), allow_locked) {
@@ -185,9 +130,88 @@ pub fn handle_press(state: &mut SnipperState, cx: f32, cy: f32, allow_locked: bo
         }
         return true;
     }
-
     clear(state);
     false
+}
+
+/// 开始通过包围盒手柄拉伸已选标注。
+fn try_start_handle_resize(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
+    let Some(handle) = hit_test_selected_handle(state, cx, cy) else {
+        return false;
+    };
+    let Some(index) = state.selected_annotation else {
+        return false;
+    };
+    let Some(original_bounds) = selected_bounds(state) else {
+        return false;
+    };
+    let Some(original) = state.annotations.shape_at(index.get()).cloned() else {
+        return false;
+    };
+    state.annotation_drag = Some(AnnotationDrag::Resize {
+        handle,
+        original_bounds,
+        original,
+    });
+    true
+}
+
+/// 放大镜的源区域和放大图可分别拖动。
+fn try_start_magnifier_drag(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
+    let Some(index) = state.selected_annotation else {
+        return false;
+    };
+    let Some(original) = state.annotations.shape_at(index.get()).cloned() else {
+        return false;
+    };
+    let AnnotationShape::Magnifier(action) = &original else {
+        return false;
+    };
+    let source = Rect {
+        x: action.source.0,
+        y: action.source.1,
+        width: action.source.2,
+        height: action.source.3,
+    };
+    let dest = Rect {
+        x: action.dest.0,
+        y: action.dest.1,
+        width: action.dest.2,
+        height: action.dest.3,
+    };
+    if source.contains(cx, cy) {
+        state.annotation_drag = Some(AnnotationDrag::MagnifierSource {
+            origin: (cx, cy),
+            original,
+        });
+        return true;
+    }
+    if dest.contains(cx, cy) {
+        state.annotation_drag = Some(AnnotationDrag::MagnifierImage {
+            origin: (cx, cy),
+            original,
+        });
+        return true;
+    }
+    false
+}
+
+/// 已选中的标注允许继续整体拖动，不要求重复按住 Alt。
+fn try_start_selected_move(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
+    if !hit_test_selected_body(state, cx, cy) {
+        return false;
+    }
+    let Some(index) = state.selected_annotation else {
+        return false;
+    };
+    let Some(original) = state.annotations.shape_at(index.get()).cloned() else {
+        return false;
+    };
+    state.annotation_drag = Some(AnnotationDrag::Move {
+        origin: (cx, cy),
+        original,
+    });
+    true
 }
 
 /// 处理标注拖拽过程中的鼠标移动；返回 true 表示画面已变化需要重绘。

@@ -17,70 +17,49 @@ pub fn calculate_drag(rect: &Rect, drag: &DragMode, cursor: (f32, f32)) -> (Rect
             },
         ),
         DragMode::Resize(handle) => {
-            let cx = cursor.0;
-            let cy = cursor.1;
-            let new_rect = match handle {
-                ResizeHandle::TopLeft => {
-                    let anchor = (rect.x + rect.width, rect.y + rect.height);
-                    Rect::from_points(anchor, (cx, cy))
-                }
-                ResizeHandle::Top => {
-                    let anchor_y = rect.y + rect.height;
-                    let y1 = cy.min(anchor_y);
-                    let y2 = cy.max(anchor_y);
-                    Rect {
-                        x: rect.x,
-                        y: y1,
-                        width: rect.width,
-                        height: (y2 - y1).max(1.0),
-                    }
-                }
-                ResizeHandle::TopRight => {
-                    let anchor = (rect.x, rect.y + rect.height);
-                    Rect::from_points(anchor, (cx, cy))
-                }
-                ResizeHandle::Right => {
-                    let x1 = rect.x.min(cx);
-                    let x2 = rect.x.max(cx);
-                    Rect {
-                        x: x1,
-                        y: rect.y,
-                        width: (x2 - x1).max(1.0),
-                        height: rect.height,
-                    }
-                }
-                ResizeHandle::BottomRight => {
-                    let anchor = (rect.x, rect.y);
-                    Rect::from_points(anchor, (cx, cy))
-                }
-                ResizeHandle::Bottom => {
-                    let y1 = rect.y.min(cy);
-                    let y2 = rect.y.max(cy);
-                    Rect {
-                        x: rect.x,
-                        y: y1,
-                        width: rect.width,
-                        height: (y2 - y1).max(1.0),
-                    }
-                }
-                ResizeHandle::BottomLeft => {
-                    let anchor = (rect.x + rect.width, rect.y);
-                    Rect::from_points(anchor, (cx, cy))
-                }
-                ResizeHandle::Left => {
-                    let anchor_x = rect.x + rect.width;
-                    let x1 = cx.min(anchor_x);
-                    let x2 = cx.max(anchor_x);
-                    Rect {
-                        x: x1,
-                        y: rect.y,
-                        width: (x2 - x1).max(1.0),
-                        height: rect.height,
-                    }
-                }
-            };
+            let new_rect = resize_rect(rect, *handle, cursor);
             (new_rect, DragMode::Resize(*handle))
         }
+    }
+}
+
+/// 按手柄方向调整矩形，保持对角或对边锚点不动。
+fn resize_rect(rect: &Rect, handle: ResizeHandle, cursor: (f32, f32)) -> Rect {
+    match handle {
+        ResizeHandle::TopLeft => {
+            Rect::from_points((rect.x + rect.width, rect.y + rect.height), cursor)
+        }
+        ResizeHandle::TopRight => Rect::from_points((rect.x, rect.y + rect.height), cursor),
+        ResizeHandle::BottomRight => Rect::from_points((rect.x, rect.y), cursor),
+        ResizeHandle::BottomLeft => Rect::from_points((rect.x + rect.width, rect.y), cursor),
+        ResizeHandle::Top => resize_vertical(rect, cursor.1, rect.y + rect.height),
+        ResizeHandle::Bottom => resize_vertical(rect, cursor.1, rect.y),
+        ResizeHandle::Left => resize_horizontal(rect, cursor.0, rect.x + rect.width),
+        ResizeHandle::Right => resize_horizontal(rect, cursor.0, rect.x),
+    }
+}
+
+/// 上下边只改变高度，左右边界保持不变。
+fn resize_vertical(rect: &Rect, cursor_y: f32, anchor_y: f32) -> Rect {
+    let y1 = cursor_y.min(anchor_y);
+    let y2 = cursor_y.max(anchor_y);
+    Rect {
+        x: rect.x,
+        y: y1,
+        width: rect.width,
+        height: (y2 - y1).max(1.0),
+    }
+}
+
+/// 左右边只改变宽度，上下边界保持不变。
+fn resize_horizontal(rect: &Rect, cursor_x: f32, anchor_x: f32) -> Rect {
+    let x1 = cursor_x.min(anchor_x);
+    let x2 = cursor_x.max(anchor_x);
+    Rect {
+        x: x1,
+        y: rect.y,
+        width: (x2 - x1).max(1.0),
+        height: rect.height,
     }
 }
 
