@@ -69,7 +69,7 @@ impl SnipperView {
             job_sink,
             clipboard_events,
         });
-        apply_ui_scale(&window, &mut state, screen_w, screen_h);
+        super::apply_ui_scale(&window, &mut state, screen_w, screen_h);
 
         window.request_redraw();
         Ok(Self {
@@ -146,28 +146,6 @@ fn build_initial_state(init: SnipperStateInit) -> SnipperState {
     state.jobs.runtime = Some(Arc::new(SnipperJobRuntime::new(runtime.media, job_sink)));
     state.jobs.clipboard_events = clipboard_events;
     state
-}
-
-/// 按窗口实际缩放因子与屏幕尺寸初始化工具栏和放大镜缩放。
-fn apply_ui_scale(window: &Window, state: &mut SnipperState, screen_w: u32, screen_h: u32) {
-    let raw_scale = window.scale_factor() as f32;
-    let auto_scale = if raw_scale > 1.05 {
-        raw_scale
-    } else if screen_w >= 2560 {
-        2.0
-    } else {
-        1.0
-    } * state.session.config.interface.toolbar_scale;
-    state.editor.annotation.toolbar.ui_scale = auto_scale;
-    state.viewport.magnifier.ui_scale = auto_scale;
-
-    if let SelectionState::Locked { rect, .. } = &state.viewport.selection {
-        state
-            .editor
-            .annotation
-            .toolbar
-            .update_layout(rect, screen_w as f32, screen_h as f32);
-    }
 }
 
 impl SnipperView {

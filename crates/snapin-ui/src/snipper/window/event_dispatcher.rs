@@ -59,7 +59,6 @@ impl SnipperEventDispatcher {
     }
 }
 
-/// 执行一帧渲染并记录呈现失败。
 /// 处理窗口尺寸变化，重建呈现器缓冲并安排下一次重绘。
 fn handle_resize(context: &mut SnipperDispatchContext<'_>, size: PhysicalSize<u32>) {
     if size.width == 0 || size.height == 0 {
@@ -76,9 +75,11 @@ fn handle_resize(context: &mut SnipperDispatchContext<'_>, size: PhysicalSize<u3
         );
         return;
     }
+    super::apply_ui_scale(context.window, context.state, size.width, size.height);
     context.window.request_redraw();
 }
 
+/// 执行一帧渲染并记录呈现失败。
 fn render_frame(context: &mut SnipperDispatchContext<'_>) {
     if let Err(error) = context
         .presenter
