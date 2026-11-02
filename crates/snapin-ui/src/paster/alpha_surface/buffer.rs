@@ -94,6 +94,42 @@ pub(super) struct ShmBuffer {
     released: Arc<AtomicBool>,
 }
 
+/// 创建带封存标志且已设定长度的共享内存文件。
+fn create_backing_file(byte_len: i32) -> Result<File, UiError> {
+    let fd = rustix::fs::memfd_create(
+        c"snapin-argb-shm",
+        rustix::fs::MemfdFlags::CLOEXEC | rustix::fs::MemfdFlags::ALLOW_SEALING,
+    )
+    .map_err(|error| UiError::ShmSurface {
+        message: format!("创建共享内存 memfd 失败，长度: {byte_len} 字节，原因: {error}"),
+    })?;
+    // 封存 F_SEAL_SHRINK 防止缓冲区被意外收缩（合成器按注册时的固定尺寸读取共享内存），
+    // 封存 F_SEAL_SEAL 之后不再允许追加其它封存标志。
+    rustix::fs::fcntl_add_seals(
+        &fd,
+        rustix::fs::SealFlags::SHRINK | rustix::fs::SealFlags::SEAL,
+    )
+    .map_err(|error| UiError::ShmSurface {
+        message: format!("为共享内存 memfd 添加封存标志失败，原因: {error}"),
+    })?;
+    let file = File::from(fd);
+    file.set_len(byte_len as u64)
+        .map_err(|error| UiError::ShmSurface {
+            message: format!("设置共享内存长度失败，长度: {byte_len} 字节，原因: {error}"),
+        })?;
+    Ok(file)
+}
+
+/// 将已定长的共享内存文件映射为可写像素缓冲。
+fn map_backing_file(file: &File, byte_len: i32) -> Result<MmapMut, UiError> {
+    // SAFETY: `MmapMut::map_mut` 要求调用方保证映射存续期内文件不会被并发修改长度。
+    // 此处 memfd 已封存 F_SEAL_SHRINK 与 F_SEAL_SEAL，只有 ShmBuffer 持有其文件描述符与映射，
+    // 长度在整个缓冲区生命周期内恒定不变。
+    unsafe { MmapMut::map_mut(file) }.map_err(|error| UiError::ShmSurface {
+        message: format!("映射共享内存失败，长度: {byte_len} 字节，原因: {error}"),
+    })
+}
+
 impl ShmBuffer {
     /// 创建 memfd 共享内存并注册对应的 `wl_shm_pool` 与 `wl_buffer`（格式固定 `Argb8888`）。
     pub(super) fn new(
@@ -103,36 +139,8 @@ impl ShmBuffer {
         height: i32,
     ) -> Result<Self, UiError> {
         let byte_len = buffer_byte_len(width, height)?;
-
-        let fd = rustix::fs::memfd_create(
-            c"snapin-argb-shm",
-            rustix::fs::MemfdFlags::CLOEXEC | rustix::fs::MemfdFlags::ALLOW_SEALING,
-        )
-        .map_err(|e| UiError::ShmSurface {
-            message: format!("创建共享内存 memfd 失败，长度: {byte_len} 字节，原因: {e}"),
-        })?;
-        // 封存 F_SEAL_SHRINK 防止缓冲区被意外收缩（合成器按注册时的固定尺寸读取共享内存），
-        // 封存 F_SEAL_SEAL 之后不再允许追加其它封存标志
-        rustix::fs::fcntl_add_seals(
-            &fd,
-            rustix::fs::SealFlags::SHRINK | rustix::fs::SealFlags::SEAL,
-        )
-        .map_err(|e| UiError::ShmSurface {
-            message: format!("为共享内存 memfd 添加封存标志失败，原因: {e}"),
-        })?;
-        let file = File::from(fd);
-        file.set_len(byte_len as u64)
-            .map_err(|e| UiError::ShmSurface {
-                message: format!("设置共享内存长度失败，长度: {byte_len} 字节，原因: {e}"),
-            })?;
-
-        // SAFETY: `MmapMut::map_mut` 要求调用方保证映射存续期内文件不会被并发修改长度。
-        // 此处满足该前提：memfd 已封存 F_SEAL_SHRINK 与 F_SEAL_SEAL，只有本结构体持有其
-        // 文件描述符与映射，长度在整个缓冲区生命周期内恒定不变。
-        let map = unsafe { MmapMut::map_mut(&file) }.map_err(|e| UiError::ShmSurface {
-            message: format!("映射共享内存失败，长度: {byte_len} 字节，原因: {e}"),
-        })?;
-
+        let file = create_backing_file(byte_len)?;
+        let map = map_backing_file(&file, byte_len)?;
         let pool = shm.create_pool(file.as_fd(), byte_len, qh, ());
         let released = Arc::new(AtomicBool::new(true));
         let buffer = pool.create_buffer(
@@ -144,7 +152,6 @@ impl ShmBuffer {
             qh,
             Arc::clone(&released),
         );
-
         Ok(Self {
             pool,
             buffer,
