@@ -1,6 +1,6 @@
 //! 主工具栏与拖动手柄绘制。
 
-use super::super::icons::{make_paint, render_item_icon};
+use super::super::icons::{make_paint, render_item_icon, IconRenderSpec};
 use super::super::items::{tool_descriptor, Tool, ToolbarAction, ToolbarItem};
 use super::super::metrics::{divider_width, drag_handle_width, has_separator_before, padding};
 use super::super::Toolbar;
@@ -76,10 +76,12 @@ pub(super) fn render_main_buttons(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
 
         render_item_icon(
             pixmap,
-            display_item,
-            &btn_rect,
-            s,
-            toolbar.sub_options.color,
+            IconRenderSpec {
+                item: display_item,
+                rect: &btn_rect,
+                scale: s,
+                active_color: toolbar.sub_options.color,
+            },
         );
     }
 }
