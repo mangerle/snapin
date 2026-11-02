@@ -81,6 +81,8 @@ pub enum TaskPool {
     Process,
     /// 常驻维护循环（更新巡检等）
     Maintenance,
+    /// 剪贴板轮询、缓存索引与状态文件等独立阻塞 I/O
+    Io,
 }
 
 impl TaskPool {
@@ -91,6 +93,7 @@ impl TaskPool {
             Self::Notify => 2,
             Self::Process => 3,
             Self::Maintenance => 4,
+            Self::Io => 5,
         }
     }
 }
@@ -137,7 +140,7 @@ impl TaskHandle {
 struct RuntimeInner {
     handle: Handle,
     tracker: TaskTracker,
-    pools: [Pool; 5],
+    pools: [Pool; 6],
     cancel: CancellationToken,
     shutting_down: AtomicBool,
     /// 串行化任务登记与停机切换，消除“检查未停机后又把任务登记到已关闭 Tracker”的窗口。
@@ -171,7 +174,8 @@ impl TaskRuntime {
 
     /// 获取进程级共享任务运行时；首次调用时创建并常驻。
     ///
-    /// 共享实例使用固定的分池容量（默认 16、媒体 4、通知 4、进程 8、维护 2），
+    /// 共享实例使用固定的分池容量（默认 16、媒体 8、通知 4、进程 8、维护 2、
+    /// 独立 I/O 4），
     /// 避免不同模块按各自参数竞争首次初始化而得到不可预测的契约。用于没有
     /// Tokio 上下文的平台适配代码（例如同步的系统命令派生）。创建失败时返回
     /// `None`，调用方应降级为同步执行或记录警告。
@@ -216,6 +220,7 @@ impl TaskRuntime {
             Pool::new(4),
             Pool::new(8),
             Pool::new(2),
+            Pool::new(4),
         ];
         Self {
             inner: Arc::new(RuntimeInner {

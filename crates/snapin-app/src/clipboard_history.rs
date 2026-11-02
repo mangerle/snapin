@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use snapin_core::config::HexColor;
 use snapin_platform::{read_clipboard_image, read_clipboard_text};
-use snapin_runtime::{TaskPool, TaskRuntime};
+use snapin_runtime::{TaskPool, TaskRuntime, TaskRuntimeError};
 use snapin_storage::{append_clipboard_image, append_clipboard_text, ClipboardEntryKind};
 use std::time::Duration;
 
@@ -20,25 +20,39 @@ const POLL_INTERVAL: Duration = Duration::from_millis(500);
 /// 统一后台运行时拒绝任务时返回错误。
 pub fn run_clipboard_history_monitor(runtime: &TaskRuntime) -> Result<()> {
     let cancel = runtime.cancellation_token();
+    let runtime = runtime.clone();
     runtime
-        .spawn_in(TaskPool::Media, async move {
+        .clone()
+        .spawn_in(TaskPool::Maintenance, async move {
             let mut last_fingerprint = String::new();
             loop {
                 tokio::select! {
                     _ = cancel.cancelled() => break,
                     _ = tokio::time::sleep(POLL_INTERVAL) => {}
                 }
-                let snapshot = tokio::task::spawn_blocking(read_snapshot).await;
-                let Ok(Some(snapshot)) = snapshot else {
-                    continue;
+                let read = runtime.run_blocking_in(TaskPool::Io, read_snapshot);
+                let (fingerprint, snapshot) = tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    result = read => match result {
+                        Ok(Some(snapshot)) => snapshot,
+                        Ok(None) => continue,
+                        Err(TaskRuntimeError::ShuttingDown) => break,
+                        Err(error) => {
+                            tracing::debug!("读取剪贴板快照任务未完成: {error}");
+                            continue;
+                        }
+                    },
                 };
-                let fingerprint = snapshot.fingerprint();
                 if fingerprint == last_fingerprint {
                     continue;
                 }
                 last_fingerprint = fingerprint;
-                if let Err(error) = snapshot.persist().await {
-                    tracing::warn!("保存剪贴板历史失败: {error:#}");
+                let persist =
+                    runtime.run_blocking_in(TaskPool::Io, move || persist_snapshot(snapshot));
+                match persist.await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => tracing::warn!("保存剪贴板历史失败: {error:#}"),
+                    Err(error) => tracing::warn!("保存剪贴板历史任务未完成: {error}"),
                 }
             }
         })
@@ -71,19 +85,27 @@ impl ClipboardSnapshot {
             }
         }
     }
-
-    async fn persist(self) -> Result<()> {
-        tokio::task::spawn_blocking(move || match self {
-            Self::Text { text, kind } => append_clipboard_text(&text, kind).map(|_| ()),
-            Self::Image(image) => append_clipboard_image(&image).map(|_| ()),
-        })
-        .await
-        .context("剪贴板历史写入任务异常")?
-        .map_err(anyhow::Error::new)
-    }
 }
 
-fn read_snapshot() -> Option<ClipboardSnapshot> {
+fn persist_snapshot(snapshot: ClipboardSnapshot) -> Result<()> {
+    match snapshot {
+        ClipboardSnapshot::Text { text, kind } => {
+            append_clipboard_text(&text, kind).map_err(anyhow::Error::new)?;
+        }
+        ClipboardSnapshot::Image(image) => {
+            append_clipboard_image(&image).map_err(anyhow::Error::new)?;
+        }
+    }
+    Ok(())
+}
+
+fn read_snapshot() -> Option<(String, ClipboardSnapshot)> {
+    let snapshot = read_snapshot_value()?;
+    let fingerprint = snapshot.fingerprint();
+    Some((fingerprint, snapshot))
+}
+
+fn read_snapshot_value() -> Option<ClipboardSnapshot> {
     if let Ok(Some(text)) = read_clipboard_text() {
         let trimmed = text.trim();
         if !trimmed.is_empty() {
