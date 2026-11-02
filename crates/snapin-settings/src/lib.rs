@@ -27,7 +27,7 @@ use snapin_platform::{
     pick_config_import_path, sync_autostart, sync_hotkeys_to_gnome, write_image_to_clipboard,
     write_text_to_clipboard, PlatformError,
 };
-use snapin_runtime::{CancellationToken, TaskRuntime};
+use snapin_runtime::{CancellationToken, TaskPool, TaskRuntime};
 use snapin_storage::{
     clear_clipboard_history, load_clipboard_history, load_clipboard_image, ClipboardEntry,
     ClipboardEntryKind,
@@ -132,9 +132,7 @@ fn initialize_settings_state(
     snapin_foundation::i18n::set_language(config.general.language);
     apply_language(config.general.language);
     sync_config_to_window(window, &config);
-    if let Err(error) = sync_hotkeys_to_gnome(&config.hotkeys) {
-        tracing::warn!("进入设置中心同步系统全局快捷键失败: {error}");
-    }
+    schedule_hotkey_sync(runtime, &config.hotkeys);
     let config_store = Arc::new(ConfigStore::new(config));
     callbacks::register(window, config_store.clone(), runtime.clone());
     update_controller::register_update_callbacks(
@@ -144,6 +142,19 @@ fn initialize_settings_state(
         config_store,
     );
     Ok(())
+}
+
+/// 将进入设置中心时的快捷键同步提交到 I/O 池，避免首帧渲染被系统命令阻塞。
+fn schedule_hotkey_sync(runtime: &TaskRuntime, hotkeys: &snapin_config::config::HotkeyConfig) {
+    let hotkeys = hotkeys.clone();
+    let spawn_result = runtime.spawn_blocking_in(TaskPool::Io, move || {
+        if let Err(error) = sync_hotkeys_to_gnome(&hotkeys) {
+            tracing::warn!("进入设置中心同步系统全局快捷键失败: {error}");
+        }
+    });
+    if let Err(error) = spawn_result {
+        tracing::warn!("提交设置中心快捷键同步任务失败: {error}");
+    }
 }
 
 /// 等待在途保存任务收尾，避免退出路径与配置写入并发。
