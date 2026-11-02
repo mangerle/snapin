@@ -24,7 +24,13 @@ pub fn get_default_config_path() -> Result<PathBuf, CoreError> {
     Ok(crate::paths::AppPaths::default_config_file())
 }
 
-/// 加载配置文件；若文件不存在，则自动初始化并保存一套默认配置到磁盘
+/// 加载配置文件；若文件不存在，则自动初始化并保存一套默认配置到磁盘。
+///
+/// # Errors
+///
+/// 文件读取失败、TOML 语法或字段非法、schema 版本过新，以及重复快捷键等语义
+/// 校验失败时返回 [`CoreError`]。语法损坏会先备份再重建；语义错误则保留原文件
+/// 并拒绝继续，避免把用户可修复的配置静默替换成默认值。
 pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreError> {
     let target_path = match custom_path {
         Some(p) => p.to_path_buf(),
@@ -60,6 +66,7 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreE
     };
     let file = file.migrate(&target_path)?;
     let config = file.config.sanitized();
+    config.validate()?;
 
     tighten_config_permissions(&target_path);
     tracing::debug!("成功加载配置文件: {:?}", target_path);
@@ -317,6 +324,27 @@ provider = "deepl"
         duplicate.hotkeys.paste = duplicate.hotkeys.snip.clone();
         assert!(save_config(&duplicate, &config_file).is_err());
         assert!(!config_file.exists(), "校验失败不得写出配置文件");
+    }
+
+    /// 已有配置进入系统前必须完成语义校验，不能把重复快捷键带入运行期。
+    #[test]
+    fn test_load_rejects_semantically_invalid_config_without_rewriting() {
+        let temp_dir = tempdir().expect("创建临时目录失败");
+        let config_file = temp_dir.path().join("config.toml");
+        let original = format!(
+            "schema_version = {CONFIG_SCHEMA_VERSION}\n[hotkeys]\nsnip = \"Ctrl+Alt+A\"\ntranslate = \"Ctrl+Alt+A\"\n"
+        );
+        std::fs::write(&config_file, &original).expect("写入重复快捷键配置失败");
+
+        let error =
+            load_or_create_config(Some(&config_file)).expect_err("重复快捷键必须在加载边界被拒绝");
+
+        assert!(matches!(error, CoreError::ValidationError { .. }));
+        assert_eq!(
+            std::fs::read_to_string(&config_file).expect("读取原配置失败"),
+            original,
+            "语义校验失败不得改写用户原配置"
+        );
     }
 
     #[test]
