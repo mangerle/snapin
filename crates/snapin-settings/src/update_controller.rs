@@ -18,7 +18,7 @@ use snapin_platform::start_daemon_process;
 use snapin_runtime::{CancellationToken, TaskPool, TaskRuntime};
 use snapin_updater::{DownloadedUpdate, UpdateEvent, UpdateInfo, UpdateStage};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 /// 更新状态机定义（与 Slint about_tab.slint 中的 update_status 严格对齐）
@@ -66,8 +66,71 @@ struct UpdateContext {
     runtime: TaskRuntime,
     cancel: CancellationToken,
     config: Arc<ConfigStore>,
-    pending_update: Arc<Mutex<Option<UpdateInfo>>>,
-    downloaded_update: Arc<Mutex<Option<DownloadedUpdate>>>,
+    artifact: Arc<Mutex<UpdateArtifact>>,
+}
+
+/// 当前可用的更新载荷。
+///
+/// 使用单一枚举替代两个独立 `Option`，确保“待下载版本”和“已下载安装包”
+/// 不可能同时存在，也把安装中的状态纳入同一台状态机，阻止重复安装。
+#[derive(Default)]
+enum UpdateArtifact {
+    #[default]
+    Empty,
+    Available(UpdateInfo),
+    Downloaded(DownloadedUpdate),
+    Installing,
+}
+
+/// 安装按钮尝试读取载荷后的状态机结果。
+enum InstallStart {
+    Started(Box<DownloadedUpdate>),
+    AlreadyInstalling,
+    Unavailable,
+}
+
+impl UpdateArtifact {
+    fn begin_install(&mut self) -> InstallStart {
+        if matches!(*self, Self::Installing) {
+            return InstallStart::AlreadyInstalling;
+        }
+        match std::mem::take(self) {
+            Self::Downloaded(downloaded) => {
+                *self = Self::Installing;
+                InstallStart::Started(Box::new(downloaded))
+            }
+            _ => InstallStart::Unavailable,
+        }
+    }
+}
+
+impl UpdateContext {
+    fn lock_artifact(&self) -> MutexGuard<'_, UpdateArtifact> {
+        self.artifact
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn replace_artifact(&self, artifact: UpdateArtifact) {
+        *self.lock_artifact() = artifact;
+    }
+
+    fn available_update(&self) -> Option<UpdateInfo> {
+        match &*self.lock_artifact() {
+            UpdateArtifact::Available(update) => Some(update.clone()),
+            UpdateArtifact::Empty | UpdateArtifact::Downloaded(_) | UpdateArtifact::Installing => {
+                None
+            }
+        }
+    }
+
+    fn begin_install(&self) -> InstallStart {
+        self.lock_artifact().begin_install()
+    }
+
+    fn restore_downloaded(&self, downloaded: DownloadedUpdate) {
+        self.replace_artifact(UpdateArtifact::Downloaded(downloaded));
+    }
 }
 
 /// 注册自更新相关的界面回调与事件调度器。
@@ -84,8 +147,7 @@ pub(crate) fn register_update_callbacks(
         runtime,
         cancel,
         config,
-        pending_update: Arc::new(Mutex::new(None::<UpdateInfo>)),
-        downloaded_update: Arc::new(Mutex::new(None::<DownloadedUpdate>)),
+        artifact: Arc::new(Mutex::new(UpdateArtifact::Empty)),
     };
 
     setup_check_callback(win, context.clone());
@@ -147,14 +209,13 @@ fn apply_check_result(
         Ok(Some(update)) => {
             let version = update.version();
             let notes = update.notes().unwrap_or_default();
-            if let Ok(mut guard) = context.pending_update.lock() {
-                *guard = Some(update);
-            }
+            context.replace_artifact(UpdateArtifact::Available(update));
             window.set_update_status(UpdateUiStatus::Available as i32);
             window.set_update_version(SharedString::from(version));
             window.set_update_notes(SharedString::from(notes));
         }
         Ok(None) => {
+            context.replace_artifact(UpdateArtifact::Empty);
             window.set_update_status(UpdateUiStatus::UpToDate as i32);
             schedule_status_reset(
                 weak.clone(),
@@ -220,11 +281,7 @@ fn handle_download_click(weak: &slint::Weak<SettingsWindow>, context: &UpdateCon
     if window.get_update_status() == UpdateUiStatus::Downloading as i32 {
         return;
     }
-    let update = context
-        .pending_update
-        .lock()
-        .ok()
-        .and_then(|guard| guard.clone());
+    let update = context.available_update();
     let Some(update) = update else {
         window.set_update_status(UpdateUiStatus::Error as i32);
         window.set_update_status_text(SharedString::from("未找到待下载的更新实体"));
@@ -311,9 +368,7 @@ fn apply_download_result(
 ) {
     match result {
         Ok(downloaded) => {
-            if let Ok(mut guard) = context.downloaded_update.lock() {
-                *guard = Some(downloaded);
-            }
+            context.replace_artifact(UpdateArtifact::Downloaded(downloaded));
             window.set_update_status(UpdateUiStatus::Downloaded as i32);
             window.set_download_progress(1.0);
             window.set_download_speed_text(SharedString::from("已就绪"));
@@ -404,15 +459,17 @@ fn handle_install_click(weak: &slint::Weak<SettingsWindow>, context: &UpdateCont
     let Some(window) = weak.upgrade() else {
         return;
     };
-    let downloaded = context
-        .downloaded_update
-        .lock()
-        .ok()
-        .and_then(|mut guard| guard.take());
-    let Some(downloaded) = downloaded else {
-        window.set_update_status(UpdateUiStatus::Error as i32);
-        window.set_update_status_text(SharedString::from("未找到已就绪的安装包"));
-        return;
+    let downloaded = match context.begin_install() {
+        InstallStart::Started(downloaded) => *downloaded,
+        InstallStart::AlreadyInstalling => {
+            window.set_update_status_text(SharedString::from("正在安装更新，请稍候..."));
+            return;
+        }
+        InstallStart::Unavailable => {
+            window.set_update_status(UpdateUiStatus::Error as i32);
+            window.set_update_status_text(SharedString::from("未找到已就绪的安装包"));
+            return;
+        }
     };
     tracing::info!("准备应用更新并重启，目标版本: {}", downloaded.version());
     start_install_task(weak.clone(), context.clone(), downloaded);
@@ -427,6 +484,8 @@ fn start_install_task(
     let runtime = context.runtime.clone();
     let install_cancel = context.cancel.clone();
     let error_weak = weak.clone();
+    let retry_downloaded = downloaded.clone();
+    let task_context = context.clone();
     let spawn_result = context.runtime.spawn(async move {
         let installed = runtime
             .run_blocking_in(TaskPool::Maintenance, move || {
@@ -434,12 +493,14 @@ fn start_install_task(
             })
             .await;
         if let Err(message) = flatten_install_result(installed) {
+            task_context.replace_artifact(UpdateArtifact::Empty);
             report_install_error(&weak, &install_cancel, message);
             return;
         }
-        finish_install(&weak, &install_cancel).await;
+        finish_install(&weak, &install_cancel, &task_context).await;
     });
     if let Err(error) = spawn_result {
+        context.restore_downloaded(retry_downloaded);
         if let Some(window) = error_weak.upgrade() {
             window.set_update_status(UpdateUiStatus::Error as i32);
             window.set_update_status_text(SharedString::from(format!("无法提交安装任务: {error}")));
@@ -481,7 +542,11 @@ fn report_install_error(
 }
 
 /// 重启升级后的守护进程；该步骤不因设置窗口关闭而取消。
-async fn finish_install(weak: &slint::Weak<SettingsWindow>, cancel: &CancellationToken) {
+async fn finish_install(
+    weak: &slint::Weak<SettingsWindow>,
+    cancel: &CancellationToken,
+    context: &UpdateContext,
+) {
     match restart_daemon_after_update().await {
         Ok(()) => {
             let _ = slint::invoke_from_event_loop(|| {
@@ -489,6 +554,7 @@ async fn finish_install(weak: &slint::Weak<SettingsWindow>, cancel: &Cancellatio
             });
         }
         Err(error) => {
+            context.replace_artifact(UpdateArtifact::Empty);
             report_install_error(
                 weak,
                 cancel,
@@ -510,5 +576,21 @@ mod tests {
         assert!(!update_is_busy(UpdateUiStatus::Idle as i32));
         assert!(!update_is_busy(UpdateUiStatus::Available as i32));
         assert!(!update_is_busy(UpdateUiStatus::Error as i32));
+    }
+
+    /// 空状态与安装中状态都必须拒绝再次取得安装包。
+    #[test]
+    fn test_install_state_machine_rejects_unavailable_and_duplicate_start() {
+        let mut artifact = UpdateArtifact::Empty;
+        assert!(matches!(
+            artifact.begin_install(),
+            InstallStart::Unavailable
+        ));
+
+        artifact = UpdateArtifact::Installing;
+        assert!(matches!(
+            artifact.begin_install(),
+            InstallStart::AlreadyInstalling
+        ));
     }
 }
