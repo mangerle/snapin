@@ -57,6 +57,7 @@ pub(crate) fn handle_workspace_user_event(
             finish_snipper_if_ready(runtime);
         }
         PasterAppEvent::ToggleVisibility => toggle_group_visibility(runtime),
+        PasterAppEvent::ShowWorkspace => show_workspace(runtime),
         PasterAppEvent::SwitchGroup(target) => switch_group(target, runtime),
         PasterAppEvent::GetStatus(responder) => {
             let status = WorkspaceStatus {
@@ -116,6 +117,20 @@ fn toggle_group_visibility(runtime: &mut WorkspaceRuntime) {
             "全部隐藏"
         }
     );
+}
+
+/// 强制显示当前活动分组，作为“打开贴图工作区”的确定行为。
+fn show_workspace(runtime: &mut WorkspaceRuntime) {
+    runtime.manager.show_current_group();
+    let active = runtime.manager.active_group();
+    for inst in runtime.instances.values_mut() {
+        let visible = inst.state.document.item.group_id == active;
+        inst.window.set_visible(visible);
+        if visible {
+            inst.window.request_redraw();
+        }
+    }
+    tracing::info!("已打开贴图工作区并使当前分组可见: {active}");
 }
 
 /// 切换活动分组，同步窗口可见性并持久化分组选择。

@@ -62,9 +62,9 @@ pub enum HotkeyAction {
     Qr,
     /// 触发美化导出
     Beautify,
-    /// 打开贴图工作区面板
+    /// 显示当前活动分组全部贴图
     Workspace,
-    /// 打开剪贴板历史面板
+    /// 启动剪贴板历史面板
     ClipboardHistory,
 }
 

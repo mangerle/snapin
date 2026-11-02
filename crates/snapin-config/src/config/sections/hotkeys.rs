@@ -38,7 +38,7 @@ pub struct HotkeyConfig {
     #[serde(default = "default_beautify_hotkey")]
     pub beautify: Hotkey,
 
-    /// 贴图工作区面板快捷键
+    /// 显示当前活动分组贴图的快捷键
     #[serde(default = "default_workspace_hotkey")]
     pub workspace: Hotkey,
 

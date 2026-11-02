@@ -69,6 +69,17 @@ impl PasterManager {
         new_state
     }
 
+    /// 强制显示当前活动分组，供“打开贴图工作区”入口使用。
+    ///
+    /// 与切换显隐不同，该操作具备幂等语义：即使分组已经可见，也会再次同步窗口
+    /// 可见性，确保命令成功返回后用户一定能看到当前组贴图。
+    pub fn show_current_group(&mut self) {
+        self.group_visible.insert(self.active_group, true);
+        for entry in &mut self.entries {
+            entry.is_visible = entry.group_id == self.active_group;
+        }
+    }
+
     /// 分组是否处于可见状态；未登记过的分组默认可见。
     fn group_is_visible(&self, group_id: GroupId) -> bool {
         self.group_visible.get(&group_id).copied().unwrap_or(true)
@@ -139,5 +150,22 @@ mod tests {
         assert!(manager.add_entry(7.into(), 0.into()));
         assert!(!manager.add_entry(7.into(), 0.into()));
         assert_eq!(manager.count_in_active_group(), 1);
+    }
+
+    /// 打开工作区必须强制显示隐藏中的当前分组。
+    #[test]
+    fn test_show_current_group_restores_visibility() {
+        let mut manager = PasterManager::default();
+        assert!(manager.add_entry(1.into(), 0.into()));
+        assert!(!manager.toggle_current_group_visibility());
+
+        manager.show_current_group();
+
+        let entry = manager
+            .entries
+            .iter()
+            .find(|entry| entry.id == PasterId::from(1))
+            .expect("贴图条目应存在");
+        assert!(entry.is_visible, "打开工作区后当前组贴图必须可见");
     }
 }

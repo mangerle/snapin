@@ -28,9 +28,9 @@ pub enum TrayAction {
     Qr,
     /// 美化导出
     Beautify,
-    /// 打开贴图工作区面板
+    /// 显示当前活动分组全部贴图
     Workspace,
-    /// 打开剪贴板历史面板
+    /// 启动剪贴板历史面板
     ClipboardHistory,
     /// 批量显隐贴图窗口
     TogglePasters,

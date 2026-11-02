@@ -42,10 +42,8 @@ pub enum DaemonRequest {
     TogglePasters,
     /// 切换活动贴图分组（若为 None 则循环切换至下一个分组）
     SwitchGroup(Option<usize>),
-    /// 打开贴图工作区面板
+    /// 显示当前活动分组全部贴图
     OpenWorkspace,
-    /// 打开或关闭剪贴板历史面板
-    OpenClipboardHistory,
     /// 清理截屏历史临时文件与选区缓存
     ClearHistory,
     /// 请求守护进程优雅平滑停机

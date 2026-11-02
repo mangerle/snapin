@@ -40,6 +40,8 @@ pub enum PasterAppEvent {
     },
     /// 批量切换当前分组内所有贴图的显隐状态
     ToggleVisibility,
+    /// 强制显示当前活动分组，打开贴图工作区
+    ShowWorkspace,
     /// 切换活动分组（若为 None 则循环轮转至下一个分组）
     SwitchGroup(Option<GroupId>),
     /// 查询当前工作区运行状态
@@ -217,6 +219,19 @@ impl PasterWorkspaceProxy {
             .send_event(PasterAppEvent::ToggleVisibility)
             .map_err(|e| UiError::Window {
                 message: format!("向贴图工作区投递显隐切换指令失败: {e}"),
+            })
+    }
+
+    /// 请求强制显示当前活动分组的全部贴图。
+    ///
+    /// # Errors
+    ///
+    /// 事件循环代理已关闭或事件投递失败时返回 [`UiError`]。
+    pub fn show_workspace(&self) -> Result<(), UiError> {
+        self.proxy
+            .send_event(PasterAppEvent::ShowWorkspace)
+            .map_err(|e| UiError::Window {
+                message: format!("向贴图工作区投递显示指令失败: {e}"),
             })
     }
 

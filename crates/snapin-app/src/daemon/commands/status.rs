@@ -21,6 +21,18 @@ pub(super) fn toggle(workspace: &PasterWorkspaceProxy) -> DaemonResponse {
     }
 }
 
+/// 显示当前活动分组，作为打开贴图工作区的实际实现。
+pub(super) fn show(workspace: &PasterWorkspaceProxy) -> DaemonResponse {
+    if let Err(error) = workspace.show_workspace() {
+        DaemonResponse::error(
+            DaemonErrorCode::Unavailable,
+            format!("打开贴图工作区失败: {error}"),
+        )
+    } else {
+        DaemonResponse::Ok
+    }
+}
+
 /// 切换活动贴图分组并发送结果通知。
 pub(super) async fn switch_group(
     workspace: &PasterWorkspaceProxy,

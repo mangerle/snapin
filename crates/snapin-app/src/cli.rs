@@ -78,7 +78,7 @@ pub enum ApplicationCommand {
     TogglePasters,
     /// 切换贴图分组。
     SwitchGroup(Option<usize>),
-    /// 请求打开贴图工作区。
+    /// 请求显示当前活动分组的全部贴图。
     Workspace,
     /// 清理截图历史与选区缓存。
     ClearHistory,

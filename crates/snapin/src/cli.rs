@@ -62,7 +62,7 @@ pub enum Commands {
         /// 目标分组 ID（省略时循环切换；越界 ID 会被拒绝）
         id: Option<usize>,
     },
-    /// 打开贴图工作区面板
+    /// 显示当前活动分组的全部贴图
     Workspace,
     /// 打开或关闭剪贴板历史面板
     ClipboardHistory,

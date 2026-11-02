@@ -74,14 +74,7 @@ pub async fn handle_command(
         DaemonRequest::SwitchGroup(target_id) => {
             Some(status::switch_group(workspace, target_id).await)
         }
-        DaemonRequest::OpenWorkspace => Some(DaemonResponse::error(
-            DaemonErrorCode::Unsupported,
-            "贴图工作区面板尚未接入当前界面",
-        )),
-        DaemonRequest::OpenClipboardHistory => Some(DaemonResponse::error(
-            DaemonErrorCode::Unsupported,
-            "剪贴板历史面板尚未接入当前界面",
-        )),
+        DaemonRequest::OpenWorkspace => Some(status::show(workspace)),
         DaemonRequest::ClearHistory => Some(clear_history().await),
         DaemonRequest::Shutdown => Some(DaemonResponse::Ok),
         DaemonRequest::Ping => Some(DaemonResponse::Pong),
