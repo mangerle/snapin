@@ -12,7 +12,7 @@ use crate::services::AppServices;
 use paster::CreatePasterRequest;
 use snapin_daemon::{DaemonErrorCode, DaemonRequest, DaemonResponse};
 use snapin_runtime::CancellationToken;
-use snapin_ui::paster::PasterWorkspaceProxy;
+use snapin_ui::workspace::PasterWorkspaceProxy;
 use std::sync::Arc;
 
 /// 处理单条守护进程指令。

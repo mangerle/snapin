@@ -6,8 +6,8 @@ use snapin_platform::{read_clipboard_image, read_clipboard_text, send_desktop_no
 use snapin_runtime::CancellationToken;
 use snapin_ui::paster::{
     render_color_swatch_card, render_simple_text_card, try_parse_hex_color, PasterItem,
-    PasterWorkspaceProxy,
 };
+use snapin_ui::workspace::PasterWorkspaceProxy;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use tiny_skia::Pixmap;

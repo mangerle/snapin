@@ -12,6 +12,7 @@ pub(crate) mod ports;
 pub mod snipper;
 mod status_badge;
 pub(crate) mod surface;
+pub mod workspace;
 
 pub use error::UiError;
 pub use ports::{

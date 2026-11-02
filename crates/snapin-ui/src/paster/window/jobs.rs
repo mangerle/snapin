@@ -12,8 +12,8 @@
 //! 避免截图侧与贴图侧各自维护一套 OCR/翻译缓存。
 
 use crate::model::PasterId;
-use crate::paster::workspace::PasterWorkspaceProxy;
 use crate::ports::{JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, PortError};
+use crate::workspace::PasterWorkspaceProxy;
 use image::RgbaImage;
 use snapin_config::config::CoverMode;
 use std::sync::Arc;

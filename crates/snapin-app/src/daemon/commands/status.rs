@@ -3,7 +3,7 @@
 use snapin_daemon::{DaemonErrorCode, DaemonResponse};
 use snapin_platform::send_desktop_notification;
 use snapin_ui::paster::GroupId;
-use snapin_ui::paster::{is_valid_group_id, PasterWorkspaceProxy, TOTAL_PIN_GROUPS};
+use snapin_ui::workspace::{is_valid_group_id, PasterWorkspaceProxy, TOTAL_PIN_GROUPS};
 use std::time::Duration;
 use tokio::time::timeout;
 

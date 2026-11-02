@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use snapin_foundation::AppPaths;
 use snapin_runtime::{TaskPool, TaskRuntime};
-use snapin_ui::paster::TOTAL_PIN_GROUPS;
+use snapin_ui::workspace::TOTAL_PIN_GROUPS;
 use snapin_ui::{PortError, PortErrorKind, WorkspaceState, WorkspaceStateStore};
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc::{self, error::TrySendError};

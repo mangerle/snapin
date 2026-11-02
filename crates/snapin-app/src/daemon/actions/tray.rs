@@ -9,7 +9,7 @@ use crate::snip::SnipStartRequest;
 use snapin_daemon::DaemonRequest;
 use snapin_foundation::{PostCaptureAction, SnipMode};
 use snapin_platform::TrayAction;
-use snapin_ui::paster::PasterWorkspaceProxy;
+use snapin_ui::workspace::PasterWorkspaceProxy;
 use std::sync::Arc;
 
 /// 处理托盘动作；返回 `false` 表示请求退出守护进程。

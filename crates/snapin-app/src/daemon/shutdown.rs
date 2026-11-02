@@ -13,7 +13,7 @@
 //! 不会无限等待 GUI 确认。
 
 use crate::services::AppServices;
-use snapin_ui::paster::PasterWorkspaceProxy;
+use snapin_ui::workspace::PasterWorkspaceProxy;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;

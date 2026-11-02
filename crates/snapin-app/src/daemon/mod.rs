@@ -27,11 +27,11 @@ use snapin_platform::{
     send_desktop_notification, sync_hotkeys_to_gnome, PlatformHotkeyListener, PlatformTray,
 };
 use snapin_runtime::{TaskPool, TaskRuntime};
-use snapin_ui::paster::{
+use snapin_ui::snipper::SnipperOutcome;
+use snapin_ui::workspace::{
     create_paster_workspace, run_paster_workspace_loop, PasterWorkspaceOptions,
     PasterWorkspaceProxy, SnipperFinishedCallback,
 };
-use snapin_ui::snipper::SnipperOutcome;
 use std::sync::Arc;
 use std::time::Duration;
 #[cfg(unix)]

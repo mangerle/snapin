@@ -12,8 +12,8 @@ use crate::snip::{handle_snipper_outcome, start_snipper_task, SnipStartRequest};
 use snapin_daemon::{DaemonErrorCode, DaemonRequest, DaemonResponse};
 use snapin_platform::spawn_independent_process;
 use snapin_runtime::{CancellationToken, TaskRuntime};
-use snapin_ui::paster::PasterWorkspaceProxy;
 use snapin_ui::snipper::SnipperOutcome;
+use snapin_ui::workspace::PasterWorkspaceProxy;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 

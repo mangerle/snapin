@@ -3,7 +3,7 @@
 use crate::services::AppServices;
 use snapin_config::config;
 use snapin_daemon::{DaemonErrorCode, DaemonResponse};
-use snapin_ui::paster::PasterWorkspaceProxy;
+use snapin_ui::workspace::PasterWorkspaceProxy;
 
 pub(super) async fn reload_config(
     workspace: &PasterWorkspaceProxy,

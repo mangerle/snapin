@@ -171,10 +171,10 @@ async fn send_snip(options: SnipOptions) -> Result<()> {
 /// 校验并切换贴图分组。
 async fn switch_group(id: Option<usize>) -> Result<()> {
     if let Some(group) = id {
-        if !snapin_ui::paster::is_valid_group_id(snapin_ui::paster::GroupId::new(group)) {
+        if !snapin_ui::workspace::is_valid_group_id(snapin_ui::paster::GroupId::new(group)) {
             bail!(
                 "贴图分组 ID 越界: {group}，有效范围: 0..={}",
-                snapin_ui::paster::TOTAL_PIN_GROUPS.saturating_sub(1)
+                snapin_ui::workspace::TOTAL_PIN_GROUPS.saturating_sub(1)
             );
         }
     }

@@ -9,7 +9,6 @@ pub mod manager;
 pub mod surface;
 pub mod text_to_pin;
 pub mod window;
-pub mod workspace;
 
 /// 单帧呈现结果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,8 +23,3 @@ pub use crate::model::{GroupId, PasterId, PasterItem, PasterTransform};
 pub use manager::PasterManager;
 pub use surface::PasterSurface;
 pub use text_to_pin::{render_color_swatch_card, render_simple_text_card, try_parse_hex_color};
-pub use workspace::{
-    create_paster_workspace, is_valid_group_id, run_paster_workspace_loop, PasterAppEvent,
-    PasterWorkspaceOptions, PasterWorkspaceProxy, SnipperFinishedCallback, WorkspaceStatus,
-    TOTAL_PIN_GROUPS,
-};

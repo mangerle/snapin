@@ -1,11 +1,11 @@
 //! 贴图窗口物理实例与图形表面构建。
 
-use super::super::window::events::PasterWindowState;
 use super::WorkspaceRuntime;
 use crate::error::UiError;
 use crate::model::PasterId;
 use crate::model::PasterItem;
 use crate::paster::surface::PasterSurface;
+use crate::paster::window::events::PasterWindowState;
 use std::sync::Arc;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::ActiveEventLoop;

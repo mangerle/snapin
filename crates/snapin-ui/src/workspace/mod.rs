@@ -19,10 +19,10 @@ pub use event_handler::{is_valid_group_id, TOTAL_PIN_GROUPS};
 pub use proxy::{PasterAppEvent, PasterWorkspaceProxy, WorkspaceStatus};
 pub use window_builder::PasterInstance;
 
-use super::manager::PasterManager;
-use super::window::jobs::PasterJobRuntime;
 use crate::error::UiError;
 use crate::model::GroupId;
+use crate::paster::manager::PasterManager;
+use crate::paster::window::jobs::PasterJobRuntime;
 use crate::ports::{
     ClipboardEventSink, ClipboardTarget, DesktopPort, MediaJobRunner, WorkspaceState,
     WorkspaceStateStore,

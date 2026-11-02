@@ -1,12 +1,12 @@
 //! 贴图窗口事件处理与空闲定时清理。
 
-use super::super::window::events::{
-    handle_paster_cursor_move, handle_paster_key, handle_paster_mouse_button, handle_paster_scroll,
-};
-use super::super::window::render::render_paster_to_surface;
-use super::super::window::text_session::{refresh_ime_cursor_area, sync_ime_state};
 use super::window_builder::PasterInstance;
 use super::WorkspaceRuntime;
+use crate::paster::window::events::{
+    handle_paster_cursor_move, handle_paster_key, handle_paster_mouse_button, handle_paster_scroll,
+};
+use crate::paster::window::render::render_paster_to_surface;
+use crate::paster::window::text_session::{refresh_ime_cursor_area, sync_ime_state};
 use crate::paster::PresentOutcome;
 use std::time::Instant;
 use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};

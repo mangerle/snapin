@@ -12,8 +12,8 @@ use snapin_platform::{
     capture_fullscreen_snapshot, enumerate_visible_windows, send_desktop_notification,
     WindowRect as PlatformWindowRect,
 };
-use snapin_ui::paster::PasterWorkspaceProxy;
 use snapin_ui::snipper::{SnipperLaunch, SnipperOutcome, SnipperRuntime, WindowRect};
+use snapin_ui::workspace::PasterWorkspaceProxy;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
