@@ -8,15 +8,14 @@ impl<'a> SnipperCanvas<'a> {
         &self,
         pixmap: &mut PixmapMut,
         rect: &Rect,
-        screen_w: u32,
-        screen_h: u32,
+        canvas: CanvasSize,
     ) {
-        let (px, py, pw, ph) = rect.to_pixel_bounds(screen_w, screen_h);
+        let (px, py, pw, ph) = rect.to_pixel_bounds(canvas.width, canvas.height);
         if pw == 0 || ph == 0 {
             return;
         }
 
-        let stride = (screen_w as usize) * 4;
+        let stride = (canvas.width as usize) * 4;
         let row_bytes = (pw as usize) * 4;
         let orig_data = self.original_rgba.as_raw();
         let dest_data = pixmap.data_mut();

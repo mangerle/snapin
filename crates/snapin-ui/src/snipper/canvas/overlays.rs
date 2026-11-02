@@ -5,13 +5,28 @@ use crate::snipper::magnifier::MagnifierViewport;
 use crate::snipper::window::ocr_panel::{OcrPanelLayout, OcrPanelLine};
 use snapin_render::{TextDrawOptions, TextRenderer};
 
+/// OCR 面板一帧绘制的状态、布局与缩放参数。
+#[derive(Clone, Copy)]
+struct OcrPanelRender<'a> {
+    panel: &'a OcrPanelState,
+    layout: &'a OcrPanelLayout,
+    scale: f32,
+}
+
 impl<'a> SnipperCanvas<'a> {
     /// 绘制 OCR 结果面板与可见文本行。
     pub(super) fn render_ocr_panel(&self, pixmap: &mut PixmapMut, panel: &OcrPanelState) {
         let s = self.ui_scale;
         let layout = panel.layout(pixmap.width() as f32, pixmap.height() as f32, s);
         Self::render_ocr_panel_chrome(pixmap, &layout.panel, s);
-        self.render_ocr_rows(pixmap, panel, &layout, s);
+        self.render_ocr_rows(
+            pixmap,
+            OcrPanelRender {
+                panel,
+                layout: &layout,
+                scale: s,
+            },
+        );
         Self::render_ocr_footer(pixmap, &layout.panel, s);
     }
 
@@ -39,13 +54,10 @@ impl<'a> SnipperCanvas<'a> {
     }
 
     /// 绘制选中数量、可见行与行焦点框。
-    fn render_ocr_rows(
-        &self,
-        pixmap: &mut PixmapMut,
-        panel: &OcrPanelState,
-        layout: &OcrPanelLayout,
-        s: f32,
-    ) {
+    fn render_ocr_rows(&self, pixmap: &mut PixmapMut, render: OcrPanelRender<'_>) {
+        let panel = render.panel;
+        let layout = render.layout;
+        let s = render.scale;
         with_thread_local_text_renderer(|renderer| {
             renderer.draw_text_rgba(
                 pixmap,
@@ -288,7 +300,11 @@ impl<'a> SnipperCanvas<'a> {
 
         if let Some(hover) = self.hovered_window {
             if restore_hover {
-                self.fast_cutout_restore(pixmap, &hover, pixmap.width(), pixmap.height());
+                self.fast_cutout_restore(
+                    pixmap,
+                    &hover,
+                    CanvasSize::new(pixmap.width(), pixmap.height()),
+                );
             }
             self.render_window_hover_border(pixmap, &hover);
         }

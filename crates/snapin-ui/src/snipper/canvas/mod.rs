@@ -25,6 +25,19 @@ use tiny_skia::{
 /// 正在拉伸绘制中的待提交标注笔触元数据 (工具类型, 轨迹点集合, 预设色值)
 pub type PendingStroke<'a> = (&'a Tool, &'a [Point], u32);
 
+/// 选区画布的像素尺寸。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CanvasSize {
+    width: u32,
+    height: u32,
+}
+
+impl CanvasSize {
+    fn new(width: u32, height: u32) -> Self {
+        Self { width, height }
+    }
+}
+
 /// 选中标注的编辑框信息
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SelectedAnnotation {
@@ -89,8 +102,11 @@ impl<'a> SnipperCanvas<'a> {
 
     /// 绘制选区底图、标注、实时交互反馈、边框与工具栏。
     fn render_selection_contents(&self, pixmap: &mut PixmapMut, rect: &Rect) {
-        let (width, height) = (pixmap.width(), pixmap.height());
-        self.fast_cutout_restore(pixmap, rect, width, height);
+        self.fast_cutout_restore(
+            pixmap,
+            rect,
+            CanvasSize::new(pixmap.width(), pixmap.height()),
+        );
         if let Some(history) = self.annotations {
             history.replay_all(pixmap);
         }
