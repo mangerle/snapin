@@ -17,6 +17,7 @@ snapin-updater.workspace = true
 snapin-ui.workspace = true
 
 anyhow.workspace = true
+arc-swap.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 image.workspace = true

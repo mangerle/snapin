@@ -1,32 +1,51 @@
 //! 应用配置共享快照与持久化适配。
 //!
 //! UI 与媒体执行器都需要读取同一份最新配置，但不应各自从磁盘加载。
-//! 本模块用 `RwLock<Arc<Config>>` 发布不可变配置快照：读路径只克隆 `Arc`，
-//! 写路径整体替换，避免读写锁跨越耗时操作。
+//! 本模块用 [`ArcSwap`] 发布不可变配置快照：读路径无锁取得 `Arc`，写路径
+//! 原子替换指针。配置属于典型读多写少数据，RCU 语义比全局读写锁更贴合访问模型。
 
+use arc_swap::ArcSwap;
 use snapin_core::config::Config;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 /// 进程内共享的配置快照。
-pub(crate) type SharedConfig = Arc<RwLock<Arc<Config>>>;
+pub(crate) type SharedConfig = Arc<ArcSwap<Config>>;
 
 /// 创建共享配置快照。
 pub(crate) fn shared_config(config: Config) -> SharedConfig {
-    Arc::new(RwLock::new(Arc::new(config)))
+    Arc::new(ArcSwap::from_pointee(config))
 }
 
-/// 读取当前配置快照；锁中毒时取回内部值继续，配置读失败不应拖垮 UI。
+/// 读取当前配置快照。
 pub(crate) fn config_snapshot(shared: &SharedConfig) -> Arc<Config> {
-    shared
-        .read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone()
+    shared.load_full()
 }
 
 /// 替换当前配置快照。
 pub(crate) fn publish_config(shared: &SharedConfig, config: Config) {
-    let mut guard = shared
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    *guard = Arc::new(config);
+    shared.store(Arc::new(config));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_snapshot_is_atomically_replaced_and_old_readers_keep_old_value() {
+        let shared = shared_config(Config::default());
+        let before = config_snapshot(&shared);
+
+        let mut updated = Config::default();
+        updated.general.update_check_interval_hours = 12;
+        publish_config(&shared, updated);
+
+        assert_eq!(
+            config_snapshot(&shared).general.update_check_interval_hours,
+            12
+        );
+        assert_eq!(
+            before.general.update_check_interval_hours, 24,
+            "替换不能改写已发出的配置快照"
+        );
+    }
 }

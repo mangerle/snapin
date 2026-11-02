@@ -6080,6 +6080,7 @@ name = "snapin-app"
 version = "1.2.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "image 0.24.9",
  "serde",
  "serde_json",
