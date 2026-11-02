@@ -214,14 +214,17 @@ impl AppPaths {
         dir.join(format!("{prefix}_{pid}_{id}.{ext}"))
     }
 
-    /// 以仅当前用户可读写的权限（0600）写入文件。
+    /// 以仅当前用户可读写的权限（0600）创建全新文件。
+    ///
+    /// 使用 `create_new` 而不是截断写入，避免调用方提供的唯一临时路径被预先放置的
+    /// 符号链接或旧文件劫持；路径已存在时返回错误，由调用方生成新路径或清理失败现场。
     ///
     /// # Errors
     ///
     /// 当父目录不存在、文件创建失败或写入磁盘失败时返回底层 I/O 错误。
     pub fn write_secure_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         let mut options = std::fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
+        options.write(true).create_new(true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
@@ -347,5 +350,18 @@ mod tests {
 
         assert_eq!(std::fs::read(&target).expect("应可读取目标文件"), b"new");
         assert!(!source.exists(), "替换成功后临时源文件不应继续存在");
+    }
+
+    #[test]
+    fn test_write_secure_file_refuses_existing_path() {
+        let dir = tempfile::tempdir().expect("应可创建测试目录");
+        let path = dir.path().join("existing.tmp");
+        std::fs::write(&path, b"original").expect("应可写入原文件");
+
+        let error =
+            AppPaths::write_secure_file(&path, b"replacement").expect_err("已存在路径必须被拒绝");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(path).expect("应可读取原文件"), b"original");
     }
 }
