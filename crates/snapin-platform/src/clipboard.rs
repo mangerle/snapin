@@ -12,6 +12,8 @@ use std::sync::Mutex;
 static CLIPBOARD_INSTANCE: Mutex<Option<Clipboard>> = Mutex::new(None);
 /// 单个剪贴板图像允许接收的最大像素数，防止异常内容长期占用数百兆内存。
 const MAX_CLIPBOARD_PIXELS: u64 = 100_000_000;
+/// 单条剪贴板文本允许接收的最大 UTF-8 字节数。
+const MAX_CLIPBOARD_TEXT_BYTES: usize = 4 * 1024 * 1024;
 
 /// 在全局复用的剪贴板实例上执行操作闭包，具备断开连接时的单次自动重建自愈能力
 fn with_clipboard<R, F: FnMut(&mut Clipboard) -> Result<R, arboard::Error>>(
@@ -106,23 +108,35 @@ pub fn write_text_to_clipboard(text: &str) -> Result<(), PlatformError> {
 
 /// 从系统剪贴板读取纯文本内容 (若不存在则返回 None)
 pub fn read_clipboard_text() -> Result<Option<String>, PlatformError> {
-    let res = with_clipboard(|cb| match cb.get_text() {
-        Ok(text) => {
-            let trimmed = text.trim();
-            if trimmed.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(text))
-            }
-        }
+    let text = match with_clipboard(|cb| match cb.get_text() {
+        Ok(text) => Ok(Some(text)),
         Err(arboard::Error::ContentNotAvailable) => Ok(None),
-        Err(e) => Err(e),
-    });
+        Err(error) => Err(error),
+    }) {
+        Ok(text) => text,
+        Err(error) => {
+            tracing::debug!("读取系统剪贴板文本失败，按无文本内容处理: {error}");
+            return Ok(None);
+        }
+    };
+    match text {
+        Some(text) => validate_clipboard_text(text),
+        None => Ok(None),
+    }
+}
 
-    match res {
-        Ok(opt) => Ok(opt),
-        Err(PlatformError::Clipboard { .. }) => Ok(None),
-        Err(e) => Err(e),
+fn validate_clipboard_text(text: String) -> Result<Option<String>, PlatformError> {
+    if text.len() > MAX_CLIPBOARD_TEXT_BYTES {
+        Err(PlatformError::Clipboard {
+            message: format!(
+                "剪贴板文本超过安全上限，实际: {} 字节，上限: {MAX_CLIPBOARD_TEXT_BYTES} 字节",
+                text.len()
+            ),
+        })
+    } else if text.trim().is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(text))
     }
 }
 
@@ -217,5 +231,17 @@ mod tests {
             bytes: Cow::Borrowed(&[]),
         };
         assert!(clipboard_image_from_data(data).is_err());
+    }
+
+    #[test]
+    fn test_clipboard_text_validation_rejects_oversized_and_empty_values() {
+        assert!(validate_clipboard_text("  ".to_string()).unwrap().is_none());
+        assert!(validate_clipboard_text("x".repeat(MAX_CLIPBOARD_TEXT_BYTES + 1)).is_err());
+        assert_eq!(
+            validate_clipboard_text("有效文本".to_string())
+                .unwrap()
+                .as_deref(),
+            Some("有效文本")
+        );
     }
 }

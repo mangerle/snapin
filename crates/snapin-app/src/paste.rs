@@ -36,17 +36,21 @@ pub fn create_paster_item_from_clipboard() -> Result<Option<PasterItem>> {
         Err(error) => return Err(error).context("读取系统剪贴板图像失败"),
     }
 
-    if let Ok(Some(text)) = read_clipboard_text() {
-        let uid = AppPaths::generate_unique_id();
-        let pixmap = if let Some((r, g, b)) = try_parse_hex_color(&text) {
-            render_color_swatch_card(r, g, b).context("生成色彩卡片失败")?
-        } else {
-            let lines: Vec<&str> = text.lines().collect();
-            render_simple_text_card(&lines).context("生成文本便签卡片失败")?
-        };
+    match read_clipboard_text() {
+        Ok(Some(text)) => {
+            let uid = AppPaths::generate_unique_id();
+            let pixmap = if let Some((r, g, b)) = try_parse_hex_color(&text) {
+                render_color_swatch_card(r, g, b).context("生成色彩卡片失败")?
+            } else {
+                let lines: Vec<&str> = text.lines().collect();
+                render_simple_text_card(&lines).context("生成文本便签卡片失败")?
+            };
 
-        let item = PasterItem::new(uid, format!("clip_note_{uid}"), pixmap, (250, 250));
-        return Ok(Some(item));
+            let item = PasterItem::new(uid, format!("clip_note_{uid}"), pixmap, (250, 250));
+            return Ok(Some(item));
+        }
+        Ok(None) => {}
+        Err(error) => return Err(error).context("读取系统剪贴板文本失败"),
     }
 
     Ok(None)
