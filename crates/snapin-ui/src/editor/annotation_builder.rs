@@ -11,6 +11,9 @@ use snapin_annotation::shapes::{
 use snapin_annotation::{ArrowHeadStyle, ArrowStyle, BadgeSequence, BadgeStyle, LineStyle};
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, StrokeDash, Transform};
 
+mod factory;
+pub use factory::build_shape;
+
 /// 工具栏样式快照：与几何点和序号解耦，预览与最终提交共享同一份样式。
 #[derive(Debug, Clone, Copy)]
 pub struct AnnotationStyle {
@@ -118,75 +121,76 @@ impl<'a> AnnotationDraftParams<'a> {
 /// 画笔 (Pen) 与记号笔 (Marker) 直接借用点集切片 `&[(f32, f32)]` 进行光栅化绘制，
 /// 彻底根除在鼠标 60Hz~144Hz 高频移动事件中频繁触发的 `pts.to_vec()` 堆内存分配。
 pub fn render_draft_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
-    let pts = params.points;
     match params.tool {
-        // Pen/Marker 直接借用点集绘制，避免高频鼠标移动事件中的临时 Vec 分配。
-        Tool::Pen => {
-            PenAction::draw_points_offset(
-                pts,
-                params.style.color_rgba,
-                params.style.stroke_width,
-                params.style.line_style,
-                pixmap,
-                0.0,
-                0.0,
-            );
-        }
-        Tool::Line => {
-            if let Some(shape) = build_shape(params) {
-                shape.draw(pixmap);
-            }
-            draw_draft_border(params, pixmap);
-        }
-        Tool::Marker => {
-            MarkerAction::draw_points_offset(
-                pts,
-                (
-                    params.style.color_rgba.0,
-                    params.style.color_rgba.1,
-                    params.style.color_rgba.2,
-                ),
-                params.style.stroke_width * 2.0,
-                pixmap,
-                0.0,
-                0.0,
-            );
-        }
-        // 模糊在拖拽过程中只显示半透明占位框，避免每帧对选区做大面积卷积；
-        // 提交后由图元重放执行一次真正的模糊。
-        Tool::Blur => {
-            draw_blur_placeholder(params, pixmap);
-            draw_draft_border(params, pixmap);
-        }
-        // 马赛克逐帧对目标区域执行真实块化；与模糊一样补一圈虚线边框，
-        // 让拖拽范围在纹理复杂的画面上仍然可辨认。提交后仅重放块化效果。
-        Tool::Mosaic => match params.style.mosaic_mode {
-            MosaicMode::Mosaic => {
-                if let Some(shape) = build_shape(params) {
-                    shape.draw(pixmap);
-                }
-                if !params.style.mosaic_brush_mode {
-                    draw_draft_border(params, pixmap);
-                }
-            }
-            MosaicMode::Blur => {
-                if params.style.mosaic_brush_mode {
-                    if let Some(shape) = build_shape(params) {
-                        shape.draw(pixmap);
-                    }
-                } else {
-                    draw_blur_placeholder(params, pixmap);
-                    draw_draft_border(params, pixmap);
-                }
-            }
-            MosaicMode::SmartRedact => draw_draft_border(params, pixmap),
-        },
-        _ => {
-            // 其余图元复用同一构建工厂，保证预览与最终提交的几何和样式完全一致。
-            if let Some(shape) = build_shape(params) {
-                shape.draw(pixmap);
+        Tool::Pen => draw_pen_preview(params, pixmap),
+        Tool::Line => draw_shape_with_border(params, pixmap),
+        Tool::Marker => draw_marker_preview(params, pixmap),
+        Tool::Blur => draw_blur_preview(params, pixmap),
+        Tool::Mosaic => draw_mosaic_preview(params, pixmap),
+        _ => draw_shape_preview(params, pixmap),
+    }
+}
+
+/// 画笔直接借用点集切片绘制，避免高频鼠标移动时分配临时 Vec。
+fn draw_pen_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
+    PenAction::draw_points_offset(
+        params.points,
+        params.style.color_rgba,
+        params.style.stroke_width,
+        params.style.line_style,
+        pixmap,
+        0.0,
+        0.0,
+    );
+}
+
+/// 直线预览使用最终图元，并补一圈虚线边框提示拖拽范围。
+fn draw_shape_with_border(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
+    draw_shape_preview(params, pixmap);
+    draw_draft_border(params, pixmap);
+}
+
+/// 记号笔直接借用点集切片绘制。
+fn draw_marker_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
+    MarkerAction::draw_points_offset(
+        params.points,
+        (
+            params.style.color_rgba.0,
+            params.style.color_rgba.1,
+            params.style.color_rgba.2,
+        ),
+        params.style.stroke_width * 2.0,
+        pixmap,
+        0.0,
+        0.0,
+    );
+}
+
+/// 拖拽模糊只显示占位框，避免每帧执行大面积卷积。
+fn draw_blur_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
+    draw_blur_placeholder(params, pixmap);
+    draw_draft_border(params, pixmap);
+}
+
+/// 马赛克按模式选择实时块化、画笔模糊或智能打码边框预览。
+fn draw_mosaic_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
+    match params.style.mosaic_mode {
+        MosaicMode::Mosaic => {
+            draw_shape_preview(params, pixmap);
+            if !params.style.mosaic_brush_mode {
+                draw_draft_border(params, pixmap);
             }
         }
+        MosaicMode::Blur if params.style.mosaic_brush_mode => draw_shape_preview(params, pixmap),
+        MosaicMode::Blur => draw_blur_preview(params, pixmap),
+        MosaicMode::SmartRedact => draw_draft_border(params, pixmap),
+    }
+}
+
+/// 其余图元复用同一构建工厂，保证预览与最终提交的几何和样式一致。
+fn draw_shape_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
+    if let Some(shape) = build_shape(params) {
+        shape.draw(pixmap);
     }
 }
 
@@ -249,197 +253,6 @@ fn draw_draft_border(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
     pb.push_rect(skia_rect);
     if let Some(path) = pb.finish() {
         pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
-    }
-}
-
-/// 统一图元工厂：构建已完成绘制的持久化 AnnotationShape 图元
-pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
-    let pts = params.points;
-    let first = *pts.first()?;
-    let last = *pts.last()?;
-    if params.tool != Tool::Badge && pts.len() < 2 {
-        return None;
-    }
-    match params.tool {
-        Tool::Rect => {
-            let rect = Rect::from_points(first, last);
-            Some(AnnotationShape::Rect(RectAction {
-                rect: (rect.x, rect.y, rect.width, rect.height),
-                color: params.style.color_rgba.into(),
-                stroke_width: params.style.stroke_width,
-                is_filled: params.style.filled,
-                corner_radius: params.style.corner_radius,
-                line_style: params.style.line_style,
-            }))
-        }
-        Tool::Ellipse => {
-            let rect = Rect::from_points(first, last);
-            Some(AnnotationShape::Ellipse(EllipseAction {
-                rect: (rect.x, rect.y, rect.width, rect.height),
-                color: params.style.color_rgba.into(),
-                stroke_width: params.style.stroke_width,
-                is_filled: params.style.filled,
-                line_style: params.style.line_style,
-            }))
-        }
-        Tool::Arrow => Some(AnnotationShape::Arrow(ArrowAction {
-            start: first,
-            end: last,
-            color: params.style.color_rgba.into(),
-            stroke_width: params.style.stroke_width,
-            style: params.style.arrow_style,
-            line_style: params.style.line_style,
-            start_head: params.style.start_arrow_head,
-            end_head: params.style.end_arrow_head,
-        })),
-        Tool::Pen => Some(AnnotationShape::Pen(PenAction {
-            points: pts.to_vec(),
-            color: params.style.color_rgba.into(),
-            stroke_width: params.style.stroke_width,
-            line_style: params.style.line_style,
-        })),
-        Tool::Line => {
-            let (start_head, end_head) = if params.style.line_arrow_enabled {
-                (params.style.start_arrow_head, params.style.end_arrow_head)
-            } else {
-                (ArrowHeadStyle::None, ArrowHeadStyle::None)
-            };
-            Some(AnnotationShape::Polyline(PolylineAction {
-                points: pts.to_vec(),
-                color: params.style.color_rgba.into(),
-                stroke_width: params.style.stroke_width,
-                line_style: params.style.line_style,
-                start_head,
-                end_head,
-            }))
-        }
-        Tool::Marker => Some(AnnotationShape::Marker(MarkerAction {
-            points: pts.to_vec(),
-            color: (
-                params.style.color_rgba.0,
-                params.style.color_rgba.1,
-                params.style.color_rgba.2,
-            ),
-            stroke_width: params.style.stroke_width * 2.0,
-            shape: params.style.marker_shape,
-            blend_mode: params.style.marker_blend_mode,
-            line_style: params.style.line_style,
-        })),
-        Tool::Mosaic => match params.style.mosaic_mode {
-            MosaicMode::Mosaic => {
-                let rect = points_bounds(pts)?;
-                let brush_width = params.style.stroke_width.max(1.0);
-                let brush_rect = Rect {
-                    x: rect.x - brush_width / 2.0,
-                    y: rect.y - brush_width / 2.0,
-                    width: rect.width + brush_width,
-                    height: rect.height + brush_width,
-                };
-                Some(AnnotationShape::Mosaic(MosaicAction {
-                    rect: (
-                        brush_rect.x,
-                        brush_rect.y,
-                        brush_rect.width,
-                        brush_rect.height,
-                    ),
-                    cell_size: (f32::from(params.style.effect_strength) / 4.0).clamp(4.0, 50.0)
-                        as u32,
-                    points: if params.style.mosaic_brush_mode {
-                        pts.to_vec()
-                    } else {
-                        Vec::new()
-                    },
-                    brush_width: if params.style.mosaic_brush_mode {
-                        brush_width
-                    } else {
-                        0.0
-                    },
-                }))
-            }
-            MosaicMode::Blur => {
-                let rect = points_bounds(pts)?;
-                let brush_width = params.style.stroke_width.max(1.0);
-                let blur_rect = Rect {
-                    x: rect.x - brush_width / 2.0,
-                    y: rect.y - brush_width / 2.0,
-                    width: rect.width + brush_width,
-                    height: rect.height + brush_width,
-                };
-                Some(AnnotationShape::Blur(BlurAction {
-                    rect: (blur_rect.x, blur_rect.y, blur_rect.width, blur_rect.height),
-                    radius: (f32::from(params.style.effect_strength) / 4.0).clamp(2.0, 50.0) as u32,
-                    points: if params.style.mosaic_brush_mode {
-                        pts.to_vec()
-                    } else {
-                        Vec::new()
-                    },
-                    brush_width: if params.style.mosaic_brush_mode {
-                        brush_width
-                    } else {
-                        0.0
-                    },
-                }))
-            }
-            MosaicMode::SmartRedact => None,
-        },
-        Tool::Blur => {
-            let rect = Rect::from_points(first, last);
-            Some(AnnotationShape::Blur(BlurAction {
-                rect: (rect.x, rect.y, rect.width, rect.height),
-                radius: (f32::from(params.style.effect_strength) / 4.0).clamp(2.0, 50.0) as u32,
-                points: Vec::new(),
-                brush_width: 0.0,
-            }))
-        }
-        Tool::Spotlight => {
-            let rect = Rect::from_points(first, last);
-            Some(AnnotationShape::Spotlight(SpotlightAction {
-                rect: (rect.x, rect.y, rect.width, rect.height),
-                intensity: params.style.spotlight_intensity,
-                shape: params.style.spotlight_shape,
-                outline: params.style.spotlight_outline,
-                outline_width: params.style.stroke_width,
-                outline_color: params.style.color_rgba.into(),
-                line_style: params.style.line_style,
-            }))
-        }
-        Tool::Magnifier => {
-            let source = Rect::from_points(first, last);
-            let scale = params.style.magnifier_scale.max(1.0);
-            let dest_width = source.width * scale;
-            let dest_height = source.height * scale;
-            let dest = Rect {
-                x: source.x + (source.width - dest_width) / 2.0,
-                y: source.y + (source.height - dest_height) / 2.0,
-                width: dest_width,
-                height: dest_height,
-            };
-            Some(AnnotationShape::Magnifier(MagnifierAction {
-                source: (source.x, source.y, source.width, source.height),
-                dest: (dest.x, dest.y, dest.width, dest.height),
-                shape: params.style.magnifier_shape,
-                border_width: params.style.stroke_width,
-                border_color: params.style.color_rgba.into(),
-                smooth: params.style.magnifier_smooth,
-                shadow: params.style.magnifier_shadow,
-                connector: params.style.magnifier_connector,
-            }))
-        }
-        Tool::Badge => {
-            let center = last;
-            let radius =
-                (params.style.stroke_width * 3.0).clamp(10.0, 48.0) * params.style.ui_scale;
-            Some(AnnotationShape::Badge(BadgeAction {
-                center,
-                radius,
-                number: params.badge_number as usize,
-                color: params.style.color_rgba.into(),
-                style: params.style.badge_style,
-                sequence: params.style.badge_sequence,
-                ..BadgeAction::default()
-            }))
-        }
-        _ => None,
     }
 }
 
