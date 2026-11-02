@@ -37,7 +37,25 @@ pub fn environment() -> Result<Environment, ServiceError> {
     let library = discover_library()?;
     tracing::debug!("正在加载 ONNX Runtime 动态库: {:?}", library);
 
-    let env = ort::init_from(&library)
+    let env = build_environment(&library)?;
+
+    if ORT_ENVIRONMENT.set(env.clone()).is_err() {
+        return ORT_ENVIRONMENT
+            .get()
+            .cloned()
+            .ok_or_else(|| ServiceError::InferenceError {
+                stage: "onnx_runtime_init".to_string(),
+                reason: "ONNX Runtime 环境已存在但无法读取".to_string(),
+            });
+    }
+
+    tracing::info!("ONNX Runtime 动态加载完成，库路径: {:?}", library);
+    Ok(env)
+}
+
+/// 从指定动态库构造 ONNX Runtime 环境并配置统一日志策略。
+fn build_environment(library: &Path) -> Result<Environment, ServiceError> {
+    ort::init_from(library)
         .map_err(|e| ServiceError::InferenceError {
             stage: "onnx_runtime_load".to_string(),
             reason: format!(
@@ -57,20 +75,7 @@ pub fn environment() -> Result<Environment, ServiceError> {
         .map_err(|e| ServiceError::InferenceError {
             stage: "onnx_runtime_init".to_string(),
             reason: format!("创建 ONNX Runtime 环境失败: {e}"),
-        })?;
-
-    if ORT_ENVIRONMENT.set(env.clone()).is_err() {
-        return ORT_ENVIRONMENT
-            .get()
-            .cloned()
-            .ok_or_else(|| ServiceError::InferenceError {
-                stage: "onnx_runtime_init".to_string(),
-                reason: "ONNX Runtime 环境已存在但无法读取".to_string(),
-            });
-    }
-
-    tracing::info!("ONNX Runtime 动态加载完成，库路径: {:?}", library);
-    Ok(env)
+        })
 }
 
 /// 快速判断当前系统是否具备 ONNX Runtime 动态库（仅检查文件存在，不触发加载）。
@@ -108,6 +113,14 @@ fn discover_library() -> Result<PathBuf, ServiceError> {
 /// 构建当前平台的运行时动态库搜索目录。
 fn runtime_search_dirs() -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::with_capacity(12);
+    dirs.extend(executable_search_dirs());
+    dirs.extend(platform_search_dirs());
+    dirs
+}
+
+/// 程序可执行文件相邻目录，覆盖随包分发和开发构建目录。
+fn executable_search_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::with_capacity(5);
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             dirs.push(parent.to_path_buf());
@@ -120,7 +133,12 @@ fn runtime_search_dirs() -> Vec<PathBuf> {
             }
         }
     }
+    dirs
+}
 
+/// 当前操作系统约定的动态库搜索目录。
+fn platform_search_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::with_capacity(8);
     #[cfg(target_os = "windows")]
     {
         if let Some(local) = std::env::var_os("LOCALAPPDATA") {
