@@ -96,8 +96,8 @@ impl SnipperEventDispatcher {
                     if let Some(session) = &state.editor.annotation.active_text_input {
                         window.set_ime_cursor_area(
                             winit::dpi::PhysicalPosition::new(
-                                session.pos.0 as i32,
-                                session.pos.1 as i32,
+                                session.pos.x as i32,
+                                session.pos.y as i32,
                             ),
                             winit::dpi::PhysicalSize::new(24, session.font_size as u32),
                         );

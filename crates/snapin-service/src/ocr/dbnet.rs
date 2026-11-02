@@ -4,6 +4,7 @@
 //! unclip 外扩，最终输出原图坐标系下的水平文本框。水平膨胀用于把同一行内的字符
 //! 合并为一个文本框，避免逐字切分成大量碎片。
 
+use snapin_foundation::{Point, Rect};
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 
@@ -34,10 +35,10 @@ impl Default for DbPostProcessParams {
 /// 检测到的文本框
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DetectedBox {
-    /// 原图坐标系下的轴对齐包围盒 [x, y, width, height]
-    pub bbox: (f32, f32, f32, f32),
+    /// 原图坐标系下的轴对齐包围盒
+    pub bbox: Rect,
     /// 文本框四边形角点（顺时针）
-    pub polygon: [(f32, f32); 4],
+    pub polygon: [Point; 4],
     /// 概率图平均置信度
     pub score: f32,
 }
@@ -155,8 +156,13 @@ pub fn extract_bounding_boxes(
             }
 
             boxes.push(DetectedBox {
-                bbox: (x0, y0, x1 - x0, y1 - y0),
-                polygon: [(x0, y0), (x1, y0), (x1, y1), (x0, y1)],
+                bbox: Rect::new(x0, y0, x1 - x0, y1 - y0),
+                polygon: [
+                    Point::new(x0, y0),
+                    Point::new(x1, y0),
+                    Point::new(x1, y1),
+                    Point::new(x0, y1),
+                ],
                 score,
             });
         }
@@ -187,8 +193,8 @@ fn sort_by_reading_order(boxes: &mut [DetectedBox]) {
     let mut ordered: Vec<DetectedBox> = boxes.to_vec();
     ordered.sort_by(|left, right| {
         left.bbox
-            .1
-            .partial_cmp(&right.bbox.1)
+            .y
+            .partial_cmp(&right.bbox.y)
             .unwrap_or(Ordering::Equal)
     });
 
@@ -210,13 +216,13 @@ fn sort_by_reading_order(boxes: &mut [DetectedBox]) {
     for row in &mut rows {
         row.sort_by(|left, right| {
             left.bbox
-                .0
-                .partial_cmp(&right.bbox.0)
+                .x
+                .partial_cmp(&right.bbox.x)
                 .unwrap_or(Ordering::Equal)
                 .then_with(|| {
                     left.bbox
-                        .1
-                        .partial_cmp(&right.bbox.1)
+                        .y
+                        .partial_cmp(&right.bbox.y)
                         .unwrap_or(Ordering::Equal)
                 })
         });
@@ -228,11 +234,11 @@ fn sort_by_reading_order(boxes: &mut [DetectedBox]) {
 }
 
 /// 判断两个检测框是否属于同一视觉行：垂直重叠达到较矮框高度的一半。
-fn same_visual_row(left: (f32, f32, f32, f32), right: (f32, f32, f32, f32)) -> bool {
-    let left_bottom = left.1 + left.3;
-    let right_bottom = right.1 + right.3;
-    let overlap = left_bottom.min(right_bottom) - left.1.max(right.1);
-    let smaller_height = left.3.min(right.3);
+fn same_visual_row(left: Rect, right: Rect) -> bool {
+    let left_bottom = left.y + left.height;
+    let right_bottom = right.y + right.height;
+    let overlap = left_bottom.min(right_bottom) - left.y.max(right.y);
+    let smaller_height = left.height.min(right.height);
     if !smaller_height.is_finite() || smaller_height <= 0.0 {
         return false;
     }
@@ -316,10 +322,10 @@ mod tests {
 
         assert_eq!(boxes.len(), 1);
         let bbox = boxes[0].bbox;
-        assert!((bbox.0 - 40.0).abs() < 1.0);
-        assert!((bbox.1 - 60.0).abs() < 1.0);
-        assert!((bbox.2 - 40.0).abs() < 2.0);
-        assert!((bbox.3 - 20.0).abs() < 2.0);
+        assert!((bbox.x - 40.0).abs() < 1.0);
+        assert!((bbox.y - 60.0).abs() < 1.0);
+        assert!((bbox.width - 40.0).abs() < 2.0);
+        assert!((bbox.height - 20.0).abs() < 2.0);
         assert!(boxes[0].score > 0.85);
     }
 
@@ -340,7 +346,12 @@ mod tests {
 
         // 收缩核为 140x40，理论外扩距离约 21.8px，明显超过旧实现的 16px 上限
         let margin = 140.0 * 40.0 * DbPostProcessParams::default().unclip_ratio / (2.0 * 180.0);
-        let (x, y, w, h) = boxes[0].bbox;
+        let Rect {
+            x,
+            y,
+            width: w,
+            height: h,
+        } = boxes[0].bbox;
         assert!(
             (x - (50.0 - margin)).abs() < 1.0,
             "实际 x={x}，期望边距 {margin}"
@@ -367,14 +378,14 @@ mod tests {
         assert!(extract_bounding_boxes(&[0.9], 100, 100, 100, 100, &Default::default()).is_empty());
     }
 
-    fn detected_box(bbox: (f32, f32, f32, f32)) -> DetectedBox {
+    fn detected_box(bbox: Rect) -> DetectedBox {
         DetectedBox {
             bbox,
             polygon: [
-                (bbox.0, bbox.1),
-                (bbox.0 + bbox.2, bbox.1),
-                (bbox.0 + bbox.2, bbox.1 + bbox.3),
-                (bbox.0, bbox.1 + bbox.3),
+                Point::new(bbox.x, bbox.y),
+                Point::new(bbox.x + bbox.width, bbox.y),
+                Point::new(bbox.x + bbox.width, bbox.y + bbox.height),
+                Point::new(bbox.x, bbox.y + bbox.height),
             ],
             score: 0.9,
         }
@@ -385,17 +396,17 @@ mod tests {
     #[test]
     fn test_reading_order_groups_table_rows() {
         let mut boxes = vec![
-            detected_box((343.09, 40.13, 57.81, 46.31)),
-            detected_box((41.93, 40.24, 56.61, 46.08)),
-            detected_box((43.36, 101.64, 55.68, 43.28)),
-            detected_box((343.29, 103.20, 38.04, 43.91)),
-            detected_box((342.25, 159.32, 58.52, 45.12)),
-            detected_box((43.61, 160.95, 55.20, 41.85)),
+            detected_box(Rect::new(343.09, 40.13, 57.81, 46.31)),
+            detected_box(Rect::new(41.93, 40.24, 56.61, 46.08)),
+            detected_box(Rect::new(43.36, 101.64, 55.68, 43.28)),
+            detected_box(Rect::new(343.29, 103.20, 38.04, 43.91)),
+            detected_box(Rect::new(342.25, 159.32, 58.52, 45.12)),
+            detected_box(Rect::new(43.61, 160.95, 55.20, 41.85)),
         ];
 
         sort_by_reading_order(&mut boxes);
 
-        let xs: Vec<f32> = boxes.iter().map(|box_| box_.bbox.0).collect();
+        let xs: Vec<f32> = boxes.iter().map(|box_| box_.bbox.x).collect();
         let expected = [41.93, 343.09, 43.36, 343.29, 43.61, 342.25];
         for (actual, wanted) in xs.iter().zip(expected.iter()) {
             assert!(
@@ -409,13 +420,13 @@ mod tests {
     #[test]
     fn test_reading_order_keeps_lines_separate() {
         let mut boxes = vec![
-            detected_box((10.0, 100.0, 80.0, 20.0)),
-            detected_box((10.0, 10.0, 80.0, 20.0)),
+            detected_box(Rect::new(10.0, 100.0, 80.0, 20.0)),
+            detected_box(Rect::new(10.0, 10.0, 80.0, 20.0)),
         ];
 
         sort_by_reading_order(&mut boxes);
 
-        assert!(boxes[0].bbox.1 < boxes[1].bbox.1);
+        assert!(boxes[0].bbox.y < boxes[1].bbox.y);
     }
 
     #[test]
@@ -424,7 +435,7 @@ mod tests {
         sort_by_reading_order(&mut empty);
         assert!(empty.is_empty());
 
-        let mut single = vec![detected_box((1.0, 2.0, 3.0, 4.0))];
+        let mut single = vec![detected_box(Rect::new(1.0, 2.0, 3.0, 4.0))];
         sort_by_reading_order(&mut single);
         assert_eq!(single.len(), 1);
     }

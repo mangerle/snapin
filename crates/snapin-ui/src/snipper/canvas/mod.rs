@@ -7,6 +7,7 @@ mod selection;
 
 use crate::editor::text_input::TextInputSession;
 use crate::editor::toolbar::{Tool, Toolbar};
+use crate::geometry::Point;
 use crate::ports::QrCodeItem;
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionState};
@@ -22,7 +23,7 @@ use tiny_skia::{
 };
 
 /// 正在拉伸绘制中的待提交标注笔触元数据 (工具类型, 轨迹点集合, 预设色值)
-pub type PendingStroke<'a> = (&'a Tool, &'a [(f32, f32)], u32);
+pub type PendingStroke<'a> = (&'a Tool, &'a [Point], u32);
 
 /// 选中标注的编辑框信息
 #[derive(Debug, Clone, Copy, PartialEq)]

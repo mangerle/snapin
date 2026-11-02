@@ -1,7 +1,7 @@
 //! 直线与折线标注图元。
 
 use super::{map_point, points_bounds, SizeParam};
-use crate::geometry::Rect;
+use crate::geometry::{Point, Rect};
 use crate::style::{ArrowHeadStyle, ColorRgba, LineStyle};
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
@@ -9,7 +9,7 @@ use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
 /// 直线或折线标注。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PolylineAction {
-    pub points: Vec<(f32, f32)>,
+    pub points: Vec<Point>,
     pub color: ColorRgba,
     pub stroke_width: f32,
     #[serde(default)]
@@ -28,9 +28,9 @@ impl PolylineAction {
         let mut paint = Paint::default();
         paint.set_color_rgba8(self.color.0, self.color.1, self.color.2, self.color.3);
         let mut pb = PathBuilder::new();
-        pb.move_to(self.points[0].0 + offset_x, self.points[0].1 + offset_y);
+        pb.move_to(self.points[0].x + offset_x, self.points[0].y + offset_y);
         for point in &self.points[1..] {
-            pb.line_to(point.0 + offset_x, point.1 + offset_y);
+            pb.line_to(point.x + offset_x, point.y + offset_y);
         }
         let Some(path) = pb.finish() else {
             return;
@@ -50,7 +50,7 @@ impl PolylineAction {
         let first_next = self.points.get(1).copied().unwrap_or(last);
         self.draw_head(
             pixmap,
-            (first.0 + offset_x, first.1 + offset_y),
+            Point::new(first.x + offset_x, first.y + offset_y),
             direction(first, first_next),
             self.start_head,
             paint,
@@ -62,7 +62,7 @@ impl PolylineAction {
             .unwrap_or(first);
         self.draw_head(
             pixmap,
-            (last.0 + offset_x, last.1 + offset_y),
+            Point::new(last.x + offset_x, last.y + offset_y),
             direction(last_prev, last),
             self.end_head,
             paint,
@@ -72,7 +72,7 @@ impl PolylineAction {
     fn draw_head(
         &self,
         pixmap: &mut PixmapMut,
-        tip: (f32, f32),
+        tip: Point,
         direction: (f32, f32),
         style: ArrowHeadStyle,
         paint: &Paint,
@@ -84,21 +84,21 @@ impl PolylineAction {
         let (vx, vy) = (-uy, ux);
         let length = (self.stroke_width * 3.5).clamp(8.0, 48.0);
         let half = (self.stroke_width * 2.2).max(4.0);
-        let base = (tip.0 - ux * length, tip.1 - uy * length);
+        let base = Point::new(tip.x - ux * length, tip.y - uy * length);
         let mut pb = PathBuilder::new();
         match style {
             ArrowHeadStyle::Triangle | ArrowHeadStyle::Outline => {
-                pb.move_to(tip.0, tip.1);
-                pb.line_to(base.0 + vx * half, base.1 + vy * half);
-                pb.line_to(base.0 - vx * half, base.1 - vy * half);
+                pb.move_to(tip.x, tip.y);
+                pb.line_to(base.x + vx * half, base.y + vy * half);
+                pb.line_to(base.x - vx * half, base.y - vy * half);
                 pb.close();
             }
             ArrowHeadStyle::Bar => {
-                pb.move_to(tip.0 + vx * half, tip.1 + vy * half);
-                pb.line_to(tip.0 - vx * half, tip.1 - vy * half);
+                pb.move_to(tip.x + vx * half, tip.y + vy * half);
+                pb.line_to(tip.x - vx * half, tip.y - vy * half);
             }
             ArrowHeadStyle::Circle => {
-                pb.push_circle(tip.0, tip.1, half * 0.65);
+                pb.push_circle(tip.x, tip.y, half * 0.65);
             }
             ArrowHeadStyle::None => return,
         }
@@ -134,8 +134,7 @@ impl PolylineAction {
 
     pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
         for point in &mut self.points {
-            point.0 += dx;
-            point.1 += dy;
+            *point = point.translated(dx, dy);
         }
     }
 
@@ -146,9 +145,9 @@ impl PolylineAction {
     }
 }
 
-fn direction(from: (f32, f32), to: (f32, f32)) -> (f32, f32) {
-    let dx = to.0 - from.0;
-    let dy = to.1 - from.1;
+fn direction(from: Point, to: Point) -> (f32, f32) {
+    let dx = to.x - from.x;
+    let dy = to.y - from.y;
     let length = (dx * dx + dy * dy).sqrt().max(1.0);
     (dx / length, dy / length)
 }
@@ -169,7 +168,11 @@ mod tests {
         let mut pixmap = Pixmap::new(100, 100).expect("创建位图失败");
         pixmap.fill(Color::WHITE);
         PolylineAction {
-            points: vec![(10.0, 10.0), (50.0, 10.0), (50.0, 80.0)],
+            points: vec![
+                Point::new(10.0, 10.0),
+                Point::new(50.0, 10.0),
+                Point::new(50.0, 80.0),
+            ],
             color: (255, 0, 0, 255).into(),
             stroke_width: 4.0,
             line_style: LineStyle::Solid,

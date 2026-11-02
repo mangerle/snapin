@@ -2,6 +2,7 @@
 
 use super::super::types::SnipMode;
 use super::*;
+use crate::geometry::Point;
 use crate::ports::OcrTextItem;
 use crate::snipper::window::redaction::{apply_redaction, is_redaction_applied, RedactionPreview};
 use snapin_annotation::action::AnnotationShape;
@@ -63,7 +64,7 @@ fn test_mouse_wheel_continuous_stroke_width_and_retroactive_adjust() {
         .editor
         .annotations
         .push(AnnotationShape::Rect(RectAction {
-            rect: (10.0, 10.0, 100.0, 100.0),
+            rect: Rect::new(10.0, 10.0, 100.0, 100.0),
             color: (255, 0, 0, 255).into(),
             stroke_width: 4.0,
             is_filled: false,
@@ -145,8 +146,8 @@ fn state_with_magnifier_wheel_target() -> SnipperState {
         .editor
         .annotations
         .push(AnnotationShape::Magnifier(MagnifierAction {
-            source: (10.0, 10.0, 40.0, 40.0),
-            dest: (100.0, 100.0, 80.0, 80.0),
+            source: Rect::new(10.0, 10.0, 40.0, 40.0),
+            dest: Rect::new(100.0, 100.0, 80.0, 80.0),
             shape: MagnifierShape::Rectangle,
             border_width: 2.0,
             border_color: ColorRgba::opaque(255, 255, 255),
@@ -175,8 +176,8 @@ fn test_magnifier_wheel_over_image_adjusts_scale() {
     );
     match state.editor.annotations.shape_at(0) {
         Some(AnnotationShape::Magnifier(action)) => {
-            assert_eq!(action.source, (10.0, 10.0, 40.0, 40.0));
-            assert_eq!(action.dest, (95.0, 95.0, 90.0, 90.0));
+            assert_eq!(action.source, Rect::new(10.0, 10.0, 40.0, 40.0));
+            assert_eq!(action.dest, Rect::new(95.0, 95.0, 90.0, 90.0));
         }
         other => panic!("应为放大镜图元，实际: {other:?}"),
     }
@@ -205,7 +206,7 @@ fn test_magnifier_wheel_outside_image_adjusts_border_width() {
     match state.editor.annotations.shape_at(0) {
         Some(AnnotationShape::Magnifier(action)) => {
             assert_eq!(action.border_width, 5.0);
-            assert_eq!(action.dest, (100.0, 100.0, 80.0, 80.0));
+            assert_eq!(action.dest, Rect::new(100.0, 100.0, 80.0, 80.0));
         }
         other => panic!("应为放大镜图元，实际: {other:?}"),
     }
@@ -314,7 +315,7 @@ fn test_redaction_region_click_toggles_mosaic_immediately() {
     let mut state = SnipperState::new();
     let preview = RedactionPreview::from_ocr_lines(&[OcrTextItem {
         text: "敏感文字".to_string(),
-        bounds: (10.0, 20.0, 80.0, 24.0),
+        bounds: snapin_foundation::Rect::new(10.0, 20.0, 80.0, 24.0),
     }]);
     apply_redaction(&mut state, &preview);
     let rect = preview.regions[0];
@@ -407,33 +408,50 @@ fn test_hit_test_resize_handle_starts_resizing() {
 fn test_shift_constraint_shapes_and_arrow() {
     // 矩形：取较长边构成正方形，方向保持不变
     assert_eq!(
-        constrain_with_shift(Tool::Rect, (10.0, 10.0), (110.0, 50.0)),
-        (110.0, 110.0)
+        constrain_with_shift(Tool::Rect, Point::new(10.0, 10.0), Point::new(110.0, 50.0)),
+        Point::new(110.0, 110.0)
     );
     // 反向拖拽同样成立
     assert_eq!(
-        constrain_with_shift(Tool::Ellipse, (110.0, 110.0), (10.0, 50.0)),
-        (10.0, 10.0)
+        constrain_with_shift(
+            Tool::Ellipse,
+            Point::new(110.0, 110.0),
+            Point::new(10.0, 50.0)
+        ),
+        Point::new(10.0, 10.0)
     );
     // 纯水平拖拽时纵向位移为 0，正负号无定义，约定向正方向展开成正方形
     assert_eq!(
-        constrain_with_shift(Tool::Rect, (0.0, 0.0), (80.0, 0.0)),
-        (80.0, 80.0)
+        constrain_with_shift(Tool::Rect, Point::new(0.0, 0.0), Point::new(80.0, 0.0)),
+        Point::new(80.0, 80.0)
     );
 
     // 箭头：接近水平的角度吸附到 0°
-    let (ax, ay) = constrain_with_shift(Tool::Arrow, (0.0, 0.0), (100.0, 8.0));
-    assert!(ay.abs() < 0.01, "接近水平的箭头应吸附为水平，实际 y={ay}");
-    assert!(ax > 99.0 && ax < 102.0, "长度应保持不变，实际 x={ax}");
+    let arrow = constrain_with_shift(Tool::Arrow, Point::new(0.0, 0.0), Point::new(100.0, 8.0));
+    assert!(
+        arrow.y.abs() < 0.01,
+        "接近水平的箭头应吸附为水平，实际 y={}",
+        arrow.y
+    );
+    assert!(
+        arrow.x > 99.0 && arrow.x < 102.0,
+        "长度应保持不变，实际 x={}",
+        arrow.x
+    );
 
     // 箭头：约 42° 吸附到 45°，两个分量应基本相等
-    let (bx, by) = constrain_with_shift(Tool::Arrow, (0.0, 0.0), (100.0, 90.0));
-    assert!((bx - by).abs() < 0.5, "应吸附到 45°，实际 ({bx}, {by})");
+    let diagonal = constrain_with_shift(Tool::Arrow, Point::new(0.0, 0.0), Point::new(100.0, 90.0));
+    assert!(
+        (diagonal.x - diagonal.y).abs() < 0.5,
+        "应吸附到 45°，实际 ({}, {})",
+        diagonal.x,
+        diagonal.y
+    );
 
     // 非几何工具不受约束
     assert_eq!(
-        constrain_with_shift(Tool::Pen, (0.0, 0.0), (10.0, 30.0)),
-        (10.0, 30.0)
+        constrain_with_shift(Tool::Pen, Point::new(0.0, 0.0), Point::new(10.0, 30.0)),
+        Point::new(10.0, 30.0)
     );
 }
 

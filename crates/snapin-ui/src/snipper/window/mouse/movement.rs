@@ -65,12 +65,21 @@ pub fn handle_cursor_move(
                 match tool {
                     Some(Tool::Pen) if state.viewport.modifiers.shift_key() => {
                         let start = state.editor.annotation.stroke.points[0];
-                        let endpoint = constrain_with_shift(Tool::Arrow, start, (px, py));
+                        let endpoint = constrain_with_shift(
+                            Tool::Arrow,
+                            start,
+                            crate::geometry::Point::new(px, py),
+                        );
                         state.editor.annotation.stroke.points.truncate(1);
                         state.editor.annotation.stroke.points.push(endpoint);
                     }
                     Some(Tool::Pen) | Some(Tool::Marker) => {
-                        state.editor.annotation.stroke.points.push((px, py));
+                        state
+                            .editor
+                            .annotation
+                            .stroke
+                            .points
+                            .push(crate::geometry::Point::new(px, py));
                     }
                     Some(Tool::Mosaic)
                         if state
@@ -80,7 +89,11 @@ pub fn handle_cursor_move(
                             .sub_options
                             .mosaic_brush_mode =>
                     {
-                        state.editor.annotation.stroke.append((px, py));
+                        state
+                            .editor
+                            .annotation
+                            .stroke
+                            .append(crate::geometry::Point::new(px, py));
                     }
                     Some(Tool::Line)
                         if state.editor.annotation.toolbar.sub_options.line_mode
@@ -92,9 +105,13 @@ pub fn handle_cursor_move(
                         let endpoint = match (state.viewport.modifiers.shift_key(), tool) {
                             (true, Some(active)) => {
                                 let start = state.editor.annotation.stroke.points[0];
-                                constrain_with_shift(active, start, (px, py))
+                                constrain_with_shift(
+                                    active,
+                                    start,
+                                    crate::geometry::Point::new(px, py),
+                                )
                             }
-                            _ => (px, py),
+                            _ => crate::geometry::Point::new(px, py),
                         };
                         if state.editor.annotation.stroke.points.len() > 1 {
                             state.editor.annotation.stroke.points[1] = endpoint;
@@ -117,11 +134,11 @@ pub fn handle_cursor_move(
 /// 起点保持不变，终点随约束移动；矩形取两次位移中较大的边长，保证拖拽方向与用户意图一致。
 pub(super) fn constrain_with_shift(
     tool: Tool,
-    start: (f32, f32),
-    current: (f32, f32),
-) -> (f32, f32) {
-    let (x0, y0) = start;
-    let (mut x, mut y) = current;
+    start: crate::geometry::Point,
+    current: crate::geometry::Point,
+) -> crate::geometry::Point {
+    let (x0, y0) = (start.x, start.y);
+    let (mut x, mut y) = (current.x, current.y);
     let dx = x - x0;
     let dy = y - y0;
 
@@ -143,7 +160,7 @@ pub(super) fn constrain_with_shift(
         _ => {}
     }
 
-    (x, y)
+    crate::geometry::Point::new(x, y)
 }
 
 /// 当前工具是否需要持续跟随光标重绘圆形画笔轮廓。

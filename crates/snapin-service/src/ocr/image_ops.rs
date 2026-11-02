@@ -4,6 +4,7 @@
 //! 识别输入按比例缩放到高度 48，并统一转换为 CHW 浮点张量。
 
 use image::{Rgba, RgbaImage};
+use snapin_foundation::Rect;
 
 /// 检测模型输入最大边长（必须为 32 的倍数）
 pub const DETECTION_MAX_SIDE: u32 = 960;
@@ -140,16 +141,13 @@ fn rgba_to_chw(image: &RgbaImage, mean: [f32; 3], std: [f32; 3]) -> Vec<f32> {
 }
 
 /// 采样文本框外围环形边界像素，通过中位数滤波估计主导背景色 RGBA。
-pub fn estimate_dominant_background_color(
-    full_image: &RgbaImage,
-    bbox: (f32, f32, f32, f32),
-) -> (u8, u8, u8, u8) {
+pub fn estimate_dominant_background_color(full_image: &RgbaImage, bbox: Rect) -> (u8, u8, u8, u8) {
     let (img_w, img_h) = full_image.dimensions();
     if img_w == 0 || img_h == 0 {
         return (255, 255, 255, 255);
     }
 
-    let (bx, by, bw, bh) = bbox;
+    let (bx, by, bw, bh) = (bbox.x, bbox.y, bbox.width, bbox.height);
     let x1 = (bx - 2.0).clamp(0.0, img_w as f32 - 1.0) as u32;
     let y1 = (by - 2.0).clamp(0.0, img_h as f32 - 1.0) as u32;
     let x2 = (bx + bw + 2.0).clamp(0.0, img_w as f32 - 1.0) as u32;
@@ -243,7 +241,8 @@ mod tests {
     #[test]
     fn test_estimate_dominant_background_and_contrast() {
         let image = RgbaImage::from_pixel(100, 100, Rgba([200, 200, 200, 255]));
-        let background = estimate_dominant_background_color(&image, (10.0, 10.0, 30.0, 20.0));
+        let background =
+            estimate_dominant_background_color(&image, Rect::new(10.0, 10.0, 30.0, 20.0));
         assert_eq!(background, (200, 200, 200, 255));
         assert_eq!(get_contrasting_text_color(background), (24, 24, 27, 255));
         assert_eq!(
@@ -255,7 +254,7 @@ mod tests {
     #[test]
     fn test_estimate_dominant_background_clamps_out_of_bounds_bbox() {
         let image = RgbaImage::from_pixel(10, 10, Rgba([12, 34, 56, 255]));
-        let color = estimate_dominant_background_color(&image, (100.0, 100.0, 50.0, 50.0));
+        let color = estimate_dominant_background_color(&image, Rect::new(100.0, 100.0, 50.0, 50.0));
         assert_eq!(color, (12, 34, 56, 255));
     }
 }

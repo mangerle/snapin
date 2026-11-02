@@ -207,7 +207,7 @@ mod tests {
 
     fn rect_at(x: f32) -> AnnotationShape {
         AnnotationShape::Rect(RectAction {
-            rect: (x, 0.0, 10.0, 10.0),
+            rect: Rect::new(x, 0.0, 10.0, 10.0),
             color: (255, 0, 0, 255).into(),
             stroke_width: 1.0,
             is_filled: false,

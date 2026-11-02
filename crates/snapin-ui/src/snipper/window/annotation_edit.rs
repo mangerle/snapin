@@ -174,18 +174,8 @@ fn try_start_magnifier_drag(state: &mut SnipperState, cx: f32, cy: f32) -> bool 
     let AnnotationShape::Magnifier(action) = &original else {
         return false;
     };
-    let source = Rect {
-        x: action.source.0,
-        y: action.source.1,
-        width: action.source.2,
-        height: action.source.3,
-    };
-    let dest = Rect {
-        x: action.dest.0,
-        y: action.dest.1,
-        width: action.dest.2,
-        height: action.dest.3,
-    };
+    let source = action.source;
+    let dest = action.dest;
     if source.contains(cx, cy) {
         state.editor.annotation_drag = Some(AnnotationDrag::MagnifierSource {
             origin: (cx, cy),
@@ -310,7 +300,7 @@ mod tests {
             .editor
             .annotations
             .push(AnnotationShape::Rect(RectAction {
-                rect: (100.0, 100.0, 200.0, 120.0),
+                rect: Rect::new(100.0, 100.0, 200.0, 120.0),
                 color: (255, 0, 0, 255).into(),
                 stroke_width: 2.0,
                 is_filled: false,
@@ -335,8 +325,8 @@ mod tests {
             .editor
             .annotations
             .push(AnnotationShape::Magnifier(MagnifierAction {
-                source: (10.0, 10.0, 20.0, 20.0),
-                dest: (100.0, 100.0, 40.0, 40.0),
+                source: Rect::new(10.0, 10.0, 20.0, 20.0),
+                dest: Rect::new(100.0, 100.0, 40.0, 40.0),
                 shape: MagnifierShape::Rectangle,
                 border_width: 2.0,
                 border_color: ColorRgba::opaque(255, 255, 255),
@@ -360,8 +350,8 @@ mod tests {
         assert!(handle_drag_move(&mut state, 30.0, 40.0));
         match state.editor.annotations.shape_at(0) {
             Some(AnnotationShape::Magnifier(action)) => {
-                assert_eq!(action.source, (20.0, 30.0, 20.0, 20.0));
-                assert_eq!(action.dest, (110.0, 120.0, 40.0, 40.0));
+                assert_eq!(action.source, Rect::new(20.0, 30.0, 20.0, 20.0));
+                assert_eq!(action.dest, Rect::new(110.0, 120.0, 40.0, 40.0));
             }
             other => panic!("应为放大镜图元，实际: {other:?}"),
         }
@@ -379,8 +369,8 @@ mod tests {
         assert!(handle_drag_move(&mut state, 115.0, 117.0));
         match state.editor.annotations.shape_at(0) {
             Some(AnnotationShape::Magnifier(action)) => {
-                assert_eq!(action.source, (10.0, 10.0, 20.0, 20.0));
-                assert_eq!(action.dest, (105.0, 107.0, 40.0, 40.0));
+                assert_eq!(action.source, Rect::new(10.0, 10.0, 20.0, 20.0));
+                assert_eq!(action.dest, Rect::new(105.0, 107.0, 40.0, 40.0));
             }
             other => panic!("应为放大镜图元，实际: {other:?}"),
         }
@@ -466,7 +456,7 @@ mod tests {
             .editor
             .annotations
             .push(AnnotationShape::Rect(RectAction {
-                rect: (300.0, 300.0, 100.0, 100.0),
+                rect: Rect::new(300.0, 300.0, 100.0, 100.0),
                 color: (255, 0, 0, 255).into(),
                 stroke_width: 2.0,
                 is_filled: false,

@@ -10,7 +10,7 @@ pub(crate) use snapin_config::config;
 pub(crate) use snapin_foundation::geometry;
 pub(crate) use snapin_render as render;
 
-pub use crate::geometry::Rect;
+pub use crate::geometry::{Point, Rect, RectI};
 pub use action::AnnotationShape;
 pub use document::AnnotationDocument;
 pub use history::AnnotationHistory;

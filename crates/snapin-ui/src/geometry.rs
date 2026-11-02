@@ -3,7 +3,7 @@
 //! 矩形本身定义在 `snapin-foundation::geometry`，截图选区、工具栏布局、贴图输入区域与
 //! 核心标注包围盒因此共享同一类型；UI 只保留与交互相关的缩放手柄语义。
 
-pub use snapin_foundation::geometry::Rect;
+pub use snapin_foundation::geometry::{Point, Rect};
 
 /// 检测坐标是否命中矩形的 8 个控制手柄之一。
 ///

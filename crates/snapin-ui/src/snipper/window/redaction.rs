@@ -24,14 +24,8 @@ impl RedactionPreview {
     pub(crate) fn from_ocr_lines(lines: &[OcrTextItem]) -> Self {
         let mut regions = Vec::with_capacity(lines.len());
         for line in lines {
-            let (x, y, width, height) = line.bounds;
-            if width > 1.0 && height > 1.0 {
-                regions.push(Rect {
-                    x,
-                    y,
-                    width,
-                    height,
-                });
+            if line.bounds.width > 1.0 && line.bounds.height > 1.0 {
+                regions.push(line.bounds);
             }
         }
         Self { regions }
@@ -93,15 +87,15 @@ fn matches_redaction_region(shape: &AnnotationShape, rect: Rect) -> bool {
         return false;
     };
     action.points.is_empty()
-        && action.rect.0 == rect.x
-        && action.rect.1 == rect.y
-        && action.rect.2 == rect.width
-        && action.rect.3 == rect.height
+        && action.rect.x == rect.x
+        && action.rect.y == rect.y
+        && action.rect.width == rect.width
+        && action.rect.height == rect.height
 }
 
 fn mosaic_shape(rect: Rect) -> AnnotationShape {
     AnnotationShape::Mosaic(MosaicAction {
-        rect: (rect.x, rect.y, rect.width, rect.height),
+        rect,
         cell_size: REDACTION_CELL_SIZE,
         points: Vec::new(),
         brush_width: 0.0,
@@ -115,7 +109,7 @@ mod tests {
     fn line(x: f32, y: f32, width: f32, height: f32) -> OcrTextItem {
         OcrTextItem {
             text: "敏感文字".to_string(),
-            bounds: (x, y, width, height),
+            bounds: Rect::new(x, y, width, height),
         }
     }
 

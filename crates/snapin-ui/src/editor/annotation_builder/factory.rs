@@ -26,14 +26,10 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
     }
 }
 
-fn build_rect(
-    params: &AnnotationDraftParams,
-    first: (f32, f32),
-    last: (f32, f32),
-) -> AnnotationShape {
-    let rect = Rect::from_points(first, last);
+fn build_rect(params: &AnnotationDraftParams, first: Point, last: Point) -> AnnotationShape {
+    let rect = Rect::from_point_pair(first, last);
     AnnotationShape::Rect(RectAction {
-        rect: (rect.x, rect.y, rect.width, rect.height),
+        rect,
         color: params.style.color_rgba.into(),
         stroke_width: params.style.stroke_width,
         is_filled: params.style.filled,
@@ -42,14 +38,10 @@ fn build_rect(
     })
 }
 
-fn build_ellipse(
-    params: &AnnotationDraftParams,
-    first: (f32, f32),
-    last: (f32, f32),
-) -> AnnotationShape {
-    let rect = Rect::from_points(first, last);
+fn build_ellipse(params: &AnnotationDraftParams, first: Point, last: Point) -> AnnotationShape {
+    let rect = Rect::from_point_pair(first, last);
     AnnotationShape::Ellipse(EllipseAction {
-        rect: (rect.x, rect.y, rect.width, rect.height),
+        rect,
         color: params.style.color_rgba.into(),
         stroke_width: params.style.stroke_width,
         is_filled: params.style.filled,
@@ -57,11 +49,7 @@ fn build_ellipse(
     })
 }
 
-fn build_arrow(
-    params: &AnnotationDraftParams,
-    first: (f32, f32),
-    last: (f32, f32),
-) -> AnnotationShape {
+fn build_arrow(params: &AnnotationDraftParams, first: Point, last: Point) -> AnnotationShape {
     AnnotationShape::Arrow(ArrowAction {
         start: first,
         end: last,
@@ -136,7 +124,7 @@ fn brush_bounds(params: &AnnotationDraftParams) -> Option<(Rect, f32)> {
     ))
 }
 
-fn brush_points(params: &AnnotationDraftParams) -> Vec<(f32, f32)> {
+fn brush_points(params: &AnnotationDraftParams) -> Vec<Point> {
     if params.style.mosaic_brush_mode {
         params.points.to_vec()
     } else {
@@ -155,7 +143,7 @@ fn brush_width(params: &AnnotationDraftParams, width: f32) -> f32 {
 fn build_mosaic_box(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
     let (rect, width) = brush_bounds(params)?;
     Some(AnnotationShape::Mosaic(MosaicAction {
-        rect: (rect.x, rect.y, rect.width, rect.height),
+        rect,
         cell_size: (f32::from(params.style.effect_strength) / 4.0).clamp(4.0, 50.0) as u32,
         points: brush_points(params),
         brush_width: brush_width(params, width),
@@ -165,35 +153,27 @@ fn build_mosaic_box(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
 fn build_blur_brush(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
     let (rect, width) = brush_bounds(params)?;
     Some(AnnotationShape::Blur(BlurAction {
-        rect: (rect.x, rect.y, rect.width, rect.height),
+        rect,
         radius: (f32::from(params.style.effect_strength) / 4.0).clamp(2.0, 50.0) as u32,
         points: brush_points(params),
         brush_width: brush_width(params, width),
     }))
 }
 
-fn build_blur_box(
-    params: &AnnotationDraftParams,
-    first: (f32, f32),
-    last: (f32, f32),
-) -> AnnotationShape {
-    let rect = Rect::from_points(first, last);
+fn build_blur_box(params: &AnnotationDraftParams, first: Point, last: Point) -> AnnotationShape {
+    let rect = Rect::from_point_pair(first, last);
     AnnotationShape::Blur(BlurAction {
-        rect: (rect.x, rect.y, rect.width, rect.height),
+        rect,
         radius: (f32::from(params.style.effect_strength) / 4.0).clamp(2.0, 50.0) as u32,
         points: Vec::new(),
         brush_width: 0.0,
     })
 }
 
-fn build_spotlight(
-    params: &AnnotationDraftParams,
-    first: (f32, f32),
-    last: (f32, f32),
-) -> AnnotationShape {
-    let rect = Rect::from_points(first, last);
+fn build_spotlight(params: &AnnotationDraftParams, first: Point, last: Point) -> AnnotationShape {
+    let rect = Rect::from_point_pair(first, last);
     AnnotationShape::Spotlight(SpotlightAction {
-        rect: (rect.x, rect.y, rect.width, rect.height),
+        rect,
         intensity: params.style.spotlight_intensity,
         shape: params.style.spotlight_shape,
         outline: params.style.spotlight_outline,
@@ -203,12 +183,8 @@ fn build_spotlight(
     })
 }
 
-fn build_magnifier(
-    params: &AnnotationDraftParams,
-    first: (f32, f32),
-    last: (f32, f32),
-) -> AnnotationShape {
-    let source = Rect::from_points(first, last);
+fn build_magnifier(params: &AnnotationDraftParams, first: Point, last: Point) -> AnnotationShape {
+    let source = Rect::from_point_pair(first, last);
     let scale = params.style.magnifier_scale.max(1.0);
     let dest = Rect {
         x: source.x + (source.width - source.width * scale) / 2.0,
@@ -217,8 +193,8 @@ fn build_magnifier(
         height: source.height * scale,
     };
     AnnotationShape::Magnifier(MagnifierAction {
-        source: (source.x, source.y, source.width, source.height),
-        dest: (dest.x, dest.y, dest.width, dest.height),
+        source,
+        dest,
         shape: params.style.magnifier_shape,
         border_width: params.style.stroke_width,
         border_color: params.style.color_rgba.into(),
@@ -228,7 +204,7 @@ fn build_magnifier(
     })
 }
 
-fn build_badge(params: &AnnotationDraftParams, center: (f32, f32)) -> AnnotationShape {
+fn build_badge(params: &AnnotationDraftParams, center: Point) -> AnnotationShape {
     let radius = (params.style.stroke_width * 3.0).clamp(10.0, 48.0) * params.style.ui_scale;
     AnnotationShape::Badge(BadgeAction {
         center,

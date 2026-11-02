@@ -3,7 +3,7 @@
 //! 采用半透明或正片叠底（Multiply）混合模式，确保高亮文本时底部的黑色文字永不被遮蔽。
 
 use super::{map_point, points_bounds, SizeParam};
-use crate::geometry::Rect;
+use crate::geometry::{Point, Rect};
 use crate::style::LineStyle;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{BlendMode, LineCap, LineJoin, Paint, PathBuilder, PixmapMut, Stroke, Transform};
@@ -49,7 +49,7 @@ impl MarkerBlendMode {
 /// 荧光记号笔动作
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MarkerAction {
-    pub points: Vec<(f32, f32)>,
+    pub points: Vec<Point>,
     pub color: (u8, u8, u8),
     pub stroke_width: f32,
     #[serde(default)]
@@ -63,7 +63,7 @@ pub struct MarkerAction {
 impl MarkerAction {
     /// 直接基于点集切片在 Pixmap 上绘制，避免在预览和高频路径中分配临时 Vec
     pub fn draw_points_offset(
-        points: &[(f32, f32)],
+        points: &[Point],
         color: (u8, u8, u8),
         stroke_width: f32,
         pixmap: &mut PixmapMut,
@@ -87,9 +87,9 @@ impl MarkerAction {
         };
 
         let mut pb = PathBuilder::new();
-        pb.move_to(points[0].0 + offset_x, points[0].1 + offset_y);
+        pb.move_to(points[0].x + offset_x, points[0].y + offset_y);
         for pt in &points[1..] {
-            pb.line_to(pt.0 + offset_x, pt.1 + offset_y);
+            pb.line_to(pt.x + offset_x, pt.y + offset_y);
         }
 
         if let Some(path) = pb.finish() {
@@ -129,9 +129,9 @@ impl MarkerAction {
             return;
         }
         let mut pb = PathBuilder::new();
-        pb.move_to(self.points[0].0 + offset_x, self.points[0].1 + offset_y);
+        pb.move_to(self.points[0].x + offset_x, self.points[0].y + offset_y);
         for point in &self.points[1..] {
-            pb.line_to(point.0 + offset_x, point.1 + offset_y);
+            pb.line_to(point.x + offset_x, point.y + offset_y);
         }
         if let Some(path) = pb.finish() {
             self.line_style
@@ -151,8 +151,7 @@ impl MarkerAction {
 
     pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
         for point in &mut self.points {
-            point.0 += dx;
-            point.1 += dy;
+            *point = point.translated(dx, dy);
         }
     }
 

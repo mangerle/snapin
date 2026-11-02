@@ -1,6 +1,7 @@
 //! 文本标注实时输入会话管理与即时输入光标渲染。
 
 use crate::editor::toolbar::SubToolOptions;
+use crate::geometry::Point;
 use snapin_annotation::action::AnnotationShape;
 use snapin_annotation::shapes::TextAction;
 use snapin_render::with_thread_local_text_renderer;
@@ -11,7 +12,7 @@ use winit::keyboard::{Key, NamedKey};
 #[derive(Debug, Clone)]
 pub struct TextInputSession {
     /// 文本起始左上角坐标 (x, y)
-    pub pos: (f32, f32),
+    pub pos: Point,
     /// 已提交确认的文本字符内容
     pub text: String,
     /// 候选输入法预编辑拼音内容 (IME Preedit)
@@ -35,7 +36,7 @@ impl TextInputSession {
     /// 创建新的文本输入会话
     pub fn new(pos: (f32, f32), color: (u8, u8, u8, u8), font_size: f32) -> Self {
         Self {
-            pos,
+            pos: Point::from(pos),
             text: String::with_capacity(64),
             preedit: String::new(),
             color,
@@ -161,7 +162,7 @@ impl TextInputSession {
         underline_preedit: bool,
     ) {
         let scale = if scale > f32::EPSILON { scale } else { 1.0 };
-        let (x, y) = (self.pos.0 * scale, self.pos.1 * scale);
+        let (x, y) = (self.pos.x * scale, self.pos.y * scale);
         // 缩小贴图时字号必须同步缩小；仅放大或 1:1 时保留 8 像素可读性下限
         let font_size = (self.font_size * scale).max(8.0 * scale.min(1.0));
         let line_height = font_size * 1.25;

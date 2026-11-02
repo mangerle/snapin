@@ -14,14 +14,15 @@
 use image::RgbaImage;
 use rqrr::PreparedImage;
 use serde::{Deserialize, Serialize};
+use snapin_foundation::RectI;
 
 /// 单个二维码解码结果。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QrCodeResult {
     /// 解码后的文本内容
     pub text: String,
-    /// 二维码在输入图像中的轴对齐包围盒 `[x, y, width, height]`
-    pub bounds: (u32, u32, u32, u32),
+    /// 二维码在输入图像中的轴对齐包围盒
+    pub bounds: RectI,
 }
 
 /// 检测并解码图像中的全部二维码。
@@ -65,7 +66,7 @@ fn luma_from_rgba(pixel: &[u8]) -> u8 {
 }
 
 /// 把二维码四角坐标转换为夹取到图像范围内的轴对齐包围盒。
-fn grid_bounds(points: &[rqrr::Point; 4], max_width: u32, max_height: u32) -> (u32, u32, u32, u32) {
+fn grid_bounds(points: &[rqrr::Point; 4], max_width: u32, max_height: u32) -> RectI {
     let min_x = points.iter().map(|point| point.x).min().unwrap_or(0);
     let min_y = points.iter().map(|point| point.y).min().unwrap_or(0);
     let max_x = points.iter().map(|point| point.x).max().unwrap_or(0);
@@ -75,7 +76,7 @@ fn grid_bounds(points: &[rqrr::Point; 4], max_width: u32, max_height: u32) -> (u
     let top = min_y.clamp(0, i32::try_from(max_height).unwrap_or(i32::MAX)) as u32;
     let right = max_x.clamp(0, i32::try_from(max_width).unwrap_or(i32::MAX)) as u32;
     let bottom = max_y.clamp(0, i32::try_from(max_height).unwrap_or(i32::MAX)) as u32;
-    (
+    RectI::new(
         left,
         top,
         right.saturating_sub(left),
@@ -130,6 +131,6 @@ mod tests {
         let results = decode_qr_codes(&image);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].text, "https://example.com/snapin");
-        assert!(results[0].bounds.2 > 0 && results[0].bounds.3 > 0);
+        assert!(results[0].bounds.width > 0 && results[0].bounds.height > 0);
     }
 }

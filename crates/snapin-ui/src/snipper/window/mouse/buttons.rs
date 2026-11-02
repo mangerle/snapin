@@ -168,14 +168,24 @@ fn handle_locked_press(
             && state.editor.annotation.toolbar.sub_options.line_mode == LineMode::Polyline
         {
             crate::snipper::window::annotation_edit::clear(state);
-            state.editor.annotation.stroke.points.push((cx, cy));
+            state
+                .editor
+                .annotation
+                .stroke
+                .points
+                .push(crate::geometry::Point::new(cx, cy));
             state.editor.annotation.stroke.is_drawing = true;
             return true;
         }
         if state.editor.annotation.toolbar.active_tool.is_some() {
             crate::snipper::window::annotation_edit::clear(state);
             state.editor.annotation.stroke.points.clear();
-            state.editor.annotation.stroke.points.push((cx, cy));
+            state
+                .editor
+                .annotation
+                .stroke
+                .points
+                .push(crate::geometry::Point::new(cx, cy));
             return true;
         }
         crate::snipper::window::annotation_edit::clear(state);
@@ -304,7 +314,12 @@ pub(super) fn handle_left_release(
             } else if state.editor.annotation.toolbar.active_tool.is_some()
                 && !state.editor.annotation.stroke.is_empty()
             {
-                state.editor.annotation.stroke.points.push((cx, cy));
+                state
+                    .editor
+                    .annotation
+                    .stroke
+                    .points
+                    .push(crate::geometry::Point::new(cx, cy));
                 commit_annotation(state);
                 true
             } else {

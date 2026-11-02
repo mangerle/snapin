@@ -3,8 +3,8 @@
 //! 放大镜不保存原始像素快照，而是在绘制时从当前底图复制源区域，再缩放到目标区域。
 //! 这样撤销、重做和后续标注重放始终基于同一张底图，历史数据也不会因缓存大块图像而膨胀。
 
-use super::{rect_from_tuple, resize_rect, tuple_from_rect, SizeParam};
-use crate::geometry::Rect;
+use super::{resize_rect, SizeParam};
+use crate::geometry::{Point, Rect};
 use crate::style::{ColorRgba, LineStyle};
 use serde::{Deserialize, Serialize};
 use tiny_skia::{
@@ -57,9 +57,9 @@ impl MagnifierConnector {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MagnifierAction {
     /// 原始图像中的采样区域。
-    pub source: (f32, f32, f32, f32),
+    pub source: Rect,
     /// 放大图像在画布上的目标区域。
-    pub dest: (f32, f32, f32, f32),
+    pub dest: Rect,
     /// 外框形状。
     #[serde(default)]
     pub shape: MagnifierShape,
@@ -98,8 +98,8 @@ fn default_shadow() -> bool {
 
 impl MagnifierAction {
     pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
-        let source = offset_rect(rect_from_tuple(self.source), offset_x, offset_y);
-        let dest = offset_rect(rect_from_tuple(self.dest), offset_x, offset_y);
+        let source = offset_rect(self.source, offset_x, offset_y);
+        let dest = offset_rect(self.dest, offset_x, offset_y);
         let Some(source) = clamp_rect(source, pixmap.width(), pixmap.height()) else {
             return;
         };
@@ -125,8 +125,8 @@ impl MagnifierAction {
         let source_center = rect_center(source);
         let dest_center = rect_center(dest);
         let direction = (
-            dest_center.0 - source_center.0,
-            dest_center.1 - source_center.1,
+            dest_center.x - source_center.x,
+            dest_center.y - source_center.y,
         );
         let (start, end) = match self.connector {
             MagnifierConnector::Frame => (
@@ -144,8 +144,8 @@ impl MagnifierAction {
             ),
         };
         let mut builder = PathBuilder::new();
-        builder.move_to(start.0, start.1);
-        builder.line_to(end.0, end.1);
+        builder.move_to(start.x, start.y);
+        builder.line_to(end.x, end.y);
         let Some(path) = builder.finish() else {
             return;
         };
@@ -167,22 +167,16 @@ impl MagnifierAction {
         }
     }
 
-    fn draw_connector_caps(
-        &self,
-        pixmap: &mut PixmapMut,
-        start: (f32, f32),
-        end: (f32, f32),
-        paint: &Paint,
-    ) {
-        let dx = end.0 - start.0;
-        let dy = end.1 - start.1;
+    fn draw_connector_caps(&self, pixmap: &mut PixmapMut, start: Point, end: Point, paint: &Paint) {
+        let dx = end.x - start.x;
+        let dy = end.y - start.y;
         let length = (dx * dx + dy * dy).sqrt().max(1.0);
         let normal = (-dy / length, dx / length);
         let half = (self.border_width * 4.0).clamp(4.0, 16.0);
         let mut builder = PathBuilder::new();
         for point in [start, end] {
-            builder.move_to(point.0 + normal.0 * half, point.1 + normal.1 * half);
-            builder.line_to(point.0 - normal.0 * half, point.1 - normal.1 * half);
+            builder.move_to(point.x + normal.0 * half, point.y + normal.1 * half);
+            builder.line_to(point.x - normal.0 * half, point.y - normal.1 * half);
         }
         if let Some(path) = builder.finish() {
             pixmap.stroke_path(
@@ -359,14 +353,14 @@ impl MagnifierAction {
     }
 
     /// 以当前放大图像中心为锚点调整倍率。
-    pub fn adjust_scale(&mut self, scale: f32, preferred_center: Option<(f32, f32)>) {
-        let center = preferred_center.unwrap_or_else(|| rect_center(rect_from_tuple(self.dest)));
-        let source = rect_from_tuple(self.source);
+    pub fn adjust_scale(&mut self, scale: f32, preferred_center: Option<Point>) {
+        let center = preferred_center.unwrap_or_else(|| rect_center(self.dest));
+        let source = self.source;
         let width = source.width * scale.clamp(1.0, 8.0);
         let height = source.height * scale.clamp(1.0, 8.0);
-        self.dest = (
-            center.0 - width / 2.0,
-            center.1 - height / 2.0,
+        self.dest = Rect::new(
+            center.x - width / 2.0,
+            center.y - height / 2.0,
             width,
             height,
         );
@@ -379,24 +373,24 @@ impl MagnifierAction {
 
     /// 仅移动放大图像。
     pub fn translate_dest(&mut self, dx: f32, dy: f32) {
-        self.dest.0 += dx;
-        self.dest.1 += dy;
+        self.dest.x += dx;
+        self.dest.y += dy;
     }
 
     pub(crate) fn bounds(&self) -> Option<Rect> {
-        union_rects(rect_from_tuple(self.source), rect_from_tuple(self.dest))
+        union_rects(self.source, self.dest)
     }
 
     pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
-        self.source.0 += dx;
-        self.source.1 += dy;
-        self.dest.0 += dx;
-        self.dest.1 += dy;
+        self.source.x += dx;
+        self.source.y += dy;
+        self.dest.x += dx;
+        self.dest.y += dy;
     }
 
     pub(crate) fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
-        self.source = tuple_from_rect(resize_rect(from, to, rect_from_tuple(self.source)));
-        self.dest = tuple_from_rect(resize_rect(from, to, rect_from_tuple(self.dest)));
+        self.source = resize_rect(from, to, self.source);
+        self.dest = resize_rect(from, to, self.dest);
     }
 }
 
@@ -442,17 +436,17 @@ fn union_rects(a: Rect, b: Rect) -> Option<Rect> {
 }
 
 /// 计算矩形中心。
-fn rect_center(rect: Rect) -> (f32, f32) {
-    (rect.x + rect.width / 2.0, rect.y + rect.height / 2.0)
+fn rect_center(rect: Rect) -> Point {
+    Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0)
 }
 
 /// 按方向求矩形边界交点；方向退化为零时返回中心。
 fn boundary_point(
-    center: (f32, f32),
+    center: Point,
     half_width: f32,
     half_height: f32,
     direction: (f32, f32),
-) -> (f32, f32) {
+) -> Point {
     let scale_x = if direction.0.abs() > f32::EPSILON {
         half_width / direction.0.abs()
     } else {
@@ -465,9 +459,9 @@ fn boundary_point(
     };
     let scale = scale_x.min(scale_y);
     if scale.is_finite() {
-        (
-            center.0 + direction.0 * scale,
-            center.1 + direction.1 * scale,
+        Point::new(
+            center.x + direction.0 * scale,
+            center.y + direction.1 * scale,
         )
     } else {
         center
@@ -493,8 +487,8 @@ mod tests {
 
     /// 构造使用固定红色边框的测试放大镜，减少各视觉测试的重复参数。
     fn action(
-        source: (f32, f32, f32, f32),
-        dest: (f32, f32, f32, f32),
+        source: Rect,
+        dest: Rect,
         connector: MagnifierConnector,
         shadow: bool,
     ) -> MagnifierAction {
@@ -530,8 +524,8 @@ mod tests {
         let source_index = (2 * 24 + 2) * 4;
         let source_before = pixmap.data()[source_index..source_index + 4].to_vec();
         let mut action = action(
-            (0.0, 0.0, 4.0, 4.0),
-            (8.0, 4.0, 8.0, 8.0),
+            Rect::new(0.0, 0.0, 4.0, 4.0),
+            Rect::new(8.0, 4.0, 8.0, 8.0),
             MagnifierConnector::None,
             false,
         );
@@ -556,8 +550,8 @@ mod tests {
         let mut pixmap = Pixmap::new(24, 24).expect("创建测试位图失败");
         pixmap.fill(Color::from_rgba8(10, 20, 30, 255));
         let action = action(
-            (4.0, 4.0, 8.0, 8.0),
-            (0.0, 0.0, 16.0, 16.0),
+            Rect::new(4.0, 4.0, 8.0, 8.0),
+            Rect::new(0.0, 0.0, 16.0, 16.0),
             MagnifierConnector::None,
             false,
         );
@@ -578,8 +572,8 @@ mod tests {
             let mut pixmap = Pixmap::new(56, 28).expect("创建测试位图失败");
             pixmap.fill(Color::from_rgba8(10, 20, 30, 255));
             action(
-                (2.0, 10.0, 8.0, 8.0),
-                (36.0, 8.0, 12.0, 12.0),
+                Rect::new(2.0, 10.0, 8.0, 8.0),
+                Rect::new(36.0, 8.0, 12.0, 12.0),
                 connector,
                 false,
             )
@@ -597,15 +591,15 @@ mod tests {
     #[test]
     fn test_magnifier_adjust_scale_preserves_center_and_clamps() {
         let mut action = action(
-            (10.0, 10.0, 20.0, 10.0),
-            (0.0, 0.0, 40.0, 20.0),
+            Rect::new(10.0, 10.0, 20.0, 10.0),
+            Rect::new(0.0, 0.0, 40.0, 20.0),
             MagnifierConnector::Solid,
             true,
         );
 
-        action.adjust_scale(20.0, Some((50.0, 50.0)));
+        action.adjust_scale(20.0, Some(Point::new(50.0, 50.0)));
 
-        assert_eq!(action.dest, (-30.0, 10.0, 160.0, 80.0));
-        assert_eq!(action.source, (10.0, 10.0, 20.0, 10.0));
+        assert_eq!(action.dest, Rect::new(-30.0, 10.0, 160.0, 80.0));
+        assert_eq!(action.source, Rect::new(10.0, 10.0, 20.0, 10.0));
     }
 }

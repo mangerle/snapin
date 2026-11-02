@@ -128,6 +128,7 @@ pub fn handle_job_outcome(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geometry::Rect;
     use crate::ports::MediaJob;
     use image::Rgba;
     use snapin_annotation::shapes::TranslationShapeItem;
@@ -136,7 +137,7 @@ mod tests {
 
     fn translation_item() -> TranslationShapeItem {
         TranslationShapeItem {
-            rect: (10.0, 10.0, 40.0, 20.0),
+            rect: Rect::new(10.0, 10.0, 40.0, 20.0),
             original: "Hello".to_string(),
             translated: "你好".to_string(),
             bg_color: (255, 255, 255, 255).into(),
@@ -306,7 +307,7 @@ mod tests {
                 text: "敏感文字".to_string(),
                 lines: vec![crate::ports::OcrTextItem {
                     text: "敏感文字".to_string(),
-                    bounds: (10.0, 20.0, 80.0, 24.0),
+                    bounds: snapin_foundation::Rect::new(10.0, 20.0, 80.0, 24.0),
                 }],
             },
         );
@@ -329,7 +330,7 @@ mod tests {
             MediaJobOutcome::QrCodes {
                 codes: vec![crate::ports::QrCodeItem {
                     text: "https://example.com".to_string(),
-                    bounds: (1, 2, 30, 30),
+                    bounds: snapin_foundation::RectI::new(1, 2, 30, 30),
                 }],
             },
         );

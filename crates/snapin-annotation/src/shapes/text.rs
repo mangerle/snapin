@@ -2,7 +2,7 @@
 
 use super::rect::rounded_rect_path;
 use super::{estimate_text_width, map_point, SizeParam};
-use crate::geometry::Rect;
+use crate::geometry::{Point, Rect};
 use crate::render::{with_thread_local_text_renderer, StyledTextDrawOptions, TextStyleOptions};
 use crate::style::ColorRgba;
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,7 @@ use tiny_skia::{Color, FillRule, Paint, PixmapMut, Transform};
 /// 文本标注图元动作
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TextAction {
-    pub pos: (f32, f32),
+    pub pos: Point,
     pub text: String,
     pub color: ColorRgba,
     pub font_size: f32,
@@ -49,7 +49,7 @@ fn default_corner() -> f32 {
 
 impl TextAction {
     /// 使用默认文字样式构造基础文本。
-    pub fn plain(pos: (f32, f32), text: String, color: ColorRgba, font_size: f32) -> Self {
+    pub fn plain(pos: Point, text: String, color: ColorRgba, font_size: f32) -> Self {
         Self {
             pos,
             text,
@@ -72,7 +72,7 @@ impl TextAction {
             return;
         }
 
-        let (x, y) = (self.pos.0 + offset_x, self.pos.1 + offset_y);
+        let (x, y) = (self.pos.x + offset_x, self.pos.y + offset_y);
         let font_size = self.font_size.max(8.0);
         self.draw_background(pixmap, x, y, font_size);
         self.draw_text(pixmap, x, y, font_size);
@@ -170,16 +170,15 @@ impl TextAction {
         let width = width + self.padding * 2.0;
         let height = (self.font_size * 1.25 + self.padding * 2.0).max(1.0);
         Some(Rect {
-            x: self.pos.0 - self.padding,
-            y: self.pos.1 - self.padding,
+            x: self.pos.x - self.padding,
+            y: self.pos.y - self.padding,
             width,
             height,
         })
     }
 
     pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
-        self.pos.0 += dx;
-        self.pos.1 += dy;
+        self.pos = self.pos.translated(dx, dy);
     }
 
     pub(crate) fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
@@ -210,7 +209,7 @@ mod tests {
     fn test_text_background_uses_rounded_corners() {
         let mut pixmap = Pixmap::new(96, 64).expect("分配 Pixmap 成功");
         let mut action = TextAction::plain(
-            (24.0, 20.0),
+            Point::new(24.0, 20.0),
             "A".to_string(),
             (20, 20, 20, 255).into(),
             24.0,

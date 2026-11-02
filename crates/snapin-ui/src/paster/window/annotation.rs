@@ -7,6 +7,9 @@ use super::jobs::pixmap_to_rgba_image;
 use super::menu_actions::{copy_paster_to_clipboard, save_paster_to_disk};
 use super::state::PasterWindowState;
 use crate::editor::toolbar::{Tool, Toolbar, ToolbarAction, ToolbarItem};
+use crate::geometry::Point;
+#[cfg(test)]
+use crate::geometry::Rect;
 use winit::window::Window;
 
 /// 贴图窗口主栏按钮序列：绘制工具、撤销/重做、整图识别/翻译与贴图动作。
@@ -99,9 +102,9 @@ pub(crate) fn screen_to_image_point(
 /// 将图像像素坐标换算为窗口屏幕坐标。
 ///
 /// 与 `screen_to_image_point` 使用同一缩放假设，供标注预览按屏幕坐标绘制。
-pub(crate) fn image_to_screen_point(pos: (f32, f32), scale: f32) -> (f32, f32) {
+pub(crate) fn image_to_screen_point(pos: Point, scale: f32) -> Point {
     let scale = if scale > f32::EPSILON { scale } else { 1.0 };
-    (pos.0 * scale, pos.1 * scale)
+    Point::new(pos.x * scale, pos.y * scale)
 }
 
 /// 判断屏幕坐标是否落在缩放后的贴图图像内部。
@@ -273,8 +276,8 @@ mod tests {
     /// 以矩形工具提交一笔填充矩形，返回提交后的可撤销图元
     fn commit_filled_rect(
         state: &mut PasterWindowState,
-        start: (f32, f32),
-        end: (f32, f32),
+        start: crate::geometry::Point,
+        end: crate::geometry::Point,
         color: Color,
     ) -> AnnotationShape {
         state.interaction.annotation.toolbar.active_tool = Some(Tool::Rect);
@@ -311,7 +314,8 @@ mod tests {
             "缩放 1.6667 时纵坐标应约为 60，实际 {y}"
         );
 
-        let (sx, sy) = image_to_screen_point((60.0, 30.0), 1.6667);
+        let screen = image_to_screen_point(Point::new(60.0, 30.0), 1.6667);
+        let (sx, sy) = (screen.x, screen.y);
         assert!(
             (sx - 100.002).abs() < 0.01,
             "图像横坐标应按缩放放大，实际 {sx}"
@@ -399,14 +403,14 @@ mod tests {
 
         let first_shape = commit_filled_rect(
             &mut state,
-            (4.0, 4.0),
-            (24.0, 24.0),
+            crate::geometry::Point::new(4.0, 4.0),
+            crate::geometry::Point::new(24.0, 24.0),
             Color::from_rgba8(239, 68, 68, 255),
         );
         commit_filled_rect(
             &mut state,
-            (32.0, 32.0),
-            (56.0, 56.0),
+            crate::geometry::Point::new(32.0, 32.0),
+            crate::geometry::Point::new(56.0, 56.0),
             Color::from_rgba8(59, 130, 246, 255),
         );
         let two_stroke_pixels = state.document.item.pixmap.data().to_vec();
@@ -529,7 +533,7 @@ mod tests {
 
         let items = vec![
             TranslationShapeItem {
-                rect: (10.0, 10.0, 60.0, 24.0),
+                rect: Rect::new(10.0, 10.0, 60.0, 24.0),
                 original: "Hello".to_string(),
                 translated: "你好".to_string(),
                 bg_color: (255, 0, 0, 255).into(),
@@ -538,7 +542,7 @@ mod tests {
                 cover_mode: CoverMode::SolidColor,
             },
             TranslationShapeItem {
-                rect: (10.0, 44.0, 80.0, 24.0),
+                rect: Rect::new(10.0, 44.0, 80.0, 24.0),
                 original: "World".to_string(),
                 translated: "世界".to_string(),
                 bg_color: (0, 80, 255, 255).into(),

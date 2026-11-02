@@ -4,7 +4,7 @@
 //! 三者在同一份几何基础上绘制，只在箭杆渲染方式上分叉。
 
 use super::{map_point, SizeParam};
-use crate::geometry::Rect;
+use crate::geometry::{Point, Rect};
 use crate::style::{ArrowHeadStyle, ArrowStyle, ColorRgba, LineStyle};
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
@@ -12,8 +12,8 @@ use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
 /// 指引箭头绘制动作
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ArrowAction {
-    pub start: (f32, f32),
-    pub end: (f32, f32),
+    pub start: Point,
+    pub end: Point,
     pub color: ColorRgba,
     pub stroke_width: f32,
     /// 箭头形态：实线 / 虚线 / 锥形
@@ -36,18 +36,18 @@ fn default_end_head() -> ArrowHeadStyle {
 
 /// 箭头共享几何：单位方向、法向、头部基线与翼展半宽
 struct ArrowGeometry {
-    start: (f32, f32),
-    end: (f32, f32),
+    start: Point,
+    end: Point,
     normal: (f32, f32),
-    base: (f32, f32),
+    base: Point,
     head_half_w: f32,
 }
 
 impl ArrowAction {
     /// 计算箭头几何；过短的拖拽返回 `None`，避免头部倒退吞噬箭身
     fn geometry(&self) -> Option<ArrowGeometry> {
-        let (x1, y1) = self.start;
-        let (x2, y2) = self.end;
+        let (x1, y1) = (self.start.x, self.start.y);
+        let (x2, y2) = (self.end.x, self.end.y);
         let dx = x2 - x1;
         let dy = y2 - y1;
         let length = (dx * dx + dy * dy).sqrt();
@@ -70,10 +70,10 @@ impl ArrowAction {
         }
 
         Some(ArrowGeometry {
-            start: (x1, y1),
-            end: (x2, y2),
+            start: self.start,
+            end: self.end,
             normal: (-uy, ux),
-            base: (x2 - ux * head_len, y2 - uy * head_len),
+            base: Point::new(x2 - ux * head_len, y2 - uy * head_len),
             head_half_w,
         })
     }
@@ -81,7 +81,7 @@ impl ArrowAction {
     fn draw_head_style(
         &self,
         pixmap: &mut PixmapMut,
-        tip: (f32, f32),
+        tip: Point,
         direction: (f32, f32),
         paint: &Paint,
         style: ArrowHeadStyle,
@@ -93,11 +93,11 @@ impl ArrowAction {
         match style {
             ArrowHeadStyle::None => {}
             ArrowHeadStyle::Triangle | ArrowHeadStyle::Outline => {
-                let base = (tip.0 - ux * head_len, tip.1 - uy * head_len);
+                let base = Point::new(tip.x - ux * head_len, tip.y - uy * head_len);
                 let mut pb = PathBuilder::new();
-                pb.move_to(tip.0, tip.1);
-                pb.line_to(base.0 + vx * half_w, base.1 + vy * half_w);
-                pb.line_to(base.0 - vx * half_w, base.1 - vy * half_w);
+                pb.move_to(tip.x, tip.y);
+                pb.line_to(base.x + vx * half_w, base.y + vy * half_w);
+                pb.line_to(base.x - vx * half_w, base.y - vy * half_w);
                 pb.close();
                 if let Some(path) = pb.finish() {
                     if style == ArrowHeadStyle::Triangle {
@@ -119,8 +119,8 @@ impl ArrowAction {
             }
             ArrowHeadStyle::Bar => {
                 let mut pb = PathBuilder::new();
-                pb.move_to(tip.0 + vx * half_w, tip.1 + vy * half_w);
-                pb.line_to(tip.0 - vx * half_w, tip.1 - vy * half_w);
+                pb.move_to(tip.x + vx * half_w, tip.y + vy * half_w);
+                pb.line_to(tip.x - vx * half_w, tip.y - vy * half_w);
                 if let Some(path) = pb.finish() {
                     let stroke = Stroke {
                         width: self.stroke_width.max(1.0),
@@ -131,7 +131,7 @@ impl ArrowAction {
             }
             ArrowHeadStyle::Circle => {
                 let mut pb = PathBuilder::new();
-                pb.push_circle(tip.0, tip.1, half_w * 0.65);
+                pb.push_circle(tip.x, tip.y, half_w * 0.65);
                 if let Some(path) = pb.finish() {
                     pixmap.fill_path(
                         &path,
@@ -153,10 +153,10 @@ impl ArrowAction {
         paint: &Paint,
         line_style: LineStyle,
     ) {
-        let (x1, y1) = geometry.start;
+        let (x1, y1) = (geometry.start.x, geometry.start.y);
         let (vx, vy) = geometry.normal;
-        let (bx, by) = geometry.base;
-        let (x2, y2) = geometry.end;
+        let (bx, by) = (geometry.base.x, geometry.base.y);
+        let (x2, y2) = (geometry.end.x, geometry.end.y);
         let half_stroke = (self.stroke_width / 2.0).max(1.0);
 
         // 尾部收窄、向箭头方向线性加粗，形成毛笔式指向感
@@ -201,12 +201,12 @@ impl ArrowAction {
         paint: &Paint,
         line_style: LineStyle,
     ) {
-        let (x1, y1) = geometry.start;
-        let (bx, by) = geometry.base;
+        let start = geometry.start;
+        let base = geometry.base;
 
         let mut pb = PathBuilder::new();
-        pb.move_to(x1, y1);
-        pb.line_to(bx, by);
+        pb.move_to(start.x, start.y);
+        pb.line_to(base.x, base.y);
         if let Some(path) = pb.finish() {
             line_style.stroke_path(pixmap, &path, paint, self.stroke_width);
         }
@@ -218,9 +218,9 @@ impl ArrowAction {
         let Some(mut geometry) = self.geometry() else {
             return;
         };
-        geometry.start = (geometry.start.0 + offset_x, geometry.start.1 + offset_y);
-        geometry.end = (geometry.end.0 + offset_x, geometry.end.1 + offset_y);
-        geometry.base = (geometry.base.0 + offset_x, geometry.base.1 + offset_y);
+        geometry.start = geometry.start.translated(offset_x, offset_y);
+        geometry.end = geometry.end.translated(offset_x, offset_y);
+        geometry.base = geometry.base.translated(offset_x, offset_y);
 
         let mut paint = Paint::default();
         paint.set_color_rgba8(self.color.0, self.color.1, self.color.2, self.color.3);
@@ -230,8 +230,8 @@ impl ArrowAction {
             None => self.draw_tapered(pixmap, &geometry, &paint, self.line_style),
         }
 
-        let dx = geometry.end.0 - geometry.start.0;
-        let dy = geometry.end.1 - geometry.start.1;
+        let dx = geometry.end.x - geometry.start.x;
+        let dy = geometry.end.y - geometry.start.y;
         let length = (dx * dx + dy * dy).sqrt().max(1.0);
         let direction = (dx / length, dy / length);
         self.draw_head_style(
@@ -251,10 +251,10 @@ impl ArrowAction {
     }
 
     pub(crate) fn bounds(&self) -> Option<Rect> {
-        let min_x = self.start.0.min(self.end.0);
-        let min_y = self.start.1.min(self.end.1);
-        let width = (self.end.0 - self.start.0).abs();
-        let height = (self.end.1 - self.start.1).abs();
+        let min_x = self.start.x.min(self.end.x);
+        let min_y = self.start.y.min(self.end.y);
+        let width = (self.end.x - self.start.x).abs();
+        let height = (self.end.y - self.start.y).abs();
         if width < f32::EPSILON && height < f32::EPSILON {
             return None;
         }
@@ -267,10 +267,8 @@ impl ArrowAction {
     }
 
     pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
-        self.start.0 += dx;
-        self.start.1 += dy;
-        self.end.0 += dx;
-        self.end.1 += dy;
+        self.start = self.start.translated(dx, dy);
+        self.end = self.end.translated(dx, dy);
     }
 
     pub(crate) fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
@@ -294,8 +292,8 @@ mod tests {
     fn draw(style: ArrowStyle, stroke_width: f32) -> Pixmap {
         let mut pixmap = Pixmap::new(240, 120).expect("分配 Pixmap 成功");
         ArrowAction {
-            start: (20.0, 60.0),
-            end: (220.0, 60.0),
+            start: Point::new(20.0, 60.0),
+            end: Point::new(220.0, 60.0),
             color: (255, 0, 0, 255).into(),
             stroke_width,
             style,
@@ -356,8 +354,8 @@ mod tests {
     fn test_arrow_drawing_and_size_adjustment() {
         let mut pixmap = Pixmap::new(200, 200).expect("分配 Pixmap 成功");
         let mut arrow = ArrowAction {
-            start: (20.0, 20.0),
-            end: (180.0, 180.0),
+            start: Point::new(20.0, 20.0),
+            end: Point::new(180.0, 180.0),
             color: (255, 0, 0, 255).into(),
             stroke_width: 8.0,
             style: ArrowStyle::Tapered,

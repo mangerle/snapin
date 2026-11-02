@@ -23,6 +23,7 @@ use image::{imageops, RgbaImage};
 use ort::environment::Environment;
 use ort::session::Session;
 use ort::value::Tensor;
+use snapin_foundation::Rect;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
@@ -342,13 +343,15 @@ fn build_session(
 }
 
 /// 从原图中裁剪文本框区域，并做边界裁剪保护。
-fn crop_box(image: &RgbaImage, bbox: (f32, f32, f32, f32)) -> Option<RgbaImage> {
+fn crop_box(image: &RgbaImage, bbox: Rect) -> Option<RgbaImage> {
     let image_width = image.width();
     let image_height = image.height();
-    let x0 = bbox.0.floor().clamp(0.0, image_width as f32) as u32;
-    let y0 = bbox.1.floor().clamp(0.0, image_height as f32) as u32;
-    let x1 = (bbox.0 + bbox.2).ceil().clamp(0.0, image_width as f32) as u32;
-    let y1 = (bbox.1 + bbox.3).ceil().clamp(0.0, image_height as f32) as u32;
+    let x0 = bbox.x.floor().clamp(0.0, image_width as f32) as u32;
+    let y0 = bbox.y.floor().clamp(0.0, image_height as f32) as u32;
+    let x1 = (bbox.x + bbox.width).ceil().clamp(0.0, image_width as f32) as u32;
+    let y1 = (bbox.y + bbox.height)
+        .ceil()
+        .clamp(0.0, image_height as f32) as u32;
     let width = x1.saturating_sub(x0);
     let height = y1.saturating_sub(y0);
     if width < 2 || height < 2 {

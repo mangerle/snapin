@@ -10,7 +10,7 @@ pub mod trigger;
 
 pub use error::CoreError;
 pub use file::{read_file_limited, read_utf8_file_limited};
-pub use geometry::Rect;
+pub use geometry::{Point, Rect, RectF, RectI};
 pub use language::UiLanguage;
 pub use paths::AppPaths;
 pub use trigger::{PostCaptureAction, SnipMode};

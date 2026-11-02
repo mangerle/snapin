@@ -3,6 +3,7 @@
 use super::PasterWindowState;
 use crate::editor::annotation_builder::{build_shape, AnnotationDraftParams};
 use crate::editor::toolbar::Tool;
+use crate::geometry::Point;
 
 impl PasterWindowState {
     /// 开始一笔标注：记录起点图像坐标，等待拖动更新与松开提交。
@@ -15,7 +16,7 @@ impl PasterWindowState {
             .annotation
             .stroke
             .points
-            .push(self.image_point(screen_pos));
+            .push(Point::from(self.image_point(screen_pos)));
         self.interaction.annotation.stroke.is_drawing = true;
         true
     }
@@ -31,7 +32,7 @@ impl PasterWindowState {
             return false;
         };
 
-        let point = self.image_point(screen_pos);
+        let point = Point::from(self.image_point(screen_pos));
         match tool {
             Tool::Eraser
                 if !self
@@ -101,7 +102,7 @@ impl PasterWindowState {
                 .points
                 .first()
                 .zip(self.interaction.annotation.stroke.points.last())
-                .map(|(start, end)| crate::geometry::Rect::from_points(*start, *end))
+                .map(|(start, end)| crate::geometry::Rect::from_point_pair(*start, *end))
                 .map(|rect| self.document.annotations.erase_intersecting(rect) > 0)
                 .unwrap_or(false)
         } else {
@@ -144,7 +145,7 @@ impl PasterWindowState {
     }
 
     /// 擦除画笔半径内命中的标注并立即重放剩余图元。
-    fn erase_annotations_at(&mut self, point: (f32, f32)) -> bool {
+    fn erase_annotations_at(&mut self, point: Point) -> bool {
         let radius = self
             .interaction
             .annotation
@@ -153,8 +154,8 @@ impl PasterWindowState {
             .custom_stroke_width
             .max(4.0);
         let rect = crate::geometry::Rect {
-            x: point.0 - radius,
-            y: point.1 - radius,
+            x: point.x - radius,
+            y: point.y - radius,
             width: radius * 2.0,
             height: radius * 2.0,
         };

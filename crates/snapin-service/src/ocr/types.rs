@@ -1,16 +1,17 @@
 //! OCR 数据契约与文本块元数据定义。
 
 use serde::{Deserialize, Serialize};
+use snapin_foundation::{Point, Rect};
 
 /// 单个检测与识别出的文本行/块元数据
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OcrTextBlock {
     /// 识别出的文本内容
     pub text: String,
-    /// 文本块局部的轴对齐外接矩形 [x, y, width, height]
-    pub bbox: (f32, f32, f32, f32),
-    /// 文本四边形 4 个顶点坐标 (顺时针，用于更精准的原图涂抹与旋转校正)
-    pub polygon: [(f32, f32); 4],
+    /// 文本块局部的轴对齐外接矩形
+    pub bbox: Rect,
+    /// 文本四边形 4 个顶点坐标（顺时针，用于更精准的原图涂抹与旋转校正）
+    pub polygon: [Point; 4],
     /// 识别置信度 (0.0 ~ 1.0)
     pub confidence: f32,
     /// 文本框边缘估计背景主导色 RGBA (用于原位擦除)
@@ -21,12 +22,7 @@ pub struct OcrTextBlock {
 
 impl OcrTextBlock {
     /// 构造新的文本块实例
-    pub fn new(
-        text: String,
-        bbox: (f32, f32, f32, f32),
-        polygon: [(f32, f32); 4],
-        confidence: f32,
-    ) -> Self {
+    pub fn new(text: String, bbox: Rect, polygon: [Point; 4], confidence: f32) -> Self {
         Self {
             text,
             bbox,

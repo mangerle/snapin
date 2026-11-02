@@ -9,6 +9,8 @@ use super::annotation::image_to_screen_point;
 use super::state::PasterWindowState;
 use crate::editor::text_input::TextInputSession;
 use crate::editor::toolbar::Tool;
+#[cfg(test)]
+use crate::geometry::Point;
 use tiny_skia::{Color, Pixmap};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::keyboard::Key;
@@ -147,7 +149,8 @@ pub(crate) fn refresh_ime_cursor_area(state: &PasterWindowState, window: &Window
         return;
     };
     let scale = state.document.item.transform.scale().max(f32::EPSILON);
-    let (x, y) = image_to_screen_point(session.pos, scale);
+    let cursor = image_to_screen_point(session.pos, scale);
+    let (x, y) = (cursor.x, cursor.y);
     let font_size = (session.font_size * scale).max(8.0);
     window.set_ime_cursor_area(
         PhysicalPosition::new(x.round() as i32, y.round() as i32),
@@ -216,7 +219,7 @@ mod tests {
         match &state.document.annotations.undo_stack()[0] {
             AnnotationShape::Text(action) => {
                 assert_eq!(action.text, "文字标注");
-                assert_eq!(action.pos, (10.0, 10.0), "坐标必须使用图像像素");
+                assert_eq!(action.pos, Point::new(10.0, 10.0), "坐标必须使用图像像素");
             }
             other => panic!("应生成文字图元，实际为 {other:?}"),
         }
@@ -294,7 +297,7 @@ mod tests {
                 .as_ref()
                 .expect("会话应处于激活状态")
                 .pos,
-            (30.0, 20.0)
+            Point::new(30.0, 20.0)
         );
 
         state.cancel_text_session();
@@ -308,14 +311,14 @@ mod tests {
             .expect("会话应处于激活状态")
             .pos;
         assert!(
-            (pos.0 - 60.0).abs() < 0.01,
+            (pos.x - 60.0).abs() < 0.01,
             "缩放 1.67 时横坐标应约为 60，实际 {}",
-            pos.0
+            pos.x
         );
         assert!(
-            (pos.1 - 50.0).abs() < 0.01,
+            (pos.y - 50.0).abs() < 0.01,
             "缩放 1.67 时纵坐标应约为 50，实际 {}",
-            pos.1
+            pos.y
         );
     }
 

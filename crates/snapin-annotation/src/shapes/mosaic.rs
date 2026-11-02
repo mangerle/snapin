@@ -2,8 +2,8 @@
 //!
 //! 对指定矩形区域内的像素按照步长进行降采样网格填充，达到隐私遮蔽效果。
 
-use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect, SizeParam};
-use crate::geometry::Rect as GeometryRect;
+use super::{map_point, resize_rect, valid_rect, SizeParam};
+use crate::geometry::{Point, Rect as GeometryRect};
 use serde::{Deserialize, Serialize};
 use tiny_skia::{
     LineCap, LineJoin, Mask, MaskType, Paint, PathBuilder, Pixmap, PixmapMut, PixmapPaint, Rect,
@@ -13,11 +13,11 @@ use tiny_skia::{
 /// 马赛克遮罩动作
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MosaicAction {
-    pub rect: (f32, f32, f32, f32),
+    pub rect: GeometryRect,
     pub cell_size: u32,
     /// 画笔模式轨迹；为空时按矩形区域处理。
     #[serde(default)]
-    pub points: Vec<(f32, f32)>,
+    pub points: Vec<Point>,
     /// 画笔模式直径。
     #[serde(default)]
     pub brush_width: f32,
@@ -33,8 +33,8 @@ impl MosaicAction {
     }
 
     fn draw_rect_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
-        let (rx, ry, rw, rh) = self.rect;
-        let rx = rx + offset_x;
+        let (mut rx, ry, rw, rh) = (self.rect.x, self.rect.y, self.rect.width, self.rect.height);
+        rx += offset_x;
         let ry = ry + offset_y;
 
         let width = pixmap.width() as usize;
@@ -66,7 +66,7 @@ impl MosaicAction {
     }
 
     fn draw_brush_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
-        let (rx, ry, rw, rh) = self.rect;
+        let (rx, ry, rw, rh) = (self.rect.x, self.rect.y, self.rect.width, self.rect.height);
         let canvas_width = pixmap.width() as f32;
         let canvas_height = pixmap.height() as f32;
         let left = (rx + offset_x).max(0.0).floor() as usize;
@@ -124,8 +124,8 @@ impl MosaicAction {
             let point = self.points[0];
             let radius = self.brush_width.max(1.0) / 2.0;
             if let Some(rect) = Rect::from_xywh(
-                point.0 + offset_x - radius,
-                point.1 + offset_y - radius,
+                point.x + offset_x - radius,
+                point.y + offset_y - radius,
                 radius * 2.0,
                 radius * 2.0,
             ) {
@@ -133,9 +133,9 @@ impl MosaicAction {
             }
         } else {
             let mut builder = PathBuilder::new();
-            builder.move_to(self.points[0].0 + offset_x, self.points[0].1 + offset_y);
+            builder.move_to(self.points[0].x + offset_x, self.points[0].y + offset_y);
             for point in &self.points[1..] {
-                builder.line_to(point.0 + offset_x, point.1 + offset_y);
+                builder.line_to(point.x + offset_x, point.y + offset_y);
             }
             let path = builder.finish()?;
             let stroke = Stroke {
@@ -157,22 +157,22 @@ impl MosaicAction {
     }
 
     pub(crate) fn bounds(&self) -> Option<GeometryRect> {
-        valid_rect(rect_from_tuple(self.rect))
+        valid_rect(self.rect)
     }
 
     pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
-        self.rect.0 += dx;
-        self.rect.1 += dy;
+        self.rect.x += dx;
+        self.rect.y += dy;
         for point in &mut self.points {
-            point.0 += dx;
-            point.1 += dy;
+            point.x += dx;
+            point.y += dy;
         }
     }
 
     pub(crate) fn resize_from_bounds(&mut self, from: GeometryRect, to: GeometryRect) {
-        self.rect = tuple_from_rect(resize_rect(from, to, rect_from_tuple(self.rect)));
+        self.rect = resize_rect(from, to, self.rect);
         for point in &mut self.points {
-            *point = super::map_point(from, to, *point);
+            *point = map_point(from, to, *point);
         }
     }
 }
@@ -298,9 +298,9 @@ mod tests {
         }
         let before = pixmap.data().to_vec();
         let action = MosaicAction {
-            rect: (2.0, 8.0, 28.0, 8.0),
+            rect: GeometryRect::new(2.0, 8.0, 28.0, 8.0),
             cell_size: 6,
-            points: vec![(4.0, 12.0), (28.0, 12.0)],
+            points: vec![Point::new(4.0, 12.0), Point::new(28.0, 12.0)],
             brush_width: 6.0,
         };
         action.draw(&mut pixmap.as_mut());
@@ -327,7 +327,7 @@ mod tests {
         let before = pixmap.data().to_vec();
 
         let action = MosaicAction {
-            rect: (2.0, 2.0, 16.0, 16.0),
+            rect: GeometryRect::new(2.0, 2.0, 16.0, 16.0),
             cell_size: 4,
             points: Vec::new(),
             brush_width: 0.0,

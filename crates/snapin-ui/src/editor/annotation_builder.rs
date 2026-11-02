@@ -1,7 +1,7 @@
 //! 可复用标注图元工厂与即时预览渲染。
 
 use crate::editor::toolbar::{MosaicMode, Tool, Toolbar};
-use crate::geometry::Rect;
+use crate::geometry::{Point, Rect};
 use snapin_annotation::action::AnnotationShape;
 use snapin_annotation::shapes::{
     ArrowAction, BadgeAction, BlurAction, EllipseAction, MagnifierAction, MagnifierConnector,
@@ -86,7 +86,7 @@ impl AnnotationStyle {
 /// 即时预览与提交时的几何与样式上下文参数
 pub struct AnnotationDraftParams<'a> {
     pub tool: Tool,
-    pub points: &'a [(f32, f32)],
+    pub points: &'a [Point],
     pub badge_number: u32,
     pub style: AnnotationStyle,
 }
@@ -96,7 +96,7 @@ impl<'a> AnnotationDraftParams<'a> {
     pub fn from_toolbar_and_points(
         toolbar: &Toolbar,
         tool: Tool,
-        points: &'a [(f32, f32)],
+        points: &'a [Point],
         badge_number: u32,
     ) -> Option<Self> {
         if points.is_empty() {
@@ -118,7 +118,7 @@ impl<'a> AnnotationDraftParams<'a> {
 /// 统一图元工厂：直接在目标 Pixmap 上即时光栅化渲染正在交互绘制的预览图元
 ///
 /// 核心优化：
-/// 画笔 (Pen) 与记号笔 (Marker) 直接借用点集切片 `&[(f32, f32)]` 进行光栅化绘制，
+/// 画笔 (Pen) 与记号笔 (Marker) 直接借用点集切片 [`Point`] 进行光栅化绘制，
 /// 彻底根除在鼠标 60Hz~144Hz 高频移动事件中频繁触发的 `pts.to_vec()` 堆内存分配。
 pub fn render_draft_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
     match params.tool {
@@ -202,7 +202,7 @@ fn draw_blur_placeholder(params: &AnnotationDraftParams, pixmap: &mut PixmapMut)
     let Some(last) = params.points.last().copied() else {
         return;
     };
-    let rect = Rect::from_points(first, last);
+    let rect = Rect::from_point_pair(first, last);
     let Some(rect) = tiny_skia::Rect::from_xywh(rect.x, rect.y, rect.width, rect.height) else {
         return;
     };
@@ -223,7 +223,7 @@ fn draw_draft_border(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
     let Some(last) = params.points.last().copied() else {
         return;
     };
-    let rect = Rect::from_points(first, last);
+    let rect = Rect::from_point_pair(first, last);
     let scale = params.style.ui_scale.max(0.1);
     let stroke_width = (1.2 * scale).max(1.0);
     // 虚线路径内缩半个线宽，使描边完全落在拖拽矩形内部：
@@ -257,16 +257,16 @@ fn draw_draft_border(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
 }
 
 /// 计算点集轴对齐包围盒；调用前已保证至少两个点。
-fn points_bounds(points: &[(f32, f32)]) -> Option<Rect> {
+fn points_bounds(points: &[Point]) -> Option<Rect> {
     let mut min_x = f32::MAX;
     let mut min_y = f32::MAX;
     let mut max_x = f32::MIN;
     let mut max_y = f32::MIN;
-    for (x, y) in points {
-        min_x = min_x.min(*x);
-        min_y = min_y.min(*y);
-        max_x = max_x.max(*x);
-        max_y = max_y.max(*y);
+    for point in points {
+        min_x = min_x.min(point.x);
+        min_y = min_y.min(point.y);
+        max_x = max_x.max(point.x);
+        max_y = max_y.max(point.y);
     }
     (!points.is_empty()).then_some(Rect {
         x: min_x,
@@ -280,7 +280,7 @@ fn points_bounds(points: &[(f32, f32)]) -> Option<Rect> {
 mod tests {
     use super::*;
 
-    fn params<'a>(tool: Tool, points: &'a [(f32, f32)]) -> AnnotationDraftParams<'a> {
+    fn params<'a>(tool: Tool, points: &'a [Point]) -> AnnotationDraftParams<'a> {
         AnnotationDraftParams {
             tool,
             points,
@@ -319,15 +319,16 @@ mod tests {
     #[test]
     fn test_build_shape_contract_rejects_insufficient_points() {
         assert!(build_shape(&params(Tool::Rect, &[])).is_none());
-        assert!(build_shape(&params(Tool::Rect, &[(1.0, 2.0)])).is_none());
-        assert!(build_shape(&params(Tool::Arrow, &[(1.0, 2.0)])).is_none());
-        assert!(build_shape(&params(Tool::Pen, &[(1.0, 2.0)])).is_none());
+        assert!(build_shape(&params(Tool::Rect, &[Point::new(1.0, 2.0)])).is_none());
+        assert!(build_shape(&params(Tool::Arrow, &[Point::new(1.0, 2.0)])).is_none());
+        assert!(build_shape(&params(Tool::Pen, &[Point::new(1.0, 2.0)])).is_none());
     }
 
     /// 马赛克网格密度必须来自二级栏尺寸参数，不能继续写死为 10。
     #[test]
     fn test_mosaic_uses_selected_cell_size() {
-        let mut draft = params(Tool::Mosaic, &[(0.0, 0.0), (20.0, 20.0)]);
+        let points = [Point::new(0.0, 0.0), Point::new(20.0, 20.0)];
+        let mut draft = params(Tool::Mosaic, &points);
         draft.style.effect_strength = 64;
         match build_shape(&draft) {
             Some(AnnotationShape::Mosaic(action)) => assert_eq!(action.cell_size, 16),
@@ -338,7 +339,7 @@ mod tests {
     /// 序号工具允许单点定位，仍应生成图元。
     #[test]
     fn test_build_shape_accepts_single_badge_point() {
-        assert!(build_shape(&params(Tool::Badge, &[(10.0, 20.0)])).is_some());
+        assert!(build_shape(&params(Tool::Badge, &[Point::new(10.0, 20.0)])).is_some());
     }
 
     /// 所有提供线型控件的工具都必须把所选线型写入最终图元。
@@ -355,7 +356,7 @@ mod tests {
             Tool::Line,
             Tool::Spotlight,
         ] {
-            let points = [(10.0, 10.0), (80.0, 60.0)];
+            let points = [Point::new(10.0, 10.0), Point::new(80.0, 60.0)];
             let draft = AnnotationDraftParams {
                 tool,
                 points: &points,
@@ -381,7 +382,7 @@ mod tests {
         use tiny_skia::{Color, Pixmap};
 
         for tool in [Tool::Mosaic, Tool::Blur] {
-            let points = [(10.0, 10.0), (60.0, 50.0)];
+            let points = [Point::new(10.0, 10.0), Point::new(60.0, 50.0)];
             let draft = params(tool, &points);
 
             let mut preview = Pixmap::new(80, 70).expect("创建预览位图失败");

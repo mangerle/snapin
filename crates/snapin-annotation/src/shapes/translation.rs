@@ -11,8 +11,8 @@ use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Transform};
 /// 单个原位翻译文本项
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TranslationShapeItem {
-    /// 选区内坐标 [x, y, width, height]
-    pub rect: (f32, f32, f32, f32),
+    /// 选区内文本区域
+    pub rect: Rect,
     /// 原文
     pub original: String,
     /// 译文
@@ -54,10 +54,10 @@ impl TranslationAction {
             if !has_effective_translation(item) {
                 continue;
             }
-            let rx = item.rect.0 + offset_x;
-            let ry = item.rect.1 + offset_y;
-            let rw = item.rect.2;
-            let rh = item.rect.3;
+            let rx = item.rect.x + offset_x;
+            let ry = item.rect.y + offset_y;
+            let rw = item.rect.width;
+            let rh = item.rect.height;
             if rw <= 1.0 || rh <= 1.0 {
                 continue;
             }
@@ -93,8 +93,8 @@ impl TranslationAction {
                 if !has_effective_translation(item) {
                     continue;
                 }
-                let rx = item.rect.0 + offset_x + 2.0;
-                let ry = item.rect.1 + offset_y + 2.0;
+                let rx = item.rect.x + offset_x + 2.0;
+                let ry = item.rect.y + offset_y + 2.0;
                 renderer.draw_text_box_rgba(
                     pixmap,
                     &item.translated,
@@ -102,8 +102,8 @@ impl TranslationAction {
                         rect: (
                             rx,
                             ry,
-                            (item.rect.2 - 4.0).max(10.0),
-                            (item.rect.3 - 4.0).max(10.0),
+                            (item.rect.width - 4.0).max(10.0),
+                            (item.rect.height - 4.0).max(10.0),
                         ),
                         font_size: item.font_size.max(9.0),
                         rgba: item.text_color.to_tuple(),
@@ -130,7 +130,7 @@ impl TranslationAction {
         let mut max_y = f32::MIN;
         let mut found = false;
         for item in &self.items {
-            let Some(rect) = valid_rect(super::rect_from_tuple(item.rect)) else {
+            let Some(rect) = valid_rect(item.rect) else {
                 continue;
             };
             found = true;
@@ -149,8 +149,8 @@ impl TranslationAction {
 
     pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
         for item in &mut self.items {
-            item.rect.0 += dx;
-            item.rect.1 += dy;
+            item.rect.x += dx;
+            item.rect.y += dy;
         }
     }
 }
@@ -192,7 +192,7 @@ mod tests {
 
     fn make_item(translated: &str) -> TranslationShapeItem {
         TranslationShapeItem {
-            rect: (10.0, 10.0, 60.0, 30.0),
+            rect: Rect::new(10.0, 10.0, 60.0, 30.0),
             original: "Hello".to_string(),
             translated: translated.to_string(),
             bg_color: (255, 0, 0, 255).into(),

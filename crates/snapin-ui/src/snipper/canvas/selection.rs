@@ -83,7 +83,7 @@ impl<'a> SnipperCanvas<'a> {
         pixmap: &mut PixmapMut,
         toolbar: &Toolbar,
         tool: &Tool,
-        pts: &[(f32, f32)],
+        pts: &[crate::geometry::Point],
         badge_num: u32,
     ) {
         if let Some(params) =

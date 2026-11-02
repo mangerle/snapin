@@ -1,6 +1,6 @@
 //! 椭圆与圆形标注图元绘制实现。
 
-use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect, SizeParam};
+use super::{resize_rect, valid_rect, SizeParam};
 use crate::geometry::Rect;
 use crate::style::{ColorRgba, LineStyle};
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use tiny_skia::{Paint, PathBuilder, PixmapMut, Rect as SkiaRect, Transform};
 /// 椭圆与圆形绘制动作
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EllipseAction {
-    pub rect: (f32, f32, f32, f32),
+    pub rect: Rect,
     pub color: ColorRgba,
     pub stroke_width: f32,
     pub is_filled: bool,
@@ -20,7 +20,7 @@ pub struct EllipseAction {
 
 impl EllipseAction {
     pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
-        let (x, y, w, h) = self.rect;
+        let (x, y, w, h) = (self.rect.x, self.rect.y, self.rect.width, self.rect.height);
         if let Some(r) = SkiaRect::from_xywh(x + offset_x, y + offset_y, w, h) {
             let mut paint = Paint::default();
             paint.set_color_rgba8(self.color.0, self.color.1, self.color.2, self.color.3);
@@ -50,16 +50,16 @@ impl EllipseAction {
     }
 
     pub(crate) fn bounds(&self) -> Option<Rect> {
-        valid_rect(rect_from_tuple(self.rect))
+        valid_rect(self.rect)
     }
 
     pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
-        self.rect.0 += dx;
-        self.rect.1 += dy;
+        self.rect.x += dx;
+        self.rect.y += dy;
     }
 
     pub(crate) fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
-        self.rect = tuple_from_rect(resize_rect(from, to, rect_from_tuple(self.rect)));
+        self.rect = resize_rect(from, to, self.rect);
     }
 }
 

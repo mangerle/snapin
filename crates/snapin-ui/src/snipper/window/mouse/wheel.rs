@@ -107,18 +107,8 @@ fn adjust_magnifier_wheel(state: &mut SnipperState, delta_y: f32) -> bool {
     let mut over_magnifier = false;
     if let Some(index) = index {
         if let Some(AnnotationShape::Magnifier(action)) = state.editor.annotations.shape_at(index) {
-            let source = Rect {
-                x: action.source.0,
-                y: action.source.1,
-                width: action.source.2,
-                height: action.source.3,
-            };
-            let dest = Rect {
-                x: action.dest.0,
-                y: action.dest.1,
-                width: action.dest.2,
-                height: action.dest.3,
-            };
+            let source = action.source;
+            let dest = action.dest;
             over_magnifier = source.contains(point.0, point.1) || dest.contains(point.0, point.1);
         }
     }
@@ -176,9 +166,9 @@ fn sync_selected_magnifier_scale(state: &mut SnipperState) {
     let AnnotationShape::Magnifier(action) = &mut shape else {
         return;
     };
-    let center = (
-        action.dest.0 + action.dest.2 / 2.0,
-        action.dest.1 + action.dest.3 / 2.0,
+    let center = crate::geometry::Point::new(
+        action.dest.x + action.dest.width / 2.0,
+        action.dest.y + action.dest.height / 2.0,
     );
     action.adjust_scale(
         state.editor.annotation.toolbar.sub_options.magnifier_scale,

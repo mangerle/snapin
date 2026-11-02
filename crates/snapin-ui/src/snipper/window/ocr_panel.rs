@@ -213,7 +213,7 @@ mod tests {
     fn item(text: &str) -> OcrTextItem {
         OcrTextItem {
             text: text.to_string(),
-            bounds: (0.0, 0.0, 10.0, 10.0),
+            bounds: snapin_foundation::Rect::new(0.0, 0.0, 10.0, 10.0),
         }
     }
 

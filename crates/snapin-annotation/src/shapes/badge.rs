@@ -3,7 +3,7 @@
 use super::arrow::ArrowAction;
 use super::rect::rounded_rect_path;
 use super::{estimate_text_width, map_point, SizeParam};
-use crate::geometry::Rect;
+use crate::geometry::{Point, Rect};
 use crate::render::{
     with_thread_local_text_renderer, CenteredTextOptions, StyledTextDrawOptions, TextRenderer,
     TextStyleOptions,
@@ -15,7 +15,7 @@ use tiny_skia::{Color, FillRule, Paint, PathBuilder, PixmapMut, Stroke, Transfor
 /// 步骤序号标号动作
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BadgeAction {
-    pub center: (f32, f32),
+    pub center: Point,
     pub number: usize,
     pub color: ColorRgba,
     pub radius: f32,
@@ -76,7 +76,7 @@ fn default_corner_radius() -> f32 {
 impl Default for BadgeAction {
     fn default() -> Self {
         Self {
-            center: (0.0, 0.0),
+            center: Point::default(),
             number: 1,
             color: ColorRgba::opaque(239, 68, 68),
             radius: 12.0,
@@ -112,7 +112,7 @@ struct BadgeLabelMetrics<'a> {
 
 impl BadgeAction {
     pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
-        let (cx, cy) = (self.center.0 + offset_x, self.center.1 + offset_y);
+        let (cx, cy) = (self.center.x + offset_x, self.center.y + offset_y);
         let r = self.radius;
 
         if self.style == BadgeStyle::Outline {
@@ -261,11 +261,11 @@ impl BadgeAction {
             return;
         };
         ArrowAction {
-            start: (
+            start: Point::new(
                 metrics.text_x + metrics.text_width + 8.0,
                 metrics.text_y + metrics.text_height / 2.0,
             ),
-            end: (cx + radius + 2.0, cy),
+            end: Point::new(cx + radius + 2.0, cy),
             color: self.color,
             stroke_width: 2.0,
             style,
@@ -410,8 +410,8 @@ impl BadgeAction {
     pub(crate) fn bounds(&self) -> Option<Rect> {
         let r = self.radius.max(1.0);
         let mut bounds = Rect {
-            x: self.center.0 - r,
-            y: self.center.1 - r,
+            x: self.center.x - r,
+            y: self.center.y - r,
             width: r * 2.0,
             height: r * 2.0,
         };
@@ -421,15 +421,15 @@ impl BadgeAction {
             } else {
                 (r * 1.05).max(10.0)
             };
-            let text_x = self.center.0 + r + (r * 0.45).max(6.0);
+            let text_x = self.center.x + r + (r * 0.45).max(6.0);
             let text_width = estimate_text_width(self.text.trim(), font_size)
                 + self.padding * 2.0
                 + font_size * 2.5;
             let text_height = font_size * 1.25 + self.padding * 2.0;
             let right = (text_x + text_width).max(bounds.x + bounds.width);
-            let top = (self.center.1 - text_height / 2.0).min(bounds.y);
-            let bottom = (self.center.1 + text_height / 2.0).max(bounds.y + bounds.height);
-            bounds.x = bounds.x.min(self.center.0 - r);
+            let top = (self.center.y - text_height / 2.0).min(bounds.y);
+            let bottom = (self.center.y + text_height / 2.0).max(bounds.y + bounds.height);
+            bounds.x = bounds.x.min(self.center.x - r);
             bounds.y = top;
             bounds.width = right - bounds.x;
             bounds.height = bottom - bounds.y;
@@ -438,8 +438,7 @@ impl BadgeAction {
     }
 
     pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
-        self.center.0 += dx;
-        self.center.1 += dy;
+        self.center = self.center.translated(dx, dy);
     }
 
     pub(crate) fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
@@ -503,7 +502,7 @@ mod tests {
     fn draw_badge(style: BadgeStyle) -> Pixmap {
         let mut pixmap = Pixmap::new(120, 120).expect("分配 Pixmap 成功");
         BadgeAction {
-            center: (60.0, 60.0),
+            center: Point::new(60.0, 60.0),
             number: 1,
             color: (220, 38, 38, 255).into(),
             radius: 24.0,
@@ -537,7 +536,7 @@ mod tests {
     fn test_badge_draws_text_label_outside_circle() {
         let mut pixmap = Pixmap::new(180, 80).expect("分配 Pixmap 成功");
         BadgeAction {
-            center: (30.0, 40.0),
+            center: Point::new(30.0, 40.0),
             radius: 20.0,
             number: 1,
             color: (220, 38, 38, 255).into(),

@@ -156,6 +156,7 @@ impl From<TranslationAction> for AnnotationShape {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geometry::Point;
     use crate::history::AnnotationHistory;
     use crate::style::{BadgeSequence, BadgeStyle, LineStyle};
 
@@ -176,7 +177,7 @@ mod tests {
         assert!(!history.can_redo());
 
         let rect_shape = AnnotationShape::Rect(RectAction {
-            rect: (0.0, 0.0, 10.0, 10.0),
+            rect: Rect::new(0.0, 0.0, 10.0, 10.0),
             color: (255, 0, 0, 255).into(),
             stroke_width: 1.0,
             is_filled: false,
@@ -205,7 +206,7 @@ mod tests {
         assert_eq!(history.next_badge_number(), 1);
 
         history.push(AnnotationShape::Badge(BadgeAction {
-            center: (10.0, 10.0),
+            center: Point::new(10.0, 10.0),
             radius: 12.0,
             number: 1,
             color: (255, 0, 0, 255).into(),
@@ -214,7 +215,7 @@ mod tests {
             ..BadgeAction::default()
         }));
         history.push(AnnotationShape::Badge(BadgeAction {
-            center: (30.0, 10.0),
+            center: Point::new(30.0, 10.0),
             radius: 12.0,
             number: 2,
             color: (255, 0, 0, 255).into(),
@@ -225,7 +226,7 @@ mod tests {
         assert_eq!(history.next_badge_number(), 3);
 
         history.push(AnnotationShape::Text(TextAction::plain(
-            (0.0, 0.0),
+            Point::new(0.0, 0.0),
             "说明".to_string(),
             (0, 0, 0, 255).into(),
             16.0,
@@ -244,7 +245,7 @@ mod tests {
 
         let mut history = AnnotationHistory::default();
         history.push(AnnotationShape::Pen(PenAction {
-            points: vec![(0.0, 0.0), (10.0, 10.0)],
+            points: vec![Point::new(0.0, 0.0), Point::new(10.0, 10.0)],
             color: (255, 0, 0, 255).into(),
             stroke_width: 2.0,
             line_style: LineStyle::Solid,
@@ -253,7 +254,7 @@ mod tests {
         assert!(!history.adjust_last_font_size(30.0));
 
         history.push(AnnotationShape::Text(TextAction::plain(
-            (0.0, 0.0),
+            Point::new(0.0, 0.0),
             "说明".to_string(),
             (0, 0, 0, 255).into(),
             16.0,
@@ -269,7 +270,7 @@ mod tests {
 
         let mut history = AnnotationHistory::default();
         history.push(AnnotationShape::Mosaic(MosaicAction {
-            rect: (0.0, 0.0, 20.0, 20.0),
+            rect: Rect::new(0.0, 0.0, 20.0, 20.0),
             cell_size: 4,
             points: Vec::new(),
             brush_width: 0.0,
@@ -316,7 +317,7 @@ mod tests {
 
         let ellipse = |style| {
             AnnotationShape::Ellipse(EllipseAction {
-                rect: (10.0, 10.0, 120.0, 80.0),
+                rect: Rect::new(10.0, 10.0, 120.0, 80.0),
                 color: (255, 0, 0, 255).into(),
                 stroke_width: 4.0,
                 is_filled: false,
@@ -325,7 +326,7 @@ mod tests {
         };
         let pen = |style| {
             AnnotationShape::Pen(PenAction {
-                points: vec![(10.0, 20.0), (130.0, 20.0)],
+                points: vec![Point::new(10.0, 20.0), Point::new(130.0, 20.0)],
                 color: (255, 0, 0, 255).into(),
                 stroke_width: 4.0,
                 line_style: style,
@@ -333,7 +334,7 @@ mod tests {
         };
         let polyline = |style| {
             AnnotationShape::Polyline(PolylineAction {
-                points: vec![(10.0, 20.0), (130.0, 20.0)],
+                points: vec![Point::new(10.0, 20.0), Point::new(130.0, 20.0)],
                 color: (255, 0, 0, 255).into(),
                 stroke_width: 4.0,
                 line_style: style,
@@ -343,8 +344,8 @@ mod tests {
         };
         let arrow = |style| {
             AnnotationShape::Arrow(ArrowAction {
-                start: (10.0, 50.0),
-                end: (130.0, 50.0),
+                start: Point::new(10.0, 50.0),
+                end: Point::new(130.0, 50.0),
                 color: (255, 0, 0, 255).into(),
                 stroke_width: 4.0,
                 style: ArrowStyle::Solid,
@@ -355,7 +356,7 @@ mod tests {
         };
         let spotlight = |style| {
             AnnotationShape::Spotlight(SpotlightAction {
-                rect: (10.0, 10.0, 120.0, 80.0),
+                rect: Rect::new(10.0, 10.0, 120.0, 80.0),
                 intensity: 160,
                 shape: SpotlightShape::Rectangle,
                 outline: true,
@@ -397,7 +398,7 @@ mod tests {
         let mut mut_pix = pixmap.as_mut();
 
         let ellipse = EllipseAction {
-            rect: (10.0, 10.0, 80.0, 60.0),
+            rect: Rect::new(10.0, 10.0, 80.0, 60.0),
             color: (255, 0, 0, 255).into(),
             stroke_width: 2.0,
             is_filled: false,
@@ -406,7 +407,7 @@ mod tests {
         ellipse.draw(&mut mut_pix);
 
         let badge = BadgeAction {
-            center: (50.0, 50.0),
+            center: Point::new(50.0, 50.0),
             radius: 15.0,
             number: 1,
             color: (0, 128, 255, 255).into(),
@@ -434,7 +435,7 @@ mod tests {
     fn test_annotation_history_serde_roundtrip() {
         let mut history = AnnotationHistory::default();
         history.push(AnnotationShape::Rect(RectAction {
-            rect: (5.0, 5.0, 20.0, 20.0),
+            rect: Rect::new(5.0, 5.0, 20.0, 20.0),
             color: (255, 0, 0, 255).into(),
             stroke_width: 2.0,
             is_filled: false,
@@ -453,7 +454,7 @@ mod tests {
         use tiny_skia::Pixmap;
         let mut history = AnnotationHistory::default();
         history.push(AnnotationShape::Rect(RectAction {
-            rect: (100.0, 100.0, 50.0, 50.0),
+            rect: Rect::new(100.0, 100.0, 50.0, 50.0),
             color: (0, 255, 0, 255).into(),
             stroke_width: 1.0,
             is_filled: true,
@@ -477,7 +478,7 @@ mod tests {
 
         let mut history = AnnotationHistory::default();
         let item = TranslationShapeItem {
-            rect: (10.0, 10.0, 80.0, 30.0),
+            rect: Rect::new(10.0, 10.0, 80.0, 30.0),
             original: "Hello".to_string(),
             translated: "你好".to_string(),
             bg_color: (255, 255, 255, 255).into(),
@@ -513,7 +514,7 @@ mod tests {
         use crate::style::{ArrowStyle, BadgeStyle};
 
         let mut rect = AnnotationShape::Rect(RectAction {
-            rect: (10.0, 20.0, 100.0, 80.0),
+            rect: Rect::new(10.0, 20.0, 100.0, 80.0),
             color: (255, 0, 0, 255).into(),
             stroke_width: 2.0,
             is_filled: false,
@@ -531,8 +532,8 @@ mod tests {
 
         // 箭头按包围盒线性映射起终点
         let mut arrow = AnnotationShape::Arrow(ArrowAction {
-            start: (0.0, 0.0),
-            end: (100.0, 50.0),
+            start: Point::new(0.0, 0.0),
+            end: Point::new(100.0, 50.0),
             color: (255, 0, 0, 255).into(),
             stroke_width: 2.0,
             style: ArrowStyle::Solid,
@@ -546,28 +547,30 @@ mod tests {
         );
         match arrow {
             AnnotationShape::Arrow(a) => {
-                assert_eq!(a.start, (0.0, 0.0));
-                assert_eq!(a.end, (200.0, 100.0));
+                assert_eq!(a.start, Point::new(0.0, 0.0));
+                assert_eq!(a.end, Point::new(200.0, 100.0));
             }
             _ => panic!("预期箭头图元"),
         }
 
         // 画笔点集整体平移
         let mut pen = AnnotationShape::Pen(PenAction {
-            points: vec![(0.0, 0.0), (10.0, 10.0)],
+            points: vec![Point::new(0.0, 0.0), Point::new(10.0, 10.0)],
             color: (255, 0, 0, 255).into(),
             stroke_width: 2.0,
             line_style: LineStyle::Solid,
         });
         pen.translate(5.0, 5.0);
         match pen {
-            AnnotationShape::Pen(p) => assert_eq!(p.points, vec![(5.0, 5.0), (15.0, 15.0)]),
+            AnnotationShape::Pen(p) => {
+                assert_eq!(p.points, vec![Point::new(5.0, 5.0), Point::new(15.0, 15.0)])
+            }
             _ => panic!("预期画笔图元"),
         }
 
         // 序号半径按包围盒平均比例缩放
         let mut badge = AnnotationShape::Badge(BadgeAction {
-            center: (50.0, 50.0),
+            center: Point::new(50.0, 50.0),
             number: 1,
             color: (0, 128, 255, 255).into(),
             radius: 10.0,
@@ -581,7 +584,7 @@ mod tests {
         );
         match badge {
             AnnotationShape::Badge(b) => {
-                assert_eq!(b.center, (50.0, 50.0));
+                assert_eq!(b.center, Point::new(50.0, 50.0));
                 assert_eq!(b.radius, 20.0);
             }
             _ => panic!("预期序号图元"),
@@ -589,7 +592,7 @@ mod tests {
 
         // 文本按高度比例缩放字号
         let mut text = AnnotationShape::Text(TextAction::plain(
-            (10.0, 20.0),
+            Point::new(10.0, 20.0),
             "说明".to_string(),
             (0, 0, 0, 255).into(),
             16.0,
@@ -601,7 +604,7 @@ mod tests {
         );
         match text {
             AnnotationShape::Text(t) => {
-                assert_eq!(t.pos, (8.0, 8.0));
+                assert_eq!(t.pos, Point::new(8.0, 8.0));
                 assert_eq!(t.font_size, 32.0);
             }
             _ => panic!("预期文本图元"),
@@ -615,7 +618,7 @@ mod tests {
 
         let mut history = AnnotationHistory::default();
         history.push(AnnotationShape::Rect(RectAction {
-            rect: (100.0, 100.0, 100.0, 100.0),
+            rect: Rect::new(100.0, 100.0, 100.0, 100.0),
             color: (255, 0, 0, 255).into(),
             stroke_width: 1.0,
             is_filled: false,
@@ -623,7 +626,7 @@ mod tests {
             line_style: LineStyle::Solid,
         }));
         history.push(AnnotationShape::Ellipse(EllipseAction {
-            rect: (120.0, 120.0, 50.0, 50.0),
+            rect: Rect::new(120.0, 120.0, 50.0, 50.0),
             color: (0, 255, 0, 255).into(),
             stroke_width: 1.0,
             is_filled: false,
@@ -640,7 +643,7 @@ mod tests {
     fn test_replace_shape_at_index() {
         let mut history = AnnotationHistory::default();
         history.push(AnnotationShape::Rect(RectAction {
-            rect: (0.0, 0.0, 10.0, 10.0),
+            rect: Rect::new(0.0, 0.0, 10.0, 10.0),
             color: (255, 0, 0, 255).into(),
             stroke_width: 1.0,
             is_filled: false,
@@ -658,7 +661,7 @@ mod tests {
         assert!(!history.replace(
             9,
             AnnotationShape::Rect(RectAction {
-                rect: (0.0, 0.0, 1.0, 1.0),
+                rect: Rect::new(0.0, 0.0, 1.0, 1.0),
                 color: (255, 0, 0, 255).into(),
                 stroke_width: 1.0,
                 is_filled: false,

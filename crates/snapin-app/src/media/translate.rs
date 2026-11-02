@@ -1,6 +1,7 @@
 //! 翻译图元排版与应用配置到服务层枚举的映射。
 
 use snapin_annotation::shapes::TranslationShapeItem;
+use snapin_annotation::Rect;
 use snapin_config::config::{CoverMode, TranslateProvider};
 use snapin_service::ocr::OcrTextBlock;
 use snapin_service::ocr::{estimate_dominant_background_color, get_contrasting_text_color};
@@ -46,17 +47,16 @@ pub(super) fn build_translation_items(
             continue;
         }
 
-        let (bx, by, bw, bh) = block.bbox;
         let bg_color = estimate_dominant_background_color(image, block.bbox);
         let text_color = get_contrasting_text_color(bg_color);
-        let font_size = (bh.max(2.0) * 0.75).clamp(10.0, 36.0);
+        let font_size = (block.bbox.height.max(2.0) * 0.75).clamp(10.0, 36.0);
 
         items.push(TranslationShapeItem {
-            rect: (
-                placement.origin.0 as f32 + bx,
-                placement.origin.1 as f32 + by,
-                bw.max(2.0),
-                bh.max(2.0),
+            rect: Rect::new(
+                placement.origin.0 as f32 + block.bbox.x,
+                placement.origin.1 as f32 + block.bbox.y,
+                block.bbox.width.max(2.0),
+                block.bbox.height.max(2.0),
             ),
             original: block.text.clone(),
             translated: translated.to_string(),
@@ -72,6 +72,7 @@ pub(super) fn build_translation_items(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use snapin_foundation::{Point, Rect};
 
     /// 翻译图元必须过滤空译文与原文相同的段落，并按原点平移坐标。
     #[test]
@@ -80,20 +81,20 @@ mod tests {
         let blocks = vec![
             OcrTextBlock::new(
                 "Hello".to_string(),
-                (10.0, 10.0, 40.0, 20.0),
-                [(0.0, 0.0); 4],
+                Rect::new(10.0, 10.0, 40.0, 20.0),
+                [Point::new(0.0, 0.0); 4],
                 0.9,
             ),
             OcrTextBlock::new(
                 "World".to_string(),
-                (10.0, 40.0, 40.0, 20.0),
-                [(0.0, 0.0); 4],
+                Rect::new(10.0, 40.0, 40.0, 20.0),
+                [Point::new(0.0, 0.0); 4],
                 0.9,
             ),
             OcrTextBlock::new(
                 "Snapin".to_string(),
-                (10.0, 70.0, 40.0, 20.0),
-                [(0.0, 0.0); 4],
+                Rect::new(10.0, 70.0, 40.0, 20.0),
+                [Point::new(0.0, 0.0); 4],
                 0.9,
             ),
         ];
@@ -110,8 +111,8 @@ mod tests {
         );
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].translated, "你好");
-        assert_eq!(items[0].rect.0, 110.0);
-        assert_eq!(items[0].rect.1, 60.0);
+        assert_eq!(items[0].rect.x, 110.0);
+        assert_eq!(items[0].rect.y, 60.0);
     }
 
     /// 服务商映射必须覆盖全部变体，避免新增枚举后静默落到默认值。

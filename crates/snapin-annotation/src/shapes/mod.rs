@@ -28,7 +28,7 @@ pub use spotlight::{SpotlightAction, SpotlightShape};
 pub use text::TextAction;
 pub use translation::{TranslationAction, TranslationShapeItem};
 
-use crate::geometry::Rect;
+use crate::geometry::{Point, Rect};
 
 /// 图元尺寸调整参数。
 ///
@@ -42,30 +42,13 @@ pub enum SizeParam {
     Font(f32),
 }
 
-/// 将历史结构体中的元组矩形转换为共享 [`Rect`]。
-///
-/// 标注图元为了 Serde 兼容仍保存四元组，但所有新几何计算统一走结构体。
-pub(crate) fn rect_from_tuple(rect: (f32, f32, f32, f32)) -> Rect {
-    Rect {
-        x: rect.0,
-        y: rect.1,
-        width: rect.2,
-        height: rect.3,
-    }
-}
-
-/// 将共享 [`Rect`] 写回图元的历史四元组表示。
-pub(crate) fn tuple_from_rect(rect: Rect) -> (f32, f32, f32, f32) {
-    (rect.x, rect.y, rect.width, rect.height)
-}
-
 /// 过滤宽高非正的退化矩形
 pub(crate) fn valid_rect(rect: Rect) -> Option<Rect> {
     (rect.width > 0.0 && rect.height > 0.0).then_some(rect)
 }
 
 /// 计算点集的轴对齐包围盒；少于两个点视为无效几何
-pub(crate) fn points_bounds(points: &[(f32, f32)]) -> Option<Rect> {
+pub(crate) fn points_bounds(points: &[Point]) -> Option<Rect> {
     if points.len() < 2 {
         return None;
     }
@@ -73,11 +56,11 @@ pub(crate) fn points_bounds(points: &[(f32, f32)]) -> Option<Rect> {
     let mut min_y = f32::MAX;
     let mut max_x = f32::MIN;
     let mut max_y = f32::MIN;
-    for (x, y) in points {
-        min_x = min_x.min(*x);
-        min_y = min_y.min(*y);
-        max_x = max_x.max(*x);
-        max_y = max_y.max(*y);
+    for point in points {
+        min_x = min_x.min(point.x);
+        min_y = min_y.min(point.y);
+        max_x = max_x.max(point.x);
+        max_y = max_y.max(point.y);
     }
     Some(Rect {
         x: min_x,
@@ -90,7 +73,7 @@ pub(crate) fn points_bounds(points: &[(f32, f32)]) -> Option<Rect> {
 /// 将点从源包围盒线性映射到目标包围盒。
 ///
 /// 源包围盒某一维为零时该维不做缩放，只跟随目标原点平移，避免除零与退化。
-pub(crate) fn map_point(from: Rect, to: Rect, point: (f32, f32)) -> (f32, f32) {
+pub(crate) fn map_point(from: Rect, to: Rect, point: Point) -> Point {
     let sx = if from.width.abs() > f32::EPSILON {
         to.width / from.width
     } else {
@@ -101,21 +84,25 @@ pub(crate) fn map_point(from: Rect, to: Rect, point: (f32, f32)) -> (f32, f32) {
     } else {
         1.0
     };
-    (
-        to.x + (point.0 - from.x) * sx,
-        to.y + (point.1 - from.y) * sy,
+    Point::new(
+        to.x + (point.x - from.x) * sx,
+        to.y + (point.y - from.y) * sy,
     )
 }
 
 /// 按包围盒映射缩放矩形，结果宽高至少保留 1 像素
 pub(crate) fn resize_rect(from: Rect, to: Rect, rect: Rect) -> Rect {
-    let (x0, y0) = map_point(from, to, (rect.x, rect.y));
-    let (x1, y1) = map_point(from, to, (rect.x + rect.width, rect.y + rect.height));
+    let first = map_point(from, to, Point::new(rect.x, rect.y));
+    let second = map_point(
+        from,
+        to,
+        Point::new(rect.x + rect.width, rect.y + rect.height),
+    );
     Rect {
-        x: x0.min(x1),
-        y: y0.min(y1),
-        width: (x1 - x0).abs().max(1.0),
-        height: (y1 - y0).abs().max(1.0),
+        x: first.x.min(second.x),
+        y: first.y.min(second.y),
+        width: (second.x - first.x).abs().max(1.0),
+        height: (second.y - first.y).abs().max(1.0),
     }
 }
 

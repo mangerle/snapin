@@ -242,10 +242,15 @@ async fn execute_ocr(
 fn map_ocr_lines(blocks: Vec<OcrTextBlock>, origin: (u32, u32)) -> Vec<OcrTextItem> {
     let mut lines = Vec::with_capacity(blocks.len());
     for block in blocks {
-        let (x, y, width, height) = block.bbox;
+        let bounds = snapin_foundation::Rect::new(
+            origin.0 as f32 + block.bbox.x,
+            origin.1 as f32 + block.bbox.y,
+            block.bbox.width,
+            block.bbox.height,
+        );
         lines.push(OcrTextItem {
             text: block.text,
-            bounds: (origin.0 as f32 + x, origin.1 as f32 + y, width, height),
+            bounds,
         });
     }
     lines
@@ -268,14 +273,13 @@ async fn execute_qr(
         Ok(results) => {
             let mut codes = Vec::with_capacity(results.len());
             for result in results {
-                let (x, y, width, height) = result.bounds;
                 codes.push(QrCodeItem {
                     text: result.text,
-                    bounds: (
-                        origin.0.saturating_add(x),
-                        origin.1.saturating_add(y),
-                        width,
-                        height,
+                    bounds: snapin_foundation::RectI::new(
+                        origin.0.saturating_add(result.bounds.x),
+                        origin.1.saturating_add(result.bounds.y),
+                        result.bounds.width,
+                        result.bounds.height,
                     ),
                 });
             }

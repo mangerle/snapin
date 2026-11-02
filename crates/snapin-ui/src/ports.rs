@@ -18,10 +18,10 @@
 //! 这些开销只发生在用户动作触发的低频路径上，相对于 OCR 推理与图像编码可以忽略。
 
 use crate::model::PasterId;
-use crate::snipper::selection::Rect;
 use image::RgbaImage;
 use snapin_annotation::shapes::TranslationShapeItem;
 use snapin_config::config::CoverMode;
+use snapin_foundation::{Rect, RectI};
 use snapin_render::BeautifyOptions;
 use std::fmt;
 use std::path::PathBuf;
@@ -32,8 +32,8 @@ use std::sync::Arc;
 pub struct OcrTextItem {
     /// 识别出的文本内容
     pub text: String,
-    /// 文本行在截图选区坐标系中的包围盒 `[x, y, width, height]`
-    pub bounds: (f32, f32, f32, f32),
+    /// 文本行在截图选区坐标系中的包围盒
+    pub bounds: Rect,
 }
 
 /// 二维码解码结果。
@@ -41,8 +41,8 @@ pub struct OcrTextItem {
 pub struct QrCodeItem {
     /// 二维码内容
     pub text: String,
-    /// 二维码在截图选区坐标系中的包围盒 `[x, y, width, height]`
-    pub bounds: (u32, u32, u32, u32),
+    /// 二维码在截图选区坐标系中的包围盒
+    pub bounds: RectI,
 }
 
 /// OCR 文本导出格式。

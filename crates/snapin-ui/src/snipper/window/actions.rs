@@ -429,7 +429,7 @@ mod tests {
             .editor
             .annotations
             .push(AnnotationShape::Rect(RectAction {
-                rect: (15.0, 15.0, 20.0, 20.0),
+                rect: Rect::new(15.0, 15.0, 20.0, 20.0),
                 color: (255, 0, 0, 255).into(),
                 stroke_width: 1.0,
                 is_filled: true,

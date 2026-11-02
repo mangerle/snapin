@@ -192,10 +192,12 @@ impl<'a> SnipperCanvas<'a> {
                 ..Default::default()
             };
             for code in codes {
-                let (x, y, width, height) = code.bounds;
-                if let Some(rect) =
-                    SkiaRect::from_xywh(x as f32, y as f32, width as f32, height as f32)
-                {
+                if let Some(rect) = SkiaRect::from_xywh(
+                    code.bounds.x as f32,
+                    code.bounds.y as f32,
+                    code.bounds.width as f32,
+                    code.bounds.height as f32,
+                ) {
                     let mut pb = PathBuilder::new();
                     pb.push_rect(rect);
                     if let Some(path) = pb.finish() {

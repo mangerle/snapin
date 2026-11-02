@@ -1,7 +1,7 @@
 //! 橡皮擦工具的框选与画笔擦除交互。
 
 use super::SnipperState;
-use crate::geometry::Rect;
+use crate::geometry::{Point, Rect};
 
 /// 开始橡皮擦操作；画笔模式先擦除起点，框选模式记录拖拽起点。
 pub(super) fn handle_press(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
@@ -12,7 +12,7 @@ pub(super) fn handle_press(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
         .sub_options
         .eraser_rectangle_mode
     {
-        state.editor.annotation.stroke.begin((cx, cy));
+        state.editor.annotation.stroke.begin(Point::new(cx, cy));
     } else {
         erase_brush_point(state, (cx, cy));
     }
@@ -28,7 +28,11 @@ pub(super) fn handle_drag_move(state: &mut SnipperState, point: (f32, f32)) -> b
         .sub_options
         .eraser_rectangle_mode
     {
-        state.editor.annotation.stroke.update_endpoint(point);
+        state
+            .editor
+            .annotation
+            .stroke
+            .update_endpoint(Point::from(point));
     } else {
         erase_brush_point(state, point);
     }
@@ -51,8 +55,8 @@ pub(super) fn handle_release(state: &mut SnipperState, cx: f32, cy: f32) -> bool
             .points
             .first()
             .copied()
-            .unwrap_or((cx, cy));
-        let erase_rect = Rect::from_points(start, (cx, cy));
+            .unwrap_or(Point::new(cx, cy));
+        let erase_rect = Rect::from_point_pair(start, Point::new(cx, cy));
         state.editor.annotations.erase_intersecting(erase_rect);
         state.editor.annotation.stroke.clear();
         super::super::annotation_edit::clear(state);

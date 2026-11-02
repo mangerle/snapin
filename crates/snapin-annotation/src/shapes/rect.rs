@@ -1,6 +1,6 @@
 //! 矩形标注图元绘制实现。
 
-use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect, SizeParam};
+use super::{resize_rect, valid_rect, SizeParam};
 use crate::geometry::Rect;
 use crate::style::{ColorRgba, LineStyle};
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use tiny_skia::{Paint, Path, PathBuilder, PixmapMut, Transform};
 /// 矩形绘制动作
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RectAction {
-    pub rect: (f32, f32, f32, f32),
+    pub rect: Rect,
     pub color: ColorRgba,
     pub stroke_width: f32,
     pub is_filled: bool,
@@ -23,7 +23,7 @@ pub struct RectAction {
 
 impl RectAction {
     pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
-        let (x, y, w, h) = self.rect;
+        let (x, y, w, h) = (self.rect.x, self.rect.y, self.rect.width, self.rect.height);
         if w <= 0.0 || h <= 0.0 {
             return;
         }
@@ -60,16 +60,16 @@ impl RectAction {
     }
 
     pub(crate) fn bounds(&self) -> Option<Rect> {
-        valid_rect(rect_from_tuple(self.rect))
+        valid_rect(self.rect)
     }
 
     pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
-        self.rect.0 += dx;
-        self.rect.1 += dy;
+        self.rect.x += dx;
+        self.rect.y += dy;
     }
 
     pub(crate) fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
-        self.rect = tuple_from_rect(resize_rect(from, to, rect_from_tuple(self.rect)));
+        self.rect = resize_rect(from, to, self.rect);
     }
 }
 
@@ -114,7 +114,7 @@ mod tests {
     fn draw_rect(style: LineStyle, corner_radius: f32) -> Pixmap {
         let mut pixmap = Pixmap::new(180, 140).expect("分配 Pixmap 成功");
         RectAction {
-            rect: (20.0, 20.0, 120.0, 80.0),
+            rect: Rect::new(20.0, 20.0, 120.0, 80.0),
             color: (255, 0, 0, 255).into(),
             stroke_width: 4.0,
             is_filled: false,
@@ -168,7 +168,7 @@ mod tests {
     #[test]
     fn test_rect_corner_radius_supports_ninety_pixels() {
         let mut action = RectAction {
-            rect: (0.0, 0.0, 200.0, 120.0),
+            rect: Rect::new(0.0, 0.0, 200.0, 120.0),
             color: (255, 0, 0, 255).into(),
             stroke_width: 2.0,
             is_filled: false,
