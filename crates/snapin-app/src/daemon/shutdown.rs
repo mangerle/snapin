@@ -45,6 +45,15 @@ pub(super) struct ShutdownCoordinator {
     timeouts: ShutdownTimeouts,
 }
 
+/// 一次守护进程停机所需的协作对象。
+pub(super) struct ShutdownRequest<'a> {
+    pub workspace: &'a PasterWorkspaceProxy,
+    pub gui_closed: &'a watch::Receiver<bool>,
+    pub shutdown_tx: &'a watch::Sender<bool>,
+    pub listener_handle: JoinHandle<()>,
+    pub services: &'a Arc<AppServices>,
+}
+
 impl ShutdownCoordinator {
     /// 使用默认超时构建协调器。
     pub(super) fn new() -> Self {
@@ -54,14 +63,14 @@ impl ShutdownCoordinator {
     }
 
     /// 按固定顺序停止 GUI、IPC 监听与任务运行时。
-    pub(super) async fn shutdown(
-        &self,
-        workspace: &PasterWorkspaceProxy,
-        gui_closed: &watch::Receiver<bool>,
-        shutdown_tx: &watch::Sender<bool>,
-        listener_handle: JoinHandle<()>,
-        services: &Arc<AppServices>,
-    ) {
+    pub(super) async fn shutdown(&self, request: ShutdownRequest<'_>) {
+        let ShutdownRequest {
+            workspace,
+            gui_closed,
+            shutdown_tx,
+            listener_handle,
+            services,
+        } = request;
         if !*gui_closed.borrow() {
             match tokio::time::timeout(self.timeouts.gui, workspace.shutdown_and_wait()).await {
                 Ok(Ok(())) => {}

@@ -20,7 +20,7 @@ use actions::{
     handle_hotkey_action, handle_ipc_request, handle_snipper_result, handle_tray_action,
 };
 use anyhow::{Context, Result};
-use shutdown::ShutdownCoordinator;
+use shutdown::{ShutdownCoordinator, ShutdownRequest};
 use snapin_config::config::Config;
 use snapin_daemon::{probe_daemon, DaemonProbe, IpcListener};
 use snapin_platform::{
@@ -86,11 +86,13 @@ pub fn run_daemon_process(cfg: Config) -> Result<()> {
     let (gui_closed_tx, gui_closed_rx) = watch::channel(false);
     let server = spawn_daemon_server(
         &handle,
-        cfg.clone(),
-        workspace_proxy.clone(),
-        services.clone(),
-        snipper_rx,
-        gui_closed_rx,
+        DaemonServerRuntime {
+            cfg,
+            workspace_proxy: workspace_proxy.clone(),
+            services: services.clone(),
+            snipper_rx,
+            gui_closed: gui_closed_rx,
+        },
     );
     let gui_result = run_paster_workspace_loop(event_loop, options);
     let _ = gui_closed_tx.send(true);
@@ -184,19 +186,22 @@ fn create_snipper_channel(
 }
 
 /// 启动后台服务；服务异常时必须关闭 GUI，避免留下无服务空壳进程。
-fn spawn_daemon_server(
-    handle: &tokio::runtime::Handle,
+struct DaemonServerRuntime {
     cfg: Config,
     workspace_proxy: PasterWorkspaceProxy,
     services: Arc<AppServices>,
     snipper_rx: mpsc::Receiver<SnipperOutcome>,
-    gui_closed_rx: watch::Receiver<bool>,
+    gui_closed: watch::Receiver<bool>,
+}
+
+/// 启动后台服务；服务异常时必须关闭 GUI，避免留下无服务空壳进程。
+fn spawn_daemon_server(
+    handle: &tokio::runtime::Handle,
+    runtime: DaemonServerRuntime,
 ) -> JoinHandle<Result<()>> {
-    let shutdown_proxy = workspace_proxy.clone();
-    let server_proxy = workspace_proxy.clone();
+    let shutdown_proxy = runtime.workspace_proxy.clone();
     handle.spawn(async move {
-        let result =
-            run_daemon_server(cfg, server_proxy, services, snipper_rx, gui_closed_rx).await;
+        let result = run_daemon_server(runtime).await;
         if result.is_err() {
             let _ = shutdown_proxy.shutdown_and_wait().await;
         }
@@ -330,13 +335,14 @@ async fn run_startup_hotkeys_and_extension(cfg: &Config) {
 }
 
 /// 后台守护服务主循环。
-async fn run_daemon_server(
-    cfg: Config,
-    workspace_proxy: PasterWorkspaceProxy,
-    services: Arc<AppServices>,
-    snipper_rx: mpsc::Receiver<SnipperOutcome>,
-    gui_closed: watch::Receiver<bool>,
-) -> Result<()> {
+async fn run_daemon_server(runtime: DaemonServerRuntime) -> Result<()> {
+    let DaemonServerRuntime {
+        cfg,
+        workspace_proxy,
+        services,
+        snipper_rx,
+        gui_closed,
+    } = runtime;
     let (rx, shutdown_tx, listener_handle) = start_ipc_listener().await?;
     #[cfg(unix)]
     let sigterm = signal(SignalKind::terminate()).context("注册 SIGTERM 信号监听失败")?;
@@ -375,14 +381,16 @@ async fn run_daemon_server(
     }
 
     let DaemonEventSources { gui_closed, .. } = sources;
-    shutdown_daemon(
-        workspace_proxy,
-        gui_closed,
-        shutdown_tx,
-        listener_handle,
-        &services,
-    )
-    .await
+    ShutdownCoordinator::new()
+        .shutdown(ShutdownRequest {
+            workspace: &workspace_proxy,
+            gui_closed: &gui_closed,
+            shutdown_tx: &shutdown_tx,
+            listener_handle,
+            services: &services,
+        })
+        .await;
+    Ok(())
 }
 
 /// 守护主循环可选择处理的事件。
@@ -518,24 +526,4 @@ async fn announce_daemon_startup(cfg: &Config, services: &Arc<AppServices>) {
             tracing::warn!("提交后台更新检查任务失败: {error}");
         }
     }
-}
-
-/// 平滑关闭 GUI、IPC 监听与统一后台任务运行时。
-async fn shutdown_daemon(
-    workspace_proxy: PasterWorkspaceProxy,
-    gui_closed: watch::Receiver<bool>,
-    shutdown_tx: watch::Sender<bool>,
-    listener_handle: JoinHandle<()>,
-    services: &Arc<AppServices>,
-) -> Result<()> {
-    ShutdownCoordinator::new()
-        .shutdown(
-            &workspace_proxy,
-            &gui_closed,
-            &shutdown_tx,
-            listener_handle,
-            services,
-        )
-        .await;
-    Ok(())
 }
