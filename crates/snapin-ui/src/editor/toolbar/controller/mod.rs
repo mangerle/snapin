@@ -6,7 +6,7 @@
 mod click;
 
 use super::layout::{
-    calculate_main_layout, calculate_sub_layout_with_options, SubLayout, SubLayoutOptions,
+    calculate_main_layout, calculate_sub_layout, SubLayout, SubLayoutOptions, SubLayoutRequest,
 };
 use super::{Tool, Toolbar, ToolbarItem};
 
@@ -152,15 +152,15 @@ impl Toolbar {
 
     /// 根据当前主工具栏位置重新定位二级属性栏 (自适应 HiDPI 缩放)
     pub(super) fn update_sub_rect(&mut self) {
-        self.sub_layout = calculate_sub_layout_with_options(
-            &self.main_rect,
-            self.active_tool,
-            self.open_dropdown,
-            self.screen_size.0,
-            self.screen_size.1,
-            self.ui_scale,
-            calculate_sub_layout_options(&self.sub_options),
-        );
+        self.sub_layout = calculate_sub_layout(SubLayoutRequest {
+            main_rect: &self.main_rect,
+            active_tool: self.active_tool,
+            open_dropdown: self.open_dropdown,
+            screen_width: self.screen_size.0,
+            screen_height: self.screen_size.1,
+            ui_scale: self.ui_scale,
+            options: calculate_sub_layout_options(&self.sub_options),
+        });
         self.sub_rect = self.sub_layout.as_ref().map(|layout| layout.rect);
         if self.sub_layout.is_none() {
             self.open_dropdown = None;

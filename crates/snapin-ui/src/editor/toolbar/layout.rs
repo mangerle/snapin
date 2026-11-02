@@ -264,158 +264,169 @@ fn push_color_palette(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescriptor)
     }
 }
 
-/// 计算二级属性栏及其下拉菜单布局
-#[cfg(test)]
-pub(crate) fn calculate_sub_layout(
-    main_rect: &Rect,
-    active_tool: Option<Tool>,
-    open_dropdown: Option<SubDropdown>,
-    screen_w: f32,
-    screen_h: f32,
-    ui_scale: f32,
-) -> Option<SubLayout> {
-    calculate_sub_layout_with_options(
-        main_rect,
-        active_tool,
-        open_dropdown,
-        screen_w,
-        screen_h,
-        ui_scale,
-        SubLayoutOptions {
-            mosaic_mode: MosaicMode::Mosaic,
-        },
-    )
+/// 二级栏布局计算所需的完整输入。
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SubLayoutRequest<'a> {
+    pub main_rect: &'a Rect,
+    pub active_tool: Option<Tool>,
+    pub open_dropdown: Option<SubDropdown>,
+    pub screen_width: f32,
+    pub screen_height: f32,
+    pub ui_scale: f32,
+    pub options: SubLayoutOptions,
 }
 
-/// 计算带运行时工具状态的二级栏布局；当前主要用于按智能打码模式裁剪控件。
-pub(crate) fn calculate_sub_layout_with_options(
-    main_rect: &Rect,
-    active_tool: Option<Tool>,
-    open_dropdown: Option<SubDropdown>,
-    screen_w: f32,
-    screen_h: f32,
-    ui_scale: f32,
-    options: SubLayoutOptions,
-) -> Option<SubLayout> {
-    let active_tool = active_tool?;
-    if main_rect.width <= 0.0 {
-        return None;
-    }
-    // 没有可调参数的工具不显示空的二级属性栏。
-    if !tool_descriptor(active_tool).has_sub_bar {
+/// 计算二级属性栏及其下拉菜单布局。
+pub(crate) fn calculate_sub_layout(request: SubLayoutRequest<'_>) -> Option<SubLayout> {
+    let active_tool = request.active_tool?;
+    if request.main_rect.width <= 0.0 || !tool_descriptor(active_tool).has_sub_bar {
         return None;
     }
 
-    let s = ui_scale;
-    let sub_h = 36.0 * s;
-    let sub_x = main_rect.x;
-    let sub_y = if main_rect.y >= sub_h + 8.0 * s {
-        main_rect.y - sub_h - 4.0 * s
-    } else {
-        main_rect.y + main_rect.height + 4.0 * s
-    };
-    let center_y = sub_y + sub_h / 2.0;
-
-    let mut entries = Vec::with_capacity(32);
-    let pad = 12.0 * s;
-    let end_x = build_entries(
-        active_tool,
-        options.mosaic_mode,
-        sub_x + pad,
-        center_y,
-        s,
-        &mut entries,
-    );
-    let width = (end_x - sub_x).max(120.0 * s);
-    let max_x = (screen_w - width - 8.0 * s).max(8.0 * s);
-    let clamped_x = sub_x.min(max_x).max(8.0 * s);
-    let shift = clamped_x - sub_x;
-    if shift.abs() > f32::EPSILON {
-        for entry in &mut entries {
-            entry.rect.x += shift;
-        }
-    }
-    let sub_rect = Rect {
-        x: clamped_x,
-        y: sub_y,
-        width,
-        height: sub_h,
-    };
-
-    let dropdown = open_dropdown.and_then(|kind| {
-        let anchor = match kind {
-            SubDropdown::Line => SubControl::LineStyle,
-            SubDropdown::Badge => SubControl::BadgeStyle,
-            SubDropdown::Arrow => SubControl::ArrowStyle,
-            SubDropdown::FontSize => SubControl::FontSize,
-            SubDropdown::StartArrow => SubControl::StartArrow,
-            SubDropdown::EndArrow => SubControl::EndArrow,
-            SubDropdown::BadgeSequence => SubControl::BadgeSequence,
-            SubDropdown::MosaicMode => SubControl::MosaicMode,
-            SubDropdown::FontFamily => SubControl::FontFamily,
-            SubDropdown::MagnifierConnector => SubControl::MagnifierConnector,
-            SubDropdown::MarkerShape => SubControl::MarkerShape,
-            SubDropdown::MarkerBlendMode => SubControl::MarkerBlendMode,
-        };
-        let anchor_rect = entries
-            .iter()
-            .find(|entry| entry.control == Some(anchor))?
-            .rect;
-
-        let rows = match kind {
-            SubDropdown::Line => snapin_annotation::LineStyle::ALL.len(),
-            SubDropdown::Badge => 2,
-            SubDropdown::Arrow => 3,
-            SubDropdown::FontSize => crate::editor::toolbar::items::FONT_SIZE_PRESETS.len(),
-            SubDropdown::StartArrow | SubDropdown::EndArrow => {
-                snapin_annotation::style::ArrowHeadStyle::ALL.len()
-            }
-            SubDropdown::BadgeSequence => snapin_annotation::BadgeSequence::ALL.len(),
-            SubDropdown::MosaicMode => 3,
-            SubDropdown::FontFamily => FONT_FAMILY_PRESETS.len(),
-            SubDropdown::MagnifierConnector => snapin_annotation::MagnifierConnector::ALL.len(),
-            SubDropdown::MarkerShape | SubDropdown::MarkerBlendMode => 2,
-        };
-        let row_h = 28.0 * s;
-        let panel_h = rows as f32 * row_h + 8.0 * s;
-        let panel_w = 116.0 * s;
-
-        let mut y = sub_y + sub_h + 4.0 * s;
-        if y + panel_h > screen_h - 8.0 * s {
-            y = (sub_y - panel_h - 4.0 * s).max(8.0 * s);
-        }
-        let mut x = anchor_rect.x;
-        if x + panel_w > screen_w - 8.0 * s {
-            x = (screen_w - panel_w - 8.0 * s).max(8.0 * s);
-        }
-
-        let panel = Rect {
-            x,
-            y,
-            width: panel_w,
-            height: panel_h,
-        };
-        let rows = (0..rows)
-            .map(|index| Rect {
-                x: x + 4.0 * s,
-                y: y + 4.0 * s + index as f32 * row_h,
-                width: panel_w - 8.0 * s,
-                height: row_h,
-            })
-            .collect();
-
-        Some(DropdownLayout {
-            kind,
-            rect: panel,
-            rows,
-        })
-    });
-
+    let (sub_rect, entries) = build_sub_panel(request, active_tool);
+    let dropdown = request
+        .open_dropdown
+        .and_then(|kind| build_dropdown_layout(kind, &entries, sub_rect, request));
     Some(SubLayout {
         rect: sub_rect,
         entries,
         dropdown,
     })
+}
+
+/// 生成控件序列并根据屏幕宽度计算二级栏最终位置。
+fn build_sub_panel(request: SubLayoutRequest<'_>, active_tool: Tool) -> (Rect, Vec<SubEntry>) {
+    let scale = request.ui_scale;
+    let height = 36.0 * scale;
+    let origin_x = request.main_rect.x;
+    let origin_y = if request.main_rect.y >= height + 8.0 * scale {
+        request.main_rect.y - height - 4.0 * scale
+    } else {
+        request.main_rect.y + request.main_rect.height + 4.0 * scale
+    };
+    let center_y = origin_y + height / 2.0;
+    let mut entries = Vec::with_capacity(32);
+    let end_x = build_entries(
+        active_tool,
+        request.options.mosaic_mode,
+        origin_x + 12.0 * scale,
+        center_y,
+        scale,
+        &mut entries,
+    );
+    let width = (end_x - origin_x).max(120.0 * scale);
+    let max_x = (request.screen_width - width - 8.0 * scale).max(8.0 * scale);
+    let clamped_x = origin_x.min(max_x).max(8.0 * scale);
+    let shift = clamped_x - origin_x;
+    if shift.abs() > f32::EPSILON {
+        for entry in &mut entries {
+            entry.rect.x += shift;
+        }
+    }
+    (
+        Rect {
+            x: clamped_x,
+            y: origin_y,
+            width,
+            height,
+        },
+        entries,
+    )
+}
+
+/// 根据控件锚点与屏幕边界计算下拉面板和每一行的热区。
+fn build_dropdown_layout(
+    kind: SubDropdown,
+    entries: &[SubEntry],
+    sub_rect: Rect,
+    request: SubLayoutRequest<'_>,
+) -> Option<DropdownLayout> {
+    let anchor = dropdown_anchor(kind);
+    let anchor_rect = entries
+        .iter()
+        .find(|entry| entry.control == Some(anchor))?
+        .rect;
+    let scale = request.ui_scale;
+    let rows = dropdown_row_count(kind);
+    let row_height = 28.0 * scale;
+    let panel_height = rows as f32 * row_height + 8.0 * scale;
+    let panel_width = 116.0 * scale;
+    let origin = dropdown_origin(anchor_rect, sub_rect, panel_height, request);
+    let panel = Rect {
+        x: origin.0,
+        y: origin.1,
+        width: panel_width,
+        height: panel_height,
+    };
+    let row_rects = (0..rows)
+        .map(|index| Rect {
+            x: panel.x + 4.0 * scale,
+            y: panel.y + 4.0 * scale + index as f32 * row_height,
+            width: panel_width - 8.0 * scale,
+            height: row_height,
+        })
+        .collect();
+    Some(DropdownLayout {
+        kind,
+        rect: panel,
+        rows: row_rects,
+    })
+}
+
+/// 找到下拉菜单对应的二级栏锚点控件。
+fn dropdown_anchor(kind: SubDropdown) -> SubControl {
+    match kind {
+        SubDropdown::Line => SubControl::LineStyle,
+        SubDropdown::Badge => SubControl::BadgeStyle,
+        SubDropdown::Arrow => SubControl::ArrowStyle,
+        SubDropdown::FontSize => SubControl::FontSize,
+        SubDropdown::StartArrow => SubControl::StartArrow,
+        SubDropdown::EndArrow => SubControl::EndArrow,
+        SubDropdown::BadgeSequence => SubControl::BadgeSequence,
+        SubDropdown::MosaicMode => SubControl::MosaicMode,
+        SubDropdown::FontFamily => SubControl::FontFamily,
+        SubDropdown::MagnifierConnector => SubControl::MagnifierConnector,
+        SubDropdown::MarkerShape => SubControl::MarkerShape,
+        SubDropdown::MarkerBlendMode => SubControl::MarkerBlendMode,
+    }
+}
+
+/// 返回下拉菜单包含的选项数量。
+fn dropdown_row_count(kind: SubDropdown) -> usize {
+    match kind {
+        SubDropdown::Line => snapin_annotation::LineStyle::ALL.len(),
+        SubDropdown::Badge => 2,
+        SubDropdown::Arrow => 3,
+        SubDropdown::FontSize => crate::editor::toolbar::items::FONT_SIZE_PRESETS.len(),
+        SubDropdown::StartArrow | SubDropdown::EndArrow => {
+            snapin_annotation::style::ArrowHeadStyle::ALL.len()
+        }
+        SubDropdown::BadgeSequence => snapin_annotation::BadgeSequence::ALL.len(),
+        SubDropdown::MosaicMode => 3,
+        SubDropdown::FontFamily => FONT_FAMILY_PRESETS.len(),
+        SubDropdown::MagnifierConnector => snapin_annotation::MagnifierConnector::ALL.len(),
+        SubDropdown::MarkerShape | SubDropdown::MarkerBlendMode => 2,
+    }
+}
+
+/// 计算下拉面板的屏幕内坐标，必要时向上翻转或向左夹取。
+fn dropdown_origin(
+    anchor_rect: Rect,
+    sub_rect: Rect,
+    panel_height: f32,
+    request: SubLayoutRequest<'_>,
+) -> (f32, f32) {
+    let scale = request.ui_scale;
+    let panel_width = 116.0 * scale;
+    let mut y = sub_rect.y + sub_rect.height + 4.0 * scale;
+    if y + panel_height > request.screen_height - 8.0 * scale {
+        y = (sub_rect.y - panel_height - 4.0 * scale).max(8.0 * scale);
+    }
+    let mut x = anchor_rect.x;
+    if x + panel_width > request.screen_width - 8.0 * scale {
+        x = (request.screen_width - panel_width - 8.0 * scale).max(8.0 * scale);
+    }
+    (x, y)
 }
 
 #[cfg(test)]

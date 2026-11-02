@@ -2,6 +2,61 @@
 
 use super::*;
 
+fn layout_for(
+    main_rect: &Rect,
+    active_tool: Option<Tool>,
+    screen: (f32, f32),
+    ui_scale: f32,
+) -> Option<SubLayout> {
+    calculate_sub_layout(SubLayoutRequest {
+        main_rect,
+        active_tool,
+        open_dropdown: None,
+        screen_width: screen.0,
+        screen_height: screen.1,
+        ui_scale,
+        options: SubLayoutOptions {
+            mosaic_mode: MosaicMode::Mosaic,
+        },
+    })
+}
+
+fn layout_with_options(
+    main_rect: &Rect,
+    active_tool: Option<Tool>,
+    screen: (f32, f32),
+    options: SubLayoutOptions,
+) -> Option<SubLayout> {
+    calculate_sub_layout(SubLayoutRequest {
+        main_rect,
+        active_tool,
+        open_dropdown: None,
+        screen_width: screen.0,
+        screen_height: screen.1,
+        ui_scale: 1.0,
+        options,
+    })
+}
+
+fn layout_for_dropdown(
+    main_rect: &Rect,
+    active_tool: Option<Tool>,
+    dropdown: Option<SubDropdown>,
+    screen: (f32, f32),
+) -> Option<SubLayout> {
+    calculate_sub_layout(SubLayoutRequest {
+        main_rect,
+        active_tool,
+        open_dropdown: dropdown,
+        screen_width: screen.0,
+        screen_height: screen.1,
+        ui_scale: 1.0,
+        options: SubLayoutOptions {
+            mosaic_mode: MosaicMode::Mosaic,
+        },
+    })
+}
+
 fn main_rect() -> Rect {
     Rect {
         x: 100.0,
@@ -37,8 +92,8 @@ fn test_fullscreen_selection_toolbar_inside_screen() {
 fn test_sub_controls_follow_active_tool() {
     let main = main_rect();
 
-    let rect_layout = calculate_sub_layout(&main, Some(Tool::Rect), None, 1920.0, 1080.0, 1.0)
-        .expect("矩形工具应生成二级栏");
+    let rect_layout =
+        layout_for(&main, Some(Tool::Rect), (1920.0, 1080.0), 1.0).expect("矩形工具应生成二级栏");
     assert!(rect_layout
         .entries
         .iter()
@@ -48,16 +103,15 @@ fn test_sub_controls_follow_active_tool() {
         .iter()
         .any(|e| e.control == Some(SubControl::FillToggle)));
 
-    let ellipse_layout =
-        calculate_sub_layout(&main, Some(Tool::Ellipse), None, 1920.0, 1080.0, 1.0)
-            .expect("椭圆工具应生成二级栏");
+    let ellipse_layout = layout_for(&main, Some(Tool::Ellipse), (1920.0, 1080.0), 1.0)
+        .expect("椭圆工具应生成二级栏");
     assert!(!ellipse_layout
         .entries
         .iter()
         .any(|e| e.control == Some(SubControl::CornerRadius)));
 
-    let badge_layout = calculate_sub_layout(&main, Some(Tool::Badge), None, 1920.0, 1080.0, 1.0)
-        .expect("序号工具应生成二级栏");
+    let badge_layout =
+        layout_for(&main, Some(Tool::Badge), (1920.0, 1080.0), 1.0).expect("序号工具应生成二级栏");
     assert!(badge_layout
         .entries
         .iter()
@@ -67,7 +121,7 @@ fn test_sub_controls_follow_active_tool() {
         .iter()
         .any(|e| e.control == Some(SubControl::LineStyle)));
 
-    let mosaic_layout = calculate_sub_layout(&main, Some(Tool::Mosaic), None, 1920.0, 1080.0, 1.0)
+    let mosaic_layout = layout_for(&main, Some(Tool::Mosaic), (1920.0, 1080.0), 1.0)
         .expect("马赛克工具应生成二级栏");
     assert!(mosaic_layout
         .entries
@@ -105,13 +159,10 @@ fn test_sub_controls_follow_active_tool() {
     assert!(position(SubControl::MosaicBrush) < position(SubControl::MosaicRectangle));
     assert!(position(SubControl::MosaicRectangle) < position(SubControl::EffectStrength));
 
-    let smart_redact_layout = calculate_sub_layout_with_options(
+    let smart_redact_layout = layout_with_options(
         &main,
         Some(Tool::Mosaic),
-        None,
-        1920.0,
-        1080.0,
-        1.0,
+        (1920.0, 1080.0),
         super::SubLayoutOptions {
             mosaic_mode: super::MosaicMode::SmartRedact,
         },
@@ -136,8 +187,8 @@ fn test_sub_controls_follow_active_tool() {
         );
     }
 
-    let text_layout = calculate_sub_layout(&main, Some(Tool::Text), None, 1920.0, 1080.0, 1.0)
-        .expect("文字工具应生成二级栏");
+    let text_layout =
+        layout_for(&main, Some(Tool::Text), (1920.0, 1080.0), 1.0).expect("文字工具应生成二级栏");
     assert!(text_layout
         .entries
         .iter()
@@ -145,7 +196,7 @@ fn test_sub_controls_follow_active_tool() {
 
     for tool in [Tool::Blur, Tool::Spotlight] {
         assert!(
-            calculate_sub_layout(&main, Some(tool), None, 1920.0, 1080.0, 1.0).is_some(),
+            layout_for(&main, Some(tool), (1920.0, 1080.0), 1.0).is_some(),
             "{tool:?} 必须提供二级属性栏"
         );
     }
@@ -156,7 +207,7 @@ fn test_sub_controls_follow_active_tool() {
 fn test_reference_toolbar_controls_are_complete() {
     let main = main_rect();
     let controls = |tool| {
-        calculate_sub_layout(&main, Some(tool), None, 1920.0, 1080.0, 1.0)
+        layout_for(&main, Some(tool), (1920.0, 1080.0), 1.0)
             .expect("工具应生成二级栏")
             .entries
             .into_iter()
@@ -306,8 +357,8 @@ fn test_sub_bar_is_clamped_inside_screen() {
         width: 600.0,
         height: 40.0,
     };
-    let layout = calculate_sub_layout(&main, Some(Tool::Rect), None, 1366.0, 768.0, 1.0)
-        .expect("矩形二级栏应存在");
+    let layout =
+        layout_for(&main, Some(Tool::Rect), (1366.0, 768.0), 1.0).expect("矩形二级栏应存在");
     assert!(layout.rect.x >= 8.0);
     assert!(layout.rect.x + layout.rect.width <= 1358.0 + 0.01);
     assert!(layout.rect_of(SubControl::CornerRadius).is_some());
@@ -316,13 +367,10 @@ fn test_sub_bar_is_clamped_inside_screen() {
 /// 精简后的序号属性栏仍需完整落在常见 1366 宽屏幕内。
 #[test]
 fn test_badge_sub_bar_fits_common_screen() {
-    let layout = calculate_sub_layout_with_options(
+    let layout = layout_with_options(
         &main_rect(),
         Some(Tool::Badge),
-        None,
-        1366.0,
-        768.0,
-        1.0,
+        (1366.0, 768.0),
         super::SubLayoutOptions {
             mosaic_mode: super::MosaicMode::Mosaic,
         },
@@ -340,8 +388,8 @@ fn test_badge_sub_bar_fits_common_screen() {
 /// 控件热区必须落在面板内且互不重叠，面板宽度应覆盖到最后一个控件
 #[test]
 fn test_sub_layout_hit_areas_are_inside_panel_and_disjoint() {
-    let layout = calculate_sub_layout(&main_rect(), Some(Tool::Rect), None, 1920.0, 1080.0, 1.0)
-        .expect("应生成二级栏");
+    let layout =
+        layout_for(&main_rect(), Some(Tool::Rect), (1920.0, 1080.0), 1.0).expect("应生成二级栏");
 
     let interactive: Vec<&Rect> = layout
         .entries
@@ -372,13 +420,11 @@ fn test_sub_layout_hit_areas_are_inside_panel_and_disjoint() {
 /// 下拉菜单应锚定在对应控件附近，且行热区完全落在面板内
 #[test]
 fn test_dropdown_rows_stay_inside_panel() {
-    let layout = calculate_sub_layout(
+    let layout = layout_for_dropdown(
         &main_rect(),
         Some(Tool::Rect),
         Some(SubDropdown::Line),
-        1920.0,
-        1080.0,
-        1.0,
+        (1920.0, 1080.0),
     )
     .expect("应生成二级栏");
 
