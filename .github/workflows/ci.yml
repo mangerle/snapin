@@ -53,7 +53,7 @@ jobs:
           bash -n extension/install.sh
 
       - name: 运行 Clippy 零警告门禁
-        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings -D clippy::missing_errors_doc -D clippy::missing_panics_doc
 
       - name: 运行全工作区测试
         run: cargo test --locked --workspace
