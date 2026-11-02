@@ -3,31 +3,31 @@
 use super::items::{tool_descriptor, SubToolOptions, Tool, ToolbarAction, ToolbarItem};
 use super::layout::{SubControl, SubDropdown, SubLayout};
 use crate::geometry::Rect;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 /// 连续截图之间复用的标注工具栏选项；仅在用户开启记忆开关时写入。
 static REMEMBERED_SUB_OPTIONS: Mutex<Option<SubToolOptions>> = Mutex::new(None);
 
 /// 读取上次截图的工具栏选项。
 pub(crate) fn remembered_sub_options() -> Option<SubToolOptions> {
-    REMEMBERED_SUB_OPTIONS
-        .lock()
-        .ok()
-        .and_then(|options| *options)
+    lock_remembered_options().as_ref().copied()
 }
 
 /// 保存当前工具栏选项，供下一次截图恢复。
 pub(crate) fn store_remembered_sub_options(options: SubToolOptions) {
-    if let Ok(mut remembered) = REMEMBERED_SUB_OPTIONS.lock() {
-        *remembered = Some(options);
-    }
+    *lock_remembered_options() = Some(options);
 }
 
 /// 清除跨截图工具栏选项。
 pub(crate) fn clear_remembered_sub_options() {
-    if let Ok(mut remembered) = REMEMBERED_SUB_OPTIONS.lock() {
-        *remembered = None;
-    }
+    *lock_remembered_options() = None;
+}
+
+/// 工具栏记忆是独立的小型全局值，锁中毒后内部 Option 仍然完整，可直接恢复。
+fn lock_remembered_options() -> MutexGuard<'static, Option<SubToolOptions>> {
+    REMEMBERED_SUB_OPTIONS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// 工具栏整体状态与布局管理器
