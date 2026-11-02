@@ -69,10 +69,12 @@ impl<'a> SnipperCanvas<'a> {
             }
             render_handle_grid(
                 pixmap,
-                Self::handle_positions(rect),
-                (6.0 * s).round().max(4.0),
-                (ar, ag, ab),
-                s,
+                HandleGridSpec {
+                    centers: Self::handle_positions(rect),
+                    size: (6.0 * s).round().max(4.0),
+                    accent: (ar, ag, ab),
+                    scale: s,
+                },
             );
         }
     }
@@ -81,14 +83,14 @@ impl<'a> SnipperCanvas<'a> {
     pub(super) fn render_pending_preview(
         &self,
         pixmap: &mut PixmapMut,
-        toolbar: &Toolbar,
-        tool: &Tool,
-        pts: &[crate::geometry::Point],
-        badge_num: u32,
+        spec: PendingPreviewSpec<'_>,
     ) {
-        if let Some(params) =
-            AnnotationDraftParams::from_toolbar_and_points(toolbar, *tool, pts, badge_num)
-        {
+        if let Some(params) = AnnotationDraftParams::from_toolbar_and_points(
+            spec.toolbar,
+            *spec.tool,
+            spec.points,
+            spec.badge_number,
+        ) {
             render_draft_preview(&params, pixmap);
         }
     }
@@ -131,10 +133,12 @@ impl<'a> SnipperCanvas<'a> {
         let (ar, ag, ab) = self.accent_color;
         render_handle_grid(
             pixmap,
-            Self::handle_positions(&selected.rect),
-            (6.0 * s).round().max(4.0),
-            (ar, ag, ab),
-            s,
+            HandleGridSpec {
+                centers: Self::handle_positions(&selected.rect),
+                size: (6.0 * s).round().max(4.0),
+                accent: (ar, ag, ab),
+                scale: s,
+            },
         );
     }
 
@@ -153,14 +157,30 @@ impl<'a> SnipperCanvas<'a> {
     }
 }
 
-/// 绘制 8 个白底主题色描边的缩放手柄。
-fn render_handle_grid(
-    pixmap: &mut PixmapMut,
+/// 一次标注草稿预览所需的工具、点集与序号参数。
+pub(super) struct PendingPreviewSpec<'a> {
+    pub toolbar: &'a Toolbar,
+    pub tool: &'a Tool,
+    pub points: &'a [crate::geometry::Point],
+    pub badge_number: u32,
+}
+
+/// 缩放手柄网格的几何与主题参数。
+struct HandleGridSpec {
     centers: [(f32, f32); 8],
     size: f32,
     accent: (u8, u8, u8),
     scale: f32,
-) {
+}
+
+/// 绘制 8 个白底主题色描边的缩放手柄。
+fn render_handle_grid(pixmap: &mut PixmapMut, spec: HandleGridSpec) {
+    let HandleGridSpec {
+        centers,
+        size,
+        accent,
+        scale,
+    } = spec;
     let mut fill = Paint::default();
     fill.set_color_rgba8(255, 255, 255, 255);
     let mut border = Paint::default();

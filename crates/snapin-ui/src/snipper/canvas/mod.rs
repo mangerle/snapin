@@ -101,7 +101,15 @@ impl<'a> SnipperCanvas<'a> {
             text_session.render(pixmap);
         }
         if let (Some(toolbar), Some((tool, points, badge))) = (self.toolbar, self.pending_stroke) {
-            self.render_pending_preview(pixmap, toolbar, tool, points, badge);
+            self.render_pending_preview(
+                pixmap,
+                selection::PendingPreviewSpec {
+                    toolbar,
+                    tool,
+                    points,
+                    badge_number: badge,
+                },
+            );
         }
         self.render_detection_previews(pixmap);
         self.render_active_brush_cursor(pixmap, rect);
