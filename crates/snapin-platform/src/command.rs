@@ -39,7 +39,21 @@ impl CapturedPipe {
 ///
 /// 命令无法启动、状态查询失败、输出读取失败、输出超过上限或执行超时时返回
 /// 带中文上下文的 I/O 错误。
-pub fn output_with_timeout(mut command: Command, timeout: Duration) -> std::io::Result<Output> {
+pub fn output_with_timeout(command: Command, timeout: Duration) -> std::io::Result<Output> {
+    let process = spawn_captured_process(command)?;
+    finish_captured_process(process, timeout)
+}
+
+/// 已启动并配置好双路输出读取线程的子进程。
+struct CapturedProcess {
+    child: Child,
+    stdout_reader: JoinHandle<std::io::Result<CapturedPipe>>,
+    stderr_reader: JoinHandle<std::io::Result<CapturedPipe>>,
+    command_name: String,
+}
+
+/// 启动子进程并并发排空 stdout/stderr。
+fn spawn_captured_process(mut command: Command) -> std::io::Result<CapturedProcess> {
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -70,29 +84,40 @@ pub fn output_with_timeout(mut command: Command, timeout: Duration) -> std::io::
                 return Err(error);
             }
         };
+    Ok(CapturedProcess {
+        child,
+        stdout_reader,
+        stderr_reader,
+        command_name,
+    })
+}
 
-    let status = wait_for_status(&mut child, timeout, &command_name);
-    let stdout = join_pipe_reader(stdout_reader, "标准输出", &command_name);
-    let stderr = join_pipe_reader(stderr_reader, "标准错误", &command_name);
+/// 等待子进程结束、收集双路输出并执行上限校验。
+fn finish_captured_process(
+    mut process: CapturedProcess,
+    timeout: Duration,
+) -> std::io::Result<Output> {
+    let status = wait_for_status(&mut process.child, timeout, &process.command_name);
+    let stdout = join_pipe_reader(process.stdout_reader, "标准输出", &process.command_name);
+    let stderr = join_pipe_reader(process.stderr_reader, "标准错误", &process.command_name);
     let stdout = stdout?;
     let stderr = stderr?;
     let status = status?;
 
     if stdout.exceeded_limit() {
         return Err(output_limit_error(
-            &command_name,
+            &process.command_name,
             "标准输出",
             stdout.total_bytes,
         ));
     }
     if stderr.exceeded_limit() {
         return Err(output_limit_error(
-            &command_name,
+            &process.command_name,
             "标准错误",
             stderr.total_bytes,
         ));
     }
-
     Ok(Output {
         status,
         stdout: stdout.bytes,
