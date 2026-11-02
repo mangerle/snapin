@@ -40,7 +40,7 @@ impl AppWorkspaceStateStore {
         let (save_tx, mut save_rx) = mpsc::channel(WORKSPACE_STATE_QUEUE_CAPACITY);
         let writer_path = path.clone();
         runtime
-            .spawn_in(TaskPool::Maintenance, async move {
+            .spawn_in(TaskPool::Background, async move {
                 while let Some(state) = save_rx.recv().await {
                     let path = writer_path.clone();
                     let result =

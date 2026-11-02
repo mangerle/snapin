@@ -47,7 +47,8 @@ impl TaskRuntime {
     /// 获取进程级共享任务运行时；首次调用时创建并常驻。
     ///
     /// 共享实例使用固定的分池容量（默认 16、媒体 8、通知 4、进程 8、维护 2、
-    /// 独立 I/O 4），避免不同模块按各自参数竞争首次初始化而得到不可预测的契约。
+    /// 独立 I/O 4、长期后台 8），避免不同模块按各自参数竞争首次初始化而得到
+    /// 不可预测的契约。
     /// 用于没有 Tokio 上下文的平台适配代码；已有运行时上下文的调用方应优先使用
     /// [`Self::current`]。创建失败时返回 `None`，调用方应降级并记录警告。
     pub fn shared() -> Option<&'static Self> {
@@ -99,6 +100,7 @@ impl TaskRuntime {
             Pool::new(8),
             Pool::new(2),
             Pool::new(4),
+            Pool::new(8),
         ];
         Self {
             inner: Arc::new(RuntimeInner {

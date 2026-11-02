@@ -30,7 +30,7 @@ pub(crate) fn run_clipboard_history_monitor(
     let runtime = runtime.clone();
     runtime
         .clone()
-        .spawn_in(TaskPool::Maintenance, async move {
+        .spawn_in(TaskPool::Background, async move {
             let mut persist_gate = PersistGate::default();
             loop {
                 tokio::select! {

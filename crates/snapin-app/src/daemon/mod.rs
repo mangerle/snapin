@@ -70,7 +70,7 @@ pub fn run_daemon_process(cfg: Config) -> Result<()> {
     recover_update_on_startup();
     initialize_daemon_platform(&runtime, &cfg);
 
-    let services = initialize_services(&cfg, &handle);
+    let services = initialize_services(&cfg, &handle)?;
     let (event_loop, workspace_proxy) =
         create_paster_workspace().context("创建集中贴图工作区事件循环失败")?;
     let (snipper_callback, snipper_rx) = create_snipper_channel(&services);
@@ -131,16 +131,18 @@ fn initialize_daemon_platform(runtime: &tokio::runtime::Runtime, cfg: &Config) {
 }
 
 /// 构建统一任务运行时与应用服务，并启动剪贴板历史监控。
-fn initialize_services(cfg: &Config, handle: &tokio::runtime::Handle) -> Arc<AppServices> {
+fn initialize_services(cfg: &Config, handle: &tokio::runtime::Handle) -> Result<Arc<AppServices>> {
     let task_runtime = TaskRuntime::from_handle(handle.clone(), 8);
-    let services = Arc::new(AppServices::with_runtime(cfg.clone(), task_runtime));
+    let services = Arc::new(
+        AppServices::with_runtime(cfg.clone(), task_runtime).context("创建桌面写操作队列失败")?,
+    );
     if let Err(error) = crate::clipboard_history::run_clipboard_history_monitor(
         &services.runtime(),
         services.clipboard_cache(),
     ) {
         tracing::warn!("启动剪贴板历史监控失败: {error:#}");
     }
-    services
+    Ok(services)
 }
 
 /// 创建有界截图结果通道与 GUI 线程回传回调。
@@ -431,7 +433,7 @@ async fn announce_daemon_startup(cfg: &Config, services: &Arc<AppServices>) {
         let interval_hours = cfg.general.update_check_interval_hours.max(1);
         let runtime = services.runtime();
         let cancel = runtime.cancellation_token();
-        if let Err(error) = runtime.spawn_in(TaskPool::Maintenance, async move {
+        if let Err(error) = runtime.spawn_in(TaskPool::Background, async move {
             run_update_check_loop(check_url, interval_hours, cancel).await;
         }) {
             tracing::warn!("提交后台更新检查任务失败: {error}");

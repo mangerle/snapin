@@ -26,6 +26,32 @@ use snapin_ui::snipper::Rect;
 use snapin_ui::{DesktopPort, PortError, PortErrorKind};
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::sync::mpsc::{self, error::TrySendError};
+
+/// 桌面写操作队列容量；按用户交互频率设置上限，满队列时快速失败。
+const DESKTOP_WRITE_QUEUE_CAPACITY: usize = 8;
+
+enum ClipboardWrite {
+    Text(String),
+    Image(Arc<image::RgbaImage>),
+}
+
+impl ClipboardWrite {
+    fn execute(self) {
+        match self {
+            Self::Text(text) => {
+                if let Err(error) = write_text_to_clipboard(&text) {
+                    tracing::warn!("写入系统剪贴板失败: {error}");
+                }
+            }
+            Self::Image(image) => {
+                if let Err(error) = write_image_to_clipboard(&image) {
+                    tracing::warn!("写入剪贴板图像失败: {error}");
+                }
+            }
+        }
+    }
+}
 
 /// 桌面副作用端口实现。
 pub(crate) struct AppDesktop {
@@ -33,6 +59,8 @@ pub(crate) struct AppDesktop {
     runtime: TaskRuntime,
     last_selection: ArcSwap<Option<Rect>>,
     clipboard_cache: Arc<ClipboardCache>,
+    clipboard_tx: mpsc::Sender<ClipboardWrite>,
+    selection_tx: mpsc::Sender<Rect>,
 }
 
 impl AppDesktop {
@@ -41,18 +69,48 @@ impl AppDesktop {
         config: SharedConfig,
         runtime: TaskRuntime,
         clipboard_cache: Arc<ClipboardCache>,
-    ) -> Self {
+    ) -> Result<Self, PortError> {
         let last_selection = load_last_selection().map(|(x, y, width, height)| Rect {
             x,
             y,
             width,
             height,
         });
-        Self {
+        let (clipboard_tx, clipboard_rx) = mpsc::channel(DESKTOP_WRITE_QUEUE_CAPACITY);
+        let (selection_tx, selection_rx) = mpsc::channel(DESKTOP_WRITE_QUEUE_CAPACITY);
+        runtime
+            .spawn_in(TaskPool::Background, run_clipboard_writer(clipboard_rx))
+            .map_err(|error| worker_start_error("启动系统剪贴板写入任务", error))?;
+        runtime
+            .spawn_in(TaskPool::Background, run_selection_writer(selection_rx))
+            .map_err(|error| worker_start_error("启动历史选区写入任务", error))?;
+        Ok(Self {
             config,
             runtime,
             last_selection: ArcSwap::from_pointee(last_selection),
             clipboard_cache,
+            clipboard_tx,
+            selection_tx,
+        })
+    }
+}
+
+async fn run_clipboard_writer(mut receiver: mpsc::Receiver<ClipboardWrite>) {
+    while let Some(write) = receiver.recv().await {
+        if let Err(error) = tokio::task::spawn_blocking(move || write.execute()).await {
+            tracing::warn!("等待系统剪贴板写入任务失败: {error}");
+        }
+    }
+}
+
+async fn run_selection_writer(mut receiver: mpsc::Receiver<Rect>) {
+    while let Some(rect) = receiver.recv().await {
+        let result = tokio::task::spawn_blocking(move || {
+            save_last_selection((rect.x, rect.y, rect.width, rect.height));
+        })
+        .await;
+        if let Err(error) = result {
+            tracing::warn!("等待历史选区写入任务失败: {error}");
         }
     }
 }
@@ -64,41 +122,31 @@ impl DesktopPort for AppDesktop {
 
     fn save_last_selection(&self, rect: Rect) {
         self.last_selection.store(Arc::new(Some(rect)));
-        if let Err(error) = self.runtime.spawn_blocking_in(TaskPool::Io, move || {
-            save_last_selection((rect.x, rect.y, rect.width, rect.height));
-        }) {
-            tracing::warn!("提交历史选区写入任务失败: {error}");
+        if let Err(error) = self.selection_tx.try_send(rect) {
+            tracing::warn!("提交历史选区写入任务失败: {}", queue_error_message(error));
         }
     }
 
     fn write_text_clipboard(&self, text: &str) -> Result<(), PortError> {
         let text = text.to_string();
-        self.clipboard_cache.store(ClipboardContent::Text {
+        let content = ClipboardContent::Text {
             text: text.clone(),
             kind: ClipboardEntryKind::Text,
-        });
-        self.runtime
-            .spawn_blocking_in(TaskPool::Io, move || {
-                if let Err(error) = write_text_to_clipboard(&text) {
-                    tracing::warn!("写入系统剪贴板失败: {error}");
-                }
-            })
-            .map(|_| ())
-            .map_err(clipboard_queue_error)
+        };
+        self.clipboard_tx
+            .try_send(ClipboardWrite::Text(text))
+            .map_err(|error| queue_error("提交系统剪贴板写入任务", error))?;
+        self.clipboard_cache.store(content);
+        Ok(())
     }
 
     fn write_image_clipboard(&self, image: image::RgbaImage) -> Result<(), PortError> {
         let image = Arc::new(image);
-        self.clipboard_cache
-            .store(ClipboardContent::Image(image.clone()));
-        self.runtime
-            .spawn_blocking_in(TaskPool::Io, move || {
-                if let Err(error) = write_image_to_clipboard(&image) {
-                    tracing::warn!("写入剪贴板图像失败: {error}");
-                }
-            })
-            .map(|_| ())
-            .map_err(clipboard_queue_error)
+        self.clipboard_tx
+            .try_send(ClipboardWrite::Image(image.clone()))
+            .map_err(|error| queue_error("提交系统剪贴板写入任务", error))?;
+        self.clipboard_cache.store(ClipboardContent::Image(image));
+        Ok(())
     }
 
     fn read_clipboard_image(&self) -> Option<Arc<image::RgbaImage>> {
@@ -140,10 +188,18 @@ impl DesktopPort for AppDesktop {
     }
 }
 
-fn clipboard_queue_error(error: snapin_runtime::TaskRuntimeError) -> PortError {
-    PortError::with_kind(
-        PortErrorKind::Unavailable,
-        "提交系统剪贴板写入任务",
-        error.to_string(),
-    )
+fn worker_start_error(operation: &str, error: snapin_runtime::TaskRuntimeError) -> PortError {
+    PortError::with_kind(PortErrorKind::Unavailable, operation, error.to_string())
+}
+
+fn queue_error<T>(operation: &str, error: TrySendError<T>) -> PortError {
+    let (kind, message) = match error {
+        TrySendError::Full(_) => (PortErrorKind::Busy, "桌面写入队列已满"),
+        TrySendError::Closed(_) => (PortErrorKind::Unavailable, "桌面写入任务已停止"),
+    };
+    PortError::with_kind(kind, operation, message)
+}
+
+fn queue_error_message(error: TrySendError<Rect>) -> String {
+    queue_error("保存历史选区", error).to_string()
 }

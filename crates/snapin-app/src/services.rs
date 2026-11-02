@@ -10,7 +10,7 @@ use crate::desktop::AppDesktop;
 use crate::media::MediaService;
 use snapin_config::config::Config;
 use snapin_runtime::TaskRuntime;
-use snapin_ui::{DesktopPort, MediaJobRunner};
+use snapin_ui::{DesktopPort, MediaJobRunner, PortError};
 use std::sync::Arc;
 
 /// 应用级服务容器。
@@ -27,22 +27,22 @@ impl AppServices {
     ///
     /// 守护进程在独立运行时上启动异步服务，同时把 winit 事件循环放在主线程；
     /// 该构造函数让任务运行时与 GUI 线程的生命周期分离。
-    pub(crate) fn with_runtime(config: Config, runtime: TaskRuntime) -> Self {
+    pub(crate) fn with_runtime(config: Config, runtime: TaskRuntime) -> Result<Self, PortError> {
         let shared = shared_config(config);
         let clipboard_cache = Arc::new(ClipboardCache::new());
         let desktop = Arc::new(AppDesktop::new(
             shared.clone(),
             runtime.clone(),
             clipboard_cache.clone(),
-        ));
+        )?);
         let media = Arc::new(MediaService::new(shared.clone(), runtime.clone()));
-        Self {
+        Ok(Self {
             config: shared,
             runtime,
             desktop,
             media,
             clipboard_cache,
-        }
+        })
     }
 
     /// 获取当前配置快照。

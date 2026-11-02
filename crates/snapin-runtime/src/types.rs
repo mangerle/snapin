@@ -62,6 +62,8 @@ pub enum TaskPool {
     Maintenance,
     /// 剪贴板轮询、缓存索引与状态文件等独立阻塞 I/O
     Io,
+    /// 常驻后台循环与串行写队列；这些任务会长期占用名额，必须与短时维护任务隔离
+    Background,
 }
 
 impl TaskPool {
@@ -73,6 +75,7 @@ impl TaskPool {
             Self::Process => 3,
             Self::Maintenance => 4,
             Self::Io => 5,
+            Self::Background => 6,
         }
     }
 }
@@ -119,7 +122,7 @@ impl TaskHandle {
 pub(super) struct RuntimeInner {
     pub(super) handle: Handle,
     pub(super) tracker: TaskTracker,
-    pub(super) pools: [Pool; 6],
+    pub(super) pools: [Pool; 7],
     pub(super) cancel: CancellationToken,
     pub(super) shutting_down: AtomicBool,
     /// 串行化任务登记与停机切换，消除“检查未停机后又把任务登记到已关闭 Tracker”的窗口。
