@@ -355,6 +355,9 @@ impl TaskRuntime {
     /// （例如正在执行的阻塞式 ONNX 推理无法被强制中断），调用方可以继续执行进程
     /// 退出流程，但必须记录仍在运行的任务，避免无限等待。
     ///
+    /// `Duration::ZERO` 表示只取消并 abort 在途任务、不等待任何收尾；只有运行时本来
+    /// 就没有任务时才返回 `true`，不会退化成无限等待。
+    ///
     /// 该方法只能在 Tokio 运行时之外或独立运行时中调用；在异步任务内部调用
     /// 会等待自身而永久挂起，调用方必须避免自等待。
     pub async fn shutdown(&self, timeout: Duration) -> bool {
@@ -366,25 +369,20 @@ impl TaskRuntime {
         }
 
         if timeout.is_zero() {
-            self.inner.tracker.wait().await;
-            return true;
+            let stalled_count = abort_active_tasks(&self.inner.active_tasks);
+            let drained = stalled_count == 0 && self.inner.tracker.is_empty();
+            if !drained {
+                tracing::warn!(
+                    "后台任务运行时执行零等待停机，仍有 {stalled_count} 个任务未确认退出"
+                );
+            }
+            return drained;
         }
 
         match tokio::time::timeout(timeout, self.inner.tracker.wait()).await {
             Ok(()) => true,
             Err(_) => {
-                let stalled: Vec<tokio::task::AbortHandle> = match self.inner.active_tasks.lock() {
-                    Ok(mut active) => active.drain().map(|(_, handle)| handle).collect(),
-                    Err(poisoned) => poisoned
-                        .into_inner()
-                        .drain()
-                        .map(|(_, handle)| handle)
-                        .collect(),
-                };
-                let stalled_count = stalled.len();
-                for handle in stalled {
-                    handle.abort();
-                }
+                let stalled_count = abort_active_tasks(&self.inner.active_tasks);
                 tracing::warn!(
                     "等待后台任务退出超时，已等待 {}ms；仍有 {stalled_count} 个任务未响应取消，已请求 abort 并继续退出",
                     timeout.as_millis()
@@ -420,6 +418,23 @@ impl TaskRuntime {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+}
+
+/// 中止仍在运行的任务并返回中止数量。
+fn abort_active_tasks(active_tasks: &Mutex<HashMap<u64, tokio::task::AbortHandle>>) -> usize {
+    let stalled: Vec<tokio::task::AbortHandle> = match active_tasks.lock() {
+        Ok(mut active) => active.drain().map(|(_, handle)| handle).collect(),
+        Err(poisoned) => poisoned
+            .into_inner()
+            .drain()
+            .map(|(_, handle)| handle)
+            .collect(),
+    };
+    let count = stalled.len();
+    for handle in stalled {
+        handle.abort();
+    }
+    count
 }
 
 #[cfg(test)]
@@ -492,6 +507,20 @@ mod tests {
 
         let drained = runtime.shutdown(Duration::from_millis(10)).await;
         assert!(!drained, "超时后必须如实返回未排空");
+    }
+
+    /// 零等待停机必须立即 abort 并返回未排空，而不是无限等待。
+    #[tokio::test]
+    async fn test_zero_timeout_shutdown_does_not_block() {
+        let runtime = TaskRuntime::current(1).expect("测试运行时必须可用");
+        runtime
+            .spawn(async {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            })
+            .expect("任务应成功入队");
+
+        let drained = runtime.shutdown(Duration::ZERO).await;
+        assert!(!drained, "有在途任务时零等待停机必须返回未排空");
     }
 
     /// 停机超时后必须主动 abort 未退出任务，而不是让其在运行时外继续存活。
