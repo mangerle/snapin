@@ -91,6 +91,62 @@ pub struct SnipperPresenterInit<'a> {
     pub dimmed: bool,
 }
 
+/// 创建并调整 softbuffer 表面到指定非零尺寸。
+fn create_softbuffer_surface(
+    window: Arc<Window>,
+    width: u32,
+    height: u32,
+) -> Result<softbuffer::Surface<Arc<Window>, Arc<Window>>, UiError> {
+    let context =
+        softbuffer::Context::new(window.clone()).map_err(|error| UiError::Softbuffer {
+            message: error.to_string(),
+        })?;
+    let mut surface =
+        softbuffer::Surface::new(&context, window).map_err(|error| UiError::Softbuffer {
+            message: error.to_string(),
+        })?;
+    let width = NonZeroU32::new(width).ok_or_else(|| UiError::Softbuffer {
+        message: "无效的屏幕宽度".to_string(),
+    })?;
+    let height = NonZeroU32::new(height).ok_or_else(|| UiError::Softbuffer {
+        message: "无效的屏幕高度".to_string(),
+    })?;
+    surface
+        .resize(width, height)
+        .map_err(|error| UiError::Softbuffer {
+            message: format!("初始化帧缓冲尺寸失败: {error}"),
+        })?;
+    Ok(surface)
+}
+
+/// 根据截图模式创建原始底图或预计算暗化底图。
+fn create_base_pixmap(
+    bg_image: &RgbaImage,
+    width: u32,
+    height: u32,
+    dimmed: bool,
+) -> Result<Pixmap, UiError> {
+    if dimmed {
+        return create_dimmed_pixmap_fast(bg_image);
+    }
+    let mut pixmap = Pixmap::new(width, height).ok_or(UiError::PixmapAlloc { width, height })?;
+    pixmap.data_mut().copy_from_slice(bg_image.as_raw());
+    Ok(pixmap)
+}
+
+/// 预分配与画布像素一一对应的提交缓冲。
+fn create_frame_words(width: u32, height: u32) -> Result<Vec<u32>, UiError> {
+    let pixel_count = (width as usize)
+        .checked_mul(height as usize)
+        .ok_or(UiError::PixmapAlloc { width, height })?;
+    let mut frame_words = Vec::new();
+    frame_words
+        .try_reserve_exact(pixel_count)
+        .map_err(|_| UiError::PixmapAlloc { width, height })?;
+    frame_words.resize(pixel_count, 0);
+    Ok(frame_words)
+}
+
 impl SnipperPresenter {
     /// 初始化截图呈现器与底层共享帧缓冲表面。
     ///
@@ -108,50 +164,16 @@ impl SnipperPresenter {
             bg_image,
             dimmed,
         } = init;
-        let context =
-            softbuffer::Context::new(window.clone()).map_err(|e| UiError::Softbuffer {
-                message: e.to_string(),
-            })?;
-        let mut surface =
-            softbuffer::Surface::new(&context, window).map_err(|e| UiError::Softbuffer {
-                message: e.to_string(),
-            })?;
-
-        let w = NonZeroU32::new(width).ok_or_else(|| UiError::Softbuffer {
-            message: "无效的屏幕宽度".to_string(),
-        })?;
-        let h = NonZeroU32::new(height).ok_or_else(|| UiError::Softbuffer {
-            message: "无效的屏幕高度".to_string(),
-        })?;
-        surface.resize(w, h).map_err(|e| UiError::Softbuffer {
-            message: format!("初始化帧缓冲尺寸失败: {e}"),
-        })?;
-
-        let base_bg = if dimmed {
-            create_dimmed_pixmap_fast(bg_image)?
-        } else {
-            let mut pixmap =
-                Pixmap::new(width, height).ok_or(UiError::PixmapAlloc { width, height })?;
-            pixmap.data_mut().copy_from_slice(bg_image.as_raw());
-            pixmap
-        };
+        let mut surface = create_softbuffer_surface(window, width, height)?;
+        let base_bg = create_base_pixmap(bg_image, width, height, dimmed)?;
         // 映射窗口前先预刷背景底图，避免出现瞬间白屏或未初始化内容；
-        // 预刷只是过渡画面，失败时由随后的首次正式渲染兜底，故仅记录调试日志
+        // 预刷只是过渡画面，失败时由随后的首次正式渲染兜底，故仅记录调试日志。
         if let Err(error) = blit_pixmap_to_surface(&mut surface, &base_bg) {
             tracing::debug!("预刷截图背景底图失败，等待首次正式渲染覆盖: {error}");
         }
-
         let render_pixmap =
             Pixmap::new(width, height).ok_or(UiError::PixmapAlloc { width, height })?;
-        let pixel_count = (width as usize)
-            .checked_mul(height as usize)
-            .ok_or(UiError::PixmapAlloc { width, height })?;
-        let mut frame_words = Vec::new();
-        frame_words
-            .try_reserve_exact(pixel_count)
-            .map_err(|_| UiError::PixmapAlloc { width, height })?;
-        frame_words.resize(pixel_count, 0);
-
+        let frame_words = create_frame_words(width, height)?;
         Ok(Self {
             surface,
             base_bg,
