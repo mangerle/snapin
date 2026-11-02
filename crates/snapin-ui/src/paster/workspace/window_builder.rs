@@ -73,7 +73,11 @@ pub(crate) fn create_new_paster_window(
     state.services.desktop = runtime.desktop.clone();
 
     let win_id = window.id();
-    runtime.manager.add_entry(item_id, group_id);
+    if !runtime.manager.add_entry(item_id, group_id) {
+        return Err(UiError::Window {
+            message: format!("贴图标识重复，拒绝创建窗口: {item_id:?}"),
+        });
+    }
     window.request_redraw();
 
     let instance = PasterInstance {
