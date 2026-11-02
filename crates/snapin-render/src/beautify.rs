@@ -76,65 +76,111 @@ pub fn render_beautified(
     if input.width() == 0 || input.height() == 0 {
         return Err("美化输入图像尺寸不能为零".to_string());
     }
-    let (canvas_w, canvas_h) = options.social_size.canvas_size().unwrap_or_else(|| {
-        let w = input
-            .width()
-            .saturating_add((options.padding * 2.0).round() as u32);
-        let h = input
-            .height()
-            .saturating_add((options.padding * 2.0).round() as u32);
-        (w, h)
-    });
-    if canvas_w == 0 || canvas_h == 0 || canvas_w > 8192 || canvas_h > 8192 {
-        return Err(format!("美化输出尺寸非法: {canvas_w}x{canvas_h}"));
-    }
-
-    let mut output = Pixmap::new(canvas_w, canvas_h)
-        .ok_or_else(|| format!("分配美化输出缓冲区失败，尺寸: {canvas_w}x{canvas_h}"))?;
+    let layout = BeautifyLayout::calculate(input, options)?;
+    let mut output = Pixmap::new(layout.canvas_width, layout.canvas_height).ok_or_else(|| {
+        format!(
+            "分配美化输出缓冲区失败，尺寸: {}x{}",
+            layout.canvas_width, layout.canvas_height
+        )
+    })?;
     draw_background(&mut output, options.background)?;
+    draw_beautified_content(&mut output, input, options, &layout)?;
+    draw_watermark(&mut output, options, &layout);
+    Ok(output)
+}
 
-    let available_w = (canvas_w as f32 - options.padding * 2.0).max(1.0);
-    let available_h = (canvas_h as f32 - options.padding * 2.0).max(1.0);
-    let scale = (available_w / input.width() as f32)
-        .min(available_h / input.height() as f32)
-        .min(1.0);
-    let content_w = (input.width() as f32 * scale).round().max(1.0);
-    let content_h = (input.height() as f32 * scale).round().max(1.0);
-    let content_x = (canvas_w as f32 - content_w) / 2.0;
-    let content_y = (canvas_h as f32 - content_h) / 2.0;
+/// 输出画布内贴图内容的位置与尺寸。
+#[derive(Debug, Clone, Copy)]
+struct ContentRect {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+}
 
+/// 美化输出所需的画布、内容与缩放参数。
+#[derive(Debug, Clone, Copy)]
+struct BeautifyLayout {
+    canvas_width: u32,
+    canvas_height: u32,
+    content: ContentRect,
+    scale: f32,
+    corner_radius: f32,
+}
+
+impl BeautifyLayout {
+    /// 校验输出上限并计算居中贴图区域。
+    fn calculate(input: PixmapRef<'_>, options: &BeautifyOptions) -> Result<Self, String> {
+        let (canvas_width, canvas_height) =
+            options.social_size.canvas_size().unwrap_or_else(|| {
+                let width = input
+                    .width()
+                    .saturating_add((options.padding * 2.0).round() as u32);
+                let height = input
+                    .height()
+                    .saturating_add((options.padding * 2.0).round() as u32);
+                (width, height)
+            });
+        if canvas_width == 0 || canvas_height == 0 || canvas_width > 8192 || canvas_height > 8192 {
+            return Err(format!("美化输出尺寸非法: {canvas_width}x{canvas_height}"));
+        }
+
+        let available_width = (canvas_width as f32 - options.padding * 2.0).max(1.0);
+        let available_height = (canvas_height as f32 - options.padding * 2.0).max(1.0);
+        let scale = (available_width / input.width() as f32)
+            .min(available_height / input.height() as f32)
+            .min(1.0);
+        let content_width = (input.width() as f32 * scale).round().max(1.0);
+        let content_height = (input.height() as f32 * scale).round().max(1.0);
+        Ok(Self {
+            canvas_width,
+            canvas_height,
+            content: ContentRect {
+                x: (canvas_width as f32 - content_width) / 2.0,
+                y: (canvas_height as f32 - content_height) / 2.0,
+                width: content_width,
+                height: content_height,
+            },
+            scale,
+            corner_radius: options.corner_radius * scale.max(0.5),
+        })
+    }
+}
+
+/// 依次绘制阴影、缩放图像与圆角遮罩。
+fn draw_beautified_content(
+    output: &mut Pixmap,
+    input: PixmapRef<'_>,
+    options: &BeautifyOptions,
+    layout: &BeautifyLayout,
+) -> Result<(), String> {
     if options.shadow {
-        draw_shadow(
-            &mut output,
-            content_x,
-            content_y,
-            content_w,
-            content_h,
-            options.corner_radius * scale.max(0.5),
-        );
+        draw_shadow(output, layout.content, layout.corner_radius);
     }
 
-    let mut scaled = Pixmap::new(content_w as u32, content_h as u32)
+    let mut scaled = Pixmap::new(layout.content.width as u32, layout.content.height as u32)
         .ok_or_else(|| "分配美化缩放缓冲区失败".to_string())?;
     scaled.draw_pixmap(
         0,
         0,
         input,
         &PixmapPaint::default(),
-        Transform::from_scale(scale, scale),
+        Transform::from_scale(layout.scale, layout.scale),
         None,
     );
 
-    let mut mask_pixmap = Pixmap::new(content_w as u32, content_h as u32)
+    let mut mask_pixmap = Pixmap::new(layout.content.width as u32, layout.content.height as u32)
         .ok_or_else(|| "分配美化圆角遮罩失败".to_string())?;
     let mut mask_path = PathBuilder::new();
     add_round_rect(
         &mut mask_path,
-        content_x,
-        content_y,
-        content_w,
-        content_h,
-        options.corner_radius * scale.max(0.5),
+        RoundRect {
+            x: layout.content.x,
+            y: layout.content.y,
+            width: layout.content.width,
+            height: layout.content.height,
+            radius: layout.corner_radius,
+        },
     );
     let Some(mask_path) = mask_path.finish() else {
         return Err("构造美化圆角遮罩失败".to_string());
@@ -145,36 +191,40 @@ pub fn render_beautified(
         &mask_path,
         &mask_paint,
         FillRule::Winding,
-        Transform::from_translate(-content_x, -content_y),
+        Transform::from_translate(-layout.content.x, -layout.content.y),
         None,
     );
     let mask = Mask::from_pixmap(mask_pixmap.as_ref(), MaskType::Alpha);
     output.draw_pixmap(
-        content_x as i32,
-        content_y as i32,
+        layout.content.x as i32,
+        layout.content.y as i32,
         scaled.as_ref(),
         &PixmapPaint::default(),
         Transform::identity(),
         Some(&mask),
     );
+    Ok(())
+}
 
-    if let Some(watermark) = options.watermark.as_deref() {
-        if !watermark.trim().is_empty() {
-            with_thread_local_text_renderer(|renderer| {
-                let font_size = (canvas_w as f32 * 0.018).clamp(12.0, 28.0);
-                renderer.draw_text_rgba(
-                    &mut output.as_mut(),
-                    watermark,
-                    canvas_w as f32 - font_size * watermark.chars().count() as f32 - 24.0,
-                    canvas_h as f32 - font_size - 22.0,
-                    font_size,
-                    (255, 255, 255, 185),
-                );
-            });
-        }
+/// 在画布右下角绘制可选水印。
+fn draw_watermark(output: &mut Pixmap, options: &BeautifyOptions, layout: &BeautifyLayout) {
+    let Some(watermark) = options.watermark.as_deref() else {
+        return;
+    };
+    if watermark.trim().is_empty() {
+        return;
     }
-
-    Ok(output)
+    with_thread_local_text_renderer(|renderer| {
+        let font_size = (layout.canvas_width as f32 * 0.018).clamp(12.0, 28.0);
+        renderer.draw_text_rgba(
+            &mut output.as_mut(),
+            watermark,
+            layout.canvas_width as f32 - font_size * watermark.chars().count() as f32 - 24.0,
+            layout.canvas_height as f32 - font_size - 22.0,
+            font_size,
+            (255, 255, 255, 185),
+        );
+    });
 }
 
 /// 绘制纯色或渐变背景。
@@ -221,7 +271,7 @@ fn draw_background(output: &mut Pixmap, background: BeautifyBackground) -> Resul
 }
 
 /// 使用多层半透明圆角矩形近似柔和阴影。
-fn draw_shadow(output: &mut Pixmap, x: f32, y: f32, width: f32, height: f32, radius: f32) {
+fn draw_shadow(output: &mut Pixmap, content: ContentRect, radius: f32) {
     for step in (1..=6).rev() {
         let spread = step as f32 * 4.0;
         let alpha = (4 + (7 - step) * 4) as u8;
@@ -230,11 +280,13 @@ fn draw_shadow(output: &mut Pixmap, x: f32, y: f32, width: f32, height: f32, rad
         let mut path = PathBuilder::new();
         add_round_rect(
             &mut path,
-            x - spread,
-            y - spread + 8.0,
-            width + spread * 2.0,
-            height + spread * 2.0,
-            radius + spread,
+            RoundRect {
+                x: content.x - spread,
+                y: content.y - spread + 8.0,
+                width: content.width + spread * 2.0,
+                height: content.height + spread * 2.0,
+                radius: radius + spread,
+            },
         );
         if let Some(path) = path.finish() {
             output.fill_path(
@@ -248,18 +300,38 @@ fn draw_shadow(output: &mut Pixmap, x: f32, y: f32, width: f32, height: f32, rad
     }
 }
 
+/// 圆角矩形几何参数。
+#[derive(Debug, Clone, Copy)]
+struct RoundRect {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    radius: f32,
+}
+
 /// 向路径追加圆角矩形。
-fn add_round_rect(path: &mut PathBuilder, x: f32, y: f32, width: f32, height: f32, radius: f32) {
-    let r = radius.max(0.0).min(width.min(height) / 2.0);
-    path.move_to(x + r, y);
-    path.line_to(x + width - r, y);
-    path.quad_to(x + width, y, x + width, y + r);
-    path.line_to(x + width, y + height - r);
-    path.quad_to(x + width, y + height, x + width - r, y + height);
-    path.line_to(x + r, y + height);
-    path.quad_to(x, y + height, x, y + height - r);
-    path.line_to(x, y + r);
-    path.quad_to(x, y, x + r, y);
+fn add_round_rect(path: &mut PathBuilder, rect: RoundRect) {
+    let r = rect.radius.max(0.0).min(rect.width.min(rect.height) / 2.0);
+    path.move_to(rect.x + r, rect.y);
+    path.line_to(rect.x + rect.width - r, rect.y);
+    path.quad_to(rect.x + rect.width, rect.y, rect.x + rect.width, rect.y + r);
+    path.line_to(rect.x + rect.width, rect.y + rect.height - r);
+    path.quad_to(
+        rect.x + rect.width,
+        rect.y + rect.height,
+        rect.x + rect.width - r,
+        rect.y + rect.height,
+    );
+    path.line_to(rect.x + r, rect.y + rect.height);
+    path.quad_to(
+        rect.x,
+        rect.y + rect.height,
+        rect.x,
+        rect.y + rect.height - r,
+    );
+    path.line_to(rect.x, rect.y + r);
+    path.quad_to(rect.x, rect.y, rect.x + r, rect.y);
     path.close();
 }
 
