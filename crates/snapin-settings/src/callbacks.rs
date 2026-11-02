@@ -7,7 +7,7 @@ use super::*;
 use snapin_runtime::TaskPool;
 
 /// 导入配置文件允许的最大字节数。
-const CONFIG_IMPORT_LIMIT: u64 = 1024 * 1024;
+const CONFIG_IMPORT_LIMIT: usize = 1024 * 1024;
 
 /// 保存、导入和导出回调共享的配置与运行时上下文。
 #[derive(Clone)]
@@ -201,13 +201,8 @@ fn spawn_import_task(weak: slint::Weak<SettingsWindow>, context: CallbackContext
 
 /// 读取、限长解析并保存导入配置。
 fn import_config_file(path: &std::path::Path) -> Result<(Config, Vec<String>), String> {
-    let metadata =
-        std::fs::metadata(path).map_err(|error| format!("读取配置文件信息失败: {error}"))?;
-    if metadata.len() > CONFIG_IMPORT_LIMIT {
-        return Err("配置文件超过 1 MiB 上限，已拒绝导入".to_string());
-    }
-    let content =
-        std::fs::read_to_string(path).map_err(|error| format!("读取配置文件失败: {error}"))?;
+    let content = snapin_foundation::read_utf8_file_limited(path, CONFIG_IMPORT_LIMIT)
+        .map_err(|error| format!("读取配置文件失败: {error}"))?;
     let imported = config::parse_imported_config(&content, path)
         .map_err(|error| format!("配置文件校验失败: {error}"))?;
     let target = config::get_default_config_path()
@@ -338,4 +333,20 @@ fn sync_system_settings(config: &Config) -> Vec<String> {
         warnings.push(format!("开机自启动同步失败 ({error})"));
     }
     warnings
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_import_rejects_oversized_config_file() {
+        let dir = tempfile::tempdir().expect("应可创建临时目录");
+        let path = dir.path().join("oversized.toml");
+        std::fs::write(&path, vec![b' '; CONFIG_IMPORT_LIMIT.saturating_add(1)])
+            .expect("应可写入超限配置");
+
+        let error = import_config_file(&path).expect_err("超限配置必须被拒绝");
+        assert!(error.contains("读取上限"));
+    }
 }
