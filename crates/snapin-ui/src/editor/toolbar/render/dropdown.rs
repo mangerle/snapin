@@ -1,6 +1,6 @@
 //! 二级属性栏下拉菜单绘制。
 
-use super::super::icons::{add_round_rect, make_paint};
+use super::super::icons::{add_round_rect, make_paint, RoundRect};
 use super::super::items::{MosaicMode, FONT_FAMILY_PRESETS, FONT_SIZE_PRESETS};
 use super::super::layout::{DropdownLayout, SubDropdown};
 use super::super::Toolbar;
@@ -56,11 +56,13 @@ fn render_panel(pixmap: &mut PixmapMut, rect: Rect, s: f32) {
     let mut shadow_pb = PathBuilder::new();
     add_round_rect(
         &mut shadow_pb,
-        rect.x + 1.0 * s,
-        rect.y + 2.0 * s,
-        rect.width,
-        rect.height,
-        8.0 * s,
+        RoundRect {
+            x: rect.x + 1.0 * s,
+            y: rect.y + 2.0 * s,
+            width: rect.width,
+            height: rect.height,
+            radius: 8.0 * s,
+        },
     );
     if let Some(path) = shadow_pb.finish() {
         pixmap.fill_path(
@@ -73,7 +75,16 @@ fn render_panel(pixmap: &mut PixmapMut, rect: Rect, s: f32) {
     }
 
     let mut pb = PathBuilder::new();
-    add_round_rect(&mut pb, rect.x, rect.y, rect.width, rect.height, 8.0 * s);
+    add_round_rect(
+        &mut pb,
+        RoundRect {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            radius: 8.0 * s,
+        },
+    );
     if let Some(path) = pb.finish() {
         pixmap.fill_path(
             &path,
@@ -218,7 +229,16 @@ fn render_row_background(pixmap: &mut PixmapMut, row: Rect, s: f32, current: boo
         return;
     };
     let mut builder = PathBuilder::new();
-    add_round_rect(&mut builder, row.x, row.y, row.width, row.height, 5.0 * s);
+    add_round_rect(
+        &mut builder,
+        RoundRect {
+            x: row.x,
+            y: row.y,
+            width: row.width,
+            height: row.height,
+            radius: 5.0 * s,
+        },
+    );
     if let Some(path) = builder.finish() {
         pixmap.fill_path(
             &path,

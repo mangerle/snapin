@@ -4,7 +4,7 @@ pub mod actions;
 pub mod primitives;
 pub mod tools;
 
-pub(crate) use primitives::{add_round_rect, make_paint};
+pub(crate) use primitives::{add_round_rect, make_paint, RoundRect};
 
 use super::items::{Tool, ToolbarAction, ToolbarItem};
 use crate::geometry::Rect;

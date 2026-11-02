@@ -3,7 +3,7 @@
 //! 两个窗口的可用宽度、内边距与配色略有差异，但布局、圆角、描边与文本绘制
 //! 必须保持同一套几何规则，否则同一句提示在截图与贴图中会出现视觉漂移。
 
-use crate::drawing::add_round_rect;
+use crate::drawing::{add_round_rect, RoundRect};
 use snapin_render::with_thread_local_text_renderer;
 use tiny_skia::{FillRule, PathBuilder, PixmapMut, Stroke, Transform};
 
@@ -148,11 +148,13 @@ pub(crate) fn render(
     let mut path = PathBuilder::new();
     add_round_rect(
         &mut path,
-        layout.box_x,
-        layout.box_y,
-        layout.box_w,
-        layout.box_h,
-        radius,
+        RoundRect {
+            x: layout.box_x,
+            y: layout.box_y,
+            width: layout.box_w,
+            height: layout.box_h,
+            radius,
+        },
     );
     if let Some(path) = path.finish() {
         let mut paint = tiny_skia::Paint::default();

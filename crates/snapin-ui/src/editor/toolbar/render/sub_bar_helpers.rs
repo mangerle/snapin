@@ -1,6 +1,6 @@
 //! 二级属性栏通用控件绘制辅助函数。
 
-use super::super::icons::{add_round_rect, make_paint};
+use super::super::icons::{add_round_rect, make_paint, RoundRect};
 use super::super::layout::{SubControl, SubDropdown};
 use super::super::Toolbar;
 use super::widgets::{
@@ -266,11 +266,13 @@ pub(super) fn render_fill_toggle(
     let mut pb = PathBuilder::new();
     add_round_rect(
         &mut pb,
-        cx - half,
-        cy - half,
-        half * 2.0,
-        half * 2.0,
-        2.0 * s,
+        RoundRect {
+            x: cx - half,
+            y: cy - half,
+            width: half * 2.0,
+            height: half * 2.0,
+            radius: 2.0 * s,
+        },
     );
     if let Some(path) = pb.finish() {
         if filled {
@@ -308,11 +310,13 @@ pub(super) fn render_sub_shape_rect(
     let mut pb = PathBuilder::new();
     add_round_rect(
         &mut pb,
-        cx - 6.5 * s,
-        cy - 5.5 * s,
-        13.0 * s,
-        11.0 * s,
-        1.5 * s,
+        RoundRect {
+            x: cx - 6.5 * s,
+            y: cy - 5.5 * s,
+            width: 13.0 * s,
+            height: 11.0 * s,
+            radius: 1.5 * s,
+        },
     );
     if let Some(path) = pb.finish() {
         let color = if is_active {

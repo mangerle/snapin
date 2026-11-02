@@ -1,7 +1,7 @@
 //! 贴图右键上下文菜单的现代化毛玻璃视觉光栅化渲染。
 
 use super::{ContextMenuState, MenuItem};
-use crate::drawing::{add_round_rect, make_paint};
+use crate::drawing::{add_round_rect, make_paint, RoundRect};
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
 pub use snapin_render::TextRenderer;
@@ -110,7 +110,16 @@ fn render_menu_panel(
 fn render_panel_surface(pixmap: &mut PixmapMut, layout: MenuLayout, total_h: f32) {
     let (x, y, width, s) = (layout.x, layout.y, layout.width, layout.scale);
     let mut pb_shadow = PathBuilder::new();
-    add_round_rect(&mut pb_shadow, x, y + 2.0 * s, width, total_h, 8.0 * s);
+    add_round_rect(
+        &mut pb_shadow,
+        RoundRect {
+            x,
+            y: y + 2.0 * s,
+            width,
+            height: total_h,
+            radius: 8.0 * s,
+        },
+    );
     if let Some(path) = pb_shadow.finish() {
         let shadow_paint = make_paint(Color::from_rgba8(0, 0, 0, 36));
         pixmap.fill_path(
@@ -123,7 +132,16 @@ fn render_panel_surface(pixmap: &mut PixmapMut, layout: MenuLayout, total_h: f32
     }
 
     let mut pb_bg = PathBuilder::new();
-    add_round_rect(&mut pb_bg, x, y, width, total_h, 8.0 * s);
+    add_round_rect(
+        &mut pb_bg,
+        RoundRect {
+            x,
+            y,
+            width,
+            height: total_h,
+            radius: 8.0 * s,
+        },
+    );
     if let Some(path) = pb_bg.finish() {
         let bg_paint = make_paint(Color::from_rgba8(255, 255, 255, 252));
         pixmap.fill_path(
@@ -197,11 +215,13 @@ fn render_row_hover(pixmap: &mut PixmapMut, layout: MenuLayout, top: f32) {
     let mut builder = PathBuilder::new();
     add_round_rect(
         &mut builder,
-        layout.x + 5.0 * scale,
-        top + 2.0 * scale,
-        layout.width - 10.0 * scale,
-        layout.item_height - 4.0 * scale,
-        5.0 * scale,
+        RoundRect {
+            x: layout.x + 5.0 * scale,
+            y: top + 2.0 * scale,
+            width: layout.width - 10.0 * scale,
+            height: layout.item_height - 4.0 * scale,
+            radius: 5.0 * scale,
+        },
     );
     if let Some(path) = builder.finish() {
         let paint = make_paint(Color::from_rgba8(59, 130, 246, 240));
@@ -268,7 +288,16 @@ struct CheckboxMarkSpec {
 fn render_checkbox_mark(pixmap: &mut PixmapMut, spec: CheckboxMarkSpec) {
     let size = 14.0 * spec.scale;
     let mut builder = PathBuilder::new();
-    add_round_rect(&mut builder, spec.x, spec.y, size, size, 3.0 * spec.scale);
+    add_round_rect(
+        &mut builder,
+        RoundRect {
+            x: spec.x,
+            y: spec.y,
+            width: size,
+            height: size,
+            radius: 3.0 * spec.scale,
+        },
+    );
     let Some(path) = builder.finish() else {
         return;
     };

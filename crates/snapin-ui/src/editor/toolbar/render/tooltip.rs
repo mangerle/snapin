@@ -6,7 +6,7 @@
 use super::super::items::ToolbarItem;
 use super::super::layout::SubControl;
 use super::super::Toolbar;
-use crate::drawing::add_round_rect;
+use crate::drawing::{add_round_rect, RoundRect};
 use crate::geometry::Rect;
 use snapin_render::with_thread_local_text_renderer;
 use tiny_skia::{FillRule, Paint, PathBuilder, PixmapMut, Stroke, Transform};
@@ -241,11 +241,13 @@ fn draw(pixmap: &mut PixmapMut, message: &str, layout: &TooltipLayout) {
     let mut path = PathBuilder::new();
     add_round_rect(
         &mut path,
-        layout.x,
-        layout.y,
-        layout.width,
-        layout.height,
-        radius,
+        RoundRect {
+            x: layout.x,
+            y: layout.y,
+            width: layout.width,
+            height: layout.height,
+            radius,
+        },
     );
     if let Some(path) = path.finish() {
         let mut paint = Paint::default();

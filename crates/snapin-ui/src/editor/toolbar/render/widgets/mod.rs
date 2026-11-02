@@ -4,7 +4,7 @@ mod arrow;
 
 pub(super) use arrow::{render_arrow_head_preview, render_arrow_preview, ArrowHeadPreviewSpec};
 
-use super::super::icons::{add_round_rect, make_paint};
+use super::super::icons::{add_round_rect, make_paint, RoundRect};
 use crate::geometry::Rect;
 use snapin_annotation::{BadgeStyle, LineStyle, MagnifierConnector};
 use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Stroke, Transform};
@@ -15,11 +15,13 @@ pub(super) fn render_panel_background(pixmap: &mut PixmapMut, rect: &Rect, s: f3
     let mut pb_shadow = PathBuilder::new();
     add_round_rect(
         &mut pb_shadow,
-        rect.x,
-        rect.y + 1.5 * s,
-        rect.width,
-        rect.height,
-        6.0 * s,
+        RoundRect {
+            x: rect.x,
+            y: rect.y + 1.5 * s,
+            width: rect.width,
+            height: rect.height,
+            radius: 6.0 * s,
+        },
     );
     if let Some(path) = pb_shadow.finish() {
         let shadow_paint = make_paint(Color::from_rgba8(0, 0, 0, 16));
@@ -34,7 +36,16 @@ pub(super) fn render_panel_background(pixmap: &mut PixmapMut, rect: &Rect, s: f3
 
     // 2. 浅灰米白底色卡片主体
     let mut pb = PathBuilder::new();
-    add_round_rect(&mut pb, rect.x, rect.y, rect.width, rect.height, 6.0 * s);
+    add_round_rect(
+        &mut pb,
+        RoundRect {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            radius: 6.0 * s,
+        },
+    );
     if let Some(path) = pb.finish() {
         let paint = make_paint(Color::from_rgba8(243, 244, 246, 252));
         pixmap.fill_path(
@@ -59,11 +70,13 @@ pub(super) fn fill_button_highlight(pixmap: &mut PixmapMut, rect: &Rect, color: 
     let mut pb = PathBuilder::new();
     add_round_rect(
         &mut pb,
-        rect.x + 2.0 * s,
-        rect.y + 2.0 * s,
-        rect.width - 4.0 * s,
-        rect.height - 4.0 * s,
-        5.0 * s,
+        RoundRect {
+            x: rect.x + 2.0 * s,
+            y: rect.y + 2.0 * s,
+            width: rect.width - 4.0 * s,
+            height: rect.height - 4.0 * s,
+            radius: 5.0 * s,
+        },
     );
     if let Some(path) = pb.finish() {
         let paint = make_paint(color);
@@ -183,11 +196,13 @@ pub(super) fn render_corner_radius_icon(
     let mut pb = PathBuilder::new();
     add_round_rect(
         &mut pb,
-        cx - half,
-        cy - half,
-        half * 2.0,
-        half * 2.0,
-        visual_radius,
+        RoundRect {
+            x: cx - half,
+            y: cy - half,
+            width: half * 2.0,
+            height: half * 2.0,
+            radius: visual_radius,
+        },
     );
     if let Some(path) = pb.finish() {
         let stroke = Stroke {

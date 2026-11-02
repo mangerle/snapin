@@ -1,6 +1,6 @@
 //! 标注工具类别图标绘制实现。
 
-use super::primitives::{add_ellipse, add_round_rect, make_paint};
+use super::primitives::{add_ellipse, add_round_rect, make_paint, Ellipse, RoundRect};
 use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 图标: 纯椭圆几何造型
@@ -13,7 +13,15 @@ pub fn render_icon_ellipse(
     stroke: &Stroke,
 ) {
     let mut epb = PathBuilder::new();
-    add_ellipse(&mut epb, cx, cy, 8.5 * s, 6.0 * s);
+    add_ellipse(
+        &mut epb,
+        Ellipse {
+            center_x: cx,
+            center_y: cy,
+            radius_x: 8.5 * s,
+            radius_y: 6.0 * s,
+        },
+    );
     if let Some(path) = epb.finish() {
         pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
     }
@@ -31,11 +39,13 @@ pub fn render_icon_rect(
     let mut pb = PathBuilder::new();
     add_round_rect(
         &mut pb,
-        cx - 8.0 * s,
-        cy - 7.5 * s,
-        10.0 * s,
-        8.5 * s,
-        1.5 * s,
+        RoundRect {
+            x: cx - 8.0 * s,
+            y: cy - 7.5 * s,
+            width: 10.0 * s,
+            height: 8.5 * s,
+            radius: 1.5 * s,
+        },
     );
     if let Some(path) = pb.finish() {
         pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
@@ -43,7 +53,15 @@ pub fn render_icon_rect(
     let ecx = cx + 2.5 * s;
     let ecy = cy + 2.5 * s;
     let mut epb = PathBuilder::new();
-    add_ellipse(&mut epb, ecx, ecy, 5.5 * s, 4.0 * s);
+    add_ellipse(
+        &mut epb,
+        Ellipse {
+            center_x: ecx,
+            center_y: ecy,
+            radius_x: 5.5 * s,
+            radius_y: 4.0 * s,
+        },
+    );
     if let Some(path) = epb.finish() {
         pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
     }
@@ -99,11 +117,13 @@ pub fn render_icon_pen(
     let mut pb = PathBuilder::new();
     add_round_rect(
         &mut pb,
-        cx - length / 2.0,
-        cy - width / 2.0,
-        length,
-        width,
-        width / 2.0,
+        RoundRect {
+            x: cx - length / 2.0,
+            y: cy - width / 2.0,
+            width: length,
+            height: width,
+            radius: width / 2.0,
+        },
     );
     // 尾端束线：分隔笔尾与笔身，两端圆头恰好收在笔身轮廓内
     let band_x = cx + length / 2.0 - 2.5 * s;
@@ -152,11 +172,13 @@ pub fn render_icon_eraser(
     let mut pb = PathBuilder::new();
     add_round_rect(
         &mut pb,
-        cx - 7.0 * s,
-        cy - 3.0 * s,
-        14.0 * s,
-        8.0 * s,
-        1.5 * s,
+        RoundRect {
+            x: cx - 7.0 * s,
+            y: cy - 3.0 * s,
+            width: 14.0 * s,
+            height: 8.0 * s,
+            radius: 1.5 * s,
+        },
     );
     pb.move_to(cx - 7.0 * s, cy + 5.0 * s);
     pb.line_to(cx + 7.0 * s, cy + 5.0 * s);
@@ -222,7 +244,16 @@ pub fn render_icon_mosaic(
     let x0 = cx - hsz;
     let y0 = cy - hsz;
     let mut pb = PathBuilder::new();
-    add_round_rect(&mut pb, x0, y0, sz, sz, 1.5 * s);
+    add_round_rect(
+        &mut pb,
+        RoundRect {
+            x: x0,
+            y: y0,
+            width: sz,
+            height: sz,
+            radius: 1.5 * s,
+        },
+    );
     if let Some(path) = pb.finish() {
         pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
     }
@@ -269,11 +300,13 @@ pub fn render_icon_text(
     let mut pb = PathBuilder::new();
     add_round_rect(
         &mut pb,
-        cx - half,
-        cy - half,
-        half * 2.0,
-        half * 2.0,
-        1.4 * s,
+        RoundRect {
+            x: cx - half,
+            y: cy - half,
+            width: half * 2.0,
+            height: half * 2.0,
+            radius: 1.4 * s,
+        },
     );
     // 字符 T 略偏框体上部，与参考图一致
     pb.move_to(cx - 3.0 * s, bar_y);

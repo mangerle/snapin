@@ -1,6 +1,6 @@
 //! 工具栏动作类别图标绘制实现。
 
-use super::primitives::{add_round_rect, make_paint};
+use super::primitives::{add_round_rect, make_paint, RoundRect};
 use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 图标 8: 向左回转撤销
@@ -172,11 +172,13 @@ pub fn render_icon_copy(
     let mut pb_back = PathBuilder::new();
     add_round_rect(
         &mut pb_back,
-        cx - 3.0 * s,
-        cy - 6.5 * s,
-        9.5 * s,
-        9.5 * s,
-        1.5 * s,
+        RoundRect {
+            x: cx - 3.0 * s,
+            y: cy - 6.5 * s,
+            width: 9.5 * s,
+            height: 9.5 * s,
+            radius: 1.5 * s,
+        },
     );
     if let Some(path) = pb_back.finish() {
         pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
@@ -184,11 +186,13 @@ pub fn render_icon_copy(
     let mut pb_front = PathBuilder::new();
     add_round_rect(
         &mut pb_front,
-        cx - 6.5 * s,
-        cy - 3.0 * s,
-        9.5 * s,
-        9.5 * s,
-        1.5 * s,
+        RoundRect {
+            x: cx - 6.5 * s,
+            y: cy - 3.0 * s,
+            width: 9.5 * s,
+            height: 9.5 * s,
+            radius: 1.5 * s,
+        },
     );
     if let Some(path) = pb_front.finish() {
         pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
@@ -244,7 +248,16 @@ pub fn render_icon_qr(
         (cx + 1.0 * s, cy - 6.0 * s),
         (cx - 6.0 * s, cy + 1.0 * s),
     ] {
-        add_round_rect(&mut pb, x, y, 5.0 * s, 5.0 * s, 0.6 * s);
+        add_round_rect(
+            &mut pb,
+            RoundRect {
+                x,
+                y,
+                width: 5.0 * s,
+                height: 5.0 * s,
+                radius: 0.6 * s,
+            },
+        );
     }
     for (x, y) in [
         (cx + 1.5 * s, cy + 1.5 * s),
@@ -284,7 +297,16 @@ pub fn render_icon_translate(
 
     // 1. 后框轮廓
     let mut pb_back = PathBuilder::new();
-    add_round_rect(&mut pb_back, back.0, back.1, side, side, radius);
+    add_round_rect(
+        &mut pb_back,
+        RoundRect {
+            x: back.0,
+            y: back.1,
+            width: side,
+            height: side,
+            radius,
+        },
+    );
     if let Some(path) = pb_back.finish() {
         pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
     }
@@ -304,7 +326,16 @@ pub fn render_icon_translate(
 
     // 3. 前框底色填充遮蔽后框左下角，随后描边
     let mut pb_front = PathBuilder::new();
-    add_round_rect(&mut pb_front, front.0, front.1, side, side, radius);
+    add_round_rect(
+        &mut pb_front,
+        RoundRect {
+            x: front.0,
+            y: front.1,
+            width: side,
+            height: side,
+            radius,
+        },
+    );
     if let Some(path) = pb_front.finish() {
         pixmap.fill_path(
             &path,
