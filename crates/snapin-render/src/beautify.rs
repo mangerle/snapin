@@ -157,7 +157,21 @@ fn draw_beautified_content(
     if options.shadow {
         draw_shadow(output, layout.content, layout.corner_radius);
     }
+    let scaled = scale_content(input, layout)?;
+    let mask = build_content_mask(layout)?;
+    output.draw_pixmap(
+        layout.content.x as i32,
+        layout.content.y as i32,
+        scaled.as_ref(),
+        &PixmapPaint::default(),
+        Transform::identity(),
+        Some(&mask),
+    );
+    Ok(())
+}
 
+/// 将原始图像缩放到美化内容区域。
+fn scale_content(input: PixmapRef<'_>, layout: &BeautifyLayout) -> Result<Pixmap, String> {
     let mut scaled = Pixmap::new(layout.content.width as u32, layout.content.height as u32)
         .ok_or_else(|| "分配美化缩放缓冲区失败".to_string())?;
     scaled.draw_pixmap(
@@ -168,12 +182,16 @@ fn draw_beautified_content(
         Transform::from_scale(layout.scale, layout.scale),
         None,
     );
+    Ok(scaled)
+}
 
+/// 构造内容区域圆角遮罩。
+fn build_content_mask(layout: &BeautifyLayout) -> Result<Mask, String> {
     let mut mask_pixmap = Pixmap::new(layout.content.width as u32, layout.content.height as u32)
         .ok_or_else(|| "分配美化圆角遮罩失败".to_string())?;
-    let mut mask_path = PathBuilder::new();
+    let mut builder = PathBuilder::new();
     add_round_rect(
-        &mut mask_path,
+        &mut builder,
         RoundRect {
             x: layout.content.x,
             y: layout.content.y,
@@ -182,28 +200,19 @@ fn draw_beautified_content(
             radius: layout.corner_radius,
         },
     );
-    let Some(mask_path) = mask_path.finish() else {
+    let Some(path) = builder.finish() else {
         return Err("构造美化圆角遮罩失败".to_string());
     };
-    let mut mask_paint = Paint::default();
-    mask_paint.set_color(Color::WHITE);
+    let mut paint = Paint::default();
+    paint.set_color(Color::WHITE);
     mask_pixmap.fill_path(
-        &mask_path,
-        &mask_paint,
+        &path,
+        &paint,
         FillRule::Winding,
         Transform::from_translate(-layout.content.x, -layout.content.y),
         None,
     );
-    let mask = Mask::from_pixmap(mask_pixmap.as_ref(), MaskType::Alpha);
-    output.draw_pixmap(
-        layout.content.x as i32,
-        layout.content.y as i32,
-        scaled.as_ref(),
-        &PixmapPaint::default(),
-        Transform::identity(),
-        Some(&mask),
-    );
-    Ok(())
+    Ok(Mask::from_pixmap(mask_pixmap.as_ref(), MaskType::Alpha))
 }
 
 /// 在画布右下角绘制可选水印。
