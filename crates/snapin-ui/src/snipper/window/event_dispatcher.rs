@@ -19,7 +19,7 @@ pub(crate) struct SnipperDispatchContext<'a> {
     pub window: &'a Window,
     pub presenter: &'a mut SnipperPresenter,
     pub state: &'a mut SnipperState,
-    pub bg_image: &'a RgbaImage,
+    pub bg_image: &'a mut RgbaImage,
 }
 
 impl SnipperEventDispatcher {
@@ -27,6 +27,7 @@ impl SnipperEventDispatcher {
     pub(crate) fn dispatch(event: WindowEvent, mut context: SnipperDispatchContext<'_>) {
         match event {
             WindowEvent::RedrawRequested => render_frame(&mut context),
+            WindowEvent::Resized(size) => handle_resize(&mut context, size),
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 apply_scale_factor(&mut context, scale_factor as f32);
             }
@@ -59,6 +60,25 @@ impl SnipperEventDispatcher {
 }
 
 /// 执行一帧渲染并记录呈现失败。
+/// 处理窗口尺寸变化，重建呈现器缓冲并安排下一次重绘。
+fn handle_resize(context: &mut SnipperDispatchContext<'_>, size: PhysicalSize<u32>) {
+    if size.width == 0 || size.height == 0 {
+        return;
+    }
+    if let Err(error) = context
+        .presenter
+        .resize(size.width, size.height, context.bg_image)
+    {
+        tracing::warn!(
+            "重建截图窗口帧缓冲失败，尺寸: {}x{}，原因: {error}",
+            size.width,
+            size.height
+        );
+        return;
+    }
+    context.window.request_redraw();
+}
+
 fn render_frame(context: &mut SnipperDispatchContext<'_>) {
     if let Err(error) = context
         .presenter

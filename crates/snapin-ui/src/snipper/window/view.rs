@@ -184,7 +184,7 @@ impl SnipperView {
                 window: self.window.as_ref(),
                 presenter: &mut self.presenter,
                 state: &mut self.state,
-                bg_image: &self.bg_image,
+                bg_image: &mut self.bg_image,
             },
         );
     }
