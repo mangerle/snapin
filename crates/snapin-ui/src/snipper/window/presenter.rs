@@ -30,6 +30,15 @@ struct OverlaySnapshot {
     magnifier_signature: MagnifierSignature,
 }
 
+/// 覆盖层脏区同步所需的新旧快照与画布尺寸。
+#[derive(Clone, Copy)]
+struct OverlayRegionSync<'a> {
+    previous: &'a OverlaySnapshot,
+    next: &'a OverlaySnapshot,
+    width: u32,
+    height: u32,
+}
+
 /// 高速生成定点整数暗化蒙层底图 ((val * 107) >> 8)
 ///
 /// # Errors
@@ -256,7 +265,12 @@ impl SnipperPresenter {
         self.restore_previous_overlay(&prev, bg_image);
         self.redraw_incremental_overlay(state, bg_image);
         let next = self.next_overlay_snapshot(state, width, height);
-        self.sync_overlay_regions(&prev, &next, width, height);
+        self.sync_overlay_regions(OverlayRegionSync {
+            previous: &prev,
+            next: &next,
+            width,
+            height,
+        });
         self.overlay = Some(next);
     }
 
@@ -313,21 +327,15 @@ impl SnipperPresenter {
     }
 
     /// 将新旧覆盖区域同步到提交缓冲，避免局部像素停留在旧帧。
-    fn sync_overlay_regions(
-        &mut self,
-        previous: &OverlaySnapshot,
-        next: &OverlaySnapshot,
-        width: u32,
-        height: u32,
-    ) {
+    fn sync_overlay_regions(&mut self, sync: OverlayRegionSync<'_>) {
         let dirty = [
-            previous.magnifier_rect,
-            previous.status_rect,
-            next.magnifier_rect,
-            next.status_rect,
+            sync.previous.magnifier_rect,
+            sync.previous.status_rect,
+            sync.next.magnifier_rect,
+            sync.next.status_rect,
         ];
         for region in dirty.into_iter().flatten() {
-            if let Some(bounds) = covering_pixel_bounds(&region, width, height) {
+            if let Some(bounds) = covering_pixel_bounds(&region, sync.width, sync.height) {
                 swizzle_pixmap_region(&self.render_pixmap, &mut self.frame_words, bounds);
             }
         }
