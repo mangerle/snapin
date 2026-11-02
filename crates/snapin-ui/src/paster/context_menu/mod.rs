@@ -7,6 +7,14 @@ pub use items::*;
 
 use crate::geometry::Point;
 
+/// 菜单行命中的列表、纵坐标与首行起点。
+#[derive(Clone, Copy)]
+struct MenuRowQuery<'a> {
+    items: &'a [MenuItem],
+    y: f32,
+    start_y: f32,
+}
+
 /// 右键上下文菜单运行时状态
 pub struct ContextMenuState {
     pub is_open: bool,
@@ -352,33 +360,36 @@ impl ContextMenuState {
         {
             return None;
         }
-        self.row_id_filtered(main_items, pointer.y, self.y + 5.0 * scale, |item| {
-            item.submenu.is_none()
-        })
+        self.row_id_filtered(
+            MenuRowQuery {
+                items: main_items,
+                y: pointer.y,
+                start_y: self.y + 5.0 * scale,
+            },
+            |item| item.submenu.is_none(),
+        )
     }
 
     /// 返回指定纵坐标命中的菜单项 ID。
     fn row_id(&self, items: &[MenuItem], y: f32, start_y: f32) -> Option<MenuItemId> {
-        self.row_id_filtered(items, y, start_y, |_| true)
+        self.row_id_filtered(MenuRowQuery { items, y, start_y }, |_| true)
     }
 
     /// 返回指定纵坐标且满足过滤条件的菜单项 ID。
     fn row_id_filtered(
         &self,
-        items: &[MenuItem],
-        y: f32,
-        start_y: f32,
+        query: MenuRowQuery<'_>,
         predicate: impl Fn(&MenuItem) -> bool,
     ) -> Option<MenuItemId> {
         let separator_height = 8.0 * self.ui_scale;
-        let mut top = start_y;
-        for item in items {
+        let mut top = query.start_y;
+        for item in query.items {
             let height = if item.is_separator {
                 separator_height
             } else {
                 self.item_height
             };
-            if y >= top && y < top + height && !item.is_separator && predicate(item) {
+            if query.y >= top && query.y < top + height && !item.is_separator && predicate(item) {
                 return item.id;
             }
             top += height;
