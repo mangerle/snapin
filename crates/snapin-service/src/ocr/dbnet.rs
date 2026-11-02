@@ -93,7 +93,7 @@ pub fn extract_bounding_boxes(
     let Some(mut detection) = DetectionMap::new(prob_map, shape, params) else {
         return Vec::new();
     };
-    let mut boxes: Vec<DetectedBox> = Vec::new();
+    let mut boxes: Vec<DetectedBox> = Vec::with_capacity(params.max_candidates);
 
     for y in 0..shape.map_height {
         for x in 0..shape.map_width {
@@ -318,7 +318,7 @@ fn sort_by_reading_order(boxes: &mut [DetectedBox]) {
             .unwrap_or(Ordering::Equal)
     });
 
-    let mut rows: Vec<Vec<DetectedBox>> = Vec::new();
+    let mut rows: Vec<Vec<DetectedBox>> = Vec::with_capacity(boxes.len());
     for detected in ordered {
         let starts_new_row = match rows.last() {
             None => true,

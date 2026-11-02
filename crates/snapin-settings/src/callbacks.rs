@@ -325,7 +325,7 @@ fn register_misc(win: &SettingsWindow, _context: CallbackContext) {
 
 /// 同步系统快捷键与自启动，返回可展示的非致命警告。
 fn sync_system_settings(config: &Config) -> Vec<String> {
-    let mut warnings = Vec::new();
+    let mut warnings = Vec::with_capacity(2);
     if let Err(error) = sync_hotkeys_to_gnome(&config.hotkeys) {
         warnings.push(format!("系统快捷键同步失败 ({error})"));
     }

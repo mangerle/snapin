@@ -192,7 +192,7 @@ fn get_snapin_executable_path() -> String {
 /// gsettings 单次调用本身仅毫秒级，改为直接传参既消除注入面又保持行为一致。
 #[cfg(target_os = "linux")]
 fn execute_gsettings_batch(items: &[(&str, &str, &str)]) -> Result<(), PlatformError> {
-    let mut failures: Vec<String> = Vec::new();
+    let mut failures: Vec<String> = Vec::with_capacity(items.len());
     for (schema, key, value) in items {
         let mut command = Command::new("gsettings");
         command.args(["set", schema, key, value]);

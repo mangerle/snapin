@@ -56,7 +56,8 @@ where
 
 /// 按条数与字节预算把文本切成连续批次，保持原始顺序。
 pub(crate) fn plan_batches(texts: &[String], limits: BatchLimits) -> Vec<&[String]> {
-    let mut batches = Vec::new();
+    let estimated_batches = texts.len().div_ceil(limits.max_items.max(1));
+    let mut batches = Vec::with_capacity(estimated_batches);
     let mut start = 0usize;
 
     while start < texts.len() {

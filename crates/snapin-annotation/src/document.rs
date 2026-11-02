@@ -169,7 +169,7 @@ impl AnnotationDocument {
 
     /// 删除所有包围盒与给定矩形相交的图元。
     pub(crate) fn remove_intersecting(&mut self, rect: Rect) -> Vec<AnnotationShape> {
-        let mut removed = Vec::new();
+        let mut removed = Vec::with_capacity(self.shapes.len());
         let mut index = self.shapes.len();
         while index > 0 {
             index -= 1;

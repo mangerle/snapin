@@ -195,7 +195,7 @@ pub(crate) fn hotkey_to_accelerator(hotkey: &Hotkey) -> String {
     if hotkey.is_disabled() {
         return String::new();
     }
-    let mut parts = Vec::new();
+    let mut parts = Vec::with_capacity(5);
     if hotkey.ctrl() {
         parts.push("Ctrl");
     }
