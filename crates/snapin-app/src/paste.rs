@@ -109,46 +109,55 @@ pub async fn paste_clipboard_to_workspace(
 /// 因此严禁在异步运行时工作线程上直接调用。
 fn load_pixmap_from_file(path: &Path) -> Result<Pixmap> {
     if path.extension().and_then(|ext| ext.to_str()) == Some("raw") {
-        let metadata = std::fs::metadata(path).context("读取贴图原生像素文件元数据失败")?;
-        let max_bytes = snapin_storage::MAX_RAW_PIXELS
-            .saturating_mul(4)
-            .saturating_add(8);
-        if metadata.len() > max_bytes {
-            anyhow::bail!("贴图原生像素文件过大: {} 字节", metadata.len());
-        }
-        let mut file = std::fs::File::open(path).context("打开贴图原生像素文件失败")?;
-        let mut header = [0u8; 8];
-        file.read_exact(&mut header)
-            .context("读取贴图原生像素头部失败")?;
-        let width = u32::from_be_bytes(
-            header[0..4]
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("贴图原生像素宽度头部长度异常"))?,
-        );
-        let height = u32::from_be_bytes(
-            header[4..8]
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("贴图原生像素高度头部长度异常"))?,
-        );
-        let pixel_bytes = snapin_storage::checked_rgba_byte_len(width, height)
-            .ok_or_else(|| anyhow::anyhow!("贴图像素尺寸非法或超过上限"))?;
-        let expected_len = 8usize
-            .checked_add(pixel_bytes)
-            .ok_or_else(|| anyhow::anyhow!("贴图像素长度溢出"))?;
-        let actual_len = usize::try_from(metadata.len())
-            .map_err(|_| anyhow::anyhow!("贴图原生像素文件长度超出平台寻址范围"))?;
-        if actual_len != expected_len {
-            anyhow::bail!(
-                "贴图像素尺寸与数据长度不一致，宽度: {width}，高度: {height}，实际长度: {actual_len}"
-            );
-        }
-        let mut pixmap =
-            Pixmap::new(width, height).ok_or_else(|| anyhow::anyhow!("分配贴图 Pixmap 失败"))?;
-        file.read_exact(pixmap.data_mut())
-            .context("读取贴图像素数据失败")?;
-        return Ok(pixmap);
+        return load_raw_pixmap(path);
     }
+    load_encoded_pixmap(path)
+}
 
+/// 读取运行时原生像素容器 `[宽度][高度][RGBA]`。
+fn load_raw_pixmap(path: &Path) -> Result<Pixmap> {
+    let metadata = std::fs::metadata(path).context("读取贴图原生像素文件元数据失败")?;
+    let max_bytes = snapin_storage::MAX_RAW_PIXELS
+        .saturating_mul(4)
+        .saturating_add(8);
+    if metadata.len() > max_bytes {
+        anyhow::bail!("贴图原生像素文件过大: {} 字节", metadata.len());
+    }
+    let mut file = std::fs::File::open(path).context("打开贴图原生像素文件失败")?;
+    let mut header = [0u8; 8];
+    file.read_exact(&mut header)
+        .context("读取贴图原生像素头部失败")?;
+    let width = u32::from_be_bytes(
+        header[0..4]
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("贴图原生像素宽度头部长度异常"))?,
+    );
+    let height = u32::from_be_bytes(
+        header[4..8]
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("贴图原生像素高度头部长度异常"))?,
+    );
+    let pixel_bytes = snapin_storage::checked_rgba_byte_len(width, height)
+        .ok_or_else(|| anyhow::anyhow!("贴图像素尺寸非法或超过上限"))?;
+    let expected_len = 8usize
+        .checked_add(pixel_bytes)
+        .ok_or_else(|| anyhow::anyhow!("贴图像素长度溢出"))?;
+    let actual_len = usize::try_from(metadata.len())
+        .map_err(|_| anyhow::anyhow!("贴图原生像素文件长度超出平台寻址范围"))?;
+    if actual_len != expected_len {
+        anyhow::bail!(
+            "贴图像素尺寸与数据长度不一致，宽度: {width}，高度: {height}，实际长度: {actual_len}"
+        );
+    }
+    let mut pixmap =
+        Pixmap::new(width, height).ok_or_else(|| anyhow::anyhow!("分配贴图 Pixmap 失败"))?;
+    file.read_exact(pixmap.data_mut())
+        .context("读取贴图像素数据失败")?;
+    Ok(pixmap)
+}
+
+/// 读取并解码受大小限制的普通图像文件。
+fn load_encoded_pixmap(path: &Path) -> Result<Pixmap> {
     let bytes = snapin_foundation::read_file_limited(path, MAX_PASTER_IMAGE_FILE_BYTES)
         .context("读取外部贴图图像文件失败")?;
     let mut reader = image::ImageReader::new(Cursor::new(bytes))
@@ -159,11 +168,10 @@ fn load_pixmap_from_file(path: &Path) -> Result<Pixmap> {
     limits.max_image_height = Some(MAX_PASTER_IMAGE_SIDE);
     limits.max_alloc = Some(snapin_storage::MAX_RAW_PIXELS.saturating_mul(4));
     reader.limits(limits);
-    let img = reader.decode().context("无法解码外部贴图图像")?;
-    let rgba = img.to_rgba8();
-    let (width, height) = (rgba.width(), rgba.height());
-    let mut pixmap =
-        Pixmap::new(width, height).ok_or_else(|| anyhow::anyhow!("分配贴图 Pixmap 失败"))?;
+    let image = reader.decode().context("无法解码外部贴图图像")?;
+    let rgba = image.to_rgba8();
+    let mut pixmap = Pixmap::new(rgba.width(), rgba.height())
+        .ok_or_else(|| anyhow::anyhow!("分配贴图 Pixmap 失败"))?;
     write_rgba_into(&mut pixmap, rgba.as_raw())?;
     Ok(pixmap)
 }
