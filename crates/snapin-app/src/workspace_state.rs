@@ -33,7 +33,14 @@ pub(crate) struct AppWorkspaceStateStore {
 impl AppWorkspaceStateStore {
     /// 使用默认缓存目录和统一后台运行时构建非阻塞状态存储。
     pub(crate) fn new(runtime: TaskRuntime) -> Result<Self, PortError> {
-        Self::with_path(runtime, AppPaths::cache_dir().join("workspace-state.toml"))
+        let cache_dir = AppPaths::ensure_cache_dir().map_err(|error| {
+            PortError::with_kind(
+                PortErrorKind::Io,
+                "创建私有工作区状态目录",
+                error.to_string(),
+            )
+        })?;
+        Self::with_path(runtime, cache_dir.join("workspace-state.toml"))
     }
 
     fn with_path(runtime: TaskRuntime, path: PathBuf) -> Result<Self, PortError> {

@@ -41,13 +41,15 @@ impl SelectionRectRecord {
 }
 
 /// 获取 Snapin 缓存目录。
-fn get_cache_dir() -> PathBuf {
-    snapin_foundation::AppPaths::cache_dir()
+fn get_cache_dir() -> std::io::Result<PathBuf> {
+    snapin_foundation::AppPaths::ensure_cache_dir()
 }
 
 /// 保存上次选区坐标至运行时缓存文件
 pub fn save_last_selection(rect: (f32, f32, f32, f32)) {
-    save_last_selection_in(&get_cache_dir(), rect);
+    if let Ok(cache_dir) = get_cache_dir() {
+        save_last_selection_in(&cache_dir, rect);
+    }
 }
 
 /// 将历史选区写入指定缓存目录；目录由调用方负责存在。
@@ -80,7 +82,7 @@ fn save_last_selection_in(cache_dir: &std::path::Path, rect: (f32, f32, f32, f32
 
 /// 读取上次保存的历史选区
 pub fn load_last_selection() -> Option<(f32, f32, f32, f32)> {
-    load_last_selection_from(&get_cache_dir())
+    load_last_selection_from(&get_cache_dir().ok()?)
 }
 
 /// 从指定缓存目录读取历史选区。
@@ -121,7 +123,9 @@ fn load_last_selection_from(cache_dir: &std::path::Path) -> Option<(f32, f32, f3
 
 /// 清理历史选区记忆缓存文件（包括 TOML 与旧版 txt 缓存）
 pub fn clear_selection_cache() -> usize {
-    clear_selection_cache_in(&get_cache_dir())
+    get_cache_dir()
+        .map(|cache_dir| clear_selection_cache_in(&cache_dir))
+        .unwrap_or(0)
 }
 
 /// 清理指定缓存目录中的选区缓存文件。
