@@ -1,6 +1,7 @@
 //! 鼠标按键按下、释放与自动后处理触发。
 
 use super::*;
+use crate::geometry::Point;
 use crate::snipper::selection::ResizeHandle;
 
 /// 鼠标按键点击事件处理
@@ -80,7 +81,7 @@ pub(super) fn handle_left_press(
     }
 
     if let SelectionState::Locked { rect, .. } = state.viewport.selection {
-        return handle_locked_press(state, rect, cx, cy, original_rgba);
+        return handle_locked_press(state, rect, Point::new(cx, cy), original_rgba);
     }
 
     if matches!(state.viewport.selection, SelectionState::Idle) {
@@ -101,29 +102,33 @@ pub(super) fn handle_left_press(
 fn handle_locked_press(
     state: &mut SnipperState,
     rect: Rect,
-    cx: f32,
-    cy: f32,
+    pointer: Point,
     original_rgba: &RgbaImage,
 ) -> bool {
     // 优先检测是否点击在工具栏范围内，坚决拦截阻止事件穿透到画布
-    if state.editor.annotation.toolbar.contains_point(cx, cy) {
-        return handle_toolbar_press(state, cx, cy, original_rgba);
+    if state
+        .editor
+        .annotation
+        .toolbar
+        .contains_point(pointer.x, pointer.y)
+    {
+        return handle_toolbar_press(state, pointer.x, pointer.y, original_rgba);
     }
 
     // 点击画布表示离开二级栏数值控件；后续滚轮恢复默认粗细调节。
     state.editor.annotation.toolbar.clear_sub_focus();
     commit_active_text_input(state);
 
-    if let Some(handled) = handle_annotation_press(state, cx, cy) {
+    if let Some(handled) = handle_annotation_press(state, pointer.x, pointer.y) {
         return handled;
     }
-    if let Some(handle) = selection_handle_at(state, rect, cx, cy) {
+    if let Some(handle) = selection_handle_at(state, rect, pointer.x, pointer.y) {
         return begin_selection_resize(state, handle);
     }
-    if rect.contains(cx, cy) {
-        return handle_inside_selection_press(state, rect, cx, cy);
+    if rect.contains(pointer.x, pointer.y) {
+        return handle_inside_selection_press(state, rect, pointer.x, pointer.y);
     }
-    reset_selection_from_canvas(state, cx, cy);
+    reset_selection_from_canvas(state, pointer.x, pointer.y);
     true
 }
 
