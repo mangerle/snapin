@@ -20,6 +20,7 @@ const EXT_BUS_NAME: &str = "org.gnome.Shell";
 const EXT_OBJECT_PATH: &str = "/org/gnome/Shell/Extensions/Snapin";
 const EXT_INTERFACE: &str = "org.gnome.Shell.Extensions.Snapin";
 const EXT_DBUS_TIMEOUT: Duration = Duration::from_secs(3);
+const UNKNOWN_METHOD_ERROR: &str = "org.freedesktop.DBus.Error.UnknownMethod";
 
 pub use crate::window::WindowRect;
 
@@ -59,10 +60,7 @@ where
             service: EXT_BUS_NAME.to_string(),
             message: format!("GNOME 扩展方法 {method} 调用超时"),
         })?
-        .map_err(|error| PlatformError::DBus {
-            service: EXT_BUS_NAME.to_string(),
-            message: format!("GNOME 扩展方法 {method} 调用失败: {error}"),
-        })?;
+        .map_err(|error| map_extension_call_error(method, error))?;
 
     message
         .body()
@@ -71,6 +69,30 @@ where
             service: EXT_BUS_NAME.to_string(),
             message: format!("GNOME 扩展方法 {method} 返回值解析失败: {error}"),
         })
+}
+
+/// 将 zbus 调用错误转换为平台错误，并保留方法缺失这一可恢复语义。
+fn map_extension_call_error(method: &str, error: zbus::Error) -> PlatformError {
+    let message = format!("GNOME 扩展方法 {method} 调用失败: {error}");
+    if matches!(
+        &error,
+        zbus::Error::MethodError(name, _, _) if is_unknown_method_error_name(name.as_str())
+    ) {
+        PlatformError::DBusMethodUnavailable {
+            service: EXT_BUS_NAME.to_string(),
+            method: method.to_string(),
+            message,
+        }
+    } else {
+        PlatformError::DBus {
+            service: EXT_BUS_NAME.to_string(),
+            message,
+        }
+    }
+}
+
+fn is_unknown_method_error_name(name: &str) -> bool {
+    name == UNKNOWN_METHOD_ERROR
 }
 
 /// 请求配套 GNOME Shell 扩展将指定贴图窗口置顶并精确放置到给定物理像素坐标。
@@ -102,7 +124,8 @@ pub async fn capture_fullscreen_extension(target_path: &str) -> Result<bool, Pla
 ///
 /// # Errors
 ///
-/// 扩展不可用、D-Bus 调用超时或返回值解析失败时返回 [`PlatformError::DBus`]。
+/// 扩展不可用、D-Bus 调用超时或返回值解析失败时返回 [`PlatformError::DBus`]；
+/// 旧扩展缺少包含指针的方法时返回 [`PlatformError::DBusMethodUnavailable`]，由调用方安全回退。
 pub async fn capture_fullscreen_extension_with_cursor(
     target_path: &str,
     include_cursor: bool,
@@ -112,11 +135,25 @@ pub async fn capture_fullscreen_extension_with_cursor(
         include_cursor,
         target_path
     );
-    let (success,): (bool,) = call_extension(
+    if !include_cursor {
+        return capture_fullscreen_extension(target_path).await;
+    }
+
+    let (success,): (bool,) = match call_extension(
         "CaptureFullscreenWithCursor",
         &(target_path, include_cursor),
     )
-    .await?;
+    .await
+    {
+        Ok(result) => result,
+        Err(PlatformError::DBusMethodUnavailable { .. }) => {
+            tracing::debug!(
+                "GNOME 扩展版本不支持 CaptureFullscreenWithCursor，回退 CaptureFullscreen 并忽略鼠标指针"
+            );
+            return capture_fullscreen_extension(target_path).await;
+        }
+        Err(error) => return Err(error),
+    };
     Ok(success)
 }
 
@@ -230,5 +267,16 @@ mod tests {
                 "扩展实现缺少方法体: {method}"
             );
         }
+    }
+
+    /// D-Bus 方法缺失必须映射为可恢复错误，其他调用异常保持普通错误语义。
+    #[test]
+    fn test_unknown_method_error_name_is_recognized() {
+        assert!(is_unknown_method_error_name(
+            "org.freedesktop.DBus.Error.UnknownMethod"
+        ));
+        assert!(!is_unknown_method_error_name(
+            "org.freedesktop.DBus.Error.AccessDenied"
+        ));
     }
 }

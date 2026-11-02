@@ -17,6 +17,14 @@ pub enum PlatformError {
     #[error("D-Bus 进程间通信异常，目标服务: {service}，原因: {message}")]
     DBus { service: String, message: String },
 
+    /// D-Bus 目标缺少可调用方法，通常表示对方扩展或服务版本较旧。
+    #[error("D-Bus 方法不可用，目标服务: {service}，方法: {method}，原因: {message}")]
+    DBusMethodUnavailable {
+        service: String,
+        method: String,
+        message: String,
+    },
+
     /// 系统剪贴板操作失败
     #[error("系统剪贴板操作失败，描述: {message}")]
     Clipboard { message: String },
