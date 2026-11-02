@@ -20,6 +20,14 @@ pub struct ContextMenuState {
     pub hovered_sub_idx: Option<usize>,
 }
 
+/// 主菜单中当前命中的非分隔行。
+#[derive(Debug, Clone, Copy)]
+struct MenuRowHit {
+    index: usize,
+    top: f32,
+    submenu: Option<SubMenuType>,
+}
+
 impl Default for ContextMenuState {
     fn default() -> Self {
         Self {
@@ -144,98 +152,127 @@ impl ContextMenuState {
         if !self.is_open {
             return false;
         }
+        if let Some(changed) = self.handle_submenu_hover(cx, cy, smooth_scaling) {
+            return changed;
+        }
+        self.handle_main_hover(cx, cy, items, smooth_scaling)
+    }
 
-        // 1. 检查是否悬停在二级菜单区域
-        let s = self.ui_scale;
-        let sep_h = 8.0 * s;
-        let pad_v = 5.0 * s;
-        let sub_w = 160.0 * s;
-        let overlap = 4.0 * s;
-
-        if let Some((sub_type, sx, sy)) = self.active_submenu {
-            let sub_items = Self::build_sub_items(sub_type, smooth_scaling);
-            let sub_h = Self::items_total_height(&sub_items, self.item_height, s);
-            if cx >= sx && cx <= sx + sub_w && cy >= sy && cy <= sy + sub_h {
-                let mut cur_y = sy + pad_v;
-                let mut found_sub = None;
-                for (idx, it) in sub_items.iter().enumerate() {
-                    let h = if it.is_separator {
-                        sep_h
-                    } else {
-                        self.item_height
-                    };
-                    if cy >= cur_y && cy < cur_y + h && !it.is_separator {
-                        found_sub = Some(idx);
-                        break;
-                    }
-                    cur_y += h;
-                }
-                if self.hovered_sub_idx != found_sub {
-                    self.hovered_sub_idx = found_sub;
-                    return true;
-                }
-                return false;
-            }
+    /// 处理二级菜单内部悬停；返回 `None` 表示指针不在当前二级菜单内。
+    fn handle_submenu_hover(&mut self, cx: f32, cy: f32, smooth_scaling: bool) -> Option<bool> {
+        let (sub_type, sub_x, sub_y) = self.active_submenu?;
+        let scale = self.ui_scale;
+        let sub_items = Self::build_sub_items(sub_type, smooth_scaling);
+        let sub_height = Self::items_total_height(&sub_items, self.item_height, scale);
+        let sub_width = 160.0 * scale;
+        if cx < sub_x || cx > sub_x + sub_width || cy < sub_y || cy > sub_y + sub_height {
+            return None;
         }
 
-        // 2. 检查主菜单区域
-        let main_h = Self::items_total_height(items, self.item_height, s);
-        if cx >= self.x && cx <= self.x + self.width && cy >= self.y && cy <= self.y + main_h {
-            let mut cur_y = self.y + pad_v;
-            let mut found_main = None;
-            for (idx, it) in items.iter().enumerate() {
-                let h = if it.is_separator {
-                    sep_h
-                } else {
-                    self.item_height
-                };
-                if cy >= cur_y && cy < cur_y + h && !it.is_separator {
-                    found_main = Some((idx, cur_y, it.submenu));
-                    break;
-                }
-                cur_y += h;
-            }
-
-            if let Some((idx, item_top, sub)) = found_main {
-                let mut changed = false;
-                if self.hovered_main_idx != Some(idx) {
-                    self.hovered_main_idx = Some(idx);
-                    changed = true;
-                }
-                if let Some(sub_type) = sub {
-                    let sub_items = Self::build_sub_items(sub_type, smooth_scaling);
-                    let sub_h = Self::items_total_height(&sub_items, self.item_height, s);
-
-                    let sub_x = if self.x + self.width + sub_w - overlap > self.win_w
-                        && self.x >= sub_w - overlap
-                    {
-                        self.x - sub_w + overlap
-                    } else {
-                        self.x + self.width - overlap
-                    };
-
-                    let sub_y = if item_top + sub_h > self.win_h {
-                        (self.win_h - sub_h).max(0.0)
-                    } else {
-                        item_top - overlap
-                    };
-
-                    let next_sub = Some((sub_type, sub_x.max(0.0), sub_y.max(0.0)));
-                    if self.active_submenu != next_sub {
-                        self.active_submenu = next_sub;
-                        self.hovered_sub_idx = None;
-                        changed = true;
-                    }
-                } else if self.active_submenu.is_some() {
-                    self.active_submenu = None;
-                    self.hovered_sub_idx = None;
-                    changed = true;
-                }
-                return changed;
-            }
+        let found = self
+            .row_hit(&sub_items, cy, sub_y + 5.0 * scale)
+            .map(|row| row.index);
+        if self.hovered_sub_idx == found {
+            Some(false)
+        } else {
+            self.hovered_sub_idx = found;
+            Some(true)
         }
+    }
 
-        false
+    /// 处理主菜单悬停并按需打开或关闭二级菜单。
+    fn handle_main_hover(
+        &mut self,
+        cx: f32,
+        cy: f32,
+        items: &[MenuItem],
+        smooth_scaling: bool,
+    ) -> bool {
+        let scale = self.ui_scale;
+        let main_height = Self::items_total_height(items, self.item_height, scale);
+        if cx < self.x || cx > self.x + self.width || cy < self.y || cy > self.y + main_height {
+            return false;
+        }
+        let Some(row) = self.row_hit(items, cy, self.y + 5.0 * scale) else {
+            return false;
+        };
+        let mut changed = false;
+        if self.hovered_main_idx != Some(row.index) {
+            self.hovered_main_idx = Some(row.index);
+            changed = true;
+        }
+        changed |= self.update_submenu(row, smooth_scaling);
+        changed
+    }
+
+    /// 根据当前主菜单行同步二级菜单位置；无子菜单时关闭旧菜单。
+    fn update_submenu(&mut self, row: MenuRowHit, smooth_scaling: bool) -> bool {
+        let Some(sub_type) = row.submenu else {
+            return self.close_submenu();
+        };
+        let scale = self.ui_scale;
+        let sub_items = Self::build_sub_items(sub_type, smooth_scaling);
+        let sub_height = Self::items_total_height(&sub_items, self.item_height, scale);
+        let (sub_x, sub_y) = self.submenu_origin(row.top, sub_height, scale);
+        let next = Some((sub_type, sub_x, sub_y));
+        if self.active_submenu == next {
+            false
+        } else {
+            self.active_submenu = next;
+            self.hovered_sub_idx = None;
+            true
+        }
+    }
+
+    /// 计算二级菜单在窗口边界内的水平翻转与垂直避让位置。
+    fn submenu_origin(&self, item_top: f32, sub_height: f32, scale: f32) -> (f32, f32) {
+        let sub_width = 160.0 * scale;
+        let overlap = 4.0 * scale;
+        let sub_x = if self.x + self.width + sub_width - overlap > self.win_w
+            && self.x >= sub_width - overlap
+        {
+            self.x - sub_width + overlap
+        } else {
+            self.x + self.width - overlap
+        };
+        let sub_y = if item_top + sub_height > self.win_h {
+            (self.win_h - sub_height).max(0.0)
+        } else {
+            item_top - overlap
+        };
+        (sub_x.max(0.0), sub_y.max(0.0))
+    }
+
+    /// 关闭二级菜单并清除其悬停状态。
+    fn close_submenu(&mut self) -> bool {
+        if self.active_submenu.is_none() {
+            return false;
+        }
+        self.active_submenu = None;
+        self.hovered_sub_idx = None;
+        true
+    }
+
+    /// 在菜单项列表中查找当前纵坐标命中的非分隔行。
+    fn row_hit(&self, items: &[MenuItem], cy: f32, start_y: f32) -> Option<MenuRowHit> {
+        let separator_height = 8.0 * self.ui_scale;
+        let mut top = start_y;
+        for (index, item) in items.iter().enumerate() {
+            let height = if item.is_separator {
+                separator_height
+            } else {
+                self.item_height
+            };
+            if cy >= top && cy < top + height && !item.is_separator {
+                return Some(MenuRowHit {
+                    index,
+                    top,
+                    submenu: item.submenu,
+                });
+            }
+            top += height;
+        }
+        None
     }
 
     /// 点击菜单项判定
