@@ -13,7 +13,7 @@ use crate::geometry::Rect;
 use snapin_annotation::{
     ArrowStyle, BadgeStyle, LineStyle, MagnifierConnector, MarkerBlendMode, MarkerShape,
 };
-use snapin_render::with_thread_local_text_renderer;
+use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 绘制展开的下拉菜单面板与选项预览
@@ -342,10 +342,12 @@ fn render_text_preview(pixmap: &mut PixmapMut, row: Rect, center_y: f32, s: f32,
         renderer.draw_text_rgba(
             pixmap,
             label,
-            row.x + 12.0 * s,
-            center_y - 8.0 * s,
-            14.0 * s,
-            (45, 48, 56, 255),
+            TextDrawOptions::new(
+                row.x + 12.0 * s,
+                center_y - 8.0 * s,
+                14.0 * s,
+                (45, 48, 56, 255),
+            ),
         );
     });
 }

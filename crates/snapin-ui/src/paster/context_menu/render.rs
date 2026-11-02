@@ -4,7 +4,7 @@ use super::{ContextMenuState, MenuItem};
 use crate::drawing::{add_round_rect, make_paint, RoundRect};
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
-pub use snapin_render::TextRenderer;
+pub use snapin_render::{TextDrawOptions, TextRenderer};
 
 /// 菜单面板布局参数
 #[derive(Debug, Clone, Copy)]
@@ -268,9 +268,7 @@ fn render_row_label(
     text_renderer.draw_text(
         pixmap,
         row.item.label,
-        text_x,
-        text_y,
-        font_size,
+        TextDrawOptions::new(text_x, text_y, font_size, (30, 41, 59, 255)),
         text_color,
     );
 }

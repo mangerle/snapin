@@ -50,9 +50,7 @@ fn test_text_renderer_draws_pixels() {
     tr.draw_text(
         &mut pixmap.as_mut(),
         "复制图像",
-        10.0,
-        10.0,
-        14.0,
+        render::TextDrawOptions::new(10.0, 10.0, 14.0, (255, 255, 255, 255)),
         tiny_skia::Color::WHITE,
     );
     let after = pixmap.data();

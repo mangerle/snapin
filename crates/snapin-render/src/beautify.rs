@@ -3,7 +3,7 @@
 //! 输入已经合成全部标注的截图位图，输出带背景、圆角、阴影、社交画布和水印的
 //! 新位图。渲染完全基于 tiny-skia，不经过平台窗口，因此可在后台线程安全执行。
 
-use crate::with_thread_local_text_renderer;
+use crate::{with_thread_local_text_renderer, TextDrawOptions};
 use snapin_config::config::{BeautifyBackground, BeautifyConfig, SocialSize};
 use tiny_skia::{
     Color, FillRule, GradientStop, LinearGradient, Mask, MaskType, Paint, PathBuilder, Pixmap,
@@ -219,10 +219,12 @@ fn draw_watermark(output: &mut Pixmap, options: &BeautifyOptions, layout: &Beaut
         renderer.draw_text_rgba(
             &mut output.as_mut(),
             watermark,
-            layout.canvas_width as f32 - font_size * watermark.chars().count() as f32 - 24.0,
-            layout.canvas_height as f32 - font_size - 22.0,
-            font_size,
-            (255, 255, 255, 185),
+            TextDrawOptions {
+                x: layout.canvas_width as f32 - font_size * watermark.chars().count() as f32 - 24.0,
+                y: layout.canvas_height as f32 - font_size - 22.0,
+                font_size,
+                rgba: (255, 255, 255, 185),
+            },
         );
     });
 }

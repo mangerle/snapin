@@ -65,6 +65,27 @@ pub struct StyledTextDrawOptions<'a> {
     pub style: TextStyleOptions<'a>,
 }
 
+/// 单行纯文本绘制的位置、字号与颜色参数。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextDrawOptions {
+    pub x: f32,
+    pub y: f32,
+    pub font_size: f32,
+    pub rgba: (u8, u8, u8, u8),
+}
+
+impl TextDrawOptions {
+    /// 构造单行文本绘制参数。
+    pub const fn new(x: f32, y: f32, font_size: f32, rgba: (u8, u8, u8, u8)) -> Self {
+        Self {
+            x,
+            y,
+            font_size,
+            rgba,
+        }
+    }
+}
+
 impl TextRenderer {
     /// 构造新的文本渲染器并初始化字体缓存
     pub fn new() -> Self {
@@ -79,9 +100,7 @@ impl TextRenderer {
         &mut self,
         pixmap: &mut PixmapMut,
         text: &str,
-        x: f32,
-        y: f32,
-        font_size: f32,
+        options: TextDrawOptions,
         color: Color,
     ) {
         let rgba = (
@@ -90,27 +109,19 @@ impl TextRenderer {
             (color.blue() * 255.0).round() as u8,
             (color.alpha() * 255.0).round() as u8,
         );
-        self.draw_text_rgba(pixmap, text, x, y, font_size, rgba);
+        self.draw_text_rgba(pixmap, text, TextDrawOptions { rgba, ..options });
     }
 
     /// 在指定坐标绘制中文或英文排版文字（使用 RGBA 原始字节四元组）
-    pub fn draw_text_rgba(
-        &mut self,
-        pixmap: &mut PixmapMut,
-        text: &str,
-        x: f32,
-        y: f32,
-        font_size: f32,
-        rgba: (u8, u8, u8, u8),
-    ) {
+    pub fn draw_text_rgba(&mut self, pixmap: &mut PixmapMut, text: &str, options: TextDrawOptions) {
         self.draw_text_styled_rgba(
             pixmap,
             text,
             StyledTextDrawOptions {
-                x,
-                y,
-                font_size,
-                rgba,
+                x: options.x,
+                y: options.y,
+                font_size: options.font_size,
+                rgba: options.rgba,
                 style: TextStyleOptions::default(),
             },
         );
@@ -237,9 +248,12 @@ mod tests {
         renderer.draw_text(
             &mut pixmap.as_mut(),
             "Snapin",
-            10.0,
-            10.0,
-            16.0,
+            TextDrawOptions {
+                x: 10.0,
+                y: 10.0,
+                font_size: 16.0,
+                rgba: (255, 255, 255, 255),
+            },
             Color::from_rgba8(255, 255, 255, 255),
         );
         let has_pixel = pixmap.data().iter().any(|&b| b > 0);

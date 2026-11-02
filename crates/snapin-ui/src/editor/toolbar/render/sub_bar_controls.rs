@@ -18,7 +18,7 @@ use super::widgets::{
 };
 use crate::geometry::Rect;
 use snapin_annotation::SpotlightShape;
-use snapin_render::with_thread_local_text_renderer;
+use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
 use tiny_skia::{Color, PixmapMut};
 
 /// 单个二级栏控件的渲染上下文。
@@ -440,10 +440,7 @@ impl SubControlRenderer<'_, '_> {
             renderer.draw_text_rgba(
                 self.pixmap,
                 text,
-                x,
-                y,
-                font_size * self.scale,
-                (45, 48, 56, 255),
+                TextDrawOptions::new(x, y, font_size * self.scale, (45, 48, 56, 255)),
             );
         });
     }

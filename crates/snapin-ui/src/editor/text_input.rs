@@ -4,7 +4,7 @@ use crate::editor::toolbar::SubToolOptions;
 use crate::geometry::Point;
 use snapin_annotation::action::AnnotationShape;
 use snapin_annotation::shapes::TextAction;
-use snapin_render::with_thread_local_text_renderer;
+use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
 use winit::keyboard::{Key, NamedKey};
 
@@ -215,10 +215,7 @@ impl TextInputSession {
             renderer.draw_text_rgba(
                 pixmap,
                 frame.text,
-                frame.x,
-                frame.y,
-                frame.font_size,
-                self.color,
+                TextDrawOptions::new(frame.x, frame.y, frame.font_size, self.color),
             );
             if frame.underline_preedit && !self.preedit.is_empty() {
                 let (_, text_cursor) = renderer.measure_text_input(

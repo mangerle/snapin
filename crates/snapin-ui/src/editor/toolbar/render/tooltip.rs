@@ -8,7 +8,7 @@ use super::super::layout::SubControl;
 use super::super::Toolbar;
 use crate::drawing::{add_round_rect, RoundRect};
 use crate::geometry::Rect;
-use snapin_render::with_thread_local_text_renderer;
+use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
 use tiny_skia::{FillRule, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 提示文字字号（界面像素）
@@ -273,10 +273,12 @@ fn draw(pixmap: &mut PixmapMut, message: &str, layout: &TooltipLayout) {
         renderer.draw_text_rgba(
             pixmap,
             message,
-            layout.x + PADDING_X * layout.scale,
-            layout.y + PADDING_Y * layout.scale,
-            layout.font_size,
-            TEXT,
+            TextDrawOptions::new(
+                layout.x + PADDING_X * layout.scale,
+                layout.y + PADDING_Y * layout.scale,
+                layout.font_size,
+                TEXT,
+            ),
         );
     });
 }

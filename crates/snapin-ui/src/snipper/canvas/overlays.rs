@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::snipper::window::ocr_panel::{OcrPanelLayout, OcrPanelLine};
-use snapin_render::TextRenderer;
+use snapin_render::{TextDrawOptions, TextRenderer};
 
 impl<'a> SnipperCanvas<'a> {
     /// 绘制 OCR 结果面板与可见文本行。
@@ -54,10 +54,12 @@ impl<'a> SnipperCanvas<'a> {
                     panel.lines.iter().filter(|line| line.selected).count(),
                     panel.lines.len()
                 ),
-                layout.panel.x + 14.0 * s,
-                layout.panel.y + 12.0 * s,
-                16.0 * s,
-                (241, 245, 249, 255),
+                TextDrawOptions::new(
+                    layout.panel.x + 14.0 * s,
+                    layout.panel.y + 12.0 * s,
+                    16.0 * s,
+                    (241, 245, 249, 255),
+                ),
             );
 
             for (line_index, row) in &layout.rows {

@@ -4,7 +4,7 @@
 //! 若包含纯文本或颜色值，自动排版并烘焙为带圆角与投影的精致便签图片。
 
 use snapin_config::config::HexColor;
-use snapin_render::with_thread_local_text_renderer;
+use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
 use tiny_skia::{Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 
 /// 判断字符串是否为标准 HEX 颜色格式 (如 `#FF5500` 或 `#F50`)
@@ -133,9 +133,7 @@ fn draw_text_lines(
                 text_renderer.draw_text(
                     &mut pixmap.as_mut(),
                     line,
-                    padding_x,
-                    cur_y,
-                    font_size,
+                    TextDrawOptions::new(padding_x, cur_y, font_size, (15, 23, 42, 255)),
                     text_color,
                 );
             }

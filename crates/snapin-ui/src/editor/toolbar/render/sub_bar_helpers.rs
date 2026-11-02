@@ -7,7 +7,7 @@ use super::widgets::{
     fill_button_highlight, fill_circle, render_badge_style_icon, render_corner_radius_icon,
 };
 use crate::geometry::Rect;
-use snapin_render::with_thread_local_text_renderer;
+use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
 pub(super) fn render_toggle_text(
@@ -24,14 +24,16 @@ pub(super) fn render_toggle_text(
         renderer.draw_text_rgba(
             pixmap,
             snapin_foundation::i18n::tr(label),
-            rect.x + 7.0 * s,
-            rect.y + 5.0 * s,
-            12.0 * s,
-            if active {
-                (37, 99, 235, 255)
-            } else {
-                (45, 48, 56, 255)
-            },
+            TextDrawOptions::new(
+                rect.x + 7.0 * s,
+                rect.y + 5.0 * s,
+                12.0 * s,
+                if active {
+                    (37, 99, 235, 255)
+                } else {
+                    (45, 48, 56, 255)
+                },
+            ),
         );
     });
 }
@@ -52,14 +54,16 @@ pub(super) fn render_numeric(
         renderer.draw_text_rgba(
             pixmap,
             label,
-            rect.x + 7.0 * s,
-            center_y - 6.0 * s,
-            11.0 * s,
-            if active {
-                (37, 99, 235, 255)
-            } else {
-                (45, 48, 56, 255)
-            },
+            TextDrawOptions::new(
+                rect.x + 7.0 * s,
+                center_y - 6.0 * s,
+                11.0 * s,
+                if active {
+                    (37, 99, 235, 255)
+                } else {
+                    (45, 48, 56, 255)
+                },
+            ),
         );
     });
 }
@@ -114,10 +118,12 @@ pub(super) fn render_size_with_dot(
         renderer.draw_text_rgba(
             pixmap,
             &format!("{value:.0}"),
-            rect.x + 24.0 * s,
-            center_y - 6.0 * s,
-            11.0 * s,
-            (45, 48, 56, 255),
+            TextDrawOptions::new(
+                rect.x + 24.0 * s,
+                center_y - 6.0 * s,
+                11.0 * s,
+                (45, 48, 56, 255),
+            ),
         );
     });
 }
@@ -139,10 +145,12 @@ pub(super) fn render_corner_radius_with_value(
         renderer.draw_text_rgba(
             pixmap,
             &format!("{value:.0}"),
-            rect.x + 24.0 * s,
-            center_y - 6.0 * s,
-            11.0 * s,
-            (45, 48, 56, 255),
+            TextDrawOptions::new(
+                rect.x + 24.0 * s,
+                center_y - 6.0 * s,
+                11.0 * s,
+                (45, 48, 56, 255),
+            ),
         );
     });
 }
@@ -218,10 +226,12 @@ pub(super) fn render_magnifier_scale_slider(
         renderer.draw_text_rgba(
             pixmap,
             &format!("{scale:.1}x"),
-            rect.x + 7.0 * s,
-            center_y - 6.0 * s,
-            10.5 * s,
-            (45, 48, 56, 255),
+            TextDrawOptions::new(
+                rect.x + 7.0 * s,
+                center_y - 6.0 * s,
+                10.5 * s,
+                (45, 48, 56, 255),
+            ),
         );
     });
     let left = rect.x + 42.0 * s;
@@ -404,10 +414,12 @@ pub(super) fn render_badge_control(
                 renderer.draw_text_rgba(
                     pixmap,
                     snapin_foundation::i18n::tr("序号"),
-                    rect.x + 7.0 * s,
-                    rect.y + 5.0 * s,
-                    12.0 * s,
-                    (45, 48, 56, 255),
+                    TextDrawOptions::new(
+                        rect.x + 7.0 * s,
+                        rect.y + 5.0 * s,
+                        12.0 * s,
+                        (45, 48, 56, 255),
+                    ),
                 );
             });
             render_caret(pixmap, rect.x + rect.width - 9.0 * s, center_y, s);

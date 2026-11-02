@@ -10,6 +10,6 @@ pub use beautify::{render_beautified, BeautifyOptions};
 pub use layout::CenteredTextOptions;
 pub use snapin_config::config::{BeautifyBackground, SocialSize};
 pub use text::{
-    with_thread_local_text_renderer, StyledTextDrawOptions, TextBoxOptions, TextRenderer,
-    TextStyleOptions,
+    with_thread_local_text_renderer, StyledTextDrawOptions, TextBoxOptions, TextDrawOptions,
+    TextRenderer, TextStyleOptions,
 };

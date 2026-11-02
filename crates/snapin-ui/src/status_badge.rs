@@ -4,7 +4,7 @@
 //! 必须保持同一套几何规则，否则同一句提示在截图与贴图中会出现视觉漂移。
 
 use crate::drawing::{add_round_rect, RoundRect};
-use snapin_render::with_thread_local_text_renderer;
+use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
 use tiny_skia::{FillRule, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 状态提示胶囊的视觉与布局参数。
@@ -185,10 +185,12 @@ pub(crate) fn render(
         renderer.draw_text_rgba(
             pixmap,
             message,
-            layout.box_x + layout.padding_x,
-            layout.box_y + layout.padding_y,
-            layout.font_size,
-            style.text,
+            TextDrawOptions::new(
+                layout.box_x + layout.padding_x,
+                layout.box_y + layout.padding_y,
+                layout.font_size,
+                style.text,
+            ),
         );
     });
 }
