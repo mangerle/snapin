@@ -281,14 +281,15 @@ impl AppPaths {
 fn ensure_private_dir(path: &Path) {
     if let Err(error) = std::fs::create_dir_all(path) {
         tracing::warn!("创建私有目录失败，路径: {:?}，原因: {error}", path);
-        return;
-    }
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Err(error) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)) {
-            tracing::warn!("收紧目录权限失败，路径: {:?}，原因: {error}", path);
+    } else {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Err(error) =
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+            {
+                tracing::warn!("收紧目录权限失败，路径: {:?}，原因: {error}", path);
+            }
         }
     }
 }

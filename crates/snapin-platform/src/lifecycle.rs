@@ -14,8 +14,10 @@ use std::time::Duration;
 /// 单个外部系统命令的最长等待时间，超时后强制终止，防止挂死进程永久占用任务名额。
 const SYSTEM_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 /// systemd 服务控制命令的最长等待时间。
+#[cfg(target_os = "linux")]
 const SYSTEMD_COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
 /// systemd 用户服务单元名称。
+#[cfg(target_os = "linux")]
 const SYSTEMD_SERVICE: &str = "snapin";
 
 /// 停用 systemd 用户服务以防系统重启守活。
