@@ -218,6 +218,61 @@ impl AppPaths {
         file.write_all(bytes)?;
         file.sync_all()
     }
+
+    /// 以平台一致的语义将临时文件替换到目标路径。
+    ///
+    /// Unix 的 `rename` 本身支持原子覆盖；Windows 的 `std::fs::rename` 不会覆盖
+    /// 已存在文件，因此使用 `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`。配置、选区缓存、
+    /// 剪贴板索引和工作区状态都必须在“已有旧文件”时成功提交，否则 Windows 上第二次
+    /// 保存就会稳定失败。
+    ///
+    /// # Errors
+    ///
+    /// 源文件不存在、目标路径不可写、跨文件系统移动失败或 Windows API 返回错误时，
+    /// 返回底层 I/O 错误。
+    pub fn replace_file_atomically(source: &Path, target: &Path) -> std::io::Result<()> {
+        #[cfg(not(windows))]
+        {
+            std::fs::rename(source, target)
+        }
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStrExt;
+            use windows_sys::Win32::Storage::FileSystem::{
+                MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+            };
+
+            fn wide_path(path: &Path) -> std::io::Result<Vec<u16>> {
+                let mut encoded: Vec<u16> = path.as_os_str().encode_wide().collect();
+                if encoded.contains(&0) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "路径包含 Windows API 不允许的空字符",
+                    ));
+                }
+                encoded.push(0);
+                Ok(encoded)
+            }
+
+            let source = wide_path(source)?;
+            let target = wide_path(target)?;
+            // SAFETY: 两个路径缓冲区都以空字符结尾，并在调用期间保持有效；MoveFileExW
+            // 只读取这两个指针，不保留其生命周期。标志位组合在函数契约允许范围内。
+            let replaced = unsafe {
+                MoveFileExW(
+                    source.as_ptr(),
+                    target.as_ptr(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+                )
+            };
+            if replaced == 0 {
+                Err(std::io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        }
+    }
 }
 
 /// 创建目录并收紧为仅当前用户可访问的 0700 权限。
@@ -255,5 +310,19 @@ mod tests {
         let temp_path = AppPaths::generate_temp_path("test", "raw");
         assert!(temp_path.to_string_lossy().contains("test_"));
         assert!(temp_path.to_string_lossy().ends_with(".raw"));
+    }
+
+    #[test]
+    fn test_replace_file_atomically_overwrites_existing_target() {
+        let dir = tempfile::tempdir().expect("应可创建测试目录");
+        let source = dir.path().join("new.toml");
+        let target = dir.path().join("config.toml");
+        std::fs::write(&source, b"new").expect("应可写入源文件");
+        std::fs::write(&target, b"old").expect("应可写入旧目标文件");
+
+        AppPaths::replace_file_atomically(&source, &target).expect("替换已有文件必须成功");
+
+        assert_eq!(std::fs::read(&target).expect("应可读取目标文件"), b"new");
+        assert!(!source.exists(), "替换成功后临时源文件不应继续存在");
     }
 }

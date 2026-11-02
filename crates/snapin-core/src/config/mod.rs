@@ -231,7 +231,7 @@ pub fn save_config(config: &Config, target_path: &Path) -> Result<(), CoreError>
         });
     }
 
-    if let Err(error) = fs::rename(&temp_path, target_path) {
+    if let Err(error) = crate::paths::AppPaths::replace_file_atomically(&temp_path, target_path) {
         let _ = fs::remove_file(&temp_path);
         return Err(CoreError::IoError {
             path: target_path.to_path_buf(),

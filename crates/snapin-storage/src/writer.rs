@@ -253,20 +253,7 @@ fn encode_image_atomically(
         return Err(error);
     }
 
-    // Windows 的 rename 不能覆盖已存在文件：目标可能是刚 create_new 的占位文件，
-    // 也可能是用户在 Portal 中确认覆盖的旧文件，先移除再替换；Unix 直接原子替换。
-    #[cfg(target_os = "windows")]
-    if out_path.exists() {
-        if let Err(error) = std::fs::remove_file(out_path) {
-            let _ = std::fs::remove_file(&temp_path);
-            return Err(StorageError::Io {
-                path: out_path.display().to_string(),
-                source: error,
-            });
-        }
-    }
-
-    if let Err(error) = std::fs::rename(&temp_path, out_path) {
+    if let Err(error) = snapin_core::AppPaths::replace_file_atomically(&temp_path, out_path) {
         let _ = std::fs::remove_file(&temp_path);
         return Err(StorageError::Io {
             path: out_path.display().to_string(),

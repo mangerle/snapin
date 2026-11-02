@@ -69,7 +69,7 @@ fn save_last_selection_in(cache_dir: &std::path::Path, rect: (f32, f32, f32, f32
         let _ = std::fs::remove_file(&temp_path);
         return;
     }
-    if std::fs::rename(&temp_path, &toml_path).is_err() {
+    if snapin_core::AppPaths::replace_file_atomically(&temp_path, &toml_path).is_err() {
         let _ = std::fs::remove_file(&temp_path);
     }
 }

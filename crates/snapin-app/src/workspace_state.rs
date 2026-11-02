@@ -72,7 +72,7 @@ impl AppWorkspaceStateStore {
         ));
         AppPaths::write_secure_file(&temp_path, content.as_bytes())
             .with_context(|| format!("写入工作区状态临时文件失败: {}", temp_path.display()))?;
-        if let Err(error) = std::fs::rename(&temp_path, &self.path) {
+        if let Err(error) = AppPaths::replace_file_atomically(&temp_path, &self.path) {
             let _ = std::fs::remove_file(&temp_path);
             return Err(error)
                 .with_context(|| format!("替换工作区状态文件失败: {}", self.path.display()));
