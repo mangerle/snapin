@@ -104,9 +104,9 @@ static GLOBAL_CAPABILITIES: OnceLock<RwLock<Arc<PlatformCapabilities>>> = OnceLo
 pub async fn init_platform_capabilities() -> Arc<PlatformCapabilities> {
     let caps = Arc::new(PlatformCapabilities::detect().await);
     let cell = GLOBAL_CAPABILITIES.get_or_init(|| RwLock::new(caps.clone()));
-    if let Ok(mut lock) = cell.write() {
-        *lock = caps.clone();
-    }
+    *cell
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = caps.clone();
     caps
 }
 
@@ -114,9 +114,9 @@ pub async fn init_platform_capabilities() -> Arc<PlatformCapabilities> {
 pub async fn refresh_platform_capabilities() -> Arc<PlatformCapabilities> {
     let caps = Arc::new(PlatformCapabilities::detect().await);
     if let Some(cell) = GLOBAL_CAPABILITIES.get() {
-        if let Ok(mut lock) = cell.write() {
-            *lock = caps.clone();
-        }
+        *cell
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = caps.clone();
     } else {
         let _ = GLOBAL_CAPABILITIES.set(RwLock::new(caps.clone()));
     }
@@ -128,9 +128,10 @@ pub async fn refresh_platform_capabilities() -> Arc<PlatformCapabilities> {
 /// 若尚未显式初始化，将执行同步快速启发式推断作为兜底
 pub fn get_platform_capabilities() -> Arc<PlatformCapabilities> {
     if let Some(cell) = GLOBAL_CAPABILITIES.get() {
-        if let Ok(lock) = cell.read() {
-            return lock.clone();
-        }
+        return cell
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
     }
 
     Arc::new(fallback_capabilities())
