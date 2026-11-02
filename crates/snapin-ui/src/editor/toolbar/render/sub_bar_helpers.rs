@@ -10,13 +10,25 @@ use crate::geometry::Rect;
 use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
+/// 二级栏控件的共享几何与高亮状态。
+///
+/// 控件矩形、垂直中心、缩放与高亮色在所有二级栏绘制函数中始终成套出现；
+/// 收敛为值对象后，调用点不会因字段顺序调整而把中心线与缩放比例混淆。
+#[derive(Clone, Copy)]
+pub(super) struct SubBarGeometry {
+    pub(super) rect: Rect,
+    pub(super) center_y: f32,
+    pub(super) scale: f32,
+    pub(super) highlight: Color,
+}
+
 pub(super) fn render_toggle_text(
     pixmap: &mut PixmapMut,
-    rect: &Rect,
-    s: f32,
+    geometry: SubBarGeometry,
     label: &'static str,
     active: bool,
 ) {
+    let (rect, s) = (&geometry.rect, geometry.scale);
     if active {
         fill_button_highlight(pixmap, rect, Color::from_rgba8(37, 99, 235, 45), s);
     }
@@ -41,12 +53,11 @@ pub(super) fn render_toggle_text(
 /// 绘制数值控件；尺寸与透明度均通过点击循环、滚轮连续调节。
 pub(super) fn render_numeric(
     pixmap: &mut PixmapMut,
-    rect: &Rect,
-    center_y: f32,
-    s: f32,
+    geometry: SubBarGeometry,
     label: &str,
     active: bool,
 ) {
+    let (rect, center_y, s) = (&geometry.rect, geometry.center_y, geometry.scale);
     if active {
         fill_button_highlight(pixmap, rect, Color::from_rgba8(37, 99, 235, 36), s);
     }
@@ -97,12 +108,11 @@ pub(super) fn render_caret(pixmap: &mut PixmapMut, cx: f32, cy: f32, s: f32) {
 /// 绘制“单圆点 + 数值”的尺寸控件，圆点直径随数值同步缩放。
 pub(super) fn render_size_with_dot(
     pixmap: &mut PixmapMut,
-    rect: &Rect,
-    center_y: f32,
-    s: f32,
+    geometry: SubBarGeometry,
     value: f32,
     focused: bool,
 ) {
+    let (rect, center_y, s) = (&geometry.rect, geometry.center_y, geometry.scale);
     if focused {
         fill_button_highlight(pixmap, rect, Color::from_rgba8(37, 99, 235, 36), s);
     }
@@ -131,12 +141,11 @@ pub(super) fn render_size_with_dot(
 /// 绘制“圆角图标 + 数值”的控件，数值由聚焦后的滚轮连续调整。
 pub(super) fn render_corner_radius_with_value(
     pixmap: &mut PixmapMut,
-    rect: &Rect,
-    center_y: f32,
-    s: f32,
+    geometry: SubBarGeometry,
     value: f32,
     focused: bool,
 ) {
+    let (rect, center_y, s) = (&geometry.rect, geometry.center_y, geometry.scale);
     if focused {
         fill_button_highlight(pixmap, rect, Color::from_rgba8(37, 99, 235, 36), s);
     }
@@ -158,12 +167,11 @@ pub(super) fn render_corner_radius_with_value(
 /// 绘制效果强度滑块；左侧为小圆点，右侧为大圆点，滑块位置随数值变化。
 pub(super) fn render_effect_strength_slider(
     pixmap: &mut PixmapMut,
-    rect: &Rect,
-    center_y: f32,
-    s: f32,
+    geometry: SubBarGeometry,
     value: u8,
     focused: bool,
 ) {
+    let (rect, center_y, s) = (&geometry.rect, geometry.center_y, geometry.scale);
     if focused {
         fill_button_highlight(pixmap, rect, Color::from_rgba8(37, 99, 235, 36), s);
     }
@@ -213,12 +221,11 @@ pub(super) fn render_effect_strength_slider(
 /// 绘制放大镜倍率滑块，范围固定为 1.0 到 8.0。
 pub(super) fn render_magnifier_scale_slider(
     pixmap: &mut PixmapMut,
-    rect: &Rect,
-    center_y: f32,
-    s: f32,
+    geometry: SubBarGeometry,
     scale: f32,
     focused: bool,
 ) {
+    let (rect, center_y, s) = (&geometry.rect, geometry.center_y, geometry.scale);
     if focused {
         fill_button_highlight(pixmap, rect, Color::from_rgba8(37, 99, 235, 36), s);
     }
@@ -266,12 +273,15 @@ pub(super) fn render_magnifier_scale_slider(
 /// 绘制“仅边框 / 边框+填充”开关图标
 pub(super) fn render_fill_toggle(
     pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
+    geometry: SubBarGeometry,
     filled: bool,
     color: Color,
 ) {
+    let (cx, cy, s) = (
+        geometry.rect.x + 12.0 * geometry.scale,
+        geometry.center_y,
+        geometry.scale,
+    );
     let half = 7.0 * s;
     let mut pb = PathBuilder::new();
     add_round_rect(
@@ -312,11 +322,14 @@ pub(super) fn render_fill_toggle(
 /// 绘制二级属性栏中的微型矩形形状图标
 pub(super) fn render_sub_shape_rect(
     pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
+    geometry: SubBarGeometry,
     is_active: bool,
 ) {
+    let (cx, cy, s) = (
+        geometry.rect.x + 12.0 * geometry.scale,
+        geometry.center_y,
+        geometry.scale,
+    );
     let mut pb = PathBuilder::new();
     add_round_rect(
         &mut pb,
@@ -346,11 +359,14 @@ pub(super) fn render_sub_shape_rect(
 /// 绘制二级属性栏中的微型椭圆形状图标
 pub(super) fn render_sub_shape_ellipse(
     pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
+    geometry: SubBarGeometry,
     is_active: bool,
 ) {
+    let (cx, cy, s) = (
+        geometry.rect.x + 12.0 * geometry.scale,
+        geometry.center_y,
+        geometry.scale,
+    );
     let mut pb = PathBuilder::new();
     let a = 6.5 * s;
     let b = 5.5 * s;
@@ -388,11 +404,14 @@ pub(super) fn render_badge_control(
     toolbar: &Toolbar,
     control: SubControl,
     pixmap: &mut PixmapMut,
-    rect: &Rect,
-    center_y: f32,
-    s: f32,
-    highlight: Color,
+    geometry: SubBarGeometry,
 ) {
+    let (rect, center_y, s, highlight) = (
+        &geometry.rect,
+        geometry.center_y,
+        geometry.scale,
+        geometry.highlight,
+    );
     match control {
         SubControl::BadgeStyle => {
             let open = toolbar.open_dropdown == Some(SubDropdown::Badge);

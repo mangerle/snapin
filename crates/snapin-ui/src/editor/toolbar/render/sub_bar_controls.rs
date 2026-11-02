@@ -11,6 +11,7 @@ use super::sub_bar_helpers::{
     is_badge_control, render_badge_control, render_caret, render_corner_radius_with_value,
     render_effect_strength_slider, render_fill_toggle, render_numeric, render_size_with_dot,
     render_sub_shape_ellipse, render_sub_shape_rect, render_toggle_text, spotlight_opacity_percent,
+    SubBarGeometry,
 };
 use super::widgets::{
     fill_button_highlight, fill_circle, render_arrow_head_preview, render_arrow_preview,
@@ -35,6 +36,16 @@ pub(super) struct SubControlRenderer<'a, 'p> {
 }
 
 impl SubControlRenderer<'_, '_> {
+    /// 提取当前控件共享的几何与高亮状态。
+    fn geometry(&self) -> SubBarGeometry {
+        SubBarGeometry {
+            rect: self.rect,
+            center_y: self.center_y,
+            scale: self.scale,
+            highlight: self.highlight,
+        }
+    }
+
     /// 绘制一个控件；放大镜和序号使用专用布局，优先交给各自渲染器。
     pub(super) fn render(mut self, control: Option<SubControl>) {
         let Some(control) = control else {
@@ -52,23 +63,13 @@ impl SubControlRenderer<'_, '_> {
             MagnifierControlSpec {
                 toolbar: self.toolbar,
                 control,
-                rect: &self.rect,
-                center_y: self.center_y,
-                scale: self.scale,
-                highlight: self.highlight,
+                geometry: self.geometry(),
             },
         ) || is_badge_control(control)
         {
             if is_badge_control(control) {
-                render_badge_control(
-                    self.toolbar,
-                    control,
-                    self.pixmap,
-                    &self.rect,
-                    self.center_y,
-                    self.scale,
-                    self.highlight,
-                );
+                let geometry = self.geometry();
+                render_badge_control(self.toolbar, control, self.pixmap, geometry);
             }
             return;
         }
@@ -128,22 +129,24 @@ impl SubControlRenderer<'_, '_> {
         match control {
             SubControl::ShapeRect => self.render_shape_button(Tool::Rect, true),
             SubControl::ShapeEllipse => self.render_shape_button(Tool::Ellipse, false),
-            SubControl::Size => render_size_with_dot(
-                self.pixmap,
-                &self.rect,
-                self.center_y,
-                self.scale,
-                self.toolbar.sub_options.custom_stroke_width,
-                self.toolbar.focused_sub_control == Some(SubControl::Size),
-            ),
-            SubControl::EffectStrength => render_effect_strength_slider(
-                self.pixmap,
-                &self.rect,
-                self.center_y,
-                self.scale,
-                self.toolbar.sub_options.effect_strength,
-                self.toolbar.focused_sub_control == Some(SubControl::EffectStrength),
-            ),
+            SubControl::Size => {
+                let geometry = self.geometry();
+                render_size_with_dot(
+                    self.pixmap,
+                    geometry,
+                    self.toolbar.sub_options.custom_stroke_width,
+                    self.toolbar.focused_sub_control == Some(SubControl::Size),
+                );
+            }
+            SubControl::EffectStrength => {
+                let geometry = self.geometry();
+                render_effect_strength_slider(
+                    self.pixmap,
+                    geometry,
+                    self.toolbar.sub_options.effect_strength,
+                    self.toolbar.focused_sub_control == Some(SubControl::EffectStrength),
+                );
+            }
             _ => unreachable!("形状组收到错误控件"),
         }
     }
@@ -153,33 +156,35 @@ impl SubControlRenderer<'_, '_> {
         if active {
             fill_button_highlight(self.pixmap, &self.rect, self.highlight, self.scale);
         }
-        let x = self.rect.x + 12.0 * self.scale;
+        let geometry = self.geometry();
         if rectangle {
-            render_sub_shape_rect(self.pixmap, x, self.center_y, self.scale, active);
+            render_sub_shape_rect(self.pixmap, geometry, active);
         } else {
-            render_sub_shape_ellipse(self.pixmap, x, self.center_y, self.scale, active);
+            render_sub_shape_ellipse(self.pixmap, geometry, active);
         }
     }
 
     fn render_stroke(&mut self, control: SubControl) {
         match control {
             SubControl::LineStyle => self.render_line_style(),
-            SubControl::FillToggle => render_fill_toggle(
-                self.pixmap,
-                self.rect.x + 12.0 * self.scale,
-                self.center_y,
-                self.scale,
-                self.toolbar.sub_options.filled,
-                self.color,
-            ),
-            SubControl::CornerRadius => render_corner_radius_with_value(
-                self.pixmap,
-                &self.rect,
-                self.center_y,
-                self.scale,
-                self.toolbar.sub_options.corner_radius,
-                self.toolbar.focused_sub_control == Some(SubControl::CornerRadius),
-            ),
+            SubControl::FillToggle => {
+                let geometry = self.geometry();
+                render_fill_toggle(
+                    self.pixmap,
+                    geometry,
+                    self.toolbar.sub_options.filled,
+                    self.color,
+                );
+            }
+            SubControl::CornerRadius => {
+                let geometry = self.geometry();
+                render_corner_radius_with_value(
+                    self.pixmap,
+                    geometry,
+                    self.toolbar.sub_options.corner_radius,
+                    self.toolbar.focused_sub_control == Some(SubControl::CornerRadius),
+                );
+            }
             SubControl::ArrowStyle => self.render_arrow_style(),
             SubControl::Color(index) => self.render_color(index),
             SubControl::FontSize => self.render_font_size(),
@@ -376,17 +381,18 @@ impl SubControlRenderer<'_, '_> {
                 let active = self.toolbar.sub_options.spotlight_shape == SpotlightShape::Ellipse;
                 self.render_active_shape(active, false);
             }
-            SubControl::SpotlightOpacity => render_numeric(
-                self.pixmap,
-                &self.rect,
-                self.center_y,
-                self.scale,
-                &format!(
-                    "{}%",
-                    spotlight_opacity_percent(self.toolbar.sub_options.spotlight_intensity)
-                ),
-                true,
-            ),
+            SubControl::SpotlightOpacity => {
+                let geometry = self.geometry();
+                render_numeric(
+                    self.pixmap,
+                    geometry,
+                    &format!(
+                        "{}%",
+                        spotlight_opacity_percent(self.toolbar.sub_options.spotlight_intensity)
+                    ),
+                    true,
+                );
+            }
             SubControl::SpotlightOutline => {
                 self.toggle_text("描边", self.toolbar.sub_options.spotlight_outline)
             }
@@ -398,20 +404,19 @@ impl SubControlRenderer<'_, '_> {
         if active {
             fill_button_highlight(self.pixmap, &self.rect, self.highlight, self.scale);
         }
-        let x = self.rect.x + 12.0 * self.scale;
+        let geometry = self.geometry();
         if rectangle {
-            render_sub_shape_rect(self.pixmap, x, self.center_y, self.scale, active);
+            render_sub_shape_rect(self.pixmap, geometry, active);
         } else {
-            render_sub_shape_ellipse(self.pixmap, x, self.center_y, self.scale, active);
+            render_sub_shape_ellipse(self.pixmap, geometry, active);
         }
     }
 
     fn render_numeric_enabled(&mut self, text: &str) {
+        let geometry = self.geometry();
         render_numeric(
             self.pixmap,
-            &self.rect,
-            self.center_y,
-            self.scale,
+            geometry,
             text,
             self.toolbar.sub_options.text_background_enabled,
         );
@@ -452,7 +457,8 @@ impl SubControlRenderer<'_, '_> {
     }
 
     fn toggle_text(&mut self, text: &'static str, active: bool) {
-        render_toggle_text(self.pixmap, &self.rect, self.scale, text, active);
+        let geometry = self.geometry();
+        render_toggle_text(self.pixmap, geometry, text, active);
     }
 
     fn render_caret(&mut self) {
