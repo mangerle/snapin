@@ -14,9 +14,10 @@ use crate::config_store::ConfigStore;
 use crate::SettingsWindow;
 use slint::{ComponentHandle, SharedString};
 use snapin_daemon::{send_request_to_daemon, DaemonRequest, DaemonResponse};
-use snapin_platform::lifecycle::spawn_detached_system_command;
+use snapin_platform::start_daemon_process;
 use snapin_runtime::{CancellationToken, TaskPool, TaskRuntime};
 use snapin_updater::{DownloadedUpdate, UpdateEvent, UpdateInfo, UpdateStage};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -349,7 +350,9 @@ async fn restart_daemon_after_update() -> Result<(), String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "当前可执行文件路径包含非法编码".to_string())?;
-    spawn_detached_system_command(executable, &["daemon"]);
+    start_daemon_process(Path::new(executable))
+        .await
+        .map_err(|error| format!("重启守护进程失败: {error}"))?;
 
     if wait_for_daemon_ready(Duration::from_secs(8)).await {
         Ok(())

@@ -37,8 +37,12 @@ pub enum PlatformError {
         source: std::io::Error,
     },
 
-    /// systemd 用户服务自启动管理失败
-    #[error("systemd 用户服务自启动{action}失败，服务: {service}，原因: {message}")]
+    /// 常驻进程派生失败。
+    #[error("启动常驻守护进程失败，可执行文件: {executable}，原因: {message}")]
+    ProcessStart { executable: String, message: String },
+
+    /// systemd 用户服务控制失败
+    #[error("systemd 用户服务{action}失败，服务: {service}，原因: {message}")]
     Systemd {
         action: String,
         service: String,

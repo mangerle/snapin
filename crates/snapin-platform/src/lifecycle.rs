@@ -4,13 +4,19 @@
 //! `.wait().await` 收割；不再为每条命令分支创建临时 reaper 线程或裸 `tokio::spawn`，
 //! 从而把子进程取消、退出等待与 panic 观测纳入同一套后台任务契约。
 
+use crate::error::PlatformError;
 use snapin_runtime::{TaskPool, TaskRuntime};
 use std::ffi::{OsStr, OsString};
+use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
 /// 单个外部系统命令的最长等待时间，超时后强制终止，防止挂死进程永久占用任务名额。
 const SYSTEM_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+/// systemd 服务控制命令的最长等待时间。
+const SYSTEMD_COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
+/// systemd 用户服务单元名称。
+const SYSTEMD_SERVICE: &str = "snapin";
 
 /// 停用 systemd 用户服务以防系统重启守活。
 ///
@@ -43,6 +49,105 @@ pub async fn stop_systemd_service() {
             Err(error) => tracing::warn!("无法执行 systemctl --user stop snapin: {error}"),
         }
     }
+}
+
+/// 启动升级后的常驻进程。
+///
+/// Linux 在 systemd 用户单元已加载时交由 systemd 托管并完成子进程回收；未安装或
+/// 无法探测到该单元时直接派生独立进程，兼容 XDG autostart 与手工运行环境。
+/// Windows/macOS 没有对应的用户服务，同样直接派生独立进程；父设置进程退出后
+/// 交由操作系统接管长期运行的服务进程。
+///
+/// # Errors
+///
+/// systemd 服务启动失败或超时，或独立进程无法派生时返回中文错误。
+pub async fn start_daemon_process(executable: &Path) -> Result<(), PlatformError> {
+    #[cfg(target_os = "linux")]
+    {
+        if systemd_user_service_loaded().await {
+            return start_systemd_service().await;
+        }
+    }
+
+    spawn_daemon_process(executable)
+}
+
+/// 检查 systemd 用户单元是否已安装并加载，用于选择托管启动或独立派生。
+#[cfg(target_os = "linux")]
+async fn systemd_user_service_loaded() -> bool {
+    let output = tokio::process::Command::new("systemctl")
+        .args([
+            "--user",
+            "show",
+            "-p",
+            "LoadState",
+            "--value",
+            SYSTEMD_SERVICE,
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .output();
+
+    match tokio::time::timeout(SYSTEMD_COMMAND_TIMEOUT, output).await {
+        Ok(Ok(output)) => {
+            output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "loaded"
+        }
+        Ok(Err(error)) => {
+            tracing::debug!("探测 systemd 用户服务失败，将直接派生守护进程: {error}");
+            false
+        }
+        Err(_) => {
+            tracing::debug!("探测 systemd 用户服务超时，将直接派生守护进程");
+            false
+        }
+    }
+}
+
+/// 通过 systemd 用户服务启动守护进程，由服务管理器承担长期生命周期管理。
+#[cfg(target_os = "linux")]
+async fn start_systemd_service() -> Result<(), PlatformError> {
+    let spawned = tokio::process::Command::new("systemctl")
+        .args(["--user", "start", SYSTEMD_SERVICE])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .output();
+    match tokio::time::timeout(SYSTEMD_COMMAND_TIMEOUT, spawned).await {
+        Ok(Ok(output)) if output.status.success() => Ok(()),
+        Ok(Ok(output)) => Err(PlatformError::Systemd {
+            action: "启动".to_string(),
+            service: SYSTEMD_SERVICE.to_string(),
+            message: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        }),
+        Ok(Err(error)) => Err(PlatformError::Systemd {
+            action: "启动".to_string(),
+            service: SYSTEMD_SERVICE.to_string(),
+            message: format!("执行 systemctl --user start snapin 失败: {error}"),
+        }),
+        Err(_) => Err(PlatformError::Systemd {
+            action: "启动".to_string(),
+            service: SYSTEMD_SERVICE.to_string(),
+            message: "等待 systemctl --user start snapin 超时".to_string(),
+        }),
+    }
+}
+
+/// 直接派生独立守护进程；调用方必须在随后退出，交由系统接管子进程生命周期。
+fn spawn_daemon_process(executable: &Path) -> Result<(), PlatformError> {
+    std::process::Command::new(executable)
+        .arg("daemon")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| PlatformError::ProcessStart {
+            executable: executable.display().to_string(),
+            message: error.to_string(),
+        })
 }
 
 /// 启用配套 GNOME Shell 扩展并自动收割子进程状态，杜绝僵尸进程

@@ -43,7 +43,7 @@ pub use hotkey_manager::{
 };
 pub use lifecycle::{
     enable_gnome_extension, open_path_in_file_manager, open_url, spawn_detached_system_command,
-    stop_systemd_service,
+    start_daemon_process, stop_systemd_service,
 };
 pub use notification::send_desktop_notification;
 
