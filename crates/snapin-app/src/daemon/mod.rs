@@ -51,22 +51,10 @@ use update_loop::run_update_check_loop;
 pub fn run_daemon_process(cfg: Config) -> Result<()> {
     snapin_foundation::i18n::set_language(cfg.general.language);
     let runtime = create_daemon_runtime()?;
+    let Some(runtime) = prepare_daemon_runtime(runtime)? else {
+        return Ok(());
+    };
     let handle = runtime.handle().clone();
-    match probe_existing_daemon(&runtime) {
-        ExistingDaemon::Online => {
-            tracing::info!("Snapin 守护服务已在后台运行中，无需重复启动。");
-            runtime.shutdown_timeout(Duration::from_secs(1));
-            return Ok(());
-        }
-        ExistingDaemon::Unresponsive(reason) => {
-            runtime.shutdown_timeout(Duration::from_secs(1));
-            anyhow::bail!(
-                "检测到正在运行但无法通信的 Snapin 守护进程（可能是旧版本或已无响应），\
-                 请先结束该进程后重试，原因: {reason}"
-            );
-        }
-        ExistingDaemon::Absent => {}
-    }
     recover_update_on_startup();
     initialize_daemon_platform(&runtime, &cfg);
 
@@ -99,6 +87,26 @@ pub fn run_daemon_process(cfg: Config) -> Result<()> {
     let gui_result = run_paster_workspace_loop(event_loop, options);
     let _ = gui_closed_tx.send(true);
     finish_daemon(runtime, server, gui_result)
+}
+
+/// 探测已有守护进程；无冲突时返回运行时供后续启动流程复用。
+fn prepare_daemon_runtime(
+    runtime: tokio::runtime::Runtime,
+) -> Result<Option<tokio::runtime::Runtime>> {
+    match probe_existing_daemon(&runtime) {
+        ExistingDaemon::Online => {
+            tracing::info!("Snapin 守护服务已在后台运行中，无需重复启动。");
+            runtime.shutdown_timeout(Duration::from_secs(1));
+            Ok(None)
+        }
+        ExistingDaemon::Unresponsive(reason) => {
+            runtime.shutdown_timeout(Duration::from_secs(1));
+            anyhow::bail!(
+                "检测到正在运行但无法通信的 Snapin 守护进程（可能是旧版本或已无响应），请先结束该进程后重试，原因: {reason}"
+            );
+        }
+        ExistingDaemon::Absent => Ok(Some(runtime)),
+    }
 }
 
 /// 启动中途失败时先有界停止后台运行时，避免 Runtime Drop 等待常驻任务而挂死。
@@ -358,28 +366,7 @@ async fn run_daemon_server(runtime: DaemonServerRuntime) -> Result<()> {
         sigterm,
     );
 
-    loop {
-        match sources.next_event().await {
-            DaemonEvent::Shutdown => break,
-            DaemonEvent::GuiClosed => {
-                tracing::warn!("GUI 工作区已退出，守护服务同步停止");
-                break;
-            }
-            DaemonEvent::Snipper(outcome) => {
-                dispatch_snipper_result(outcome, &services, &workspace_proxy);
-            }
-            DaemonEvent::Noop => {}
-            DaemonEvent::Ipc(invocation) => {
-                if handle_ipc_request(invocation, &services, &workspace_proxy) {
-                    break;
-                }
-            }
-            DaemonEvent::IpcClosed => {
-                tracing::info!("IPC 指令通道已关闭，准备退出守护进程");
-                break;
-            }
-        }
-    }
+    run_daemon_event_loop(&mut sources, &services, &workspace_proxy).await;
 
     let gui_closed = sources.into_gui_closed();
     ShutdownCoordinator::new()
@@ -392,6 +379,36 @@ async fn run_daemon_server(runtime: DaemonServerRuntime) -> Result<()> {
         })
         .await;
     Ok(())
+}
+
+/// 持续消费守护进程事件，直到停机或 IPC 通道关闭。
+async fn run_daemon_event_loop(
+    sources: &mut DaemonEventSources,
+    services: &Arc<AppServices>,
+    workspace: &PasterWorkspaceProxy,
+) {
+    loop {
+        match sources.next_event().await {
+            DaemonEvent::Shutdown => break,
+            DaemonEvent::GuiClosed => {
+                tracing::warn!("GUI 工作区已退出，守护服务同步停止");
+                break;
+            }
+            DaemonEvent::Snipper(outcome) => {
+                dispatch_snipper_result(outcome, services, workspace);
+            }
+            DaemonEvent::Noop => {}
+            DaemonEvent::Ipc(invocation) => {
+                if handle_ipc_request(invocation, services, workspace) {
+                    break;
+                }
+            }
+            DaemonEvent::IpcClosed => {
+                tracing::info!("IPC 指令通道已关闭，准备退出守护进程");
+                break;
+            }
+        }
+    }
 }
 
 /// 将截图结果提交到统一运行时处理。
