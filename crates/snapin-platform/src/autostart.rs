@@ -12,6 +12,23 @@ use std::time::Duration;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 const AUTOSTART_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// 转义写入 XML 文本节点的保留字符。
+#[cfg(any(target_os = "macos", test))]
+fn xml_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&apos;"),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
+}
+
 /// 同步开机自启动配置状态。
 ///
 /// 针对不同操作系统自动应用对应的原生自启持久化通路。
@@ -247,7 +264,7 @@ mod macos {
                 path: "current_exe".to_string(),
                 source: e,
             })?;
-            let exe_str = current_exe.to_string_lossy();
+            let exe_str = super::xml_escape(&current_exe.to_string_lossy());
 
             let plist_content = format!(
                 r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -292,5 +309,15 @@ mod macos {
         std::env::var("HOME").ok().map(|home| {
             PathBuf::from(home).join(format!("Library/LaunchAgents/{PLIST_LABEL}.plist"))
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::xml_escape;
+
+    #[test]
+    fn test_xml_escape_protects_launch_agent_path() {
+        assert_eq!(xml_escape("a&b<c>\"d'"), "a&amp;b&lt;c&gt;&quot;d&apos;");
     }
 }
