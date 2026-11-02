@@ -35,7 +35,7 @@ use snapin_ui::workspace::{
 use std::sync::Arc;
 use std::time::Duration;
 #[cfg(unix)]
-use tokio::signal::unix::{signal, SignalKind};
+use tokio::signal::unix::{signal, Signal, SignalKind};
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -334,21 +334,91 @@ async fn run_daemon_server(
     cfg: Config,
     workspace_proxy: PasterWorkspaceProxy,
     services: Arc<AppServices>,
-    mut snipper_rx: mpsc::Receiver<SnipperOutcome>,
-    mut gui_closed: watch::Receiver<bool>,
+    snipper_rx: mpsc::Receiver<SnipperOutcome>,
+    gui_closed: watch::Receiver<bool>,
 ) -> Result<()> {
-    let (mut rx, shutdown_tx, listener_handle) = start_ipc_listener().await?;
+    let (rx, shutdown_tx, listener_handle) = start_ipc_listener().await?;
     #[cfg(unix)]
-    let mut sigterm = signal(SignalKind::terminate()).context("注册 SIGTERM 信号监听失败")?;
+    let sigterm = signal(SignalKind::terminate()).context("注册 SIGTERM 信号监听失败")?;
     announce_daemon_startup(&cfg, &services).await;
 
-    let mut snipper_channel_open = true;
+    let mut sources = DaemonEventSources {
+        ipc_rx: rx,
+        snipper_rx,
+        gui_closed,
+        snipper_channel_open: true,
+        #[cfg(unix)]
+        sigterm,
+    };
 
     loop {
+        match sources.next_event().await {
+            DaemonEvent::Shutdown => break,
+            DaemonEvent::GuiClosed => {
+                tracing::warn!("GUI 工作区已退出，守护服务同步停止");
+                break;
+            }
+            DaemonEvent::Snipper(outcome) => {
+                dispatch_snipper_result(outcome, &services, &workspace_proxy);
+            }
+            DaemonEvent::Noop => {}
+            DaemonEvent::Ipc(invocation) => {
+                if handle_ipc_request(invocation, &services, &workspace_proxy) {
+                    break;
+                }
+            }
+            DaemonEvent::IpcClosed => {
+                tracing::info!("IPC 指令通道已关闭，准备退出守护进程");
+                break;
+            }
+        }
+    }
+
+    let DaemonEventSources { gui_closed, .. } = sources;
+    shutdown_daemon(
+        workspace_proxy,
+        gui_closed,
+        shutdown_tx,
+        listener_handle,
+        &services,
+    )
+    .await
+}
+
+/// 守护主循环可选择处理的事件。
+enum DaemonEvent {
+    Shutdown,
+    GuiClosed,
+    Snipper(SnipperOutcome),
+    Noop,
+    Ipc(snapin_daemon::IpcInvocation),
+    IpcClosed,
+}
+
+/// 守护主循环的输入通道与平台信号源。
+struct DaemonEventSources {
+    ipc_rx: mpsc::Receiver<snapin_daemon::IpcInvocation>,
+    snipper_rx: mpsc::Receiver<SnipperOutcome>,
+    gui_closed: watch::Receiver<bool>,
+    snipper_channel_open: bool,
+    #[cfg(unix)]
+    sigterm: Signal,
+}
+
+impl DaemonEventSources {
+    /// 等待并返回下一个需要处理的生命周期或业务事件。
+    async fn next_event(&mut self) -> DaemonEvent {
+        let ipc_rx = &mut self.ipc_rx;
+        let snipper_rx = &mut self.snipper_rx;
+        let gui_closed = &mut self.gui_closed;
+        let snipper_channel_open = &mut self.snipper_channel_open;
+        #[cfg(unix)]
+        let sigterm = &mut self.sigterm;
+
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 tracing::info!("收到中断信号 (Ctrl+C)，开始平滑停机");
-                break;
+                DaemonEvent::Shutdown
             }
             _ = async {
                 #[cfg(unix)]
@@ -361,48 +431,47 @@ async fn run_daemon_server(
                 }
             } => {
                 tracing::info!("收到 SIGTERM，开始平滑停机");
-                break;
+                DaemonEvent::Shutdown
             }
             changed = gui_closed.changed() => {
                 if changed.is_err() || *gui_closed.borrow() {
-                    tracing::warn!("GUI 工作区已退出，守护服务同步停止");
-                    break;
+                    DaemonEvent::GuiClosed
+                } else {
+                    DaemonEvent::Noop
                 }
             }
-            maybe_outcome = snipper_rx.recv(), if snipper_channel_open => {
+            maybe_outcome = snipper_rx.recv(), if *snipper_channel_open => {
                 match maybe_outcome {
-                    Some(outcome) => {
-                        let services = Arc::clone(&services);
-                        let workspace = workspace_proxy.clone();
-                        if let Err(error) = services.runtime().spawn(async move {
-                            handle_snipper_result(outcome, &services, &workspace).await;
-                        }) {
-                            tracing::warn!("提交截图结果处理任务失败: {error}");
-                        }
+                    Some(outcome) => DaemonEvent::Snipper(outcome),
+                    None => {
+                        *snipper_channel_open = false;
+                        DaemonEvent::Noop
                     }
-                    None => snipper_channel_open = false,
                 }
             }
-            maybe_invocation = rx.recv() => {
-                let Some(invocation) = maybe_invocation else {
-                    tracing::info!("IPC 指令通道已关闭，准备退出守护进程");
-                    break;
-                };
-                if handle_ipc_request(invocation, &services, &workspace_proxy) {
-                    break;
+            maybe_invocation = ipc_rx.recv() => {
+                match maybe_invocation {
+                    Some(invocation) => DaemonEvent::Ipc(invocation),
+                    None => DaemonEvent::IpcClosed,
                 }
             }
         }
     }
+}
 
-    shutdown_daemon(
-        workspace_proxy,
-        gui_closed,
-        shutdown_tx,
-        listener_handle,
-        &services,
-    )
-    .await
+/// 将截图结果提交到统一运行时处理。
+fn dispatch_snipper_result(
+    outcome: SnipperOutcome,
+    services: &Arc<AppServices>,
+    workspace_proxy: &PasterWorkspaceProxy,
+) {
+    let services = Arc::clone(services);
+    let workspace = workspace_proxy.clone();
+    if let Err(error) = services.runtime().spawn(async move {
+        handle_snipper_result(outcome, &services, &workspace).await;
+    }) {
+        tracing::warn!("提交截图结果处理任务失败: {error}");
+    }
 }
 
 /// 启动 IPC 监听并返回指令接收端、停机信号与监听任务句柄。
