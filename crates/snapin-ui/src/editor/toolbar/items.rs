@@ -242,6 +242,75 @@ impl ToolbarItem {
             Self::Action(_) => None,
         }
     }
+
+    /// 悬浮提示中展示的中文名称。
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Tool(tool) => tool.label(),
+            Self::Action(action) => action.label(),
+        }
+    }
+
+    /// 悬浮提示中展示的快捷键；工具与无键位动作返回 `None`。
+    pub const fn shortcut(self) -> Option<&'static str> {
+        match self {
+            Self::Tool(_) => None,
+            Self::Action(action) => action.shortcut(),
+        }
+    }
+}
+
+impl Tool {
+    /// 工具中文名称，用于悬浮提示。
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Rect => "矩形",
+            Self::Ellipse => "椭圆",
+            Self::Arrow => "箭头",
+            Self::Pen => "画笔",
+            Self::Marker => "荧光笔",
+            Self::Text => "文字",
+            Self::Badge => "序号",
+            Self::Mosaic => "马赛克",
+            Self::Blur => "模糊",
+            Self::Spotlight => "聚光灯",
+        }
+    }
+}
+
+impl ToolbarAction {
+    /// 动作中文名称，用于悬浮提示。
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Undo => "撤销",
+            Self::Redo => "重做",
+            Self::Ocr => "文字识别",
+            Self::Translate => "翻译",
+            Self::MouseThrough => "鼠标穿透",
+            Self::Pin => "贴图置顶",
+            Self::Copy => "复制",
+            Self::Save => "保存",
+            Self::Close => "关闭",
+        }
+    }
+
+    /// 截图会话中真实生效的快捷键。
+    ///
+    /// 贴图窗口键位与截图不同，由 `Toolbar::show_shortcut_hints` 决定是否展示；
+    /// 这里只描述截图侧已经实现的绑定，不能凭按钮语义臆造键位。
+    pub const fn shortcut(self) -> Option<&'static str> {
+        match self {
+            Self::Undo => Some("Ctrl+Z"),
+            Self::Redo => Some("Ctrl+Y"),
+            Self::Ocr => Some("O"),
+            Self::Translate => Some("T"),
+            Self::Pin => Some("F3"),
+            Self::Copy => Some("Ctrl+C"),
+            Self::Save => Some("Ctrl+S"),
+            Self::Close => Some("Esc"),
+            Self::MouseThrough => None,
+        }
+    }
 }
 
 /// 笔刷粗细预设档位
@@ -387,5 +456,44 @@ mod tests {
             .count();
         assert_eq!(tool_count, 9);
         assert_eq!(action_count, 8);
+    }
+
+    /// 每个工具与动作都必须有非空中文名称；工具没有键位，动作只声明真实存在的绑定。
+    #[test]
+    fn test_every_item_has_label_and_declared_shortcuts() {
+        let tools = [
+            Tool::Rect,
+            Tool::Ellipse,
+            Tool::Arrow,
+            Tool::Pen,
+            Tool::Marker,
+            Tool::Text,
+            Tool::Badge,
+            Tool::Mosaic,
+            Tool::Blur,
+            Tool::Spotlight,
+        ];
+        for tool in tools {
+            assert!(!tool.label().is_empty(), "{tool:?} 必须有中文名称");
+            assert_eq!(ToolbarItem::tool(tool).shortcut(), None);
+        }
+
+        let actions = [
+            ToolbarAction::Undo,
+            ToolbarAction::Redo,
+            ToolbarAction::Ocr,
+            ToolbarAction::Translate,
+            ToolbarAction::MouseThrough,
+            ToolbarAction::Pin,
+            ToolbarAction::Copy,
+            ToolbarAction::Save,
+            ToolbarAction::Close,
+        ];
+        for action in actions {
+            assert!(!action.label().is_empty(), "{action:?} 必须有中文名称");
+        }
+        assert_eq!(ToolbarAction::Undo.shortcut(), Some("Ctrl+Z"));
+        assert_eq!(ToolbarAction::Copy.shortcut(), Some("Ctrl+C"));
+        assert_eq!(ToolbarAction::MouseThrough.shortcut(), None);
     }
 }

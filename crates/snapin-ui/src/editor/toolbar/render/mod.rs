@@ -6,12 +6,14 @@
 mod dropdown;
 mod main_bar;
 mod sub_bar;
+mod tooltip;
 mod widgets;
 
 use super::Toolbar;
 use main_bar::{render_drag_handle, render_main_buttons};
 use sub_bar::render_sub_options;
 use tiny_skia::PixmapMut;
+use tooltip::render_hover_tooltip;
 use widgets::render_panel_background;
 
 /// 渲染整个工具栏界面 (包含主工具栏与二级属性栏)
@@ -35,6 +37,9 @@ pub fn render_toolbar(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
         render_panel_background(pixmap, &sub_rect, s);
         render_sub_options(toolbar, pixmap, &sub_rect);
     }
+
+    // 4. 悬浮提示最后绘制，保证位于主栏、属性栏与下拉菜单之上
+    render_hover_tooltip(toolbar, pixmap);
 }
 
 impl Toolbar {

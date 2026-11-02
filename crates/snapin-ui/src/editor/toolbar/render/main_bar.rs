@@ -2,9 +2,7 @@
 
 use super::super::icons::{make_paint, render_item_icon};
 use super::super::items::{tool_descriptor, Tool, ToolbarAction, ToolbarItem};
-use super::super::metrics::{
-    button_size, divider_width, drag_handle_width, has_separator_before, padding, spacing,
-};
+use super::super::metrics::{divider_width, drag_handle_width, has_separator_before, padding};
 use super::super::Toolbar;
 use super::widgets::{fill_button_highlight, render_active_bottom_bar, render_divider};
 use crate::geometry::Rect;
@@ -38,23 +36,20 @@ pub(super) fn render_drag_handle(pixmap: &mut PixmapMut, main_rect: &Rect, s: f3
 /// 绘制主工具栏的各个按钮项
 pub(super) fn render_main_buttons(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
     let s = toolbar.ui_scale;
-    let btn_size = button_size(s);
     let padding = padding(s);
-    let spacing = spacing(s);
-    let mut cur_x = toolbar.main_rect.x + padding;
+    let items =
+        super::super::interaction::main_item_rects(&toolbar.main_rect, toolbar.main_items, s);
 
-    for (idx, &item) in toolbar.main_items.iter().enumerate() {
+    for (idx, (item, btn_rect)) in items.into_iter().enumerate() {
         if has_separator_before(toolbar.main_items, idx) {
-            render_divider(pixmap, cur_x + 3.0 * s, toolbar.main_rect.y + padding, s);
-            cur_x += divider_width(s);
+            // 按钮矩形已经让过分隔线占位，绘制坐标由矩形反推，与命中区域保持严格一致。
+            render_divider(
+                pixmap,
+                btn_rect.x - divider_width(s) + 3.0 * s,
+                toolbar.main_rect.y + padding,
+                s,
+            );
         }
-
-        let btn_rect = Rect {
-            x: cur_x,
-            y: toolbar.main_rect.y + padding,
-            width: btn_size,
-            height: btn_size,
-        };
 
         let is_geometric_slot = item
             .as_tool()
@@ -77,11 +72,7 @@ pub(super) fn render_main_buttons(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
             }
         }
 
-        let display_item = if is_geometric_slot && toolbar.active_tool == Some(Tool::Ellipse) {
-            ToolbarItem::Tool(Tool::Ellipse)
-        } else {
-            item
-        };
+        let display_item = toolbar.displayed_item(item);
 
         render_item_icon(
             pixmap,
@@ -90,6 +81,5 @@ pub(super) fn render_main_buttons(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
             s,
             toolbar.sub_options.color,
         );
-        cur_x += btn_size + spacing;
     }
 }

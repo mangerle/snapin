@@ -55,6 +55,8 @@ const SUB_BAR_GAP: f32 = 4.0;
 pub(crate) fn create_paster_toolbar() -> Toolbar {
     let mut toolbar = Toolbar::default();
     toolbar.main_items = PASTER_MAIN_ITEMS;
+    // 贴图窗口没有截图侧的 Ctrl+Z/Ctrl+S 等键位，悬浮提示只展示按钮名称。
+    toolbar.show_shortcut_hints = false;
     toolbar
 }
 

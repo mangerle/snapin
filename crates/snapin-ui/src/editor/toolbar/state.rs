@@ -1,6 +1,6 @@
 //! 工具栏整体状态、默认值与截图主栏按钮序列。
 
-use super::items::{SubToolOptions, Tool, ToolbarAction, ToolbarItem};
+use super::items::{tool_descriptor, SubToolOptions, Tool, ToolbarAction, ToolbarItem};
 use super::layout::{SubDropdown, SubLayout};
 use crate::geometry::Rect;
 
@@ -42,6 +42,11 @@ pub struct Toolbar {
     pub(super) manual_pos: Option<(f32, f32)>,
     /// 拖动进行中时，光标相对主栏左上角的偏移；`None` 表示未在拖动
     pub(super) drag_offset: Option<(f32, f32)>,
+    /// 悬浮提示是否附带快捷键。
+    ///
+    /// 截图侧已实现 Ctrl+Z/Ctrl+C 等键位；贴图窗口的键盘绑定不同且更少，
+    /// 打开该开关会展示并不存在的快捷键，因此在贴图工具栏中关闭。
+    pub show_shortcut_hints: bool,
 }
 
 impl Default for Toolbar {
@@ -66,6 +71,7 @@ impl Default for Toolbar {
             draggable: false,
             manual_pos: None,
             drag_offset: None,
+            show_shortcut_hints: true,
         }
     }
 }
@@ -91,4 +97,19 @@ impl Toolbar {
         ToolbarItem::Action(ToolbarAction::Save),
         ToolbarItem::Action(ToolbarAction::Copy),
     ];
+
+    /// 主栏按钮在当前状态下实际展示的项：矩形与椭圆共用同一个几何槽位。
+    ///
+    /// 图标渲染与悬浮提示的名称都必须经由此处解析，否则椭圆激活时
+    /// 提示仍会显示"矩形"，与用户看到的图标不符。
+    pub(crate) fn displayed_item(&self, item: ToolbarItem) -> ToolbarItem {
+        let is_geometric_slot = item
+            .as_tool()
+            .is_some_and(|tool| tool_descriptor(tool).geometric_slot);
+        if is_geometric_slot && self.active_tool == Some(Tool::Ellipse) {
+            ToolbarItem::Tool(Tool::Ellipse)
+        } else {
+            item
+        }
+    }
 }
