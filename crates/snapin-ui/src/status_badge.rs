@@ -5,7 +5,7 @@
 
 use crate::drawing::{add_round_rect, RoundRect};
 use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
-use tiny_skia::{FillRule, PathBuilder, PixmapMut, Stroke, Transform};
+use tiny_skia::{FillRule, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 状态提示胶囊的视觉与布局参数。
 #[derive(Debug, Clone, Copy)]
@@ -144,7 +144,16 @@ pub(crate) fn render(
     if message.is_empty() || layout.box_w <= 0.0 || layout.box_h <= 0.0 {
         return;
     }
-    let radius = 6.0 * layout.scale;
+    draw_badge_background(pixmap, layout, style);
+    draw_badge_text(pixmap, message, layout, style);
+}
+
+/// 绘制状态提示胶囊的底色与边框。
+fn draw_badge_background(
+    pixmap: &mut PixmapMut,
+    layout: &StatusBadgeLayout,
+    style: StatusBadgeStyle,
+) {
     let mut path = PathBuilder::new();
     add_round_rect(
         &mut path,
@@ -153,34 +162,48 @@ pub(crate) fn render(
             y: layout.box_y,
             width: layout.box_w,
             height: layout.box_h,
-            radius,
+            radius: 6.0 * layout.scale,
         },
     );
-    if let Some(path) = path.finish() {
-        let mut paint = tiny_skia::Paint::default();
-        paint.set_color_rgba8(style.fill.0, style.fill.1, style.fill.2, style.fill.3);
-        pixmap.fill_path(
-            &path,
-            &paint,
-            FillRule::Winding,
-            Transform::identity(),
-            None,
-        );
+    let Some(path) = path.finish() else {
+        return;
+    };
+    let mut paint = Paint::default();
+    paint.set_color_rgba8(style.fill.0, style.fill.1, style.fill.2, style.fill.3);
+    pixmap.fill_path(
+        &path,
+        &paint,
+        FillRule::Winding,
+        Transform::identity(),
+        None,
+    );
 
-        let mut border = tiny_skia::Paint::default();
-        border.set_color_rgba8(
-            style.border.0,
-            style.border.1,
-            style.border.2,
-            style.border.3,
-        );
-        let stroke = Stroke {
+    let mut border = Paint::default();
+    border.set_color_rgba8(
+        style.border.0,
+        style.border.1,
+        style.border.2,
+        style.border.3,
+    );
+    pixmap.stroke_path(
+        &path,
+        &border,
+        &Stroke {
             width: layout.scale,
             ..Default::default()
-        };
-        pixmap.stroke_path(&path, &border, &stroke, Transform::identity(), None);
-    }
+        },
+        Transform::identity(),
+        None,
+    );
+}
 
+/// 绘制状态提示文字。
+fn draw_badge_text(
+    pixmap: &mut PixmapMut,
+    message: &str,
+    layout: &StatusBadgeLayout,
+    style: StatusBadgeStyle,
+) {
     with_thread_local_text_renderer(|renderer| {
         renderer.draw_text_rgba(
             pixmap,
