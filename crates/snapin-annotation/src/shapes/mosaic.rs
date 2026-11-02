@@ -10,6 +10,25 @@ use tiny_skia::{
     Stroke, Transform,
 };
 
+/// 画笔马赛克遮罩的画布尺寸与偏移。
+#[derive(Clone, Copy)]
+struct BrushMaskSpec {
+    width: u32,
+    height: u32,
+    offset: Point,
+}
+
+/// 单个马赛克块的像素范围、行跨度与采样颜色。
+#[derive(Clone, Copy)]
+struct MosaicBlock {
+    stride: usize,
+    top: usize,
+    bottom: usize,
+    left: usize,
+    right: usize,
+    pixel: [u8; 4],
+}
+
 /// 马赛克遮罩动作
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MosaicAction {
@@ -96,8 +115,11 @@ impl MosaicAction {
         }
         pixelate_region(target_data, width, height, self.cell_size.max(4) as usize);
 
-        let Some(mask) = self.build_brush_mask(pixmap.width(), pixmap.height(), offset_x, offset_y)
-        else {
+        let Some(mask) = self.build_brush_mask(BrushMaskSpec {
+            width: pixmap.width(),
+            height: pixmap.height(),
+            offset: Point::new(offset_x, offset_y),
+        }) else {
             return;
         };
         pixmap.draw_pixmap(
@@ -110,22 +132,16 @@ impl MosaicAction {
         );
     }
 
-    fn build_brush_mask(
-        &self,
-        width: u32,
-        height: u32,
-        offset_x: f32,
-        offset_y: f32,
-    ) -> Option<Mask> {
-        let mut mask_pixmap = Pixmap::new(width, height)?;
+    fn build_brush_mask(&self, spec: BrushMaskSpec) -> Option<Mask> {
+        let mut mask_pixmap = Pixmap::new(spec.width, spec.height)?;
         let mut paint = Paint::default();
         paint.set_color(tiny_skia::Color::WHITE);
         if self.points.len() == 1 {
             let point = self.points[0];
             let radius = self.brush_width.max(1.0) / 2.0;
             if let Some(rect) = Rect::from_xywh(
-                point.x + offset_x - radius,
-                point.y + offset_y - radius,
+                point.x + spec.offset.x - radius,
+                point.y + spec.offset.y - radius,
                 radius * 2.0,
                 radius * 2.0,
             ) {
@@ -133,9 +149,12 @@ impl MosaicAction {
             }
         } else {
             let mut builder = PathBuilder::new();
-            builder.move_to(self.points[0].x + offset_x, self.points[0].y + offset_y);
+            builder.move_to(
+                self.points[0].x + spec.offset.x,
+                self.points[0].y + spec.offset.y,
+            );
             for point in &self.points[1..] {
-                builder.line_to(point.x + offset_x, point.y + offset_y);
+                builder.line_to(point.x + spec.offset.x, point.y + spec.offset.y);
             }
             let path = builder.finish()?;
             let stroke = Stroke {
@@ -243,12 +262,14 @@ fn apply_mosaic_rect(data: &mut [u8], width: usize, bounds: MosaicBounds, cell: 
             ];
             fill_mosaic_block(
                 data,
-                stride,
-                block_top,
-                block_bottom,
-                block_left,
-                block_right,
-                pixel,
+                MosaicBlock {
+                    stride,
+                    top: block_top,
+                    bottom: block_bottom,
+                    left: block_left,
+                    right: block_right,
+                    pixel,
+                },
             );
             block_left = block_right;
         }
@@ -257,20 +278,12 @@ fn apply_mosaic_rect(data: &mut [u8], width: usize, bounds: MosaicBounds, cell: 
 }
 
 /// 用同一颜色填充一个马赛克块，按行直接写像素。
-fn fill_mosaic_block(
-    data: &mut [u8],
-    stride: usize,
-    top: usize,
-    bottom: usize,
-    left: usize,
-    right: usize,
-    pixel: [u8; 4],
-) {
-    for row in top..bottom {
-        let start = row * stride + left * 4;
-        let end = row * stride + right * 4;
+fn fill_mosaic_block(data: &mut [u8], block: MosaicBlock) {
+    for row in block.top..block.bottom {
+        let start = row * block.stride + block.left * 4;
+        let end = row * block.stride + block.right * 4;
         for target in data[start..end].as_chunks_mut::<4>().0 {
-            target.copy_from_slice(&pixel);
+            target.copy_from_slice(&block.pixel);
         }
     }
 }
