@@ -129,57 +129,67 @@ fn render_menu_panel(
 
 /// 绘制菜单面板的柔影、白色底板与边框。
 fn render_panel_surface(pixmap: &mut PixmapMut, layout: MenuLayout, total_h: f32) {
-    let (x, y, width, s) = (layout.x, layout.y, layout.width, layout.scale);
-    let mut pb_shadow = PathBuilder::new();
+    draw_menu_shadow(pixmap, layout, total_h);
+    draw_menu_body(pixmap, layout, total_h);
+}
+
+/// 绘制菜单面板阴影。
+fn draw_menu_shadow(pixmap: &mut PixmapMut, layout: MenuLayout, total_h: f32) {
+    let mut builder = PathBuilder::new();
     add_round_rect(
-        &mut pb_shadow,
+        &mut builder,
         RoundRect {
-            x,
-            y: y + 2.0 * s,
-            width,
+            x: layout.x,
+            y: layout.y + 2.0 * layout.scale,
+            width: layout.width,
             height: total_h,
-            radius: 8.0 * s,
+            radius: 8.0 * layout.scale,
         },
     );
-    if let Some(path) = pb_shadow.finish() {
-        let shadow_paint = make_paint(Color::from_rgba8(0, 0, 0, 36));
+    if let Some(path) = builder.finish() {
         pixmap.fill_path(
             &path,
-            &shadow_paint,
+            &make_paint(Color::from_rgba8(0, 0, 0, 36)),
             tiny_skia::FillRule::Winding,
             Transform::identity(),
             None,
         );
     }
+}
 
-    let mut pb_bg = PathBuilder::new();
+/// 绘制菜单面板白色底板与边框。
+fn draw_menu_body(pixmap: &mut PixmapMut, layout: MenuLayout, total_h: f32) {
+    let mut builder = PathBuilder::new();
     add_round_rect(
-        &mut pb_bg,
+        &mut builder,
         RoundRect {
-            x,
-            y,
-            width,
+            x: layout.x,
+            y: layout.y,
+            width: layout.width,
             height: total_h,
-            radius: 8.0 * s,
+            radius: 8.0 * layout.scale,
         },
     );
-    if let Some(path) = pb_bg.finish() {
-        let bg_paint = make_paint(Color::from_rgba8(255, 255, 255, 252));
-        pixmap.fill_path(
-            &path,
-            &bg_paint,
-            tiny_skia::FillRule::Winding,
-            Transform::identity(),
-            None,
-        );
-
-        let stroke_paint = make_paint(Color::from_rgba8(218, 224, 233, 240));
-        let stroke = Stroke {
-            width: 1.0 * s,
+    let Some(path) = builder.finish() else {
+        return;
+    };
+    pixmap.fill_path(
+        &path,
+        &make_paint(Color::from_rgba8(255, 255, 255, 252)),
+        tiny_skia::FillRule::Winding,
+        Transform::identity(),
+        None,
+    );
+    pixmap.stroke_path(
+        &path,
+        &make_paint(Color::from_rgba8(218, 224, 233, 240)),
+        &Stroke {
+            width: layout.scale,
             ..Default::default()
-        };
-        pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
-    }
+        },
+        Transform::identity(),
+        None,
+    );
 }
 
 /// 绘制菜单项之间的细分隔线。
