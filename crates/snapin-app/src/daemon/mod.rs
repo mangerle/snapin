@@ -138,7 +138,6 @@ fn recover_update_on_startup() {
 /// 初始化平台能力、快捷键和 GNOME 扩展。
 fn initialize_daemon_platform(runtime: &tokio::runtime::Runtime, cfg: &Config) {
     tracing::info!("Snapin 守护服务启动中...");
-    runtime.block_on(snapin_platform::init_platform_capabilities());
     runtime.block_on(run_startup_hotkeys_and_extension(cfg));
     runtime.block_on(snapin_platform::refresh_platform_capabilities());
 }
