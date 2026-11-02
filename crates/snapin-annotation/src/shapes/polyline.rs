@@ -47,10 +47,10 @@ impl PolylineAction {
             &paint,
             StrokePathSpec::new(&path, self.stroke_width),
         );
-        self.draw_heads(pixmap, offset_x, offset_y, &paint);
+        self.draw_heads(pixmap, Point::new(offset_x, offset_y), &paint);
     }
 
-    fn draw_heads(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32, paint: &Paint) {
+    fn draw_heads(&self, pixmap: &mut PixmapMut, offset: Point, paint: &Paint) {
         let Some(first) = self.points.first().copied() else {
             return;
         };
@@ -62,7 +62,7 @@ impl PolylineAction {
             pixmap,
             paint,
             PolylineHeadDraw {
-                tip: Point::new(first.x + offset_x, first.y + offset_y),
+                tip: first.translated(offset.x, offset.y),
                 direction: direction(first, first_next),
                 style: self.start_head,
             },
@@ -76,7 +76,7 @@ impl PolylineAction {
             pixmap,
             paint,
             PolylineHeadDraw {
-                tip: Point::new(last.x + offset_x, last.y + offset_y),
+                tip: last.translated(offset.x, offset.y),
                 direction: direction(last_prev, last),
                 style: self.end_head,
             },
