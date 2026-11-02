@@ -68,7 +68,7 @@ fn prepare_save_request(
     match config::get_default_config_path() {
         Ok(path) => Some((config, path)),
         Err(error) => {
-            tracing::error!("获取配置文件路径失败: {error}");
+            tracing::warn!("获取配置文件路径失败: {error}");
             window.set_status_message(SharedString::from(format!(
                 "保存失败: 无法定位配置文件 ({error})"
             )));
@@ -139,7 +139,7 @@ fn finish_save(
             window.set_status_message(SharedString::from(message));
         }
         Err(message) => {
-            tracing::error!("{message}");
+            tracing::warn!("{message}");
             window.set_status_message(SharedString::from(message));
         }
     }

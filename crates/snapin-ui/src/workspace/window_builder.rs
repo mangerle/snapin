@@ -17,6 +17,8 @@ pub struct PasterInstance {
     pub window: Arc<Window>,
     pub surface: PasterSurface,
     pub state: PasterWindowState,
+    /// 当前连续渲染失败是否已经上报，避免重绘循环反复刷日志。
+    pub render_error_reported: bool,
 }
 
 /// 在当前集中事件循环中动态创建并注入一个新贴图子窗口
@@ -51,6 +53,7 @@ pub(crate) fn create_new_paster_window(
         window,
         surface,
         state,
+        render_error_reported: false,
     };
 
     runtime.instances.insert(win_id, instance);

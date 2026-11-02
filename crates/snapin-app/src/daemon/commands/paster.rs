@@ -128,7 +128,7 @@ pub(super) async fn create(
     register_paster_placement(&title, x, y).await;
     let item = PasterItem::new(uid, title.clone(), pixmap, (x, y));
     if let Err(error) = workspace.open_paster(item) {
-        tracing::error!("在集中工作区中打开贴图失败: {error}");
+        tracing::warn!("在集中工作区中打开贴图失败: {error}");
         return Some(DaemonResponse::error(
             DaemonErrorCode::Unavailable,
             format!("打开贴图失败: {error}"),

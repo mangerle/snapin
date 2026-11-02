@@ -149,7 +149,7 @@ pub(crate) async fn start_snipper_task(
     match prepare_snipper_launch(&services, request).await {
         Ok(launch) => {
             if let Err(error) = workspace.open_snipper(launch) {
-                tracing::error!("向常驻工作区投递截图覆盖层失败: {error}");
+                tracing::warn!("向常驻工作区投递截图覆盖层失败: {error}");
                 let _ = send_desktop_notification(
                     snapin_foundation::i18n::tr("Snapin 截图失败"),
                     snapin_foundation::i18n::tr(

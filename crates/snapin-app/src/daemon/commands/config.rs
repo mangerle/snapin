@@ -14,7 +14,7 @@ pub(super) async fn reload_config(
     let new_config = match loaded {
         Ok(Ok(config)) => config,
         Ok(Err(error)) => {
-            tracing::error!("重新加载配置文件失败: {error}");
+            tracing::warn!("重新加载配置文件失败: {error}");
             return DaemonResponse::error(
                 DaemonErrorCode::InvalidInput,
                 format!("重新加载配置文件失败: {error}"),

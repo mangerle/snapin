@@ -151,12 +151,17 @@ fn handle_redraw_event(inst: &mut PasterInstance) -> bool {
     inst.state.clear_expired_status(Instant::now());
     let size = inst.window.inner_size();
     match render_paster_to_surface(&mut inst.state, &mut inst.surface, size.width, size.height) {
-        Ok(PresentOutcome::Presented) => {}
+        Ok(PresentOutcome::Presented) => {
+            inst.render_error_reported = false;
+        }
         Ok(PresentOutcome::Deferred) => {
             tracing::debug!("合成器尚未归还贴图缓冲区，本帧已安全延期");
         }
         Err(error) => {
-            tracing::error!("贴图渲染帧缓冲失败: {error}");
+            if !inst.render_error_reported {
+                tracing::error!("贴图渲染帧缓冲失败: {error}");
+                inst.render_error_reported = true;
+            }
         }
     }
     inst.state.should_close

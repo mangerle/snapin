@@ -299,7 +299,7 @@ fn apply_download_result(
             window.set_download_speed_text(SharedString::from("已就绪"));
         }
         Err(error) => {
-            tracing::error!("下载或验签更新包失败: {error}");
+            tracing::warn!("下载或验签更新包失败: {error}");
             window.set_update_status(UpdateUiStatus::Error as i32);
             window.set_update_status_text(SharedString::from(format!("下载失败: {error}")));
         }
@@ -453,7 +453,7 @@ fn report_install_error(
     cancel: &CancellationToken,
     message: String,
 ) {
-    tracing::error!("{message}");
+    tracing::warn!("{message}");
     if cancel.is_cancelled() {
         return;
     }

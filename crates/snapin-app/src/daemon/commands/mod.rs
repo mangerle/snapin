@@ -121,7 +121,7 @@ async fn paste_clipboard(
         Ok(PasteDispatchOutcome::Handled) => Some(DaemonResponse::Ok),
         Ok(PasteDispatchOutcome::Cancelled) => None,
         Err(error) => {
-            tracing::error!("守护服务执行剪贴板贴图失败: {error}");
+            tracing::warn!("守护服务执行剪贴板贴图失败: {error}");
             Some(DaemonResponse::error(
                 DaemonErrorCode::Unavailable,
                 format!("剪贴板贴图失败: {error}"),

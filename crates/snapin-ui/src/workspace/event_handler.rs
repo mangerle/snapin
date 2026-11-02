@@ -34,7 +34,7 @@ pub(crate) fn handle_workspace_user_event(
         PasterAppEvent::ReloadConfig(new_cfg) => reload_config(*new_cfg, runtime),
         PasterAppEvent::OpenPaster(item) => {
             if let Err(e) = create_new_paster_window(item, runtime, elwt) {
-                tracing::error!("在当前事件循环中创建新贴图窗口失败: {e}");
+                tracing::warn!("在当前事件循环中创建新贴图窗口失败: {e}");
             }
         }
         PasterAppEvent::OpenSnipper(launch) => {
@@ -217,7 +217,7 @@ fn open_snipper(
             runtime.snipper = Some(view);
         }
         Err(error) => {
-            tracing::error!("创建截图覆盖层失败: {error}");
+            tracing::warn!("创建截图覆盖层失败: {error}");
             notify_snipper_finished(runtime, SnipperOutcome::Cancelled);
         }
     }
