@@ -7,7 +7,7 @@ use crate::error::StorageError;
 use image::RgbaImage;
 use serde::{Deserialize, Serialize};
 use snapin_foundation::AppPaths;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 剪贴板历史最大条数。
@@ -100,12 +100,14 @@ pub fn append_clipboard_image(image: &RgbaImage) -> Result<Vec<ClipboardEntry>, 
 
 /// 读取条目对应的图像文件。
 pub fn load_clipboard_image(entry: &ClipboardEntry) -> Result<RgbaImage, StorageError> {
-    let path = clipboard_history_dir().join(entry.image_file.as_deref().ok_or_else(|| {
-        StorageError::InvalidSavePath {
+    let file_name = entry
+        .image_file
+        .as_deref()
+        .ok_or_else(|| StorageError::InvalidSavePath {
             path: "<missing>".to_string(),
             message: "图像历史缺少文件名".to_string(),
-        }
-    })?);
+        })?;
+    let path = validated_image_path(&clipboard_history_dir(), file_name)?;
     image::open(&path)
         .map(|image| image.to_rgba8())
         .map_err(|error| StorageError::Io {
@@ -180,32 +182,64 @@ fn trim_and_save(
 
 fn prune_expired(entries: &mut Vec<ClipboardEntry>, dir: &Path) {
     let cutoff = now_secs().saturating_sub(CLIPBOARD_HISTORY_TTL_SECS);
-    entries.retain(|entry| entry.created_at >= cutoff);
-    for entry in entries.iter_mut() {
-        if let Some(file) = entry.image_file.as_deref() {
-            if !dir.join(file).exists() {
-                entry.created_at = 0;
-            }
-        }
-    }
-    entries.retain(|entry| entry.created_at >= cutoff);
+    entries.retain(|entry| entry.created_at >= cutoff && entry_payload_is_valid(entry, dir));
 }
 
 fn remove_orphan_images(dir: &Path, entries: &[ClipboardEntry]) {
-    let keep: Vec<&str> = entries
+    let keep: Vec<PathBuf> = entries
         .iter()
-        .filter_map(|entry| entry.image_file.as_deref())
+        .filter_map(|entry| {
+            entry
+                .image_file
+                .as_deref()
+                .and_then(|file| validated_image_path(dir, file).ok())
+        })
         .collect();
     let Ok(read_dir) = std::fs::read_dir(dir) else {
         return;
     };
     for image in read_dir.flatten() {
-        let name = image.file_name();
-        let name = name.to_string_lossy();
-        if name.ends_with(".png") && !keep.contains(&name.as_ref()) {
+        let path = image.path();
+        if path.extension().and_then(|extension| extension.to_str()) == Some("png")
+            && !keep.contains(&path)
+        {
             let _ = std::fs::remove_file(image.path());
         }
     }
+}
+
+/// 校验历史条目载荷与其类型一致，防止损坏索引把文本和图像字段同时带入业务层。
+fn entry_payload_is_valid(entry: &ClipboardEntry, dir: &Path) -> bool {
+    match entry.kind {
+        ClipboardEntryKind::Text | ClipboardEntryKind::Color => {
+            entry.image_file.is_none() && entry.text.as_deref().is_some_and(|text| !text.is_empty())
+        }
+        ClipboardEntryKind::Image => {
+            entry.text.is_none()
+                && entry.image_file.as_deref().is_some_and(|file| {
+                    validated_image_path(dir, file).is_ok_and(|path| path.is_file())
+                })
+        }
+    }
+}
+
+/// 只接受历史目录下的单段 `.png` 文件名，彻底阻断损坏索引构造的路径穿越。
+fn validated_image_path(dir: &Path, file_name: &str) -> Result<PathBuf, StorageError> {
+    let relative = Path::new(file_name);
+    let mut components = relative.components();
+    let single_normal_component =
+        matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none();
+    let is_png = relative
+        .extension()
+        .and_then(|extension| extension.to_str())
+        == Some("png");
+    if !single_normal_component || !is_png {
+        return Err(StorageError::InvalidSavePath {
+            path: file_name.to_string(),
+            message: "剪贴板图像文件名必须是历史目录内的单段 .png 文件名".to_string(),
+        });
+    }
+    Ok(dir.join(relative))
 }
 
 fn now_secs() -> u64 {
@@ -213,4 +247,45 @@ fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validated_image_path_rejects_traversal_and_nested_paths() {
+        let dir = Path::new("/tmp/snapin-history");
+        for invalid in [
+            "../secret.png",
+            "nested/image.png",
+            "/tmp/secret.png",
+            "image.jpg",
+        ] {
+            assert!(
+                validated_image_path(dir, invalid).is_err(),
+                "非法历史图像路径必须被拒绝: {invalid}"
+            );
+        }
+        assert_eq!(
+            validated_image_path(dir, "safe.png").expect("合法文件名应通过"),
+            dir.join("safe.png")
+        );
+    }
+
+    #[test]
+    fn test_prune_removes_entry_with_traversing_image_path() {
+        let dir = tempfile::tempdir().expect("应可创建测试目录");
+        let mut entries = vec![ClipboardEntry {
+            id: 1,
+            kind: ClipboardEntryKind::Image,
+            text: None,
+            image_file: Some("../outside.png".to_string()),
+            created_at: now_secs(),
+        }];
+
+        prune_expired(&mut entries, dir.path());
+
+        assert!(entries.is_empty(), "路径穿越条目必须在读取边界被丢弃");
+    }
 }
