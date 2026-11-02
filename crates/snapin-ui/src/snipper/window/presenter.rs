@@ -72,6 +72,15 @@ pub struct SnipperPresenter {
     overlay: Option<OverlaySnapshot>,
 }
 
+/// 截图呈现器初始化参数。
+pub struct SnipperPresenterInit<'a> {
+    pub window: Arc<Window>,
+    pub width: u32,
+    pub height: u32,
+    pub bg_image: &'a RgbaImage,
+    pub dimmed: bool,
+}
+
 impl SnipperPresenter {
     /// 初始化截图呈现器与底层共享帧缓冲表面。
     ///
@@ -81,13 +90,14 @@ impl SnipperPresenter {
     /// # Errors
     ///
     /// 像素缓冲分配、表面调整或呈现失败时返回 [`UiError`]。
-    pub fn try_new(
-        window: Arc<Window>,
-        width: u32,
-        height: u32,
-        bg_image: &RgbaImage,
-        dimmed: bool,
-    ) -> Result<Self, UiError> {
+    pub fn try_new(init: SnipperPresenterInit<'_>) -> Result<Self, UiError> {
+        let SnipperPresenterInit {
+            window,
+            width,
+            height,
+            bg_image,
+            dimmed,
+        } = init;
         let context =
             softbuffer::Context::new(window.clone()).map_err(|e| UiError::Softbuffer {
                 message: e.to_string(),

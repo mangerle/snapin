@@ -12,7 +12,7 @@
 use super::event_dispatcher::{SnipperDispatchContext, SnipperEventDispatcher};
 use super::events::SnipperState;
 use super::jobs::{handle_job_outcome, SnipperJobKind, SnipperJobRuntime, SnipperJobSink};
-use super::presenter::SnipperPresenter;
+use super::presenter::{SnipperPresenter, SnipperPresenterInit};
 use super::state::clamp_window_rect;
 use super::types::{SnipMode, SnipperLaunch, SnipperOutcome, SnipperRuntime};
 use crate::error::UiError;
@@ -54,22 +54,21 @@ impl SnipperView {
         let screen_h = bg_image.height();
         let window = create_overlay_window(window_target, screen_w, screen_h)?;
         let mode = runtime.mode;
-        let presenter = SnipperPresenter::try_new(
-            window.clone(),
-            screen_w,
-            screen_h,
-            &bg_image,
-            mode != SnipMode::PickColor,
-        )?;
-        let mut state = build_initial_state(
+        let presenter = SnipperPresenter::try_new(SnipperPresenterInit {
+            window: window.clone(),
+            width: screen_w,
+            height: screen_h,
+            bg_image: &bg_image,
+            dimmed: mode != SnipMode::PickColor,
+        })?;
+        let mut state = build_initial_state(SnipperStateInit {
             runtime,
             windows,
             mode,
-            screen_w,
-            screen_h,
+            screen_size: (screen_w, screen_h),
             job_sink,
             clipboard_events,
-        );
+        });
         apply_ui_scale(&window, &mut state, screen_w, screen_h);
 
         window.request_redraw();
@@ -103,16 +102,26 @@ fn create_overlay_window(
     Ok(Arc::new(window))
 }
 
-/// 根据启动参数构建截图交互状态。
-fn build_initial_state(
+/// 截图交互状态初始化参数。
+struct SnipperStateInit {
     runtime: SnipperRuntime,
     windows: Vec<crate::snipper::WindowRect>,
     mode: SnipMode,
-    screen_w: u32,
-    screen_h: u32,
+    screen_size: (u32, u32),
     job_sink: SnipperJobSink,
     clipboard_events: ClipboardEventSink,
-) -> SnipperState {
+}
+
+/// 根据启动参数构建截图交互状态。
+fn build_initial_state(init: SnipperStateInit) -> SnipperState {
+    let SnipperStateInit {
+        runtime,
+        windows,
+        mode,
+        screen_size: (screen_w, screen_h),
+        job_sink,
+        clipboard_events,
+    } = init;
     let mut state = SnipperState::from_config(runtime.config, mode, runtime.desktop);
     state.session.post_action = runtime.post_action;
     state.viewport.window_rects = windows
