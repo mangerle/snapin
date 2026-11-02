@@ -41,30 +41,92 @@ pub fn render_paster_to_surface(
     height: u32,
 ) -> Result<PresentOutcome, UiError> {
     surface.resize(width, height)?;
-
     let mut target_pixmap = state
         .take_frame_pixmap(width, height)
         .ok_or(UiError::PixmapAlloc { width, height })?;
     target_pixmap.fill(Color::TRANSPARENT);
+    let metrics = PasterFrameMetrics::new(state, width, height);
+    prepare_frame_backdrop(state, surface, &mut target_pixmap, metrics);
+    render_frame_content(state, &mut target_pixmap, metrics);
+    update_input_region(state, surface, metrics);
 
+    // 提交渲染至共享内存表面呈现（ARGB 通路下未被内容覆盖的像素保持透明）
+    let result = surface.present(&target_pixmap);
+    state.restore_frame_pixmap(target_pixmap);
+    result
+}
+
+/// 当前帧的窗口尺寸、缩放倍率与缩放后图像尺寸。
+#[derive(Debug, Clone, Copy)]
+struct PasterFrameMetrics {
+    width: u32,
+    height: u32,
+    scale: f32,
+    image_width: f32,
+    image_height: f32,
+}
+
+impl PasterFrameMetrics {
+    /// 从窗口状态计算本帧几何。
+    fn new(state: &PasterWindowState, width: u32, height: u32) -> Self {
+        let scale = state.document.item.transform.scale();
+        Self {
+            width,
+            height,
+            scale,
+            image_width: (state.document.item.pixmap.width() as f32 * scale).max(1.0),
+            image_height: (state.document.item.pixmap.height() as f32 * scale).max(1.0),
+        }
+    }
+
+    /// 窗口是否因菜单避让而超出缩放后的贴图图像。
+    fn window_exceeds_image(self) -> bool {
+        (self.width as f32) > self.image_width + 0.5
+            || (self.height as f32) > self.image_height + 0.5
+    }
+}
+
+/// 仅在无透明合成且菜单撑大窗口时铺设浅色底，避免回退通路露出黑底。
+fn prepare_frame_backdrop(
+    state: &PasterWindowState,
+    surface: &PasterSurface,
+    target_pixmap: &mut Pixmap,
+    metrics: PasterFrameMetrics,
+) {
     // 右键菜单放不下时窗口会被临时撑大：ARGB8888 通路下扩容区域本就是全透明像素，无需涂抹
     // （涂抹反而会遮掉透明效果）；只有回退到无 alpha 的 softbuffer 通路（Xrgb8888）时，
     // 未被内容覆盖的区域若不涂抹就会呈现纯黑，因此仅在回退通路上铺一层与菜单卡片一致的浅色底。
-    let scale = state.document.item.transform.scale();
-    let scaled_w = (state.document.item.pixmap.width() as f32 * scale).max(1.0);
-    let scaled_h = (state.document.item.pixmap.height() as f32 * scale).max(1.0);
-    let window_exceeds_image = (width as f32) > scaled_w + 0.5 || (height as f32) > scaled_h + 0.5;
     if needs_opaque_backdrop(
         surface.supports_transparency(),
         state.interaction.context_menu.is_open,
-        window_exceeds_image,
+        metrics.window_exceeds_image(),
     ) {
         target_pixmap.fill(Color::from_rgba8(241, 245, 249, 255));
     }
+}
 
-    // 1. 构建几何变换矩阵 (缩放)
+/// 按图像、标注预览、边框、状态提示、工具栏与菜单的顺序合成一帧。
+fn render_frame_content(
+    state: &mut PasterWindowState,
+    target_pixmap: &mut Pixmap,
+    metrics: PasterFrameMetrics,
+) {
+    render_image_layer(state, target_pixmap, metrics.scale);
+    render_pending_annotation_preview(state, target_pixmap);
+    render_text_session_preview(state, target_pixmap);
+    render_paster_border_and_shadow(
+        target_pixmap,
+        metrics.image_width,
+        metrics.image_height,
+        state.chrome.has_shadow,
+    );
+    render_status_message(state, target_pixmap, metrics.image_width);
+    render_toolbar_and_menu(state, target_pixmap, metrics);
+}
+
+/// 绘制应用透明度与缩放设置后的贴图图像。
+fn render_image_layer(state: &PasterWindowState, target_pixmap: &mut Pixmap, scale: f32) {
     let tf = Transform::from_scale(scale, scale);
-
     let quality = if state.chrome.smooth_scaling {
         FilterQuality::Bilinear
     } else {
@@ -76,32 +138,19 @@ pub fn render_paster_to_surface(
         quality,
         ..Default::default()
     };
-
-    // 2. 光栅化贴图图像本体
     target_pixmap.draw_pixmap(0, 0, state.document.item.pixmap.as_ref(), &paint, tf, None);
+}
 
-    // 3. 绘制拖拽中的标注预览与文字输入框：位于图像之上、边框与工具栏之下
-    render_pending_annotation_preview(state, &mut target_pixmap);
-    render_text_session_preview(state, &mut target_pixmap);
-
-    // 4. 绘制贴图精致外边框与窗口阴影。
-    //    必须按「缩放后的贴图尺寸」描边而不是窗口尺寸：右键菜单放不下时窗口会被临时撑大，
-    //    若跟着窗口描边，边框会一并扩大，用户一眼就能看出贴图被撑过——透明像素挡不住这个观感。
-    render_paster_border_and_shadow(
-        &mut target_pixmap,
-        scaled_w,
-        scaled_h,
-        state.chrome.has_shadow,
-    );
-
-    // 5. 在图像顶部居中绘制状态提示（OCR / 翻译进度与结果），随后再叠加工具栏与菜单
-    render_status_message(state, &mut target_pixmap, scaled_w);
-
-    // 6. 绘制标注工具栏与右键上下文菜单 (统一复用线程局部高精度文本排版引擎)
+/// 绘制标注工具栏与右键菜单。
+fn render_toolbar_and_menu(
+    state: &mut PasterWindowState,
+    target_pixmap: &mut Pixmap,
+    metrics: PasterFrameMetrics,
+) {
     if state.chrome.show_toolbar || state.interaction.context_menu.is_open {
         if state.chrome.show_toolbar {
             // 与命中测试同源：工具条锚定在缩放后的图像正下方，窗口扩容区域保持透明
-            refresh_toolbar_layout(state, width as f32, height as f32);
+            refresh_toolbar_layout(state, metrics.width as f32, metrics.height as f32);
         }
         with_thread_local_text_renderer(|tr| {
             if state.chrome.show_toolbar {
@@ -123,10 +172,15 @@ pub fn render_paster_to_surface(
             }
         });
     }
+}
 
-    // 7. 透明扩窗后按当前布局声明可交互区域，避免空白区域吞掉本应落到桌面的点击。
-    //    布局与光标坐标均为窗口物理像素，提交前统一换算为 Wayland surface-local 逻辑坐标。
-    let input_layout = input_layout_from_state(state, width as f32, height as f32);
+/// 透明扩窗后按当前布局声明可交互区域，避免空白区域吞掉桌面点击。
+fn update_input_region(
+    state: &mut PasterWindowState,
+    surface: &mut PasterSurface,
+    metrics: PasterFrameMetrics,
+) {
+    let input_layout = input_layout_from_state(state, metrics.width as f32, metrics.height as f32);
     let cache_hit = state
         .frame_cache
         .input_region
@@ -144,11 +198,6 @@ pub fn render_paster_to_surface(
             });
         }
     }
-
-    // 8. 提交渲染至共享内存表面呈现（ARGB 通路下未被内容覆盖的像素保持透明）
-    let result = surface.present(&target_pixmap);
-    state.restore_frame_pixmap(target_pixmap);
-    result
 }
 
 /// 将当前拖拽中的笔迹按屏幕坐标绘制到目标画布上。
