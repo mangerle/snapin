@@ -11,10 +11,15 @@ use tiny_skia::{LineCap, LineJoin, Paint, PathBuilder, PixmapMut, Stroke, Transf
 /// 预览阶段直接借用点集切片，避免每个鼠标移动事件都复制 `Vec<Point>`。
 #[derive(Clone, Copy)]
 pub struct PenStrokeSpec<'a> {
+    /// 画笔轨迹点
     pub points: &'a [Point],
+    /// 画笔颜色
     pub color: ColorRgba,
+    /// 描边宽度
     pub stroke_width: f32,
+    /// 描边线型
     pub line_style: LineStyle,
+    /// 绘制偏移
     pub offset: Point,
 }
 

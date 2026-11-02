@@ -11,9 +11,13 @@ use tiny_skia::{BlendMode, LineCap, LineJoin, Paint, PathBuilder, PixmapMut, Str
 /// 荧光笔预览的点集、颜色、线宽与偏移。
 #[derive(Clone, Copy)]
 pub struct MarkerStrokeSpec<'a> {
+    /// 高亮轨迹点
     pub points: &'a [Point],
+    /// 高亮颜色
     pub color: ColorRgba,
+    /// 高亮笔画宽度
     pub stroke_width: f32,
+    /// 绘制偏移
     pub offset: Point,
 }
 
