@@ -200,7 +200,6 @@ mod linux {
     use super::{tray_menu, TrayAction, TrayMenuEntry};
     use crate::error::PlatformError;
     use ksni::{blocking::TrayMethods, menu::*, Tray};
-    use std::sync::Mutex;
     use tokio::sync::mpsc::{channel, Receiver, Sender};
 
     /// 托盘动作队列容量；托盘点击是低频人工操作，满队列时直接丢弃最旧语义之外的
@@ -208,7 +207,7 @@ mod linux {
     const TRAY_ACTION_QUEUE_CAPACITY: usize = 32;
 
     struct LinuxSniTray {
-        action_tx: Mutex<Sender<TrayAction>>,
+        action_tx: Sender<TrayAction>,
         icon_data: Option<ksni::Icon>,
     }
 
@@ -230,11 +229,7 @@ mod linux {
         }
 
         fn activate(&mut self, _x: i32, _y: i32) {
-            let tx = self
-                .action_tx
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if tx.try_send(TrayAction::Snip).is_err() {
+            if self.action_tx.try_send(TrayAction::Snip).is_err() {
                 tracing::warn!("托盘动作队列已满，忽略本次托盘激活");
             }
         }
@@ -258,11 +253,7 @@ mod linux {
 
     impl LinuxSniTray {
         fn emit(&self, action: TrayAction) {
-            let tx = self
-                .action_tx
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if tx.try_send(action).is_err() {
+            if self.action_tx.try_send(action).is_err() {
                 tracing::warn!("托盘动作队列已满，忽略本次菜单动作: {action:?}");
             }
         }
@@ -295,7 +286,7 @@ mod linux {
             });
 
             let tray = LinuxSniTray {
-                action_tx: Mutex::new(tx),
+                action_tx: tx,
                 icon_data,
             };
 
