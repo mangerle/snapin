@@ -47,6 +47,11 @@ jobs:
       - name: 检查代码格式
         run: cargo fmt --all -- --check
 
+      - name: 校验 GNOME 扩展与安装脚本语法
+        run: |
+          node --check extension/extension.js
+          bash -n extension/install.sh
+
       - name: 运行 Clippy 零警告门禁
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
