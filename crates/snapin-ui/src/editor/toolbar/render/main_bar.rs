@@ -35,53 +35,62 @@ pub(super) fn render_drag_handle(pixmap: &mut PixmapMut, main_rect: &Rect, s: f3
 
 /// 绘制主工具栏的各个按钮项
 pub(super) fn render_main_buttons(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
-    let s = toolbar.ui_scale;
-    let padding = padding(s);
+    let scale = toolbar.ui_scale;
     let items =
-        super::super::interaction::main_item_rects(&toolbar.main_rect, toolbar.main_items, s);
+        super::super::interaction::main_item_rects(&toolbar.main_rect, toolbar.main_items, scale);
 
-    for (idx, (item, btn_rect)) in items.into_iter().enumerate() {
-        if has_separator_before(toolbar.main_items, idx) {
-            // 按钮矩形已经让过分隔线占位，绘制坐标由矩形反推，与命中区域保持严格一致。
-            render_divider(
-                pixmap,
-                btn_rect.x - divider_width(s) + 3.0 * s,
-                toolbar.main_rect.y + padding,
-                s,
-            );
-        }
-
-        let is_geometric_slot = item
-            .as_tool()
-            .is_some_and(|tool| tool_descriptor(tool).geometric_slot);
-        let is_active = if is_geometric_slot {
-            matches!(toolbar.active_tool, Some(Tool::Rect | Tool::Ellipse))
-        } else {
-            item.as_tool()
-                .is_some_and(|tool| toolbar.active_tool == Some(tool))
-        };
-        let is_hovered = toolbar.hovered_item == Some(item);
-
-        if is_active {
-            fill_button_highlight(pixmap, &btn_rect, Color::from_rgba8(0, 0, 0, 28), s);
-            render_active_bottom_bar(pixmap, &btn_rect, s);
-        } else if is_hovered {
-            fill_button_highlight(pixmap, &btn_rect, Color::from_rgba8(0, 0, 0, 16), s);
-            if item == ToolbarItem::Action(ToolbarAction::Save) {
-                render_active_bottom_bar(pixmap, &btn_rect, s);
-            }
-        }
-
-        let display_item = toolbar.displayed_item(item);
-
+    for (index, (item, rect)) in items.into_iter().enumerate() {
+        render_item_separator(pixmap, toolbar, index, &rect);
+        render_item_state(pixmap, toolbar, item, &rect);
         render_item_icon(
             pixmap,
             IconRenderSpec {
-                item: display_item,
-                rect: &btn_rect,
-                scale: s,
+                item: toolbar.displayed_item(item),
+                rect: &rect,
+                scale,
                 active_color: toolbar.sub_options.color,
             },
         );
+    }
+}
+
+/// 绘制按钮前的分隔线。
+fn render_item_separator(pixmap: &mut PixmapMut, toolbar: &Toolbar, index: usize, rect: &Rect) {
+    let scale = toolbar.ui_scale;
+    if has_separator_before(toolbar.main_items, index) {
+        // 按钮矩形已经让过分隔线占位，绘制坐标由矩形反推，与命中区域保持严格一致。
+        render_divider(
+            pixmap,
+            rect.x - divider_width(scale) + 3.0 * scale,
+            toolbar.main_rect.y + padding(scale),
+            scale,
+        );
+    }
+}
+
+/// 绘制按钮的激活、悬停背景与底部指示条。
+fn render_item_state(pixmap: &mut PixmapMut, toolbar: &Toolbar, item: ToolbarItem, rect: &Rect) {
+    let scale = toolbar.ui_scale;
+    if item_is_active(toolbar, item) {
+        fill_button_highlight(pixmap, rect, Color::from_rgba8(0, 0, 0, 28), scale);
+        render_active_bottom_bar(pixmap, rect, scale);
+    } else if toolbar.hovered_item == Some(item) {
+        fill_button_highlight(pixmap, rect, Color::from_rgba8(0, 0, 0, 16), scale);
+        if item == ToolbarItem::Action(ToolbarAction::Save) {
+            render_active_bottom_bar(pixmap, rect, scale);
+        }
+    }
+}
+
+/// 判断工具按钮是否处于激活状态；矩形与椭圆共享几何槽位。
+fn item_is_active(toolbar: &Toolbar, item: ToolbarItem) -> bool {
+    let is_geometric_slot = item
+        .as_tool()
+        .is_some_and(|tool| tool_descriptor(tool).geometric_slot);
+    if is_geometric_slot {
+        matches!(toolbar.active_tool, Some(Tool::Rect | Tool::Ellipse))
+    } else {
+        item.as_tool()
+            .is_some_and(|tool| toolbar.active_tool == Some(tool))
     }
 }
