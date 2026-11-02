@@ -247,8 +247,17 @@ mod windows {
         } else {
             let mut command = Command::new("reg");
             command.args(["delete", REG_KEY, "/v", APP_NAME, "/f"]);
-            let _ = output_with_timeout(command, super::AUTOSTART_COMMAND_TIMEOUT);
-            tracing::info!("已从 Windows 注册表中清理自启动项: {APP_NAME}");
+            match output_with_timeout(command, super::AUTOSTART_COMMAND_TIMEOUT) {
+                Ok(output) if output.status.success() => {
+                    tracing::info!("已从 Windows 注册表中清理自启动项: {APP_NAME}");
+                }
+                Ok(output) => tracing::warn!(
+                    "清理 Windows 注册表启动项返回非零状态，状态: {}，原因: {}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ),
+                Err(error) => tracing::warn!("执行 Windows 注册表启动项清理失败: {error}"),
+            }
         }
         Ok(())
     }
