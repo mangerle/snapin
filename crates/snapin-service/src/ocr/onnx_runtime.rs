@@ -221,41 +221,49 @@ fn is_exact_library_name(name: &str) -> bool {
     }
 }
 
-/// 是否为当前平台带版本号的动态库名。
-fn is_versioned_library_name(name: &str) -> bool {
+/// 提取带版本动态库中的数字版本段，按组件比较而非字典序比较。
+fn parse_library_version(name: &str) -> Option<Vec<u64>> {
     #[cfg(target_os = "windows")]
-    {
-        name.to_ascii_lowercase().starts_with("onnxruntime")
-            && name.to_ascii_lowercase().ends_with(".dll")
-    }
+    let version = name
+        .strip_prefix("onnxruntime")
+        .or_else(|| name.strip_prefix("ONNXRUNTIME"))
+        .and_then(|value| {
+            value
+                .strip_suffix(".dll")
+                .or_else(|| value.strip_suffix(".DLL"))
+        })?;
     #[cfg(target_os = "macos")]
-    {
-        name.starts_with("libonnxruntime.") && name.ends_with(".dylib")
-    }
+    let version = name
+        .strip_prefix("libonnxruntime.")?
+        .strip_suffix(".dylib")?;
     #[cfg(target_os = "linux")]
-    {
-        name.starts_with("libonnxruntime.so.")
-    }
+    let version = name.strip_prefix("libonnxruntime.so.")?;
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-    {
+    let version = {
         let _ = name;
-        false
-    }
+        return None;
+    };
+
+    let components: Option<Vec<u64>> = version
+        .split('.')
+        .map(|component| component.parse::<u64>().ok())
+        .collect();
+    components.filter(|components| !components.is_empty())
 }
 
 /// 在指定目录中查找当前平台的无版本或带版本动态库，带版本按名称降序优先。
 fn find_library_in_dir(dir: &Path) -> Option<PathBuf> {
     let entries = std::fs::read_dir(dir).ok()?;
     let mut exact: Option<PathBuf> = None;
-    let mut versioned: Vec<(String, PathBuf)> = Vec::new();
+    let mut versioned: Vec<(Vec<u64>, PathBuf)> = Vec::new();
 
     for entry in entries.flatten() {
         let file_name = entry.file_name();
         let name = file_name.to_string_lossy();
         if is_exact_library_name(&name) {
             exact = Some(entry.path());
-        } else if is_versioned_library_name(&name) {
-            versioned.push((name.to_string(), entry.path()));
+        } else if let Some(version) = parse_library_version(&name) {
+            versioned.push((version, entry.path()));
         }
     }
 
@@ -284,24 +292,24 @@ mod tests {
         {
             assert!(is_exact_library_name("onnxruntime.dll"));
             assert!(is_exact_library_name("ONNXRUNTIME.DLL"));
-            assert!(is_versioned_library_name("onnxruntime1.23.dll"));
+            assert!(parse_library_version("onnxruntime1.23.dll").is_some());
             assert!(!is_exact_library_name("libonnxruntime.so"));
         }
         #[cfg(target_os = "macos")]
         {
             assert!(is_exact_library_name("libonnxruntime.dylib"));
-            assert!(is_versioned_library_name("libonnxruntime.1.23.dylib"));
+            assert!(parse_library_version("libonnxruntime.1.23.dylib").is_some());
             assert!(!is_exact_library_name("onnxruntime.dll"));
         }
         #[cfg(target_os = "linux")]
         {
             assert!(is_exact_library_name("libonnxruntime.so"));
-            assert!(is_versioned_library_name("libonnxruntime.so.1.23"));
+            assert!(parse_library_version("libonnxruntime.so.1.23").is_some());
             assert!(!is_exact_library_name("onnxruntime.dll"));
         }
     }
 
-    /// 无版本库优先于带版本库，带版本按字符串降序选择。
+    /// 无版本库优先于带版本库，带版本按数字组件降序选择。
     #[test]
     fn test_find_library_prefers_exact_then_newest_version() {
         let temp = tempfile::tempdir().expect("创建临时目录失败");
@@ -334,6 +342,25 @@ mod tests {
         assert_eq!(
             find_library_in_dir(temp.path()),
             Some(temp.path().join(exact))
+        );
+    }
+
+    #[test]
+    fn test_version_selection_is_numeric_not_lexicographic() {
+        let temp = tempfile::tempdir().expect("创建临时目录失败");
+        let (old, new) = if cfg!(target_os = "windows") {
+            ("onnxruntime1.9.dll", "onnxruntime1.23.dll")
+        } else if cfg!(target_os = "macos") {
+            ("libonnxruntime.1.9.dylib", "libonnxruntime.1.23.dylib")
+        } else {
+            ("libonnxruntime.so.1.9", "libonnxruntime.so.1.23")
+        };
+        std::fs::File::create(temp.path().join(old)).expect("创建旧版本库");
+        std::fs::File::create(temp.path().join(new)).expect("创建新版本库");
+
+        assert_eq!(
+            find_library_in_dir(temp.path()),
+            Some(temp.path().join(new))
         );
     }
 }
