@@ -12,6 +12,7 @@
 
 mod actions;
 pub mod commands;
+mod event;
 mod shutdown;
 mod update_loop;
 
@@ -20,6 +21,7 @@ use actions::{
     handle_hotkey_action, handle_ipc_request, handle_snipper_result, handle_tray_action,
 };
 use anyhow::{Context, Result};
+use event::{DaemonEvent, DaemonEventSources};
 use shutdown::{ShutdownCoordinator, ShutdownRequest};
 use snapin_config::config::Config;
 use snapin_daemon::{probe_daemon, DaemonProbe, IpcListener};
@@ -35,7 +37,7 @@ use snapin_ui::workspace::{
 use std::sync::Arc;
 use std::time::Duration;
 #[cfg(unix)]
-use tokio::signal::unix::{signal, Signal, SignalKind};
+use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -348,14 +350,13 @@ async fn run_daemon_server(runtime: DaemonServerRuntime) -> Result<()> {
     let sigterm = signal(SignalKind::terminate()).context("注册 SIGTERM 信号监听失败")?;
     announce_daemon_startup(&cfg, &services).await;
 
-    let mut sources = DaemonEventSources {
-        ipc_rx: rx,
+    let mut sources = DaemonEventSources::new(
+        rx,
         snipper_rx,
         gui_closed,
-        snipper_channel_open: true,
         #[cfg(unix)]
         sigterm,
-    };
+    );
 
     loop {
         match sources.next_event().await {
@@ -380,7 +381,7 @@ async fn run_daemon_server(runtime: DaemonServerRuntime) -> Result<()> {
         }
     }
 
-    let DaemonEventSources { gui_closed, .. } = sources;
+    let gui_closed = sources.into_gui_closed();
     ShutdownCoordinator::new()
         .shutdown(ShutdownRequest {
             workspace: &workspace_proxy,
@@ -391,80 +392,6 @@ async fn run_daemon_server(runtime: DaemonServerRuntime) -> Result<()> {
         })
         .await;
     Ok(())
-}
-
-/// 守护主循环可选择处理的事件。
-enum DaemonEvent {
-    Shutdown,
-    GuiClosed,
-    Snipper(SnipperOutcome),
-    Noop,
-    Ipc(snapin_daemon::IpcInvocation),
-    IpcClosed,
-}
-
-/// 守护主循环的输入通道与平台信号源。
-struct DaemonEventSources {
-    ipc_rx: mpsc::Receiver<snapin_daemon::IpcInvocation>,
-    snipper_rx: mpsc::Receiver<SnipperOutcome>,
-    gui_closed: watch::Receiver<bool>,
-    snipper_channel_open: bool,
-    #[cfg(unix)]
-    sigterm: Signal,
-}
-
-impl DaemonEventSources {
-    /// 等待并返回下一个需要处理的生命周期或业务事件。
-    async fn next_event(&mut self) -> DaemonEvent {
-        let ipc_rx = &mut self.ipc_rx;
-        let snipper_rx = &mut self.snipper_rx;
-        let gui_closed = &mut self.gui_closed;
-        let snipper_channel_open = &mut self.snipper_channel_open;
-        #[cfg(unix)]
-        let sigterm = &mut self.sigterm;
-
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
-                tracing::info!("收到中断信号 (Ctrl+C)，开始平滑停机");
-                DaemonEvent::Shutdown
-            }
-            _ = async {
-                #[cfg(unix)]
-                {
-                    sigterm.recv().await
-                }
-                #[cfg(not(unix))]
-                {
-                    std::future::pending::<Option<()>>().await
-                }
-            } => {
-                tracing::info!("收到 SIGTERM，开始平滑停机");
-                DaemonEvent::Shutdown
-            }
-            changed = gui_closed.changed() => {
-                if changed.is_err() || *gui_closed.borrow() {
-                    DaemonEvent::GuiClosed
-                } else {
-                    DaemonEvent::Noop
-                }
-            }
-            maybe_outcome = snipper_rx.recv(), if *snipper_channel_open => {
-                match maybe_outcome {
-                    Some(outcome) => DaemonEvent::Snipper(outcome),
-                    None => {
-                        *snipper_channel_open = false;
-                        DaemonEvent::Noop
-                    }
-                }
-            }
-            maybe_invocation = ipc_rx.recv() => {
-                match maybe_invocation {
-                    Some(invocation) => DaemonEvent::Ipc(invocation),
-                    None => DaemonEvent::IpcClosed,
-                }
-            }
-        }
-    }
 }
 
 /// 将截图结果提交到统一运行时处理。
