@@ -37,8 +37,8 @@ pub fn get_default_config_path() -> Result<PathBuf, CoreError> {
 /// # Errors
 ///
 /// 文件读取失败、TOML 语法或字段非法、schema 版本过新，以及重复快捷键等语义
-/// 校验失败时返回 [`CoreError`]。语法损坏会先备份再重建；语义错误则保留原文件
-/// 并拒绝继续，避免把用户可修复的配置静默替换成默认值。
+/// 校验失败时返回 [`CoreError`]。已存在的无效配置始终保留原文件并拒绝继续，
+/// 不自动替换为默认值，避免用户偏好和翻译凭据被静默清除。
 pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreError> {
     if custom_path.is_none() {
         crate::paths::AppPaths::ensure_config_dir().map_err(|source| CoreError::IoError {
@@ -71,14 +71,10 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreE
             source: e,
         })?;
 
-    let file = match parse_config_file(&content) {
-        Ok(file) => file,
-        Err(reason) => {
-            // 配置损坏或含未知字段时先保留原始文件，再重建默认配置并告警，
-            // 用户仍可从 .bak 中手工恢复。
-            return recover_invalid_config(&target_path, &reason);
-        }
-    };
+    let file = parse_config_file(&content).map_err(|reason| CoreError::ConfigParseError {
+        path: target_path.clone(),
+        reason,
+    })?;
     let file = file.migrate(&target_path)?;
     let config = file.config.sanitized();
     config.validate()?;
@@ -172,49 +168,6 @@ fn deserialize_config_strict(table: toml::Table) -> Result<Config, String> {
         ));
     }
     Ok(config)
-}
-
-/// 备份损坏配置并写入默认配置。
-///
-/// 备份失败时不覆盖原文件，宁可把错误向上抛出，也不能在未保留用户数据的情况下
-/// 用默认值静默替换包含翻译密钥的配置。
-fn recover_invalid_config(target_path: &Path, reason: &str) -> Result<Config, CoreError> {
-    let backup_path = reserve_backup_path(target_path)?;
-    fs::rename(target_path, &backup_path).map_err(|error| CoreError::IoError {
-        path: target_path.to_path_buf(),
-        source: error,
-    })?;
-
-    let default_config = Config::default().sanitized();
-    save_config(&default_config, target_path)?;
-    tracing::warn!(
-        "配置文件解析失败，已备份至 {:?} 并重建默认配置，原因: {reason}",
-        backup_path
-    );
-    Ok(default_config)
-}
-
-/// 为损坏配置保留不覆盖既有备份的恢复路径。
-fn reserve_backup_path(target_path: &Path) -> Result<PathBuf, CoreError> {
-    let primary = target_path.with_extension("toml.bak");
-    if !primary.exists() {
-        return Ok(primary);
-    }
-
-    for index in 1..=1000u32 {
-        let candidate = target_path.with_extension(format!("toml.bak.{index}"));
-        if !candidate.exists() {
-            return Ok(candidate);
-        }
-    }
-
-    Err(CoreError::IoError {
-        path: primary,
-        source: std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            "损坏配置备份数量超过上限",
-        ),
-    })
 }
 
 /// 将已存在配置文件的权限收紧为 0600，避免历史版本创建的 0644 文件泄露 API 密钥。
@@ -449,41 +402,43 @@ provider = "deepl"
         assert!(error.contains("schema_version 必须是整数"));
     }
 
-    /// 损坏配置必须保留 .bak 并重建默认配置，不能阻断所有依赖配置的进程启动。
+    /// 无效 TOML 必须保留原文件并返回解析错误，不得静默替换为默认配置。
     #[test]
-    fn test_corrupt_config_is_backed_up_and_replaced() {
+    fn test_invalid_config_is_preserved_without_rewrite() {
         let temp_dir = tempdir().expect("创建临时目录失败");
         let config_file = temp_dir.path().join("config.toml");
-        std::fs::write(&config_file, "this is not toml = [").expect("写入损坏配置失败");
+        let original = "this is not toml = [";
+        std::fs::write(&config_file, original).expect("写入损坏配置失败");
 
-        let loaded = load_or_create_config(Some(&config_file)).expect("损坏配置应降级为默认值");
-        assert_eq!(loaded, Config::default());
-        assert!(
-            config_file.with_extension("toml.bak").exists(),
-            "损坏配置必须先备份再重建"
+        let error = load_or_create_config(Some(&config_file)).expect_err("损坏配置必须显式报错");
+
+        assert!(matches!(error, CoreError::ConfigParseError { .. }));
+        assert_eq!(
+            std::fs::read_to_string(&config_file).expect("读取原配置失败"),
+            original,
+            "解析失败不得改写用户原配置"
         );
-        let rebuilt = std::fs::read_to_string(&config_file).expect("重建配置应存在");
-        assert!(rebuilt.contains("schema_version"));
+        assert!(
+            !config_file.with_extension("toml.bak").exists(),
+            "保留原文件时不得额外生成备份副本"
+        );
     }
 
-    /// 已存在旧备份时不得覆盖它，应使用递增后缀保留每一次损坏现场。
+    /// 未知字段必须保留原文件并返回可定位错误，由用户显式修复。
     #[test]
-    fn test_corrupt_config_backup_does_not_overwrite_existing_backup() {
+    fn test_unknown_field_config_is_preserved_without_rewrite() {
         let temp_dir = tempdir().expect("创建临时目录失败");
         let config_file = temp_dir.path().join("config.toml");
-        let primary_backup = config_file.with_extension("toml.bak");
-        std::fs::write(&config_file, "broken = [").expect("写入损坏配置失败");
-        std::fs::write(&primary_backup, "previous backup").expect("写入旧备份失败");
+        let original = "schema_version = 1\n[general]\nunknown_field = 1\n";
+        std::fs::write(&config_file, original).expect("写入未知字段配置失败");
 
-        load_or_create_config(Some(&config_file)).expect("损坏配置应降级为默认值");
+        let error = load_or_create_config(Some(&config_file)).expect_err("未知字段必须显式报错");
 
+        assert!(matches!(error, CoreError::ConfigParseError { .. }));
         assert_eq!(
-            std::fs::read_to_string(&primary_backup).expect("读取旧备份失败"),
-            "previous backup"
-        );
-        assert!(
-            config_file.with_extension("toml.bak.1").exists(),
-            "第二次恢复必须创建递增后缀备份"
+            std::fs::read_to_string(&config_file).expect("读取原配置失败"),
+            original,
+            "未知字段不得触发默认配置重建"
         );
     }
 

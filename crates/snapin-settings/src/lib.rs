@@ -132,10 +132,13 @@ fn initialize_settings_state(
     runtime: &TaskRuntime,
     cancel: &CancellationToken,
 ) -> Result<(), SettingsError> {
-    let config = config::load_or_create_config(None)?;
+    let (config, warning) = load_settings_config()?;
     snapin_foundation::i18n::set_language(config.general.language);
     apply_language(config.general.language);
     sync_config_to_window(window, &config);
+    if let Some(warning) = warning {
+        window.set_status_message(SharedString::from(warning));
+    }
     schedule_hotkey_sync(runtime, &config.hotkeys);
     let config_store = Arc::new(ConfigStore::new(config));
     callbacks::register(window, config_store.clone(), runtime.clone());
@@ -146,6 +149,29 @@ fn initialize_settings_state(
         config_store,
     );
     Ok(())
+}
+
+/// 加载设置中心配置；配置解析失败时仅在内存中使用默认值供用户修复。
+///
+/// 该降级不写盘：只有用户在设置中心显式保存或导入后才替换无效配置，避免启动时
+/// 自动清除用户偏好与翻译凭据。
+fn load_settings_config() -> Result<(Config, Option<String>), SettingsError> {
+    match config::load_or_create_config(None) {
+        Ok(config) => Ok((config, None)),
+        Err(CoreError::ConfigParseError { path, reason }) => {
+            tracing::warn!(
+                "设置中心读取配置失败，已使用内存默认值且未改写原文件，路径: {}，原因: {reason}",
+                path.display()
+            );
+            Ok((
+                Config::default().sanitized(),
+                Some(format!(
+                    "配置文件无效，已临时使用默认值且未改写原文件。请修复后重新打开，或保存/导入配置以替换。原因: {reason}"
+                )),
+            ))
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// 将进入设置中心时的快捷键同步提交到 I/O 池，避免首帧渲染被系统命令阻塞。
