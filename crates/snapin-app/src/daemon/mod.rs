@@ -83,7 +83,7 @@ pub fn run_daemon_process(cfg: Config) -> Result<()> {
         snipper_rx,
         gui_closed_rx,
     );
-    let options = build_workspace_options(&cfg, &services, &workspace_proxy, snipper_callback);
+    let options = build_workspace_options(&cfg, &services, &workspace_proxy, snipper_callback)?;
     let gui_result = run_paster_workspace_loop(event_loop, options);
     let _ = gui_closed_tx.send(true);
     finish_daemon(runtime, server, gui_result)
@@ -195,7 +195,7 @@ fn build_workspace_options(
     services: &Arc<AppServices>,
     workspace_proxy: &PasterWorkspaceProxy,
     snipper_callback: SnipperFinishedCallback,
-) -> PasterWorkspaceOptions {
+) -> Result<PasterWorkspaceOptions> {
     let tray = create_daemon_tray();
     let hotkey_listener = create_hotkey_listener(cfg);
     let on_tick = build_gui_tick(
@@ -204,14 +204,16 @@ fn build_workspace_options(
         services.clone(),
         workspace_proxy.clone(),
     );
-    PasterWorkspaceOptions {
+    let state_store = crate::workspace_state::AppWorkspaceStateStore::new(services.runtime())
+        .context("创建工作区状态存储失败")?;
+    Ok(PasterWorkspaceOptions {
         config: cfg.clone(),
         desktop: services.desktop(),
         media: services.media(),
-        state_store: Arc::new(crate::workspace_state::AppWorkspaceStateStore::new()),
+        state_store: Arc::new(state_store),
         on_snipper_finished: Some(snipper_callback),
         on_tick,
-    }
+    })
 }
 
 /// 等待后台服务收尾并汇总 GUI/服务两侧的退出结果。
