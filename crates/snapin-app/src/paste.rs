@@ -5,12 +5,16 @@ use snapin_foundation::AppPaths;
 use snapin_platform::{read_clipboard_image, read_clipboard_text, send_desktop_notification};
 use snapin_ui::paster::{
     render_color_swatch_card, render_simple_text_card, try_parse_hex_color, PasterItem,
+    PasterWorkspaceProxy,
 };
-use std::io::Read;
+use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use tiny_skia::Pixmap;
 
-use snapin_ui::paster::PasterWorkspaceProxy;
+/// 外部贴图源文件允许读取的最大字节数。
+const MAX_PASTER_IMAGE_FILE_BYTES: usize = 64 * 1024 * 1024;
+/// 外部贴图解码后的最大宽度与高度。
+const MAX_PASTER_IMAGE_SIDE: u32 = 16_384;
 
 /// 从剪贴板提取图像或文本生成 PasterItem 数据项
 pub fn create_paster_item_from_clipboard() -> Result<Option<PasterItem>> {
@@ -110,7 +114,17 @@ fn load_pixmap_from_file(path: &Path) -> Result<Pixmap> {
         return Ok(pixmap);
     }
 
-    let img = image::open(path).context("无法读取外部贴图图像文件")?;
+    let bytes = snapin_foundation::read_file_limited(path, MAX_PASTER_IMAGE_FILE_BYTES)
+        .context("读取外部贴图图像文件失败")?;
+    let mut reader = image::io::Reader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .context("无法识别外部贴图图像格式")?;
+    let mut limits = image::io::Limits::default();
+    limits.max_image_width = Some(MAX_PASTER_IMAGE_SIDE);
+    limits.max_image_height = Some(MAX_PASTER_IMAGE_SIDE);
+    limits.max_alloc = Some(snapin_storage::MAX_RAW_PIXELS.saturating_mul(4));
+    reader.limits(limits);
+    let img = reader.decode().context("无法解码外部贴图图像")?;
     let rgba = img.to_rgba8();
     let (width, height) = (rgba.width(), rgba.height());
     let mut pixmap =
@@ -191,4 +205,38 @@ pub async fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::{Rgba, RgbaImage};
+
+    #[test]
+    fn test_load_pixmap_rejects_oversized_dimensions() {
+        let dir = tempfile::tempdir().expect("应可创建测试目录");
+        let path = dir.path().join("too-tall.png");
+        RgbaImage::from_pixel(1, MAX_PASTER_IMAGE_SIDE + 1, Rgba([0, 0, 0, 255]))
+            .save(&path)
+            .expect("应可写入测试图像");
+
+        assert!(
+            load_pixmap_from_file(&path).is_err(),
+            "超大尺寸图像必须被拒绝"
+        );
+    }
+
+    #[test]
+    fn test_load_pixmap_rejects_oversized_file_before_decode() {
+        let dir = tempfile::tempdir().expect("应可创建测试目录");
+        let path = dir.path().join("too-large.png");
+        let file = std::fs::File::create(&path).expect("应可创建测试文件");
+        file.set_len((MAX_PASTER_IMAGE_FILE_BYTES as u64).saturating_add(1))
+            .expect("应可扩展测试文件");
+
+        assert!(
+            load_pixmap_from_file(&path).is_err(),
+            "超大源文件必须被拒绝"
+        );
+    }
 }
