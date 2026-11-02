@@ -13,6 +13,7 @@ use image::RgbaImage;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use url::Url;
 
 /// 等待用户在保存对话框中作出选择的超时上限。
 ///
@@ -191,9 +192,7 @@ fn portal_response_path(
     fallback: &str,
 ) -> Result<PathBuf, PlatformError> {
     let uri = response.uri();
-    let path = uri.to_file_path().map_err(|_| PlatformError::Portal {
-        message: format!("无法将 Portal 返回的 URI 转换为文件路径: {uri:?}"),
-    })?;
+    let path = portal_uri_to_path(uri)?;
     tracing::debug!("Portal 截屏文件就绪，路径: {:?}", path);
     if path.as_os_str().is_empty() {
         return Err(PlatformError::Portal {
@@ -201,6 +200,18 @@ fn portal_response_path(
         });
     }
     Ok(path)
+}
+
+/// 将 Portal URI 转换为本地路径，并保留 GIO/URL 标准定义的百分号解码语义。
+fn portal_uri_to_path(uri: &ashpd::Uri) -> Result<PathBuf, PlatformError> {
+    Url::parse(uri.as_str())
+        .map_err(|error| PlatformError::Portal {
+            message: format!("Portal 返回的 URI 格式非法: {uri}，原因: {error}"),
+        })?
+        .to_file_path()
+        .map_err(|_| PlatformError::Portal {
+            message: format!("Portal 返回的 URI 不是本地文件路径: {uri}"),
+        })
 }
 
 /// 在阻塞池读取并解码 Portal 截图，随后清理临时文件。
@@ -313,11 +324,7 @@ pub async fn pick_save_path(
     let Some(uri) = files.uris().first() else {
         return Ok(None);
     };
-    uri.to_file_path()
-        .map(Some)
-        .map_err(|_| PlatformError::Portal {
-            message: format!("保存对话框返回的 URI 无法转换为本地路径: {uri}"),
-        })
+    portal_uri_to_path(uri).map(Some)
 }
 
 /// 打开配置文件导入对话框。
@@ -354,11 +361,7 @@ pub async fn pick_config_import_path() -> Result<Option<PathBuf>, PlatformError>
     let Some(uri) = files.uris().first() else {
         return Ok(None);
     };
-    uri.to_file_path()
-        .map(Some)
-        .map_err(|_| PlatformError::Portal {
-            message: format!("配置导入对话框返回的 URI 无法转换为本地路径: {uri}"),
-        })
+    portal_uri_to_path(uri).map(Some)
 }
 
 /// 打开配置文件导出对话框。
@@ -396,11 +399,7 @@ pub async fn pick_config_export_path() -> Result<Option<PathBuf>, PlatformError>
     let Some(uri) = files.uris().first() else {
         return Ok(None);
     };
-    uri.to_file_path()
-        .map(Some)
-        .map_err(|_| PlatformError::Portal {
-            message: format!("配置导出对话框返回的 URI 无法转换为本地路径: {uri}"),
-        })
+    portal_uri_to_path(uri).map(Some)
 }
 
 #[cfg(test)]
@@ -423,10 +422,19 @@ mod tests {
     /// PermissionStore 调用体必须严格匹配 `SetPermission(sbssas)`。
     #[test]
     fn test_permission_arguments_signature_matches_permission_store() {
-        let signature = <(&str, bool, &str, &str, Vec<String>) as Type>::signature().to_string();
+        let signature = <(&str, bool, &str, &str, Vec<String>) as Type>::SIGNATURE.to_string();
         assert_eq!(
             signature, "(sbssas)",
             "PermissionStore 参数签名不得退化为固定结构体"
+        );
+    }
+
+    #[test]
+    fn test_portal_uri_to_path_decodes_percent_escaped_file_uri() {
+        let uri = ashpd::Uri::parse("file:///tmp/snapin%20config.toml").expect("URI 应合法");
+        assert_eq!(
+            portal_uri_to_path(&uri).expect("文件 URI 应可转换"),
+            PathBuf::from("/tmp/snapin config.toml")
         );
     }
 }
