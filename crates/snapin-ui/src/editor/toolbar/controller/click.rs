@@ -16,6 +16,15 @@ enum DropdownClickOutcome {
     Action(ToolbarAction),
 }
 
+/// 滑杆命中换算所需的控件、左右内边距与指针横坐标。
+#[derive(Clone, Copy)]
+struct SliderInteraction {
+    control: SubControl,
+    left_inset: f32,
+    right_inset: f32,
+    pointer_x: f32,
+}
+
 impl Toolbar {
     /// 点击项目切换工具、调整样式或返回一次性动作。
     ///
@@ -166,7 +175,12 @@ impl Toolbar {
             SubControl::ShapeRect => self.set_active_tool(Some(Tool::Rect)),
             SubControl::ShapeEllipse => self.set_active_tool(Some(Tool::Ellipse)),
             SubControl::EffectStrength => {
-                if let Some(ratio) = self.slider_ratio(SubControl::EffectStrength, 12.0, 12.0, px) {
+                if let Some(ratio) = self.slider_ratio(SliderInteraction {
+                    control: SubControl::EffectStrength,
+                    left_inset: 12.0,
+                    right_inset: 12.0,
+                    pointer_x: px,
+                }) {
                     self.sub_options.effect_strength = (16.0 + ratio * 144.0).round() as u8;
                 }
             }
@@ -297,7 +311,12 @@ impl Toolbar {
                 self.sub_options.magnifier_shape = MagnifierShape::Ellipse;
             }
             SubControl::MagnifierScale => {
-                if let Some(ratio) = self.slider_ratio(SubControl::MagnifierScale, 42.0, 12.0, px) {
+                if let Some(ratio) = self.slider_ratio(SliderInteraction {
+                    control: SubControl::MagnifierScale,
+                    left_inset: 42.0,
+                    right_inset: 12.0,
+                    pointer_x: px,
+                }) {
                     self.sub_options.magnifier_scale = 1.0 + ratio * 7.0;
                 }
             }
@@ -325,17 +344,11 @@ impl Toolbar {
     }
 
     /// 根据控件热区将指针位置换算为 0..=1 的滑杆比例。
-    fn slider_ratio(
-        &self,
-        control: SubControl,
-        left_inset: f32,
-        right_inset: f32,
-        px: f32,
-    ) -> Option<f32> {
-        let rect = self.sub_layout.as_ref()?.rect_of(control)?;
-        let left = rect.x + left_inset * self.ui_scale;
-        let right = rect.x + rect.width - right_inset * self.ui_scale;
-        Some(((px - left) / (right - left).max(1.0)).clamp(0.0, 1.0))
+    fn slider_ratio(&self, interaction: SliderInteraction) -> Option<f32> {
+        let rect = self.sub_layout.as_ref()?.rect_of(interaction.control)?;
+        let left = rect.x + interaction.left_inset * self.ui_scale;
+        let right = rect.x + rect.width - interaction.right_inset * self.ui_scale;
+        Some(((interaction.pointer_x - left) / (right - left).max(1.0)).clamp(0.0, 1.0))
     }
 
     /// 开合指定下拉菜单。
