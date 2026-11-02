@@ -53,6 +53,10 @@ pub fn network_error(provider: &str, error: reqwest::Error) -> ServiceError {
 }
 
 /// 校验 HTTP 状态码，并把 429 与其它非成功状态区分开。
+///
+/// # Errors
+///
+/// 网络请求、状态码校验或响应体有界读取失败时返回 [`ServiceError`]。
 pub fn check_status(provider: &str, response: &Response) -> Result<(), ServiceError> {
     let status = response.status();
     if status.is_success() {
@@ -80,6 +84,10 @@ pub fn check_status(provider: &str, response: &Response) -> Result<(), ServiceEr
 ///
 /// 百度、有道、阿里三个签名服务商只在参数构造与响应解码上不同，传输层的
 /// 超时、限流识别、状态码与响应体上限必须共用同一份实现，避免各自遗漏。
+///
+/// # Errors
+///
+/// 网络请求、状态码校验或响应体有界读取失败时返回 [`ServiceError`]。
 pub async fn post_signed_form(
     provider: &str,
     client: &Client,
@@ -100,6 +108,10 @@ pub async fn post_signed_form(
 ///
 /// `content_length` 只是快速拒绝提示，最终仍按实际分块累计，防止分块传输
 /// 或伪造长度绕过上限。
+///
+/// # Errors
+///
+/// 网络请求、状态码校验或响应体有界读取失败时返回 [`ServiceError`]。
 pub async fn read_limited_body(
     provider: &str,
     mut response: Response,

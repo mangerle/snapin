@@ -272,6 +272,10 @@ impl Hotkey {
     /// 或手工写坏 config.toml 时，系统会注册一个 GNOME 永远不会触发的空绑定，表现为
     /// "热键按了没反应"的静默失败。改为在配置边界一次性完成词法与合法性校验并显式报错，
     /// 让调用方能够保留旧值并给出中文提示（Parse, Don't Validate）。
+    ///
+    /// # Errors
+    ///
+    /// 快捷键为空、修饰键重复、主键缺失或键名不受支持时返回 [`HotkeyParseError`]。
     pub fn parse_str(s: &str) -> Result<Self, HotkeyParseError> {
         let trimmed = s.trim();
         if trimmed.is_empty() || trimmed == "已禁用" || trimmed.eq_ignore_ascii_case("none") {

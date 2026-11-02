@@ -24,6 +24,10 @@ pub use types::{HexColor, Hotkey, HotkeyParseError, SecretString};
 const MAX_CONFIG_FILE_BYTES: usize = 1024 * 1024;
 
 /// 获取 Snapin 默认配置文件存储路径：优先 `$XDG_CONFIG_HOME/snapin/config.toml`，兜底 `~/.config/snapin/config.toml`
+///
+/// # Errors
+///
+/// 路径解析、语义校验、序列化或原子持久化失败时返回 [`CoreError`]；当前默认路径实现本身不会失败。
 pub fn get_default_config_path() -> Result<PathBuf, CoreError> {
     Ok(crate::paths::AppPaths::default_config_file())
 }
@@ -245,6 +249,10 @@ fn tighten_config_permissions(path: &Path) {
 }
 
 /// 将内存配置结构体持久化写入指定的 TOML 文件
+///
+/// # Errors
+///
+/// 路径解析、语义校验、序列化或原子持久化失败时返回 [`CoreError`]；当前默认路径实现本身不会失败。
 pub fn save_config(config: &Config, target_path: &Path) -> Result<(), CoreError> {
     if target_path == crate::paths::AppPaths::default_config_file() {
         crate::paths::AppPaths::ensure_config_dir().map_err(|source| CoreError::IoError {

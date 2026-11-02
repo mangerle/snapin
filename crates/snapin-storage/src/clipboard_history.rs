@@ -111,12 +111,20 @@ pub fn clipboard_history_dir() -> PathBuf {
 }
 
 /// 读取并清理过期历史。
+///
+/// # Errors
+///
+/// 跨进程锁、目录创建、索引读写、图像编解码或清理失败时返回 [`StorageError`]。
 pub fn load_clipboard_history() -> Result<Vec<ClipboardEntry>, StorageError> {
     let _lock = HistoryLock::acquire("读取历史")?;
     load_and_prune(clipboard_history_dir())
 }
 
 /// 追加文本或颜色条目。
+///
+/// # Errors
+///
+/// 跨进程锁、目录创建、索引读写、图像编解码或清理失败时返回 [`StorageError`]。
 pub fn append_clipboard_text(
     text: &str,
     kind: ClipboardEntryKind,
@@ -145,6 +153,10 @@ pub fn append_clipboard_text(
 }
 
 /// 追加图像条目。
+///
+/// # Errors
+///
+/// 跨进程锁、目录创建、索引读写、图像编解码或清理失败时返回 [`StorageError`]。
 pub fn append_clipboard_image(image: &RgbaImage) -> Result<Vec<ClipboardEntry>, StorageError> {
     let _lock = HistoryLock::acquire("追加图像")?;
     let dir = clipboard_history_dir();
@@ -171,6 +183,10 @@ pub fn append_clipboard_image(image: &RgbaImage) -> Result<Vec<ClipboardEntry>, 
 }
 
 /// 读取条目对应的图像文件。
+///
+/// # Errors
+///
+/// 跨进程锁、目录创建、索引读写、图像编解码或清理失败时返回 [`StorageError`]。
 pub fn load_clipboard_image(entry: &ClipboardEntry) -> Result<RgbaImage, StorageError> {
     let _lock = HistoryLock::acquire("读取图像")?;
     load_clipboard_image_from(&clipboard_history_dir(), entry)
@@ -220,6 +236,10 @@ fn load_clipboard_image_from(
 }
 
 /// 清空全部剪贴板历史。
+///
+/// # Errors
+///
+/// 跨进程锁、目录创建、索引读写、图像编解码或清理失败时返回 [`StorageError`]。
 pub fn clear_clipboard_history() -> Result<(), StorageError> {
     let _lock = HistoryLock::acquire("清空历史")?;
     let dir = clipboard_history_dir();

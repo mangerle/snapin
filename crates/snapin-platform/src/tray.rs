@@ -328,6 +328,10 @@ impl PlatformTray {
     ///
     /// - Linux: 创建基于 StatusNotifierItem (SNI) 的系统原生托盘，即开即用免注销重登；
     /// - Windows / macOS: 基于原生系统托盘 API 提供上下文菜单与动作回调。
+    ///
+    /// # Errors
+    ///
+    /// 系统托盘后端初始化失败时返回 [`PlatformError`]。
     pub fn new(_rgba_icon: Option<(Vec<u8>, u32, u32)>) -> Result<Self, PlatformError> {
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {

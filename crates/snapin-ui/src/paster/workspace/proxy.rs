@@ -77,6 +77,10 @@ impl PasterWorkspaceProxy {
     }
 
     /// 请求工作区热重载最新配置
+    ///
+    /// # Errors
+    ///
+    /// 事件循环代理已关闭、投递失败或等待响应超时时返回 [`UiError`]。
     pub fn reload_config(&self, cfg: Config) -> Result<(), UiError> {
         self.proxy
             .send_event(PasterAppEvent::ReloadConfig(Box::new(cfg)))
@@ -86,6 +90,10 @@ impl PasterWorkspaceProxy {
     }
 
     /// 请求工作区打开新贴图窗口
+    ///
+    /// # Errors
+    ///
+    /// 事件循环代理已关闭、投递失败或等待响应超时时返回 [`UiError`]。
     pub fn open_paster(&self, item: PasterItem) -> Result<(), UiError> {
         self.proxy
             .send_event(PasterAppEvent::OpenPaster(item))
@@ -100,6 +108,10 @@ impl PasterWorkspaceProxy {
     }
 
     /// 请求工作区打开全屏截图覆盖层
+    ///
+    /// # Errors
+    ///
+    /// 事件循环代理已关闭、投递失败或等待响应超时时返回 [`UiError`]。
     pub fn open_snipper(&self, launch: SnipperLaunch) -> Result<(), UiError> {
         self.proxy
             .send_event(PasterAppEvent::OpenSnipper(Box::new(launch)))
@@ -163,6 +175,10 @@ impl PasterWorkspaceProxy {
     }
 
     /// 请求批量切换当前组贴图显隐
+    ///
+    /// # Errors
+    ///
+    /// 事件循环代理已关闭、投递失败或等待响应超时时返回 [`UiError`]。
     pub fn toggle_visibility(&self) -> Result<(), UiError> {
         self.proxy
             .send_event(PasterAppEvent::ToggleVisibility)
@@ -172,6 +188,10 @@ impl PasterWorkspaceProxy {
     }
 
     /// 请求切换活动贴图分组
+    ///
+    /// # Errors
+    ///
+    /// 事件循环代理已关闭、投递失败或等待响应超时时返回 [`UiError`]。
     pub fn switch_group(&self, group_id: Option<GroupId>) -> Result<(), UiError> {
         self.proxy
             .send_event(PasterAppEvent::SwitchGroup(group_id))
@@ -181,6 +201,10 @@ impl PasterWorkspaceProxy {
     }
 
     /// 异步获取工作区当前活动状态快照
+    ///
+    /// # Errors
+    ///
+    /// 事件循环代理已关闭、投递失败或等待响应超时时返回 [`UiError`]。
     pub async fn get_status(&self) -> Result<WorkspaceStatus, UiError> {
         let (tx, rx) = oneshot::channel();
         self.proxy
@@ -194,6 +218,10 @@ impl PasterWorkspaceProxy {
     }
 
     /// 请求工作区平滑退出，并等待事件循环确认（最多 2 秒）
+    ///
+    /// # Errors
+    ///
+    /// 事件循环代理已关闭、投递失败或等待响应超时时返回 [`UiError`]。
     pub async fn shutdown_and_wait(&self) -> Result<(), UiError> {
         let (sender, receiver) = oneshot::channel();
         self.proxy

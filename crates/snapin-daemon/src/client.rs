@@ -13,6 +13,10 @@ use tokio::time::timeout;
 /// 若守护进程未运行（Socket 不存在或无进程监听），返回 `Ok(None)`；
 /// 若发送并接收到响应，返回 `Ok(Some(response))`；
 /// 若通信超时或套接字损坏，返回相应的 `Err(DaemonError)`。
+///
+/// # Errors
+///
+/// 套接字连接、请求写入、响应读取、协议处理或超时失败时返回 [`DaemonError`]。
 pub async fn send_request_to_daemon(
     request: &DaemonRequest,
 ) -> Result<Option<DaemonResponse>, DaemonError> {
@@ -31,6 +35,9 @@ pub(crate) fn windows_pipe_name(socket_path: &Path) -> String {
 
 /// 向指定路径的套接字发送请求并等待响应（便于单元测试隔离）
 #[cfg(unix)]
+/// # Errors
+///
+/// 套接字连接、请求写入、响应读取、协议处理或超时失败时返回 [`DaemonError`]。
 pub async fn send_request_to_path(
     socket_path: &Path,
     request: &DaemonRequest,
@@ -121,6 +128,10 @@ pub async fn send_request_to_path(
 /// 若守护进程成功处理并确认（Ok/Pong/Status），返回 `Ok(true)`；
 /// 若守护进程未运行，返回 `Ok(false)`；
 /// 若守护进程返回明确业务处理失败（Error），返回 `Err(DaemonError::Business)`。
+///
+/// # Errors
+///
+/// 套接字连接、请求写入、响应读取、协议处理或超时失败时返回 [`DaemonError`]。
 pub async fn send_command_to_daemon(command: &DaemonRequest) -> Result<bool, DaemonError> {
     match send_request_to_daemon(command).await? {
         Some(DaemonResponse::Ok)

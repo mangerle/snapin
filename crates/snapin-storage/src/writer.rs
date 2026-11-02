@@ -43,6 +43,10 @@ pub fn resolve_save_path(cfg: &OutputConfig) -> PathBuf {
 }
 
 /// 按照用户配置格式将图像编码并写入磁盘
+///
+/// # Errors
+///
+/// 目标目录创建、图像编码、临时文件写入或原子替换失败时返回 [`StorageError`]。
 pub fn save_image_with_config(
     img: &RgbaImage,
     cfg: &OutputConfig,
@@ -64,6 +68,10 @@ pub fn save_image_with_config(
 /// 格式优先按目标扩展名推断。无扩展名时补齐全局默认格式的扩展名，但若补齐后的
 /// 文件已存在则拒绝写入，因为 Portal 的覆盖确认针对的是用户最初选择的路径；
 /// 不支持的扩展名直接报错，避免静默把文件改写成另一种格式。
+///
+/// # Errors
+///
+/// 目标目录创建、图像编码、临时文件写入或原子替换失败时返回 [`StorageError`]。
 pub fn save_image_to_path(
     img: &RgbaImage,
     path: &Path,

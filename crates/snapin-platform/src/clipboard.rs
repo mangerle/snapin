@@ -60,11 +60,19 @@ fn with_clipboard<R, F: FnMut(&mut Clipboard) -> Result<R, arboard::Error>>(
 }
 
 /// 将 RGBA 图像写入系统剪贴板
+///
+/// # Errors
+///
+/// 系统剪贴板不可用、图像或文本尺寸非法、像素长度不匹配或内容读写失败时返回 [`PlatformError`]。
 pub fn write_image_to_clipboard(img: &RgbaImage) -> Result<(), PlatformError> {
     write_raw_image_to_clipboard(img.width(), img.height(), img.as_raw())
 }
 
 /// 将 RGBA 裸像素切片零拷贝写入系统剪贴板（避免包装临时 RgbaImage 与多余堆拷贝）
+///
+/// # Errors
+///
+/// 系统剪贴板不可用、图像或文本尺寸非法、像素长度不匹配或内容读写失败时返回 [`PlatformError`]。
 pub fn write_raw_image_to_clipboard(
     width: u32,
     height: u32,
@@ -103,6 +111,10 @@ pub fn write_raw_image_to_clipboard(
 }
 
 /// 将纯文本字符串写入系统剪贴板
+///
+/// # Errors
+///
+/// 系统剪贴板不可用、图像或文本尺寸非法、像素长度不匹配或内容读写失败时返回 [`PlatformError`]。
 pub fn write_text_to_clipboard(text: &str) -> Result<(), PlatformError> {
     with_clipboard(|cb| cb.set_text(text))?;
 
@@ -111,6 +123,10 @@ pub fn write_text_to_clipboard(text: &str) -> Result<(), PlatformError> {
 }
 
 /// 从系统剪贴板读取纯文本内容 (若不存在则返回 None)
+///
+/// # Errors
+///
+/// 系统剪贴板不可用、图像或文本尺寸非法、像素长度不匹配或内容读写失败时返回 [`PlatformError`]。
 pub fn read_clipboard_text() -> Result<Option<String>, PlatformError> {
     let text = match with_clipboard(|cb| match cb.get_text() {
         Ok(text) => Ok(Some(text)),
@@ -145,6 +161,10 @@ fn validate_clipboard_text(text: String) -> Result<Option<String>, PlatformError
 }
 
 /// 从系统剪贴板读取 RGBA 图像 (若不存在则返回 None)
+///
+/// # Errors
+///
+/// 系统剪贴板不可用、图像或文本尺寸非法、像素长度不匹配或内容读写失败时返回 [`PlatformError`]。
 pub fn read_clipboard_image() -> Result<Option<RgbaImage>, PlatformError> {
     let image = match with_clipboard(|cb| match cb.get_image() {
         Ok(image) => Ok(Some(image)),

@@ -22,6 +22,9 @@ const NOTIFICATION_INTERFACE: &str = "org.freedesktop.Notifications";
 
 /// 向系统通知中心发送一条自消除的气泡通知
 #[cfg(target_os = "linux")]
+/// # Errors
+///
+/// 通知服务不可用、D-Bus 调用失败或响应超时时返回 [`PlatformError`]。
 pub async fn send_desktop_notification(summary: &str, body: &str) -> Result<u32, PlatformError> {
     let connection = get_session_connection().await?;
 

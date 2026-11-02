@@ -4,6 +4,10 @@ use super::*;
 use snapin_runtime::TaskPool;
 
 /// 打开剪贴板历史独立面板。
+///
+/// # Errors
+///
+/// 窗口创建、历史读取、运行时初始化或事件循环运行失败时返回 [`SettingsError`]。
 pub fn run_clipboard_history_panel() -> Result<(), SettingsError> {
     let window = create_clipboard_panel()?;
     initialize_clipboard_language();

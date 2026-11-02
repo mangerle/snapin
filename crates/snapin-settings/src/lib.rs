@@ -63,6 +63,10 @@ pub enum SettingsError {
 }
 
 /// 运行 Slint 偏好设置中心图形界面
+///
+/// # Errors
+///
+/// 窗口创建、配置加载、运行时初始化或事件循环运行失败时返回 [`SettingsError`]。
 pub fn run_settings_gui() -> Result<(), SettingsError> {
     let window = create_settings_window()?;
     configure_settings_window(&window);

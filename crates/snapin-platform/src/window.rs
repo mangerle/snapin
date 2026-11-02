@@ -23,6 +23,10 @@ use crate::extension_client::list_windows as list_windows_gnome;
 /// 枚举当前工作区中所有可见窗口的物理像素几何边界。
 ///
 /// 顺序为自底向上或平台默认栈序，调用方应反向查找以优先吸附最上层窗口。
+///
+/// # Errors
+///
+/// 窗口枚举后端不可用或系统调用失败时返回 [`PlatformError`]。
 pub async fn enumerate_visible_windows() -> Result<Vec<WindowRect>, PlatformError> {
     #[cfg(target_os = "linux")]
     {

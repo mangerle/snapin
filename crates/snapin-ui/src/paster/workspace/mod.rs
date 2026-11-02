@@ -94,6 +94,10 @@ pub(crate) struct WorkspaceRuntime {
 }
 
 /// 创建集中多窗口贴图工作区事件循环与配套代理
+///
+/// # Errors
+///
+/// 事件循环创建失败时返回 [`UiError`]。
 pub fn create_paster_workspace(
 ) -> Result<(EventLoop<PasterAppEvent>, PasterWorkspaceProxy), UiError> {
     let event_loop = build_workspace_event_loop()?;

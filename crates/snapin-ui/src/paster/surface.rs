@@ -39,6 +39,10 @@ pub enum PasterSurface {
 
 impl PasterSurface {
     /// 创建贴图窗口图形表面，Linux Wayland 优先尝试 ARGB8888 共享内存通路。
+    ///
+    /// # Errors
+    ///
+    /// 窗口表面初始化、尺寸调整或像素呈现失败时返回 [`UiError`]。
     pub fn new(window: Arc<Window>) -> Result<Self, UiError> {
         #[cfg(target_os = "linux")]
         {
@@ -67,6 +71,10 @@ impl PasterSurface {
     }
 
     /// 声明下一帧的目标呈现尺寸（零尺寸收敛为 1 像素）。
+    ///
+    /// # Errors
+    ///
+    /// 窗口表面初始化、尺寸调整或像素呈现失败时返回 [`UiError`]。
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), UiError> {
         match self {
             #[cfg(target_os = "linux")]
@@ -82,6 +90,10 @@ impl PasterSurface {
     }
 
     /// 将一帧渲染完成的位图提交给合成器显示。
+    ///
+    /// # Errors
+    ///
+    /// 窗口表面初始化、尺寸调整或像素呈现失败时返回 [`UiError`]。
     pub fn present(&mut self, pixmap: &Pixmap) -> Result<(), UiError> {
         match self {
             #[cfg(target_os = "linux")]
@@ -93,6 +105,10 @@ impl PasterSurface {
     }
 
     /// 声明窗口可交互区域，坐标为 surface-local 逻辑像素。
+    ///
+    /// # Errors
+    ///
+    /// 窗口表面初始化、尺寸调整或像素呈现失败时返回 [`UiError`]。
     pub fn set_input_rects(&mut self, rects: &[(i32, i32, i32, i32)]) -> Result<(), UiError> {
         match self {
             #[cfg(target_os = "linux")]

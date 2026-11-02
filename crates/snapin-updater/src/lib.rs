@@ -70,6 +70,10 @@ pub async fn check_update_async(
 }
 
 /// 同步阻塞检查是否有可用新版本（适用于独立工作线程）
+///
+/// # Errors
+///
+/// 检查清单、网络请求、签名校验、安装或回滚失败时返回 [`UpdaterError`]。
 pub fn check_update(custom_manifest_url: Option<&str>) -> Result<Option<UpdateInfo>, UpdaterError> {
     let updater = build_updater(custom_manifest_url)?;
     updater
@@ -251,6 +255,10 @@ fn map_event(event: ShipupEvent) -> UpdateEvent {
 /// # 机制说明
 /// 在应用 `main` 首行执行。若新版本由于打包动态库缺失或严重 bug 导致连续启动崩溃达到 2 次，
 /// 会自动用上一稳定版本的备份覆盖回滚，防止客户端陷入不可恢复的闪退死锁。
+///
+/// # Errors
+///
+/// 检查清单、网络请求、签名校验、安装或回滚失败时返回 [`UpdaterError`]。
 pub fn check_and_recover_on_startup() -> Result<(), UpdaterError> {
     shipup::check_and_recover_current(2)
         .map_err(|e| updater_error("启动自检与崩溃回滚执行失败", e))?;
@@ -261,6 +269,10 @@ pub fn check_and_recover_on_startup() -> Result<(), UpdaterError> {
 ///
 /// # 机制说明
 /// 在守护进程或主界面成功渲染就绪后调用，重置崩溃计数器并安全清理旧版本备份。
+///
+/// # Errors
+///
+/// 检查清单、网络请求、签名校验、安装或回滚失败时返回 [`UpdaterError`]。
 pub fn confirm_update_success() -> Result<(), UpdaterError> {
     shipup::confirm_update_success().map_err(|e| updater_error("确认升级状态闭环失败", e))?;
     Ok(())

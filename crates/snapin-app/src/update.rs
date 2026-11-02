@@ -5,6 +5,10 @@ use snapin_config::config::Config;
 use snapin_updater::{DownloadedUpdate, UpdateEvent, UpdateInfo, UpdateStage};
 
 /// 执行 CLI 更新流程
+///
+/// # Errors
+///
+/// 网络检查、下载、验签、安装或状态提示失败时返回错误。
 pub async fn run_cli_update(config: Option<Config>, check_only: bool) -> Result<()> {
     let custom_url = config.and_then(|c| c.general.custom_update_url);
     tracing::info!("正在检查 Snapin 最新版本...");

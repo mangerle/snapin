@@ -36,6 +36,10 @@ pub struct IpcListener {
 
 impl IpcListener {
     /// 绑定套接字并初始化监听器，若检测到已有存活实例则拒绝重复启动，若为残留文件则自动清理
+    ///
+    /// # Errors
+    ///
+    /// 运行时目录、单实例锁、套接字或命名管道初始化失败时返回 [`DaemonError`]。
     pub async fn bind(custom_path: Option<PathBuf>) -> Result<Self, DaemonError> {
         let socket_path = match custom_path {
             Some(path) => path,

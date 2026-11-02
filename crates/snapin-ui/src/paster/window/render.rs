@@ -29,6 +29,10 @@ fn needs_opaque_backdrop(transparent: bool, menu_open: bool, window_exceeds_imag
 }
 
 /// 根据几何变换矩阵将贴图图元、精致边框、阴影及右键菜单光栅化到目标表面
+///
+/// # Errors
+///
+/// 表面尺寸调整、缓冲分配或像素呈现失败时返回 [`UiError`]。
 pub fn render_paster_to_surface(
     state: &mut PasterWindowState,
     surface: &mut PasterSurface,

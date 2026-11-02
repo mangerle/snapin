@@ -49,6 +49,10 @@ impl AppPaths {
     /// 确保配置目录存在并收紧为私有权限。
     ///
     /// 目录创建从 getter 中拆出，避免仅读取路径或测试布局时产生磁盘副作用。
+    ///
+    /// # Errors
+    ///
+    /// 目录创建、权限收紧、属主校验或符号链接检查失败时返回 I/O 错误。
     pub fn ensure_config_dir() -> std::io::Result<PathBuf> {
         let path = Self::config_dir();
         ensure_private_dir(&path)?;
@@ -56,6 +60,10 @@ impl AppPaths {
     }
 
     /// 确保缓存目录存在并收紧为私有权限。
+    ///
+    /// # Errors
+    ///
+    /// 目录创建、权限收紧、属主校验或符号链接检查失败时返回 I/O 错误。
     pub fn ensure_cache_dir() -> std::io::Result<PathBuf> {
         let path = Self::cache_dir();
         ensure_private_dir(&path)?;
@@ -63,6 +71,10 @@ impl AppPaths {
     }
 
     /// 确保运行时目录存在并收紧为私有权限。
+    ///
+    /// # Errors
+    ///
+    /// 目录创建、权限收紧、属主校验或符号链接检查失败时返回 I/O 错误。
     pub fn ensure_runtime_dir() -> std::io::Result<PathBuf> {
         let path = Self::runtime_dir();
         ensure_private_dir(&path)?;
@@ -207,6 +219,10 @@ impl AppPaths {
     }
 
     /// 生成防碰撞的安全临时文件绝对路径（位于安全运行时目录下）
+    ///
+    /// # Errors
+    ///
+    /// 目录创建、权限收紧、属主校验或符号链接检查失败时返回 I/O 错误。
     pub fn generate_temp_path(prefix: &str, ext: &str) -> std::io::Result<PathBuf> {
         let dir = Self::ensure_runtime_dir()?;
         let id = Self::generate_unique_id();

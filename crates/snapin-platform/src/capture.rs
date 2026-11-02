@@ -29,6 +29,10 @@ use snapin_foundation::AppPaths;
 /// 针对不同操作系统自动适配最优原生通路：
 /// - Linux: GNOME 扩展零白闪优先，XDG Portal 兜底；
 /// - Windows / macOS: xcap 原生极速通道。
+///
+/// # Errors
+///
+/// 运行时目录、屏幕捕获、图像解码、尺寸校验或超时失败时返回 [`PlatformError`]。
 pub async fn capture_fullscreen_snapshot(include_cursor: bool) -> Result<RgbaImage, PlatformError> {
     #[cfg(target_os = "linux")]
     {

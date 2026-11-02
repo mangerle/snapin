@@ -106,6 +106,10 @@ fn permission_arguments(app_id: &str) -> (&'static str, bool, &'static str, &str
 ///
 /// 具备退避防抖重试机制（解决快捷键并发按压时 Portal 的 `ongoing operation` 冲突），
 /// 并在调用前自动确保自愈权限，避免无焦点时抛出 `AccessDenied`。
+///
+/// # Errors
+///
+/// Portal 不可用、授权失败、调用超时或返回路径与图像无法处理时返回 [`PlatformError`]。
 pub async fn capture_fullscreen_portal() -> Result<RgbaImage, PlatformError> {
     tracing::debug!("正在向 XDG Desktop Portal 请求全屏快照...");
     if let Err(error) = ensure_portal_screenshot_permission().await {

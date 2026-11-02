@@ -21,6 +21,10 @@ const EXT_ICON_SVG: &[u8] = include_bytes!("../../../assets/icons/snapin.svg");
 const GNOME_EXTENSION_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// 安装配套 GNOME Shell 扩展到用户目录并向系统请求启用
+///
+/// # Errors
+///
+/// 扩展目录创建、内嵌资源写入、原子替换或启用命令执行失败时返回错误。
 pub fn install_gnome_extension() -> Result<()> {
     #[cfg(not(target_os = "linux"))]
     {

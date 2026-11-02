@@ -17,6 +17,10 @@ pub const IPC_PROTOCOL_VERSION: u8 = 1;
 const FRAME_HEADER_LEN: usize = 12;
 
 /// 从异步读取流中读取一个带版本头的分帧消息并反序列化。
+///
+/// # Errors
+///
+/// 帧头或负载读写、协议版本校验、长度限制或 JSON 编解码失败时返回 [`DaemonError`]。
 pub async fn read_framed_message<R: AsyncReadExt + Unpin, T: for<'de> Deserialize<'de>>(
     reader: &mut R,
 ) -> Result<T, DaemonError> {
@@ -69,6 +73,10 @@ pub async fn read_framed_message<R: AsyncReadExt + Unpin, T: for<'de> Deserializ
 }
 
 /// 将消息序列化为 JSON，并追加带版本号的帧头写入异步输出流。
+///
+/// # Errors
+///
+/// 帧头或负载读写、协议版本校验、长度限制或 JSON 编解码失败时返回 [`DaemonError`]。
 pub async fn write_framed_message<W: AsyncWriteExt + Unpin, T: Serialize>(
     writer: &mut W,
     msg: &T,

@@ -32,6 +32,10 @@ fn xml_escape(value: &str) -> String {
 /// 同步开机自启动配置状态。
 ///
 /// 针对不同操作系统自动应用对应的原生自启持久化通路。
+///
+/// # Errors
+///
+/// 目录、命令、符号链接或平台自启动配置失败时返回 [`PlatformError`]。
 pub fn sync_autostart(enabled: bool) -> Result<(), PlatformError> {
     #[cfg(target_os = "linux")]
     {

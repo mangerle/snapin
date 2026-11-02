@@ -16,6 +16,10 @@ mod native;
 ///
 /// - Linux: 同步至 GNOME 桌面环境媒体快捷键配置；
 /// - Windows / macOS: 记录并准备系统级全局热键绑定。
+///
+/// # Errors
+///
+/// 原生热键管理器初始化、命令执行或 GNOME 设置同步失败时返回 [`PlatformError`]。
 pub fn sync_global_hotkeys(config: &HotkeyConfig) -> Result<(), PlatformError> {
     #[cfg(target_os = "linux")]
     {
@@ -131,6 +135,10 @@ impl PlatformHotkeyListener {
     ///
     /// - Linux: 返回无操作空对象（热键由系统设置 media-keys 闭环驱动可执行文件执行）；
     /// - Windows / macOS: 基于 global-hotkey 向操作系统底层注册钩子。
+    ///
+    /// # Errors
+    ///
+    /// 原生热键管理器初始化、命令执行或 GNOME 设置同步失败时返回 [`PlatformError`]。
     pub fn new(_config: &HotkeyConfig) -> Result<Self, PlatformError> {
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
@@ -162,6 +170,10 @@ impl PlatformHotkeyListener {
 ///
 /// 快捷键表由 `configured_bindings` 单一维护，GNOME 与原生监听器共享同一份
 /// 动作映射，避免两套注册逻辑漏掉或错配某个动作。
+///
+/// # Errors
+///
+/// 原生热键管理器初始化、命令执行或 GNOME 设置同步失败时返回 [`PlatformError`]。
 pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError> {
     #[cfg(target_os = "linux")]
     {

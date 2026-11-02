@@ -30,6 +30,10 @@ struct OverlaySnapshot {
 }
 
 /// 高速生成定点整数暗化蒙层底图 ((val * 107) >> 8)
+///
+/// # Errors
+///
+/// 像素缓冲分配、表面调整或呈现失败时返回 [`UiError`]。
 pub fn create_dimmed_pixmap_fast(img: &RgbaImage) -> Result<Pixmap, UiError> {
     let w = img.width();
     let h = img.height();
@@ -73,6 +77,10 @@ impl SnipperPresenter {
     ///
     /// `dimmed` 为 true 时预计算暗化蒙层用于常规截图；取色器传入 false，
     /// 直接使用原始屏幕图作为底图，避免颜色被遮罩改变视觉观感。
+    ///
+    /// # Errors
+    ///
+    /// 像素缓冲分配、表面调整或呈现失败时返回 [`UiError`]。
     pub fn try_new(
         window: Arc<Window>,
         width: u32,
@@ -138,6 +146,10 @@ impl SnipperPresenter {
     /// winit 全屏窗口在显示器分辨率或缩放变化时会收到 `Resized`。若继续使用
     /// 创建时的固定缓冲，`copy_from_slice` 会因长度不一致而持续报错。这里按新尺寸
     /// 缩放底图与背景图像，并清空增量快照，下一帧强制全量重绘。
+    ///
+    /// # Errors
+    ///
+    /// 像素缓冲分配、表面调整或呈现失败时返回 [`UiError`]。
     pub fn resize(
         &mut self,
         width: u32,
@@ -183,6 +195,10 @@ impl SnipperPresenter {
     ///
     /// 空闲态（未选区）下光标移动只改动放大镜、悬停边框与状态提示，
     /// 因此走局部脏区增量路径；选区、标注、工具栏等任何结构变化都回退到全量重绘。
+    ///
+    /// # Errors
+    ///
+    /// 像素缓冲分配、表面调整或呈现失败时返回 [`UiError`]。
     pub fn render_and_present(
         &mut self,
         state: &SnipperState,

@@ -77,6 +77,10 @@ impl LocalOcrPaths {
     }
 
     /// 按 XDG 规范三级回退链搜索并定位模型资产
+    ///
+    /// # Errors
+    ///
+    /// 模型路径探测、配置文件读取或字典解析失败时返回 [`ServiceError`]。
     pub fn resolve_model_paths(custom_dir: Option<&Path>) -> Result<Self, ServiceError> {
         if let Some(custom) = custom_dir {
             return Self::discover_required(custom);
@@ -138,6 +142,10 @@ fn is_non_empty_file(path: &Path) -> bool {
 }
 
 /// 加载字符字典 (支持从 inference.yml 或 dict.txt 自动适配)
+///
+/// # Errors
+///
+/// 模型路径探测、配置文件读取或字典解析失败时返回 [`ServiceError`]。
 pub fn load_character_dict(config_path: &Path) -> Result<Vec<String>, ServiceError> {
     let content = read_dictionary_text(config_path)?;
     if config_path.extension().and_then(|value| value.to_str()) == Some("txt") {

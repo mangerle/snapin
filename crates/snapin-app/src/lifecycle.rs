@@ -10,6 +10,10 @@ use snapin_platform::lifecycle::stop_systemd_service;
 /// 2. 异步向正在运行的守护进程发送平滑停机请求（由守护进程负责关闭各贴图窗口、析构系统托盘并清理套接字）；
 /// 3. GNOME 扩展仅专注提供 Mutter 特权截屏与窗口层叠，不干预托盘，无需也不应该停用；
 /// 4. 彻底杜绝使用破坏性的全局字符串匹配 `pkill -9 -f`，避免误杀用户的编辑器、终端或同名目录进程。
+///
+/// # Errors
+///
+/// 当前实现以尽力停止为目标并始终完成收尾；保留 `Result` 以允许后续停机步骤传播不可恢复错误。
 pub async fn exit_snapin_application() -> Result<()> {
     tracing::info!("正在停止 Snapin 后台服务...");
 
