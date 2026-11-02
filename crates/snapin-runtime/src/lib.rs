@@ -54,6 +54,15 @@ pub enum TaskRuntimeError {
     /// 运行时已进入停机流程，不再接受新任务
     #[error("后台任务运行时已停止，拒绝提交新任务")]
     ShuttingDown,
+
+    /// 阻塞任务在完成前 panic 或 JoinHandle 被运行时取消
+    #[error("后台阻塞任务执行失败，任务序号: {task_id}，原因: {reason}")]
+    BlockingTaskFailed {
+        /// 任务序号
+        task_id: u64,
+        /// 中文失败原因
+        reason: String,
+    },
 }
 
 /// 任务池划分。
@@ -313,14 +322,21 @@ impl TaskRuntime {
         }
         let permit = self.acquire(pool)?;
         let id = self.inner.next_task_id.fetch_add(1, Ordering::Relaxed);
-        let join = self.inner.handle.spawn_blocking(task);
+        // 把许可与追踪令牌一起移动进阻塞闭包：即使调用方丢弃 JoinHandle，阻塞线程
+        // 完成前仍会占用名额并被 TaskTracker 统计，避免停机误判为已排空。
+        let join = self.inner.tracker.spawn_blocking_on(
+            move || {
+                let _permit = permit;
+                task()
+            },
+            &self.inner.handle,
+        );
         let abort = join.abort_handle();
         if let Ok(mut active) = self.inner.active_tasks.lock() {
             active.insert(id, abort.clone());
         }
         let inner = Arc::clone(&self.inner);
         let tracked = self.inner.tracker.track_future(async move {
-            let _permit = permit;
             match join.await {
                 Ok(_) => {}
                 Err(error) if error.is_panic() => {
@@ -334,6 +350,70 @@ impl TaskRuntime {
         });
         drop(self.inner.handle.spawn(tracked));
         Ok(TaskHandle { id, abort })
+    }
+
+    /// 在指定池中执行阻塞任务并等待其返回值。
+    ///
+    /// 与 [`Self::spawn_blocking_in`] 的区别是调用方需要最终结果。阻塞闭包自行持有
+    /// 准入许可与追踪令牌，因此调用 Future 被取消后，底层线程仍会被运行时计入停机。
+    ///
+    /// # Errors
+    ///
+    /// 运行时停机、目标池已满，或阻塞任务 panic 时返回 [`TaskRuntimeError`]。
+    pub async fn run_blocking<F, R>(&self, task: F) -> Result<R, TaskRuntimeError>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        self.run_blocking_in(TaskPool::Default, task).await
+    }
+
+    /// 在指定池中执行阻塞任务并等待其返回值。
+    ///
+    /// # Errors
+    ///
+    /// 运行时停机、目标池已满，或阻塞任务 panic 时返回 [`TaskRuntimeError`]。
+    pub async fn run_blocking_in<F, R>(
+        &self,
+        pool: TaskPool,
+        task: F,
+    ) -> Result<R, TaskRuntimeError>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let (id, join) = {
+            let _admission = self.lock_admission();
+            if self.inner.shutting_down.load(Ordering::Acquire) {
+                return Err(TaskRuntimeError::ShuttingDown);
+            }
+            let permit = self.acquire(pool)?;
+            let id = self.inner.next_task_id.fetch_add(1, Ordering::Relaxed);
+            let join = self.inner.tracker.spawn_blocking_on(
+                move || {
+                    let _permit = permit;
+                    task()
+                },
+                &self.inner.handle,
+            );
+            let abort = join.abort_handle();
+            if let Ok(mut active) = self.inner.active_tasks.lock() {
+                active.insert(id, abort);
+            }
+            (id, join)
+        };
+        let result = join.await;
+        if let Ok(mut active) = self.inner.active_tasks.lock() {
+            active.remove(&id);
+        }
+        result.map_err(|error| TaskRuntimeError::BlockingTaskFailed {
+            task_id: id,
+            reason: if error.is_panic() {
+                "任务发生 panic".to_string()
+            } else {
+                "任务在完成前被取消".to_string()
+            },
+        })
     }
 
     /// 获取共享取消令牌。
@@ -492,6 +572,38 @@ mod tests {
             .expect("阻塞任务应成功入队");
         assert!(runtime.shutdown(Duration::from_secs(1)).await);
         assert_eq!(flag.load(Ordering::Acquire), 1);
+    }
+
+    /// 可等待的阻塞任务必须返回闭包结果，并在完成后释放池名额。
+    #[tokio::test]
+    async fn test_run_blocking_returns_value_and_releases_permit() {
+        let runtime = TaskRuntime::current(1).expect("测试运行时必须可用");
+
+        let first = runtime
+            .run_blocking_in(TaskPool::Maintenance, || 41)
+            .await
+            .expect("首个阻塞任务应成功");
+        let second = runtime
+            .run_blocking_in(TaskPool::Maintenance, move || first + 1)
+            .await
+            .expect("完成后名额应被释放");
+
+        assert_eq!(second, 42);
+        assert!(runtime.shutdown(Duration::from_secs(1)).await);
+    }
+
+    /// 阻塞任务 panic 必须转换为强类型错误，供调用方安全降级。
+    #[tokio::test]
+    async fn test_run_blocking_maps_panic_to_domain_error() {
+        let runtime = TaskRuntime::current(1).expect("测试运行时必须可用");
+        let result = runtime
+            .run_blocking(|| -> u8 { panic!("模拟阻塞任务 panic") })
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(TaskRuntimeError::BlockingTaskFailed { .. })
+        ));
     }
 
     /// 不响应取消的任务不得让停机等待无限挂起，超时应返回 false 供调用方兜底退出。
