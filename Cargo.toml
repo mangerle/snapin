@@ -49,7 +49,7 @@ winit = { version = "0.30", features = ["rwh_06"] }
 
 # 纯 CPU 软件光栅化与多平台帧缓冲
 softbuffer = "0.4"
-tiny-skia = "0.11"
+tiny-skia = "0.12"
 
 # 图像操作与零拷贝像素裁剪
 image = { version = "0.24", default-features = false, features = ["png", "jpeg", "webp"] }
