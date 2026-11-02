@@ -12,6 +12,7 @@ use snapin_runtime::{TaskPool, TaskRuntime, TaskRuntimeError};
 use snapin_storage::{append_clipboard_image, append_clipboard_text, ClipboardEntryKind};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::time::MissedTickBehavior;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 /// 持久化失败后的重试间隔，避免磁盘故障时每 500 毫秒重复告警。
@@ -32,10 +33,12 @@ pub(crate) fn run_clipboard_history_monitor(
         .clone()
         .spawn_in(TaskPool::Background, async move {
             let mut persist_gate = PersistGate::default();
+            let mut interval = tokio::time::interval(POLL_INTERVAL);
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
                     _ = cancel.cancelled() => break,
-                    _ = tokio::time::sleep(POLL_INTERVAL) => {}
+                    _ = interval.tick() => {}
                 }
                 let read = runtime.run_blocking_in(TaskPool::Io, read_snapshot);
                 let (fingerprint, snapshot) = tokio::select! {
