@@ -2,8 +2,10 @@
 
 use crate::error::ServiceError;
 use serde::Deserialize;
-use std::fs;
 use std::path::{Path, PathBuf};
+
+/// 模型配置或字典文件允许读取的最大字节数。
+const MAX_MODEL_CONFIG_BYTES: usize = 16 * 1024 * 1024;
 
 /// 文本识别模型的配置契约 (对应 inference.yml)
 #[derive(Debug, Clone, Deserialize)]
@@ -160,10 +162,11 @@ fn read_dictionary_text(config_path: &Path) -> Result<String, ServiceError> {
             path: config_path.to_string_lossy().to_string(),
         });
     }
-    let content = fs::read_to_string(config_path).map_err(|error| ServiceError::IoError {
-        path: config_path.to_string_lossy().to_string(),
-        source: error,
-    })?;
+    let content = snapin_foundation::read_utf8_file_limited(config_path, MAX_MODEL_CONFIG_BYTES)
+        .map_err(|error| ServiceError::IoError {
+            path: config_path.to_string_lossy().to_string(),
+            source: error,
+        })?;
     if content.trim().is_empty() {
         return Err(ServiceError::ConfigParseError {
             path: config_path.to_string_lossy().to_string(),
@@ -219,5 +222,16 @@ mod tests {
         std::fs::write(dir.path().join("ppocrv6_small_rec.yml"), b"PostProcess:\n")
             .expect("写入配置占位内容失败");
         assert!(LocalOcrPaths::discover_in_root(dir.path()).is_some());
+    }
+
+    #[test]
+    fn test_read_dictionary_rejects_oversized_file() {
+        let dir = tempfile::tempdir().expect("创建临时目录失败");
+        let path = dir.path().join("oversized.txt");
+        std::fs::write(&path, vec![b'a'; MAX_MODEL_CONFIG_BYTES.saturating_add(1)])
+            .expect("写入超限字典失败");
+
+        let error = read_dictionary_text(&path).expect_err("超限字典必须被拒绝");
+        assert!(matches!(error, ServiceError::IoError { .. }));
     }
 }

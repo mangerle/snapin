@@ -6234,6 +6234,7 @@ dependencies = [
  "serde_yaml",
  "sha1",
  "sha2 0.10.9",
+ "snapin-foundation",
  "snapin-render",
  "tempfile",
  "thiserror 1.0.69",
