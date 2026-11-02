@@ -95,9 +95,27 @@ pub fn parse_imported_config(content: &str, source_path: &Path) -> Result<Config
 /// `deny_unknown_fields` 与 flatten 组合不可靠，因此用 `serde_ignored` 显式
 /// 收集未知键；拼写错误或未来版本字段会被当成损坏配置备份并重建，而不是静默忽略。
 fn parse_config_file(content: &str) -> Result<ConfigFile, String> {
-    // flatten 会把顶层未知板块吞进 Config，serde_ignored 未必能回报；先按 TOML
-    // 表结构做一次顶层键白名单检查，再把 schema_version 摘掉后直接反序列化 Config，
-    // 让 serde_ignored 能发现嵌套未知字段。
+    let mut table = parse_toml_table(content)?;
+    reject_unknown_top_level_keys(&table)?;
+    let schema_version = take_schema_version(&mut table)?;
+    let config = deserialize_config_strict(table)?;
+    Ok(ConfigFile {
+        schema_version,
+        config,
+    })
+}
+
+/// 把原始 TOML 解析为可编辑表。
+fn parse_toml_table(content: &str) -> Result<toml::Table, String> {
+    let raw: toml::Value =
+        toml::from_str(content).map_err(|error| format!("TOML 解析失败: {error}"))?;
+    raw.as_table()
+        .cloned()
+        .ok_or_else(|| "配置文件顶层必须是 TOML 表".to_string())
+}
+
+/// 检查顶层板块白名单，防止 flatten 吞掉未知板块。
+fn reject_unknown_top_level_keys(table: &toml::Table) -> Result<(), String> {
     const KNOWN_TOP_LEVEL: &[&str] = &[
         "schema_version",
         "general",
@@ -109,35 +127,34 @@ fn parse_config_file(content: &str) -> Result<ConfigFile, String> {
         "ocr",
         "translate",
     ];
-    let raw: toml::Value =
-        toml::from_str(content).map_err(|error| format!("TOML 解析失败: {error}"))?;
-    let mut table = raw
-        .as_table()
+    let unknown_fields: Vec<String> = table
+        .keys()
+        .filter(|key| !KNOWN_TOP_LEVEL.contains(&key.as_str()))
         .cloned()
-        .ok_or_else(|| "配置文件顶层必须是 TOML 表".to_string())?;
-
-    let mut unknown_fields: Vec<String> = Vec::new();
-    for key in table.keys() {
-        if !KNOWN_TOP_LEVEL.contains(&key.as_str()) {
-            unknown_fields.push(key.clone());
-        }
-    }
+        .collect();
     if !unknown_fields.is_empty() {
         return Err(format!(
             "配置文件包含未知字段: {}",
             unknown_fields.join(", ")
         ));
     }
+    Ok(())
+}
 
+/// 取出并校验 schema_version；缺失时按历史 v0 处理。
+fn take_schema_version(table: &mut toml::Table) -> Result<u32, String> {
     let schema_version = match table.remove("schema_version") {
         None => 0,
         Some(value) => value
             .as_integer()
             .ok_or_else(|| "schema_version 必须是整数".to_string())?,
     };
-    let schema_version = u32::try_from(schema_version)
-        .map_err(|_| format!("schema_version 超出 u32 范围: {schema_version}"))?;
+    u32::try_from(schema_version)
+        .map_err(|_| format!("schema_version 超出 u32 范围: {schema_version}"))
+}
 
+/// 在保留嵌套字段检查的前提下把表反序列化为强类型配置。
+fn deserialize_config_strict(table: toml::Table) -> Result<Config, String> {
     let config_toml = toml::to_string(&toml::Value::Table(table))
         .map_err(|error| format!("配置规范化失败: {error}"))?;
     let deserializer = toml::de::Deserializer::new(&config_toml);
@@ -151,11 +168,7 @@ fn parse_config_file(content: &str) -> Result<ConfigFile, String> {
             unknown_fields.join(", ")
         ));
     }
-
-    Ok(ConfigFile {
-        schema_version,
-        config,
-    })
+    Ok(config)
 }
 
 /// 备份损坏配置并写入默认配置。
@@ -223,26 +236,24 @@ fn tighten_config_permissions(path: &Path) {
 
 /// 将内存配置结构体持久化写入指定的 TOML 文件
 pub fn save_config(config: &Config, target_path: &Path) -> Result<(), CoreError> {
-    // 保存前再次收敛外部输入，保证 UI 手工输入与历史配置都不会把越界值写回磁盘。
+    let toml_string = serialize_config(config)?;
+    write_config_atomically(target_path, toml_string.as_bytes())
+}
+
+/// 收敛并校验内存配置，再序列化为带 schema 版本的 TOML。
+fn serialize_config(config: &Config) -> Result<String, CoreError> {
     let sanitized = config.clone().sanitized();
     sanitized.validate()?;
-    let toml_string = toml::to_string_pretty(&ConfigFile::current(sanitized)).map_err(|error| {
+    toml::to_string_pretty(&ConfigFile::current(sanitized)).map_err(|error| {
         CoreError::ConfigSerializeError {
             reason: error.to_string(),
         }
-    })?;
+    })
+}
 
-    if let Some(parent) = target_path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent).map_err(|e| CoreError::IoError {
-                path: parent.to_path_buf(),
-                source: e,
-            })?;
-        }
-    }
-
-    // 同目录临时文件 + 原子 rename，避免写入中断导致配置被截断；
-    // 临时文件使用 0600 权限，防止包含 API Key 的配置被其他本机用户读取。
+/// 通过同目录临时文件和原子替换写入配置。
+fn write_config_atomically(target_path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
+    ensure_parent_dir(target_path)?;
     let parent = target_path.parent().unwrap_or_else(|| Path::new("."));
     let file_name = target_path
         .file_name()
@@ -254,12 +265,10 @@ pub fn save_config(config: &Config, target_path: &Path) -> Result<(), CoreError>
         crate::paths::AppPaths::generate_unique_id()
     ));
 
-    if let Err(error) =
-        crate::paths::AppPaths::write_secure_file(&temp_path, toml_string.as_bytes())
-    {
+    if let Err(error) = crate::paths::AppPaths::write_secure_file(&temp_path, bytes) {
         let _ = fs::remove_file(&temp_path);
         return Err(CoreError::IoError {
-            path: temp_path.clone(),
+            path: temp_path,
             source: error,
         });
     }
@@ -273,6 +282,19 @@ pub fn save_config(config: &Config, target_path: &Path) -> Result<(), CoreError>
     }
 
     tracing::info!("配置文件保存就绪: {:?}", target_path);
+    Ok(())
+}
+
+/// 确保配置目标路径的父目录存在。
+fn ensure_parent_dir(target_path: &Path) -> Result<(), CoreError> {
+    if let Some(parent) = target_path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).map_err(|error| CoreError::IoError {
+                path: parent.to_path_buf(),
+                source: error,
+            })?;
+        }
+    }
     Ok(())
 }
 

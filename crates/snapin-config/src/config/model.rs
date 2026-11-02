@@ -117,8 +117,14 @@ impl Config {
     /// 渲染或编码阶段触发除零、缓冲区异常或不可用界面。
     #[must_use]
     pub fn sanitized(mut self) -> Self {
-        self.general.update_check_interval_hours = self.general.update_check_interval_hours.max(1);
+        self.sanitize_numeric_fields();
+        self.sanitize_output_fields();
+        self
+    }
 
+    /// 收敛所有数值型配置到运行期安全范围。
+    fn sanitize_numeric_fields(&mut self) {
+        self.general.update_check_interval_hours = self.general.update_check_interval_hours.max(1);
         if !self.interface.toolbar_scale.is_finite() {
             self.interface.toolbar_scale = DEFAULT_TOOLBAR_SCALE;
         }
@@ -127,7 +133,6 @@ impl Config {
             .interface
             .magnifier_scale
             .clamp(1, DEFAULT_MAGNIFIER_SCALE.saturating_mul(4));
-
         if !self.snip.default_stroke_width.is_finite() {
             self.snip.default_stroke_width = DEFAULT_STROKE_WIDTH;
         }
@@ -136,18 +141,19 @@ impl Config {
             self.snip.default_font_size = DEFAULT_FONT_SIZE;
         }
         self.snip.default_font_size = self.snip.default_font_size.clamp(8.0, 96.0);
-
         if !self.paster.initial_opacity.is_finite() {
             self.paster.initial_opacity = DEFAULT_PASTER_OPACITY;
         }
         self.paster.initial_opacity = self.paster.initial_opacity.clamp(0.1, 1.0);
-
         if !self.beautify.corner_radius.is_finite() {
             self.beautify.corner_radius = 20.0;
         }
         self.beautify.corner_radius = self.beautify.corner_radius.clamp(0.0, 120.0);
         self.beautify.watermark = self.beautify.watermark.trim().chars().take(100).collect();
+    }
 
+    /// 收敛输出目录、文件名模板与更新源等路径字段。
+    fn sanitize_output_fields(&mut self) {
         self.output.jpeg_quality = self.output.jpeg_quality.clamp(1, 100);
         if self.output.quick_save_dir.trim().is_empty() {
             self.output.quick_save_dir = DEFAULT_QUICK_SAVE_DIR.to_string();
@@ -166,8 +172,6 @@ impl Config {
         {
             self.general.custom_update_url = None;
         }
-
-        self
     }
 }
 
