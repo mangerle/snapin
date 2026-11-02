@@ -10,6 +10,9 @@ use snapin_ui::paster::TOTAL_PIN_GROUPS;
 use snapin_ui::{PortError, PortErrorKind, WorkspaceState, WorkspaceStateStore};
 use std::path::{Path, PathBuf};
 
+/// 工作区状态文件允许读取的最大字节数。
+const MAX_WORKSPACE_STATE_BYTES: usize = 64 * 1024;
+
 /// 状态文件中的持久化结构，字段全部带默认值以兼容未来扩展。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct PersistedWorkspaceState {
@@ -37,7 +40,10 @@ impl AppWorkspaceStateStore {
     }
 
     fn load_file(&self) -> Result<WorkspaceState> {
-        let content = match std::fs::read_to_string(&self.path) {
+        let content = match snapin_foundation::read_utf8_file_limited(
+            &self.path,
+            MAX_WORKSPACE_STATE_BYTES,
+        ) {
             Ok(content) => content,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(WorkspaceState::default());
@@ -124,5 +130,19 @@ mod tests {
         let dir = tempfile::tempdir().expect("应可创建测试目录");
         let store = AppWorkspaceStateStore::with_path(dir.path().join("missing.toml"));
         assert_eq!(store.load().expect("缺失状态应回退默认").active_group_id, 0);
+    }
+
+    #[test]
+    fn test_workspace_state_rejects_oversized_file() {
+        let dir = tempfile::tempdir().expect("应可创建测试目录");
+        let path = dir.path().join("workspace-state.toml");
+        std::fs::write(
+            &path,
+            vec![b' '; MAX_WORKSPACE_STATE_BYTES.saturating_add(1)],
+        )
+        .expect("应可写入超限状态");
+        let store = AppWorkspaceStateStore::with_path(path);
+
+        assert!(store.load().is_err(), "超限状态文件必须被拒绝");
     }
 }
