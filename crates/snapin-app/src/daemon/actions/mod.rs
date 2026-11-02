@@ -9,12 +9,58 @@ pub(super) use tray::handle_tray_action;
 use super::commands::handle_command;
 use crate::services::AppServices;
 use crate::snip::{handle_snipper_outcome, start_snipper_task, SnipStartRequest};
-use snapin_daemon::DaemonRequest;
+use snapin_daemon::{DaemonErrorCode, DaemonRequest, DaemonResponse};
 use snapin_platform::spawn_independent_process;
 use snapin_runtime::TaskRuntime;
 use snapin_ui::paster::PasterWorkspaceProxy;
 use snapin_ui::snipper::SnipperOutcome;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use tokio::sync::oneshot;
+
+/// IPC 响应槽：确保后台任务无论正常结束、提前退出还是 panic，客户端都能收到回执。
+///
+/// 响应发送采用一次性取值语义，避免正常响应与析构兜底响应重复写入。任务在响应前
+/// 发生 panic 时，最后一个槽引用析构会向等待方发送内部错误，而不是让连接静默超时。
+struct ResponseSlot {
+    sender: Mutex<Option<oneshot::Sender<DaemonResponse>>>,
+}
+
+impl ResponseSlot {
+    /// 创建持有一次性响应发送端的槽位。
+    fn new(sender: oneshot::Sender<DaemonResponse>) -> Self {
+        Self {
+            sender: Mutex::new(Some(sender)),
+        }
+    }
+
+    /// 发送显式响应；槽位已被消费时忽略重复调用。
+    fn send(&self, response: DaemonResponse) {
+        let sender = self
+            .sender
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        if let Some(sender) = sender {
+            let _ = sender.send(response);
+        }
+    }
+}
+
+impl Drop for ResponseSlot {
+    fn drop(&mut self) {
+        let sender = self
+            .sender
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        if let Some(sender) = sender {
+            let _ = sender.send(DaemonResponse::error(
+                DaemonErrorCode::Internal,
+                "IPC 命令任务在返回结果前异常退出",
+            ));
+        }
+    }
+}
 
 /// 处理一条常驻截图结果。
 pub(super) async fn handle_snipper_result(
@@ -45,7 +91,8 @@ pub(super) fn handle_ipc_request(
     }
 
     let request = invocation.request;
-    let responder = invocation.responder;
+    let responder = Arc::new(ResponseSlot::new(invocation.responder));
+    let task_responder = Arc::clone(&responder);
     let cancelled = invocation.cancelled;
     let services = Arc::clone(services);
     let workspace = workspace.clone();
@@ -54,10 +101,13 @@ pub(super) fn handle_ipc_request(
             _ = cancelled.cancelled() => return,
             response = handle_command(request, &workspace, &services) => response,
         };
-        // 客户端可能已超时离开；发送失败只表示无人接收，业务结果已按需落盘。
-        let _ = responder.send(response);
+        task_responder.send(response);
     }) {
         tracing::warn!("提交 IPC 命令任务失败: {error}");
+        responder.send(DaemonResponse::error(
+            DaemonErrorCode::Busy,
+            format!("提交 IPC 命令任务失败: {error}"),
+        ));
     }
     false
 }
@@ -120,4 +170,38 @@ pub(super) fn spawn_clipboard_history_subprocess() {
         return;
     };
     spawn_independent_process(&exe, &["clipboard-history"]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 正常显式响应后，槽位析构不得再覆盖为内部错误。
+    #[test]
+    fn test_response_slot_sends_single_explicit_response() {
+        let (sender, mut receiver) = oneshot::channel();
+        let slot = ResponseSlot::new(sender);
+        slot.send(DaemonResponse::Pong);
+        drop(slot);
+
+        assert_eq!(
+            receiver.try_recv().expect("应收到显式响应"),
+            DaemonResponse::Pong
+        );
+        assert!(receiver.try_recv().is_err(), "不得发送第二个响应");
+    }
+
+    /// 后台任务未响应即退出时，槽位析构必须提供可识别的内部错误回执。
+    #[test]
+    fn test_response_slot_drop_reports_internal_failure() {
+        let (sender, mut receiver) = oneshot::channel();
+        drop(ResponseSlot::new(sender));
+
+        match receiver.try_recv().expect("应收到兜底响应") {
+            DaemonResponse::Error(failure) => {
+                assert_eq!(failure.code, DaemonErrorCode::Internal);
+            }
+            other => panic!("兜底响应类别错误，实际: {other:?}"),
+        }
+    }
 }
