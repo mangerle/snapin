@@ -180,9 +180,15 @@ X-GNOME-Autostart-enabled=true
     }
 
     fn desktop_file_path() -> Option<PathBuf> {
-        std::env::var("HOME")
-            .ok()
-            .map(|home| PathBuf::from(home).join(".config/autostart/snapin.desktop"))
+        let config_home = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .map(|home| home.join(".config"))
+            })?;
+        Some(config_home.join("autostart/snapin.desktop"))
     }
 
     #[cfg(test)]
@@ -196,9 +202,9 @@ X-GNOME-Autostart-enabled=true
         }
 
         #[test]
-        fn test_desktop_file_path_uses_home() {
+        fn test_desktop_file_path_uses_xdg_config_home() {
             let path = desktop_file_path().expect("测试环境必须提供 HOME");
-            assert!(path.ends_with(".config/autostart/snapin.desktop"));
+            assert!(path.ends_with("autostart/snapin.desktop"));
         }
     }
 }
