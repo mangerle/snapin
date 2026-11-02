@@ -4,9 +4,11 @@
 //! 不加密；所有文件位于 Snapin 私有配置目录。
 
 use crate::error::StorageError;
-use image::RgbaImage;
+use image::{ImageOutputFormat, RgbaImage};
 use serde::{Deserialize, Serialize};
 use snapin_foundation::AppPaths;
+use std::fs::OpenOptions;
+use std::io::{BufWriter, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -77,14 +79,8 @@ pub fn append_clipboard_text(
 pub fn append_clipboard_image(image: &RgbaImage) -> Result<Vec<ClipboardEntry>, StorageError> {
     let dir = clipboard_history_dir();
     let mut entries = load_and_prune(dir.clone())?;
-    let id = AppPaths::generate_unique_id();
-    let file_name = format!("{id}.png");
-    image
-        .save(dir.join(&file_name))
-        .map_err(|error| StorageError::Io {
-            path: dir.join(&file_name).display().to_string(),
-            source: std::io::Error::other(format!("保存剪贴板图像失败: {error}")),
-        })?;
+    let (id, file_name) = save_clipboard_image(&dir, image)?;
+    let image_path = validated_image_path(&dir, &file_name)?;
     entries.insert(
         0,
         ClipboardEntry {
@@ -95,7 +91,13 @@ pub fn append_clipboard_image(image: &RgbaImage) -> Result<Vec<ClipboardEntry>, 
             created_at: now_secs(),
         },
     );
-    trim_and_save(dir, entries)
+    match trim_and_save(dir.clone(), entries) {
+        Ok(entries) => Ok(entries),
+        Err(error) => {
+            let _ = std::fs::remove_file(image_path);
+            Err(error)
+        }
+    }
 }
 
 /// 读取条目对应的图像文件。
@@ -208,6 +210,75 @@ fn remove_orphan_images(dir: &Path, entries: &[ClipboardEntry]) {
     }
 }
 
+/// 在历史目录内生成唯一图像文件，并以私有临时文件完成编码后原子提交。
+fn save_clipboard_image(dir: &Path, image: &RgbaImage) -> Result<(u64, String), StorageError> {
+    std::fs::create_dir_all(dir).map_err(|source| StorageError::Io {
+        path: dir.display().to_string(),
+        source,
+    })?;
+
+    let id = AppPaths::generate_unique_id();
+    let file_name = format!("{id}.png");
+    let target = validated_image_path(dir, &file_name)?;
+    let temp = dir.join(format!(
+        ".{file_name}.{}.tmp",
+        AppPaths::generate_unique_id()
+    ));
+
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = match options.open(&temp) {
+        Ok(file) => file,
+        Err(source) => {
+            return Err(StorageError::Io {
+                path: temp.display().to_string(),
+                source,
+            })
+        }
+    };
+    let mut writer = BufWriter::new(file);
+    let encoded = image
+        .write_to(&mut writer, ImageOutputFormat::Png)
+        .map_err(|error| StorageError::Io {
+            path: temp.display().to_string(),
+            source: std::io::Error::other(format!("编码剪贴板图像失败: {error}")),
+        })
+        .and_then(|()| {
+            writer.flush().map_err(|source| StorageError::Io {
+                path: temp.display().to_string(),
+                source,
+            })
+        })
+        .and_then(|()| {
+            writer
+                .get_ref()
+                .sync_all()
+                .map_err(|source| StorageError::Io {
+                    path: temp.display().to_string(),
+                    source,
+                })
+        });
+    drop(writer);
+    if let Err(error) = encoded {
+        let _ = std::fs::remove_file(&temp);
+        return Err(error);
+    }
+
+    if let Err(source) = AppPaths::replace_file_atomically(&temp, &target) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(StorageError::Io {
+            path: target.display().to_string(),
+            source,
+        });
+    }
+    Ok((id, file_name))
+}
+
 /// 校验历史条目载荷与其类型一致，防止损坏索引把文本和图像字段同时带入业务层。
 fn entry_payload_is_valid(entry: &ClipboardEntry, dir: &Path) -> bool {
     match entry.kind {
@@ -287,5 +358,22 @@ mod tests {
         prune_expired(&mut entries, dir.path());
 
         assert!(entries.is_empty(), "路径穿越条目必须在读取边界被丢弃");
+    }
+
+    #[test]
+    fn test_save_clipboard_image_creates_missing_directory() {
+        let root = tempfile::tempdir().expect("应可创建测试目录");
+        let history_dir = root.path().join("missing").join("clipboard-history");
+        let image = RgbaImage::from_pixel(2, 2, image::Rgba([255, 0, 0, 255]));
+
+        let (_, file_name) =
+            save_clipboard_image(&history_dir, &image).expect("首条图像应保存成功");
+        let path = validated_image_path(&history_dir, &file_name).expect("生成路径必须合法");
+
+        assert!(path.is_file(), "图像应写入新建的历史目录");
+        assert_eq!(
+            image::open(path).expect("保存的图像应可解码").to_rgba8(),
+            image
+        );
     }
 }
