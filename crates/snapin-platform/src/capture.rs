@@ -12,7 +12,7 @@ use std::time::Duration;
 const CAPTURE_TIMEOUT: Duration = Duration::from_secs(15);
 /// 单张全屏 PNG 文件的最大字节数，防止异常文件一次性读入造成内存压力。
 #[cfg(target_os = "linux")]
-const MAX_SCREENSHOT_FILE_BYTES: u64 = 256 * 1024 * 1024;
+pub(crate) const MAX_SCREENSHOT_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
 #[cfg(target_os = "linux")]
 use crate::{capabilities::get_platform_capabilities, portal::capture_fullscreen_portal};

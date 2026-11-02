@@ -205,6 +205,20 @@ async fn decode_portal_screenshot(file_path: PathBuf) -> Result<RgbaImage, Platf
     let started = std::time::Instant::now();
     let decode_path = file_path.clone();
     let image = tokio::task::spawn_blocking(move || {
+        let metadata = fs::metadata(&decode_path).map_err(|error| PlatformError::Io {
+            path: decode_path.to_string_lossy().to_string(),
+            source: error,
+        })?;
+        if metadata.len() > crate::capture::MAX_SCREENSHOT_FILE_BYTES {
+            let _ = fs::remove_file(&decode_path);
+            return Err(PlatformError::ImageDecode {
+                message: format!(
+                    "Portal 返回的截图文件过大，大小: {} 字节，上限: {} 字节",
+                    metadata.len(),
+                    crate::capture::MAX_SCREENSHOT_FILE_BYTES
+                ),
+            });
+        }
         let bytes = fs::read(&decode_path).map_err(|error| PlatformError::Io {
             path: decode_path.to_string_lossy().to_string(),
             source: error,
