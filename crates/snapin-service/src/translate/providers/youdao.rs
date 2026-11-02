@@ -6,6 +6,7 @@ use crate::translate::config::TranslateProvider;
 use crate::translate::engine::Translator;
 use crate::translate::http::{post_signed_form, shared_client};
 use crate::translate::language::normalize_language;
+use crate::translate::JoinedTextRequest;
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
@@ -65,20 +66,17 @@ impl YoudaoTranslator {
     /// 发送一次合并翻译请求，并校验业务错误码与返回条数。
     async fn request_joined(
         &self,
-        query: &str,
-        from_lang: &str,
-        to_lang: &str,
-        expected: usize,
+        request: JoinedTextRequest<'_>,
     ) -> Result<Vec<String>, ServiceError> {
-        let signature = YoudaoSignature::build(query, &self.app_key, &self.app_secret);
+        let signature = YoudaoSignature::build(request.query, &self.app_key, &self.app_secret);
         let body = post_signed_form(
             "youdao",
             &self.client,
             self.endpoint.as_str(),
             &[
-                ("q", query),
-                ("from", from_lang),
-                ("to", to_lang),
+                ("q", request.query),
+                ("from", request.source_lang),
+                ("to", request.target_lang),
                 ("appKey", self.app_key.as_str()),
                 ("salt", signature.salt.as_str()),
                 ("sign", signature.sign.as_str()),
@@ -87,7 +85,7 @@ impl YoudaoTranslator {
             ],
         )
         .await?;
-        parse_response(&body, expected)
+        parse_response(&body, request.expected)
     }
 }
 
@@ -188,8 +186,13 @@ impl Translator for YoudaoTranslator {
         let from_lang = normalize_language(TranslateProvider::Youdao, from);
         let to_lang = normalize_language(TranslateProvider::Youdao, to);
         translate_joined_batches(texts, YOUDAO_BATCH_LIMITS, |query, expected| async move {
-            self.request_joined(&query, from_lang, to_lang, expected)
-                .await
+            self.request_joined(JoinedTextRequest {
+                query: &query,
+                source_lang: from_lang,
+                target_lang: to_lang,
+                expected,
+            })
+            .await
         })
         .await
     }

@@ -12,6 +12,7 @@ use crate::translate::config::TranslateProvider;
 use crate::translate::engine::Translator;
 use crate::translate::http::{check_status, network_error, read_limited_body, shared_client};
 use crate::translate::language::normalize_language;
+use crate::translate::{BatchTextRequest, EndpointBatchRequest};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::Value;
@@ -64,22 +65,20 @@ impl GoogleFreeTranslator {
     /// 向单个端点发起一批文本的翻译请求，并校验返回条数与内容。
     async fn request_endpoint(
         &self,
-        endpoint: &str,
-        texts: &[String],
-        source_lang: &str,
-        target_lang: &str,
+        request: EndpointBatchRequest<'_>,
     ) -> Result<Vec<String>, ServiceError> {
-        let mut params: Vec<(&str, &str)> = Vec::with_capacity(texts.len() + 3);
+        let batch = request.batch;
+        let mut params: Vec<(&str, &str)> = Vec::with_capacity(batch.texts.len() + 3);
         params.push(("client", GOOGLE_CLIENT));
-        params.push(("sl", source_lang));
-        params.push(("tl", target_lang));
-        for text in texts {
+        params.push(("sl", batch.source_lang));
+        params.push(("tl", batch.target_lang));
+        for text in batch.texts {
             params.push(("q", text.as_str()));
         }
 
         let response = self
             .client
-            .get(endpoint)
+            .get(request.endpoint)
             .query(&params)
             .send()
             .await
@@ -87,52 +86,25 @@ impl GoogleFreeTranslator {
         check_status("google_free", &response)?;
 
         let body = read_limited_body("google_free", response).await?;
-        let payload: Value =
-            serde_json::from_slice(&body).map_err(|error| ServiceError::ResponseFormat {
-                provider: "google_free".to_string(),
-                message: format!("无法解析谷歌翻译 JSON 响应: {error}"),
-            })?;
-
-        let items = payload.as_array().ok_or_else(|| ServiceError::ApiError {
-            provider: "google_free".to_string(),
-            code: "EMPTY_RESULT".to_string(),
-            message: "谷歌翻译接口未返回译文列表".to_string(),
-        })?;
-
-        let results: Vec<String> = items.iter().map(extract_translation).collect();
-        if results.len() != texts.len() {
-            return Err(ServiceError::ApiError {
-                provider: "google_free".to_string(),
-                code: "RESULT_COUNT_MISMATCH".to_string(),
-                message: format!(
-                    "谷歌翻译返回 {} 条译文，与请求 {} 条不一致",
-                    results.len(),
-                    texts.len()
-                ),
-            });
-        }
-        if results.iter().all(|text| text.is_empty()) {
-            return Err(ServiceError::ApiError {
-                provider: "google_free".to_string(),
-                code: "EMPTY_RESULT".to_string(),
-                message: "谷歌翻译接口未返回译文".to_string(),
-            });
-        }
-
-        Ok(results)
+        parse_response(&body, batch.texts.len())
     }
 
     /// 对一批文本按端点顺序尝试，全部端点失败时返回首个错误。
     async fn request_batch(
         &self,
-        texts: &[String],
-        source_lang: &str,
-        target_lang: &str,
+        batch: BatchTextRequest<'_>,
     ) -> Result<Vec<String>, ServiceError> {
         let mut first_error: Option<ServiceError> = None;
         for endpoint in &self.endpoints {
             match self
-                .request_endpoint(endpoint, texts, source_lang, target_lang)
+                .request_endpoint(EndpointBatchRequest {
+                    endpoint,
+                    batch: BatchTextRequest {
+                        texts: batch.texts,
+                        source_lang: batch.source_lang,
+                        target_lang: batch.target_lang,
+                    },
+                })
                 .await
             {
                 Ok(results) => return Ok(results),
@@ -181,12 +153,50 @@ impl Translator for GoogleFreeTranslator {
         let mut results = Vec::with_capacity(texts.len());
         for batch in plan_batches(texts, limits) {
             results.extend(
-                self.request_batch(batch, &source_lang, &target_lang)
-                    .await?,
+                self.request_batch(BatchTextRequest {
+                    texts: batch,
+                    source_lang: &source_lang,
+                    target_lang: &target_lang,
+                })
+                .await?,
             );
         }
         Ok(results)
     }
+}
+
+/// 解析谷歌翻译响应并校验返回条数与空结果。
+fn parse_response(body: &[u8], expected: usize) -> Result<Vec<String>, ServiceError> {
+    let payload: Value =
+        serde_json::from_slice(body).map_err(|error| ServiceError::ResponseFormat {
+            provider: "google_free".to_string(),
+            message: format!("无法解析谷歌翻译 JSON 响应: {error}"),
+        })?;
+    let items = payload.as_array().ok_or_else(|| ServiceError::ApiError {
+        provider: "google_free".to_string(),
+        code: "EMPTY_RESULT".to_string(),
+        message: "谷歌翻译接口未返回译文列表".to_string(),
+    })?;
+
+    let results: Vec<String> = items.iter().map(extract_translation).collect();
+    if results.len() != expected {
+        return Err(ServiceError::ApiError {
+            provider: "google_free".to_string(),
+            code: "RESULT_COUNT_MISMATCH".to_string(),
+            message: format!(
+                "谷歌翻译返回 {} 条译文，与请求 {expected} 条不一致",
+                results.len()
+            ),
+        });
+    }
+    if results.iter().all(|text| text.is_empty()) {
+        return Err(ServiceError::ApiError {
+            provider: "google_free".to_string(),
+            code: "EMPTY_RESULT".to_string(),
+            message: "谷歌翻译接口未返回译文".to_string(),
+        });
+    }
+    Ok(results)
 }
 
 /// 提取单条译文。

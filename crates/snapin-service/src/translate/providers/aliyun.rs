@@ -6,6 +6,7 @@ use crate::translate::config::TranslateProvider;
 use crate::translate::engine::Translator;
 use crate::translate::http::{post_signed_form, shared_client};
 use crate::translate::language::normalize_language;
+use crate::translate::JoinedTextRequest;
 use async_trait::async_trait;
 use hmac::{Hmac, Mac};
 use reqwest::Client;
@@ -56,10 +57,7 @@ impl AliyunTranslator {
     /// 发送一次合并翻译请求，并校验业务错误码与返回条数。
     async fn request_joined(
         &self,
-        query: &str,
-        source_lang: &str,
-        target_lang: &str,
-        expected: usize,
+        request: JoinedTextRequest<'_>,
     ) -> Result<Vec<String>, ServiceError> {
         let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         let nonce = SystemTime::now()
@@ -67,20 +65,20 @@ impl AliyunTranslator {
             .unwrap_or_default()
             .as_nanos()
             .to_string();
-        let request = AliyunParamInput {
+        let param_input = AliyunParamInput {
             access_key_id: &self.access_key_id,
-            query,
-            source_lang,
-            target_lang,
+            query: request.query,
+            source_lang: request.source_lang,
+            target_lang: request.target_lang,
             nonce: &nonce,
             timestamp: &timestamp,
         };
-        let mut params = build_params(request);
+        let mut params = build_params(param_input);
         let signature = sign_params(&params, &self.access_key_secret)?;
         params.push(("Signature", signature.as_str()));
         let body =
             post_signed_form("aliyun", &self.client, self.endpoint.as_str(), &params).await?;
-        parse_response(&body, expected)
+        parse_response(&body, request.expected)
     }
 }
 
@@ -230,8 +228,13 @@ impl Translator for AliyunTranslator {
         let source_lang = normalize_language(TranslateProvider::Aliyun, from);
         let target_lang = normalize_language(TranslateProvider::Aliyun, to);
         translate_joined_batches(texts, ALIYUN_BATCH_LIMITS, |query, expected| async move {
-            self.request_joined(&query, source_lang, target_lang, expected)
-                .await
+            self.request_joined(JoinedTextRequest {
+                query: &query,
+                source_lang,
+                target_lang,
+                expected,
+            })
+            .await
         })
         .await
     }
