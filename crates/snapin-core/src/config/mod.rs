@@ -128,10 +128,12 @@ fn parse_config_file(content: &str) -> Result<ConfigFile, String> {
         ));
     }
 
-    let schema_version = table
-        .remove("schema_version")
-        .and_then(|value| value.as_integer())
-        .unwrap_or(CONFIG_SCHEMA_VERSION as i64);
+    let schema_version = match table.remove("schema_version") {
+        None => 0,
+        Some(value) => value
+            .as_integer()
+            .ok_or_else(|| "schema_version 必须是整数".to_string())?,
+    };
     let schema_version = u32::try_from(schema_version)
         .map_err(|_| format!("schema_version 超出 u32 范围: {schema_version}"))?;
 
@@ -370,6 +372,22 @@ provider = "deepl"
         .expect("写入未来版本配置失败");
         let error = load_or_create_config(Some(&config_file)).expect_err("未来版本必须被拒绝");
         assert!(matches!(error, CoreError::UnsupportedConfigVersion { .. }));
+    }
+
+    /// 无版本号的历史配置必须按 v0 迁移，版本字段类型错误则必须拒绝而不是冒充当前版本。
+    #[test]
+    fn test_missing_schema_version_defaults_to_zero_and_non_integer_is_rejected() {
+        let legacy =
+            parse_config_file("[general]\nlanguage = \"zh_cn\"\n").expect("无版本号配置应可解析");
+        assert_eq!(legacy.schema_version, 0, "旧配置必须从 schema v0 开始迁移");
+        let migrated = legacy
+            .migrate(Path::new("legacy.toml"))
+            .expect("旧配置应迁移到当前版本");
+        assert_eq!(migrated.schema_version, CONFIG_SCHEMA_VERSION);
+
+        let error = parse_config_file("schema_version = \"3\"\n[general]\n")
+            .expect_err("字符串版本号必须被拒绝");
+        assert!(error.contains("schema_version 必须是整数"));
     }
 
     /// 损坏配置必须保留 .bak 并重建默认配置，不能阻断所有依赖配置的进程启动。
