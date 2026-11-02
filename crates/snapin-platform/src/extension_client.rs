@@ -12,6 +12,7 @@ use crate::dbus_session::get_session_connection;
 use crate::error::PlatformError;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use snapin_foundation::AppPaths;
 use std::time::Duration;
 use tokio::time::timeout;
 use zbus::zvariant::Type;
@@ -21,6 +22,8 @@ const EXT_OBJECT_PATH: &str = "/org/gnome/Shell/Extensions/Snapin";
 const EXT_INTERFACE: &str = "org.gnome.Shell.Extensions.Snapin";
 const EXT_DBUS_TIMEOUT: Duration = Duration::from_secs(3);
 const UNKNOWN_METHOD_ERROR: &str = "org.freedesktop.DBus.Error.UnknownMethod";
+const EXTENSION_TOKEN_FILE: &str = "extension.token";
+const EXTENSION_TOKEN_MAX_BYTES: usize = 128;
 
 pub use crate::window::WindowRect;
 
@@ -37,6 +40,39 @@ struct RawWindowRect {
 
 fn default_window_scale() -> f64 {
     1.0
+}
+
+/// 读取扩展启动时生成的进程间能力令牌，阻止同会话其他客户端调用特权方法。
+fn read_extension_token() -> Result<String, PlatformError> {
+    let path = AppPaths::runtime_dir().join(EXTENSION_TOKEN_FILE);
+    let token = snapin_foundation::read_utf8_file_limited(&path, EXTENSION_TOKEN_MAX_BYTES)
+        .map_err(|error| PlatformError::DBus {
+            service: EXT_BUS_NAME.to_string(),
+            message: format!(
+                "读取 GNOME 扩展能力令牌失败，路径: {}，原因: {error}",
+                path.display()
+            ),
+        })?;
+    let token = token.trim();
+    if !is_valid_extension_token(token) {
+        return Err(PlatformError::DBus {
+            service: EXT_BUS_NAME.to_string(),
+            message: format!("GNOME 扩展能力令牌格式非法，路径: {}", path.display()),
+        });
+    }
+    Ok(token.to_string())
+}
+
+fn is_valid_extension_token(token: &str) -> bool {
+    let bytes = token.as_bytes();
+    bytes.len() == 36
+        && bytes.iter().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                *byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
 }
 
 /// 统一调用扩展 D-Bus 方法并反序列化返回值。
@@ -105,7 +141,9 @@ fn is_unknown_method_error_name(name: &str) -> bool {
 /// 会话总线不可用、扩展未部署、方法调用超时或返回值解析失败时返回 [`PlatformError::DBus`]。
 pub async fn place_paster_window(title: &str, x: i32, y: i32) -> Result<bool, PlatformError> {
     tracing::debug!("正在请求 GNOME 扩展放置贴图窗口: {title}，坐标: ({x}, {y})");
-    let (placed,): (bool,) = call_extension("PlaceWindowByTitle", &(title, x, y)).await?;
+    let token = read_extension_token()?;
+    let arguments = (token.as_str(), title, x, y);
+    let (placed,): (bool,) = call_extension("PlaceWindowByTitle", &arguments).await?;
     Ok(placed)
 }
 
@@ -116,7 +154,9 @@ pub async fn place_paster_window(title: &str, x: i32, y: i32) -> Result<bool, Pl
 /// 会话总线不可用、扩展未部署、方法调用超时或返回值解析失败时返回 [`PlatformError::DBus`]。
 pub async fn capture_fullscreen_extension(target_path: &str) -> Result<bool, PlatformError> {
     tracing::debug!("正在向 GNOME 扩展请求原生极速全屏截屏: {}", target_path);
-    let (success,): (bool,) = call_extension("CaptureFullscreen", &(target_path)).await?;
+    let token = read_extension_token()?;
+    let arguments = (token.as_str(), target_path);
+    let (success,): (bool,) = call_extension("CaptureFullscreen", &arguments).await?;
     Ok(success)
 }
 
@@ -139,11 +179,9 @@ pub async fn capture_fullscreen_extension_with_cursor(
         return capture_fullscreen_extension(target_path).await;
     }
 
-    let (success,): (bool,) = match call_extension(
-        "CaptureFullscreenWithCursor",
-        &(target_path, include_cursor),
-    )
-    .await
+    let token = read_extension_token()?;
+    let arguments = (token.as_str(), target_path, include_cursor);
+    let (success,): (bool,) = match call_extension("CaptureFullscreenWithCursor", &arguments).await
     {
         Ok(result) => result,
         Err(PlatformError::DBusMethodUnavailable { .. }) => {
@@ -167,7 +205,8 @@ pub async fn capture_fullscreen_extension_with_cursor(
 ///
 /// 扩展未部署、D-Bus 调用超时或窗口 JSON 解析失败时返回 [`PlatformError::DBus`]。
 pub async fn list_windows() -> Result<Vec<WindowRect>, PlatformError> {
-    let (json,): (String,) = call_extension("ListWindows", &()).await?;
+    let token = read_extension_token()?;
+    let (json,): (String,) = call_extension("ListWindows", &(token.as_str(),)).await?;
     parse_windows_json(&json)
 }
 
@@ -240,6 +279,19 @@ mod tests {
                 height: 200,
             }
         );
+    }
+
+    #[test]
+    fn test_extension_token_validation() {
+        assert!(is_valid_extension_token(
+            "12345678-1234-1234-1234-123456789abc"
+        ));
+        assert!(!is_valid_extension_token(
+            "12345678-1234-1234-1234-123456789ab"
+        ));
+        assert!(!is_valid_extension_token(
+            "zzzzzzzz-1234-1234-1234-123456789abc"
+        ));
     }
 
     /// 校验 Rust 侧调用的每个 D-Bus 方法都在配套扩展里既声明了接口又实现了方法体。

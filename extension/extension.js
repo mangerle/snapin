@@ -14,21 +14,25 @@ const IFACE_XML = `
 <node>
   <interface name="org.gnome.Shell.Extensions.Snapin">
     <method name="PlaceWindowByTitle">
+      <arg type="s" direction="in" name="authToken"/>
       <arg type="s" direction="in" name="windowTitle"/>
       <arg type="i" direction="in" name="x"/>
       <arg type="i" direction="in" name="y"/>
       <arg type="b" direction="out" name="placed"/>
     </method>
     <method name="CaptureFullscreen">
+      <arg type="s" direction="in" name="authToken"/>
       <arg type="s" direction="in" name="targetPath"/>
       <arg type="b" direction="out" name="success"/>
     </method>
     <method name="CaptureFullscreenWithCursor">
+      <arg type="s" direction="in" name="authToken"/>
       <arg type="s" direction="in" name="targetPath"/>
       <arg type="b" direction="in" name="includeCursor"/>
       <arg type="b" direction="out" name="success"/>
     </method>
     <method name="ListWindows">
+      <arg type="s" direction="in" name="authToken"/>
       <arg type="s" direction="out" name="windowsJson"/>
     </method>
   </interface>
@@ -40,9 +44,11 @@ const PLACEMENT_TTL_US = 5 * 1000 * 1000;
 // 窗口映射完成前 Mutter 会静默丢弃 move_frame，故在首次放置后按这些延迟（毫秒）重放。
 // 取值覆盖 Wayland 客户端提交首帧的常见耗时，过短会放空，过长会与用户拖动产生明显争抢。
 const PLACEMENT_REPLAY_DELAYS_MS = [60, 180];
+const AUTH_TOKEN_FILE = 'extension.token';
 
 export default class SnapinHelperExtension extends Extension {
     enable() {
+        this._authToken = this._loadOrCreateAuthToken();
         // 1. 导出 Mutter 特权窗口操作与原生截屏 D-Bus 服务
         this._dbusImpl = Gio.DBusExportedObject.wrapJSObject(IFACE_XML, this);
         this._dbusImpl.export(
@@ -87,6 +93,70 @@ export default class SnapinHelperExtension extends Extension {
             this._dbusImpl.unexport();
             this._dbusImpl = null;
         }
+        this._authToken = null;
+    }
+
+    /**
+     * 读取或生成扩展能力令牌。
+     *
+     * 令牌位于 0700 运行时目录且文件权限为 0600，宿主沙箱内的普通应用无法读取，
+     * 因而不能借会话总线调用截屏、窗口枚举或贴图定位等特权能力。
+     * @returns {string} 36 字符 UUID 能力令牌
+     */
+    _loadOrCreateAuthToken() {
+        const runtimeDir = GLib.build_filenamev([GLib.get_user_runtime_dir(), 'snapin']);
+        if (GLib.mkdir_with_parents(runtimeDir, 0o700) !== 0) {
+            throw new Error('无法创建 Snapin 私有运行时目录');
+        }
+        const path = GLib.build_filenamev([runtimeDir, AUTH_TOKEN_FILE]);
+        const file = Gio.File.new_for_path(path);
+        try {
+            const [ok, contents] = file.load_contents(null);
+            if (ok) {
+                const existing = new TextDecoder().decode(contents).trim();
+                if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(existing)) {
+                    return existing;
+                }
+            }
+        } catch (e) {
+            // 文件不存在或不可读时生成新令牌
+        }
+
+        const token = GLib.uuid_string_random();
+        if (!GLib.file_set_contents(path, token)) {
+            throw new Error('无法写入 Snapin 扩展能力令牌');
+        }
+        try {
+            file.set_attribute_uint32(
+                'unix::mode',
+                0o600,
+                Gio.FileQueryInfoFlags.NONE,
+                null
+            );
+        } catch (e) {
+            console.error('收紧 Snapin 扩展能力令牌权限失败:', e);
+        }
+        return token;
+    }
+
+    /** 校验调用方持有的能力令牌。 */
+    _isAuthorized(authToken) {
+        return typeof authToken === 'string'
+            && typeof this._authToken === 'string'
+            && authToken.length === this._authToken.length
+            && authToken === this._authToken;
+    }
+
+    /** 截屏输出必须位于 Snapin 私有运行时目录，防止特权接口改写任意宿主文件。 */
+    _isAllowedCapturePath(targetPath) {
+        if (typeof targetPath !== 'string' || !targetPath) return false;
+        const runtimeDir = GLib.build_filenamev([GLib.get_user_runtime_dir(), 'snapin']);
+        const prefix = runtimeDir.endsWith('/') ? runtimeDir : runtimeDir + '/';
+        const normalized = GLib.canonicalize_filename(targetPath, null);
+        const basename = GLib.path_get_basename(normalized);
+        return normalized.startsWith(prefix)
+            && basename.startsWith('screen_')
+            && basename.endsWith('.png');
     }
 
     /**
@@ -254,13 +324,16 @@ export default class SnapinHelperExtension extends Extension {
      * @param {number} y 物理像素 Y 坐标
      * @returns {boolean} 是否已立即命中并完成放置
      */
-    PlaceWindowByTitle(windowTitle, x, y) {
-        if (!windowTitle) {
+    PlaceWindowByTitle(authToken, windowTitle, x, y) {
+        if (!this._isAuthorized(authToken) || !windowTitle) {
             return false;
         }
 
         let metaWin = this._findPasterWindow(windowTitle);
         if (metaWin) {
+            if (!this._isPasterWindow(metaWin)) {
+                return false;
+            }
             metaWin.make_above();
             if (Meta.WindowType && typeof metaWin.set_type === 'function') {
                 metaWin.set_type(Meta.WindowType.UTILITY);
@@ -287,8 +360,8 @@ export default class SnapinHelperExtension extends Extension {
      * @param {string} targetPath 存储目标 PNG 路径
      * @returns {boolean} 是否捕获成功
      */
-    async CaptureFullscreen(targetPath) {
-        if (!targetPath) {
+    async CaptureFullscreen(authToken, targetPath) {
+        if (!this._isAuthorized(authToken) || !this._isAllowedCapturePath(targetPath)) {
             return false;
         }
         try {
@@ -310,8 +383,8 @@ export default class SnapinHelperExtension extends Extension {
      * @param {boolean} includeCursor 是否包含鼠标指针
      * @returns {boolean} 是否捕获成功
      */
-    async CaptureFullscreenWithCursor(targetPath, includeCursor) {
-        if (!targetPath) {
+    async CaptureFullscreenWithCursor(authToken, targetPath, includeCursor) {
+        if (!this._isAuthorized(authToken) || !this._isAllowedCapturePath(targetPath)) {
             return false;
         }
         try {
@@ -335,7 +408,10 @@ export default class SnapinHelperExtension extends Extension {
      * 顺序为窗口堆叠顺序（底层到顶层），调用方反向查找顶层窗口。
      * @returns {string} 窗口 JSON 数组
      */
-    ListWindows() {
+    ListWindows(authToken) {
+        if (!this._isAuthorized(authToken)) {
+            return '[]';
+        }
         try {
             const activeWorkspace = global.workspace_manager.get_active_workspace();
             const allowedTypes = new Set([
