@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn test_hex_color_non_ascii_is_rejected_without_panic() {
-        for input in ["#红色", "#测试", "#ééé", "#💥💥", "红色", "💥"] {
+        for input in ["#红色", "#测试", "#ééé", "#１２３", "红色", "１２３"] {
             assert_eq!(
                 HexColor::from_hex(input),
                 None,

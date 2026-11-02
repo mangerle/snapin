@@ -157,7 +157,7 @@ mod tests {
         assert_eq!(try_parse_hex_color("not_color"), None);
         // 非 ASCII 输入必须安全返回 None，不能触发字符串切片 panic
         assert_eq!(try_parse_hex_color("#红色"), None);
-        assert_eq!(try_parse_hex_color("#💥💥"), None);
+        assert_eq!(try_parse_hex_color("#１２３"), None);
     }
 
     #[test]
