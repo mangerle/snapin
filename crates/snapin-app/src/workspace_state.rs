@@ -39,21 +39,26 @@ impl AppWorkspaceStateStore {
     fn with_path(runtime: TaskRuntime, path: PathBuf) -> Result<Self, PortError> {
         let (save_tx, mut save_rx) = mpsc::channel(WORKSPACE_STATE_QUEUE_CAPACITY);
         let writer_path = path.clone();
+        let cancel = runtime.cancellation_token();
         runtime
             .spawn_in(TaskPool::Background, async move {
-                while let Some(state) = save_rx.recv().await {
-                    let path = writer_path.clone();
-                    let result =
-                        tokio::task::spawn_blocking(move || save_file_at(&path, state)).await;
-                    match result {
-                        Ok(Ok(())) => {}
-                        Ok(Err(error)) => {
-                            tracing::warn!("持久化贴图工作区状态失败: {error:#}");
-                        }
-                        Err(error) => {
-                            tracing::warn!("等待贴图工作区状态写入任务失败: {error}");
-                        }
+                loop {
+                    let state = tokio::select! {
+                        _ = cancel.cancelled() => None,
+                        state = save_rx.recv() => state,
+                    };
+                    if let Some(state) = state {
+                        write_queued_state(&writer_path, state).await;
+                        continue;
                     }
+                    let mut latest = None;
+                    while let Ok(state) = save_rx.try_recv() {
+                        latest = Some(state);
+                    }
+                    if let Some(state) = latest {
+                        write_queued_state(&writer_path, state).await;
+                    }
+                    break;
                 }
             })
             .map_err(|error| {
@@ -64,6 +69,16 @@ impl AppWorkspaceStateStore {
                 )
             })?;
         Ok(Self { path, save_tx })
+    }
+}
+
+async fn write_queued_state(path: &Path, state: WorkspaceState) {
+    let path = path.to_path_buf();
+    let result = tokio::task::spawn_blocking(move || save_file_at(&path, state)).await;
+    match result {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::warn!("持久化贴图工作区状态失败: {error:#}"),
+        Err(error) => tracing::warn!("等待贴图工作区状态写入任务失败: {error}"),
     }
 }
 
