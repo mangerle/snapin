@@ -175,6 +175,16 @@ pub(super) fn render_corner_radius_with_value(
     });
 }
 
+/// 效果强度滑块的轨道与滑块几何。
+#[derive(Clone, Copy)]
+struct EffectSliderGeometry {
+    left: f32,
+    right: f32,
+    center_y: f32,
+    scale: f32,
+    knob_x: f32,
+}
+
 /// 绘制效果强度滑块；左侧为小圆点，右侧为大圆点，滑块位置随数值变化。
 pub(super) fn render_effect_strength_slider(
     pixmap: &mut PixmapMut,
@@ -182,23 +192,37 @@ pub(super) fn render_effect_strength_slider(
     value: u8,
     focused: bool,
 ) {
-    let (rect, center_y, s) = (&geometry.rect, geometry.center_y, geometry.scale);
+    let rect = &geometry.rect;
+    let center_y = geometry.center_y;
+    let scale = geometry.scale;
     if focused {
-        fill_button_highlight(pixmap, rect, Color::from_rgba8(37, 99, 235, 36), s);
+        fill_button_highlight(pixmap, rect, Color::from_rgba8(37, 99, 235, 36), scale);
     }
-    let left = rect.x + 12.0 * s;
-    let right = rect.x + rect.width - 12.0 * s;
+    let left = rect.x + 12.0 * scale;
+    let right = rect.x + rect.width - 12.0 * scale;
     let ratio = (f32::from(value.clamp(16, 160)) - 16.0) / 144.0;
-    let knob_x = left + (right - left) * ratio;
+    let slider = EffectSliderGeometry {
+        left,
+        right,
+        center_y,
+        scale,
+        knob_x: left + (right - left) * ratio,
+    };
+    draw_effect_slider_track(pixmap, slider);
+    draw_effect_slider_knobs(pixmap, slider);
+}
+
+/// 绘制效果强度滑块的水平轨道。
+fn draw_effect_slider_track(pixmap: &mut PixmapMut, slider: EffectSliderGeometry) {
     let mut path = PathBuilder::new();
-    path.move_to(left, center_y);
-    path.line_to(right, center_y);
+    path.move_to(slider.left, slider.center_y);
+    path.line_to(slider.right, slider.center_y);
     if let Some(path) = path.finish() {
         pixmap.stroke_path(
             &path,
             &make_paint(Color::from_rgba8(165, 170, 182, 255)),
             &Stroke {
-                width: 2.0 * s,
+                width: 2.0 * slider.scale,
                 line_cap: tiny_skia::LineCap::Round,
                 ..Default::default()
             },
@@ -206,30 +230,34 @@ pub(super) fn render_effect_strength_slider(
             None,
         );
     }
+}
+
+/// 绘制轨道两端端点与当前滑块。
+fn draw_effect_slider_knobs(pixmap: &mut PixmapMut, slider: EffectSliderGeometry) {
     fill_circle(
         pixmap,
         CircleSpec {
-            center_x: left,
-            center_y,
-            radius: 2.0 * s,
+            center_x: slider.left,
+            center_y: slider.center_y,
+            radius: 2.0 * slider.scale,
             color: Color::from_rgba8(120, 126, 140, 255),
         },
     );
     fill_circle(
         pixmap,
         CircleSpec {
-            center_x: right,
-            center_y,
-            radius: 5.0 * s,
+            center_x: slider.right,
+            center_y: slider.center_y,
+            radius: 5.0 * slider.scale,
             color: Color::from_rgba8(120, 126, 140, 255),
         },
     );
     fill_circle(
         pixmap,
         CircleSpec {
-            center_x: knob_x,
-            center_y,
-            radius: 5.0 * s,
+            center_x: slider.knob_x,
+            center_y: slider.center_y,
+            radius: 5.0 * slider.scale,
             color: Color::from_rgba8(37, 99, 235, 255),
         },
     );
