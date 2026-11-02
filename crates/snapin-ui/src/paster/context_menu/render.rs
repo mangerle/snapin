@@ -77,12 +77,38 @@ fn render_menu_panel(
     hovered_idx: Option<usize>,
 ) {
     let s = layout.scale;
-    let (x, y, width, item_height) = (layout.x, layout.y, layout.width, layout.item_height);
+    let (y, item_height) = (layout.y, layout.item_height);
     let sep_h = 8.0 * s;
     let pad_v = 5.0 * s;
     let total_h = super::ContextMenuState::items_total_height(items, item_height, s);
 
-    // 1. 绘制现代浅色卡片柔和投影与纯白微圆角背景
+    render_panel_surface(pixmap, layout, total_h);
+
+    let mut cur_y = y + pad_v;
+    for (idx, item) in items.iter().enumerate() {
+        if item.is_separator {
+            render_separator(pixmap, layout, cur_y);
+            cur_y += sep_h;
+            continue;
+        }
+
+        render_menu_row(
+            pixmap,
+            text_renderer,
+            layout,
+            MenuRowSpec {
+                item,
+                top: cur_y,
+                hovered: hovered_idx == Some(idx),
+            },
+        );
+        cur_y += item_height;
+    }
+}
+
+/// 绘制菜单面板的柔影、白色底板与边框。
+fn render_panel_surface(pixmap: &mut PixmapMut, layout: MenuLayout, total_h: f32) {
+    let (x, y, width, s) = (layout.x, layout.y, layout.width, layout.scale);
     let mut pb_shadow = PathBuilder::new();
     add_round_rect(&mut pb_shadow, x, y + 2.0 * s, width, total_h, 8.0 * s);
     if let Some(path) = pb_shadow.finish() {
@@ -115,115 +141,124 @@ fn render_menu_panel(
         };
         pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
     }
+}
 
-    // 2. 逐行绘制菜单项内容
-    let mut cur_y = y + pad_v;
-    for (idx, item) in items.iter().enumerate() {
-        if item.is_separator {
-            let mut pb_sep = PathBuilder::new();
-            pb_sep.move_to(x + 12.0 * s, cur_y + 4.0 * s);
-            pb_sep.line_to(x + width - 12.0 * s, cur_y + 4.0 * s);
-            if let Some(path) = pb_sep.finish() {
-                let p = make_paint(Color::from_rgba8(226, 232, 240, 220));
-                let stroke = Stroke {
-                    width: 1.0 * s,
-                    ..Default::default()
-                };
-                pixmap.stroke_path(&path, &p, &stroke, Transform::identity(), None);
-            }
-            cur_y += sep_h;
-            continue;
-        }
-
-        let is_hovered = hovered_idx == Some(idx);
-        if is_hovered {
-            let mut pb_hover = PathBuilder::new();
-            add_round_rect(
-                &mut pb_hover,
-                x + 5.0 * s,
-                cur_y + 2.0 * s,
-                width - 10.0 * s,
-                item_height - 4.0 * s,
-                5.0 * s,
-            );
-            if let Some(path) = pb_hover.finish() {
-                let hp = make_paint(Color::from_rgba8(59, 130, 246, 240));
-                pixmap.fill_path(
-                    &path,
-                    &hp,
-                    tiny_skia::FillRule::Winding,
-                    Transform::identity(),
-                    None,
-                );
-            }
-        }
-
-        // 绘制复选框 / 文字 / 展开箭头 (高清晰度浅色主题排版)
-        let text_color = if is_hovered {
-            Color::from_rgba8(255, 255, 255, 255)
-        } else {
-            Color::from_rgba8(30, 41, 59, 255)
+/// 绘制菜单项之间的细分隔线。
+fn render_separator(pixmap: &mut PixmapMut, layout: MenuLayout, top: f32) {
+    let s = layout.scale;
+    let mut builder = PathBuilder::new();
+    builder.move_to(layout.x + 12.0 * s, top + 4.0 * s);
+    builder.line_to(layout.x + layout.width - 12.0 * s, top + 4.0 * s);
+    if let Some(path) = builder.finish() {
+        let paint = make_paint(Color::from_rgba8(226, 232, 240, 220));
+        let stroke = Stroke {
+            width: 1.0 * s,
+            ..Default::default()
         };
-        let font_size = 13.0 * s;
-        let text_y = cur_y + (item_height - font_size * 1.25) / 2.0;
-
-        if item.is_checkbox {
-            render_checkbox_mark(
-                pixmap,
-                x + 12.0 * s,
-                cur_y + (item_height - 14.0 * s) / 2.0,
-                item.is_checked,
-                is_hovered,
-                s,
-            );
-            text_renderer.draw_text(
-                pixmap,
-                item.label,
-                x + 32.0 * s,
-                text_y,
-                font_size,
-                text_color,
-            );
-        } else {
-            text_renderer.draw_text(
-                pixmap,
-                item.label,
-                x + 14.0 * s,
-                text_y,
-                font_size,
-                text_color,
-            );
-        }
-
-        if item.submenu.is_some() {
-            render_arrow_mark(
-                pixmap,
-                x + width - 16.0 * s,
-                cur_y + item_height / 2.0,
-                is_hovered,
-                s,
-            );
-        }
-
-        cur_y += item_height;
+        pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
     }
 }
 
-/// 绘制复选框小图标
-fn render_checkbox_mark(
+/// 单个菜单行的渲染参数。
+struct MenuRowSpec<'a> {
+    item: &'a MenuItem,
+    top: f32,
+    hovered: bool,
+}
+
+/// 绘制单行悬停底色、复选框、标题与子菜单指示箭头。
+fn render_menu_row(
     pixmap: &mut PixmapMut,
+    text_renderer: &mut TextRenderer,
+    layout: MenuLayout,
+    row: MenuRowSpec<'_>,
+) {
+    let s = layout.scale;
+    let item_height = layout.item_height;
+    if row.hovered {
+        let mut builder = PathBuilder::new();
+        add_round_rect(
+            &mut builder,
+            layout.x + 5.0 * s,
+            row.top + 2.0 * s,
+            layout.width - 10.0 * s,
+            item_height - 4.0 * s,
+            5.0 * s,
+        );
+        if let Some(path) = builder.finish() {
+            let paint = make_paint(Color::from_rgba8(59, 130, 246, 240));
+            pixmap.fill_path(
+                &path,
+                &paint,
+                tiny_skia::FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+        }
+    }
+
+    let text_color = if row.hovered {
+        Color::from_rgba8(255, 255, 255, 255)
+    } else {
+        Color::from_rgba8(30, 41, 59, 255)
+    };
+    let font_size = 13.0 * s;
+    let text_y = row.top + (item_height - font_size * 1.25) / 2.0;
+    let text_x = if row.item.is_checkbox {
+        render_checkbox_mark(
+            pixmap,
+            CheckboxMarkSpec {
+                x: layout.x + 12.0 * s,
+                y: row.top + (item_height - 14.0 * s) / 2.0,
+                checked: row.item.is_checked,
+                hovered: row.hovered,
+                scale: s,
+            },
+        );
+        layout.x + 32.0 * s
+    } else {
+        layout.x + 14.0 * s
+    };
+    text_renderer.draw_text(
+        pixmap,
+        row.item.label,
+        text_x,
+        text_y,
+        font_size,
+        text_color,
+    );
+
+    if row.item.submenu.is_some() {
+        render_arrow_mark(
+            pixmap,
+            ArrowMarkSpec {
+                center_x: layout.x + layout.width - 16.0 * s,
+                center_y: row.top + item_height / 2.0,
+                hovered: row.hovered,
+                scale: s,
+            },
+        );
+    }
+}
+
+/// 复选框图标的位置、状态与缩放参数。
+struct CheckboxMarkSpec {
     x: f32,
     y: f32,
     checked: bool,
-    is_hovered: bool,
-    s: f32,
-) {
+    hovered: bool,
+    scale: f32,
+}
+
+/// 绘制复选框小图标。
+fn render_checkbox_mark(pixmap: &mut PixmapMut, spec: CheckboxMarkSpec) {
+    let (x, y, s) = (spec.x, spec.y, spec.scale);
     let size = 14.0 * s;
     let mut pb = PathBuilder::new();
     add_round_rect(&mut pb, x, y, size, size, 3.0 * s);
     if let Some(path) = pb.finish() {
-        if checked {
-            let bg_color = if is_hovered {
+        if spec.checked {
+            let bg_color = if spec.hovered {
                 Color::from_rgba8(255, 255, 255, 255)
             } else {
                 Color::from_rgba8(59, 130, 246, 255)
@@ -238,7 +273,7 @@ fn render_checkbox_mark(
             );
 
             // 小对勾
-            let check_color = if is_hovered {
+            let check_color = if spec.hovered {
                 Color::from_rgba8(59, 130, 246, 255)
             } else {
                 Color::from_rgba8(255, 255, 255, 255)
@@ -258,7 +293,7 @@ fn render_checkbox_mark(
                 pixmap.stroke_path(&cp, &cp_paint, &stroke, Transform::identity(), None);
             }
         } else {
-            let stroke_color = if is_hovered {
+            let stroke_color = if spec.hovered {
                 (255, 255, 255, 220)
             } else {
                 (203, 213, 225, 255)
@@ -278,14 +313,23 @@ fn render_checkbox_mark(
     }
 }
 
-/// 绘制二级菜单向右展开小指示箭头
-fn render_arrow_mark(pixmap: &mut PixmapMut, cx: f32, cy: f32, is_hovered: bool, s: f32) {
+/// 子菜单指示箭头的中心位置、状态与缩放参数。
+struct ArrowMarkSpec {
+    center_x: f32,
+    center_y: f32,
+    hovered: bool,
+    scale: f32,
+}
+
+/// 绘制二级菜单向右展开小指示箭头。
+fn render_arrow_mark(pixmap: &mut PixmapMut, spec: ArrowMarkSpec) {
+    let (cx, cy, s) = (spec.center_x, spec.center_y, spec.scale);
     let mut pb = PathBuilder::new();
     pb.move_to(cx - 3.0 * s, cy - 4.5 * s);
     pb.line_to(cx + 2.0 * s, cy);
     pb.line_to(cx - 3.0 * s, cy + 4.5 * s);
     if let Some(path) = pb.finish() {
-        let c = if is_hovered {
+        let c = if spec.hovered {
             (255, 255, 255, 255)
         } else {
             (148, 163, 184, 255)
