@@ -117,6 +117,37 @@ pub fn open_path_in_file_manager<P: AsRef<std::path::Path>>(path: P) {
     }
 }
 
+/// 使用系统默认浏览器打开经过协议白名单校验的网页链接。
+///
+/// # Errors
+///
+/// 链接为空、超过 4096 字节、包含控制字符，或协议不是 `http`/`https` 时返回
+/// [`crate::error::PlatformError::Unsupported`]；命令派生失败只记录日志。
+pub fn open_url(url: &str) -> Result<(), crate::error::PlatformError> {
+    let url = url.trim();
+    let valid_scheme = url.starts_with("https://") || url.starts_with("http://");
+    let valid_text = url.len() <= 4096 && !url.chars().any(char::is_control);
+    if !valid_scheme || !valid_text {
+        return Err(crate::error::PlatformError::Unsupported {
+            capability: format!("仅允许打开 http/https 安全网页链接: {url}"),
+        });
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        spawn_detached_system_command("explorer", &[url]);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        spawn_detached_system_command("open", &[url]);
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        spawn_detached_system_command("xdg-open", &[url]);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,5 +157,16 @@ mod tests {
         // 测试拉起标准无害命令并验证其能在统一运行时中正常回收，不触发 panic
         spawn_detached_system_command("true", &[""]);
         std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    /// 网页打开入口必须拒绝本地文件和自定义协议，避免二维码内容逃逸到系统处理器。
+    #[test]
+    fn test_open_url_rejects_unsafe_schemes() {
+        for unsafe_url in ["file:///etc/passwd", "javascript:alert(1)", "snapin://run"] {
+            assert!(
+                open_url(unsafe_url).is_err(),
+                "危险链接不得放行: {unsafe_url}"
+            );
+        }
     }
 }

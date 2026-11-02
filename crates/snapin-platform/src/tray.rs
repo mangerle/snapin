@@ -22,6 +22,16 @@ pub enum TrayAction {
     CustomSnip,
     /// 从剪贴板弹出贴图窗口
     Paste,
+    /// 智能打码
+    SmartRedact,
+    /// 二维码识别
+    Qr,
+    /// 美化导出
+    Beautify,
+    /// 打开贴图工作区面板
+    Workspace,
+    /// 打开剪贴板历史面板
+    ClipboardHistory,
     /// 批量显隐贴图窗口
     TogglePasters,
     /// 切换贴图工作区或分组
@@ -62,6 +72,26 @@ const TRAY_MENU: &[TrayMenuEntry] = &[
     TrayMenuEntry::Action {
         label: "贴图",
         action: TrayAction::Paste,
+    },
+    TrayMenuEntry::Action {
+        label: "智能打码",
+        action: TrayAction::SmartRedact,
+    },
+    TrayMenuEntry::Action {
+        label: "二维码识别",
+        action: TrayAction::Qr,
+    },
+    TrayMenuEntry::Action {
+        label: "美化导出",
+        action: TrayAction::Beautify,
+    },
+    TrayMenuEntry::Action {
+        label: "贴图工作区",
+        action: TrayAction::Workspace,
+    },
+    TrayMenuEntry::Action {
+        label: "剪贴板历史",
+        action: TrayAction::ClipboardHistory,
     },
     TrayMenuEntry::Action {
         label: "隐藏/显示所有贴图",
@@ -350,6 +380,6 @@ mod tests {
                 TrayMenuEntry::Separator => {}
             }
         }
-        assert_eq!(actions.len(), 7, "托盘动作数量应与统一菜单描述一致");
+        assert_eq!(actions.len(), 12, "托盘动作数量应与统一菜单描述一致");
     }
 }

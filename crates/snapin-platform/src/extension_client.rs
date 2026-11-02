@@ -98,6 +98,28 @@ pub async fn capture_fullscreen_extension(target_path: &str) -> Result<bool, Pla
     Ok(success)
 }
 
+/// 请求扩展截屏并显式控制是否包含鼠标指针。
+///
+/// # Errors
+///
+/// 扩展不可用、D-Bus 调用超时或返回值解析失败时返回 [`PlatformError::DBus`]。
+pub async fn capture_fullscreen_extension_with_cursor(
+    target_path: &str,
+    include_cursor: bool,
+) -> Result<bool, PlatformError> {
+    tracing::debug!(
+        "正在向 GNOME 扩展请求原生全屏截屏，包含鼠标指针: {}，目标: {}",
+        include_cursor,
+        target_path
+    );
+    let (success,): (bool,) = call_extension(
+        "CaptureFullscreenWithCursor",
+        &(target_path, include_cursor),
+    )
+    .await?;
+    Ok(success)
+}
+
 /// 请求扩展枚举当前活动工作区可见窗口的物理像素矩形。
 ///
 /// 返回顺序为窗口堆叠顺序（底层到顶层），调用方应反向遍历以优先命中顶层窗口。

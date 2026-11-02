@@ -19,8 +19,8 @@ use snapin_core::config::{self, Config};
 use snapin_core::error::CoreError;
 use snapin_daemon::notify_daemon_reload_config;
 use snapin_platform::{
-    get_platform_capabilities, open_path_in_file_manager, sync_autostart, sync_hotkeys_to_gnome,
-    PlatformError,
+    get_platform_capabilities, open_path_in_file_manager, pick_config_export_path,
+    pick_config_import_path, sync_autostart, sync_hotkeys_to_gnome, PlatformError,
 };
 use snapin_runtime::TaskRuntime;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -147,11 +147,15 @@ fn register_callbacks(win: &SettingsWindow, config_store: Arc<ConfigStore>, runt
     let win_weak = win.as_weak();
     let cfg_clone = config_store.clone();
     let saving = Arc::new(AtomicBool::new(false));
+    let import_runtime = runtime.clone();
+    let export_runtime = runtime.clone();
+    let saving_save = saving.clone();
+    let saving_import = saving.clone();
     win.on_save_and_apply(move || {
         let Some(window) = win_weak.upgrade() else {
             return;
         };
-        if saving.swap(true, Ordering::AcqRel) {
+        if saving_save.swap(true, Ordering::AcqRel) {
             window.set_status_message(SharedString::from("正在保存配置，请稍候..."));
             return;
         }
@@ -165,7 +169,7 @@ fn register_callbacks(win: &SettingsWindow, config_store: Arc<ConfigStore>, runt
         let config_path = match config::get_default_config_path() {
             Ok(path) => path,
             Err(error) => {
-                saving.store(false, Ordering::Release);
+                saving_save.store(false, Ordering::Release);
                 tracing::error!("获取配置文件路径失败: {error}");
                 window.set_status_message(SharedString::from(format!(
                     "保存失败: 无法定位配置文件 ({error})"
@@ -178,7 +182,7 @@ fn register_callbacks(win: &SettingsWindow, config_store: Arc<ConfigStore>, runt
         let win_async = win_weak.clone();
         let config_for_task = sanitized;
         let cfg_after = cfg_clone.clone();
-        let saving_after = saving.clone();
+        let saving_after = saving_save.clone();
         let spawn_result = runtime.spawn(async move {
             let result = tokio::task::spawn_blocking(move || {
                 let mut warnings: Vec<String> = Vec::new();
@@ -231,8 +235,139 @@ fn register_callbacks(win: &SettingsWindow, config_store: Arc<ConfigStore>, runt
         });
 
         if spawn_result.is_err() {
-            saving.store(false, Ordering::Release);
+            saving_save.store(false, Ordering::Release);
             window.set_status_message(SharedString::from("保存失败: 无法提交后台任务"));
+        }
+    });
+
+    let win_weak_import = win.as_weak();
+    let cfg_import = config_store.clone();
+    win.on_import_config(move || {
+        let Some(window) = win_weak_import.upgrade() else {
+            return;
+        };
+        if saving_import.swap(true, Ordering::AcqRel) {
+            window.set_status_message(SharedString::from("正在处理配置，请稍候..."));
+            return;
+        }
+        window.set_status_message(SharedString::from("正在选择要导入的配置文件..."));
+        let win_async = win_weak_import.clone();
+        let cfg_after = cfg_import.clone();
+        let saving_after = saving_import.clone();
+        let spawn_result = import_runtime.clone().spawn(async move {
+            let selected = pick_config_import_path().await;
+            let result = match selected {
+                Ok(Some(path)) => {
+                    let default_path = config::get_default_config_path();
+                    tokio::task::spawn_blocking(move || {
+                        let metadata = std::fs::metadata(&path)
+                            .map_err(|error| format!("读取配置文件信息失败: {error}"))?;
+                        if metadata.len() > 1024 * 1024 {
+                            return Err("配置文件超过 1 MiB 上限，已拒绝导入".to_string());
+                        }
+                        let content = std::fs::read_to_string(&path)
+                            .map_err(|error| format!("读取配置文件失败: {error}"))?;
+                        let imported = config::parse_imported_config(&content, &path)
+                            .map_err(|error| format!("配置文件校验失败: {error}"))?;
+                        let default_path = default_path
+                            .map_err(|error| format!("定位默认配置路径失败: {error}"))?;
+                        if let Some(parent) = default_path.parent() {
+                            std::fs::create_dir_all(parent)
+                                .map_err(|error| format!("创建配置目录失败: {error}"))?;
+                        }
+                        config::save_config(&imported, &default_path)
+                            .map_err(|error| format!("保存导入配置失败: {error}"))?;
+                        let mut warnings = Vec::new();
+                        if let Err(error) = sync_hotkeys_to_gnome(&imported.hotkeys) {
+                            warnings.push(format!("系统快捷键同步失败 ({error})"));
+                        }
+                        if let Err(error) = sync_autostart(imported.general.autostart) {
+                            warnings.push(format!("开机自启动同步失败 ({error})"));
+                        }
+                        Ok((imported, warnings))
+                    })
+                    .await
+                }
+                Ok(None) => Ok(Err("已取消配置导入".to_string())),
+                Err(error) => Ok(Err(format!("打开配置导入对话框失败: {error}"))),
+            };
+
+            let final_result = match result {
+                Ok(inner) => inner,
+                Err(error) => Err(format!("配置导入任务异常: {error}")),
+            };
+            let _ = slint::invoke_from_event_loop(move || {
+                saving_after.store(false, Ordering::Release);
+                let Some(window) = win_async.upgrade() else {
+                    return;
+                };
+                match final_result {
+                    Ok((config, warnings)) => {
+                        cfg_after.commit(config.clone());
+                        sync_config_to_window(&window, &config);
+                        notify_daemon_reload_config();
+                        let message = if warnings.is_empty() {
+                            "配置导入成功并已应用".to_string()
+                        } else {
+                            format!("配置已导入，但{}", warnings.join("；"))
+                        };
+                        window.set_status_message(SharedString::from(message));
+                    }
+                    Err(message) => {
+                        tracing::warn!("{message}");
+                        window.set_status_message(SharedString::from(message));
+                    }
+                }
+            });
+        });
+        if spawn_result.is_err() {
+            saving_import.store(false, Ordering::Release);
+            window.set_status_message(SharedString::from("配置导入失败: 无法提交后台任务"));
+        }
+    });
+
+    let win_weak_export = win.as_weak();
+    win.on_export_config(move || {
+        let Some(window) = win_weak_export.upgrade() else {
+            return;
+        };
+        let mut config = config_store.snapshot();
+        extract_config_from_window(&window, &mut config);
+        let config = config.sanitized();
+        window.set_status_message(SharedString::from("正在选择配置导出位置..."));
+        let win_async = win_weak_export.clone();
+        let spawn_result = export_runtime.clone().spawn(async move {
+            let result = match pick_config_export_path().await {
+                Ok(Some(mut path)) => {
+                    if path.extension().is_none() {
+                        path.set_extension("toml");
+                    }
+                    tokio::task::spawn_blocking(move || {
+                        config::save_config(&config, &path)
+                            .map(|()| path)
+                            .map_err(|error| format!("导出配置失败: {error}"))
+                    })
+                    .await
+                    .unwrap_or_else(|error| Err(format!("配置导出任务异常: {error}")))
+                }
+                Ok(None) => Err("已取消配置导出".to_string()),
+                Err(error) => Err(format!("打开配置导出对话框失败: {error}")),
+            };
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(window) = win_async.upgrade() else {
+                    return;
+                };
+                match result {
+                    Ok(path) => window.set_status_message(SharedString::from(format!(
+                        "配置已导出至: {}",
+                        path.display()
+                    ))),
+                    Err(message) => window.set_status_message(SharedString::from(message)),
+                }
+            });
+        });
+        if spawn_result.is_err() {
+            window.set_status_message(SharedString::from("配置导出失败: 无法提交后台任务"));
         }
     });
 

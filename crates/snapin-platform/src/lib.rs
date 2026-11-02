@@ -42,15 +42,18 @@ pub use hotkey_manager::{
     PlatformHotkeyListener,
 };
 pub use lifecycle::{
-    enable_gnome_extension, open_path_in_file_manager, spawn_detached_system_command,
+    enable_gnome_extension, open_path_in_file_manager, open_url, spawn_detached_system_command,
     stop_systemd_service,
 };
 pub use notification::send_desktop_notification;
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-pub use dialog::pick_save_path;
+pub use dialog::{pick_config_export_path, pick_config_import_path, pick_save_path};
 #[cfg(target_os = "linux")]
-pub use portal::{capture_fullscreen_portal, ensure_portal_screenshot_permission, pick_save_path};
+pub use portal::{
+    capture_fullscreen_portal, ensure_portal_screenshot_permission, pick_config_export_path,
+    pick_config_import_path, pick_save_path,
+};
 
 /// 未接入原生保存对话框的平台显式返回不支持，而不是伪造成功空值。
 #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
@@ -60,6 +63,22 @@ pub async fn pick_save_path(
 ) -> Result<Option<std::path::PathBuf>, error::PlatformError> {
     Err(error::PlatformError::Unsupported {
         capability: "系统保存对话框".to_string(),
+    })
+}
+
+/// 未接入原生文件对话框的平台显式返回不支持。
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+pub async fn pick_config_import_path() -> Result<Option<std::path::PathBuf>, error::PlatformError> {
+    Err(error::PlatformError::Unsupported {
+        capability: "配置导入对话框".to_string(),
+    })
+}
+
+/// 未接入原生文件对话框的平台显式返回不支持。
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+pub async fn pick_config_export_path() -> Result<Option<std::path::PathBuf>, error::PlatformError> {
+    Err(error::PlatformError::Unsupported {
+        capability: "配置导出对话框".to_string(),
     })
 }
 pub use tray::{PlatformTray, TrayAction};

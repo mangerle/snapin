@@ -273,6 +273,89 @@ pub async fn pick_save_path(
         })
 }
 
+/// 打开配置文件导入对话框。
+///
+/// # Errors
+///
+/// Portal 不可用、超时或返回 URI 无法转换时返回 [`PlatformError::Portal`]。
+pub async fn pick_config_import_path() -> Result<Option<PathBuf>, PlatformError> {
+    let request = SelectedFiles::open_file()
+        .title("导入 Snapin 配置")
+        .accept_label("导入")
+        .modal(true)
+        .filter(FileFilter::new("Snapin 配置").glob("*.toml"));
+    let dialog = tokio::time::timeout(PORTAL_DIALOG_TIMEOUT, request.send())
+        .await
+        .map_err(|_| PlatformError::Portal {
+            message: format!(
+                "等待配置导入对话框结果超时（{} 秒）",
+                PORTAL_DIALOG_TIMEOUT.as_secs()
+            ),
+        })?
+        .map_err(|error| PlatformError::Portal {
+            message: format!("请求配置导入对话框失败: {error}"),
+        })?;
+    let files = match dialog.response() {
+        Ok(files) => files,
+        Err(ashpd::Error::Response(ResponseError::Cancelled)) => return Ok(None),
+        Err(error) => {
+            return Err(PlatformError::Portal {
+                message: format!("等待配置导入对话框结果失败: {error}"),
+            })
+        }
+    };
+    let Some(uri) = files.uris().first() else {
+        return Ok(None);
+    };
+    uri.to_file_path()
+        .map(Some)
+        .map_err(|_| PlatformError::Portal {
+            message: format!("配置导入对话框返回的 URI 无法转换为本地路径: {uri}"),
+        })
+}
+
+/// 打开配置文件导出对话框。
+///
+/// # Errors
+///
+/// Portal 不可用、超时或返回 URI 无法转换时返回 [`PlatformError::Portal`]。
+pub async fn pick_config_export_path() -> Result<Option<PathBuf>, PlatformError> {
+    let request = SelectedFiles::save_file()
+        .title("导出 Snapin 配置")
+        .accept_label("导出")
+        .current_name("snapin-config.toml")
+        .modal(true)
+        .filter(FileFilter::new("Snapin 配置").glob("*.toml"));
+    let dialog = tokio::time::timeout(PORTAL_DIALOG_TIMEOUT, request.send())
+        .await
+        .map_err(|_| PlatformError::Portal {
+            message: format!(
+                "等待配置导出对话框结果超时（{} 秒）",
+                PORTAL_DIALOG_TIMEOUT.as_secs()
+            ),
+        })?
+        .map_err(|error| PlatformError::Portal {
+            message: format!("请求配置导出对话框失败: {error}"),
+        })?;
+    let files = match dialog.response() {
+        Ok(files) => files,
+        Err(ashpd::Error::Response(ResponseError::Cancelled)) => return Ok(None),
+        Err(error) => {
+            return Err(PlatformError::Portal {
+                message: format!("等待配置导出对话框结果失败: {error}"),
+            })
+        }
+    };
+    let Some(uri) = files.uris().first() else {
+        return Ok(None);
+    };
+    uri.to_file_path()
+        .map(Some)
+        .map_err(|_| PlatformError::Portal {
+            message: format!("配置导出对话框返回的 URI 无法转换为本地路径: {uri}"),
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

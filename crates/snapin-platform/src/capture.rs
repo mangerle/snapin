@@ -15,10 +15,7 @@ const CAPTURE_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_SCREENSHOT_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
 #[cfg(target_os = "linux")]
-use crate::{
-    capabilities::get_platform_capabilities, extension_client::capture_fullscreen_extension,
-    portal::capture_fullscreen_portal,
-};
+use crate::{capabilities::get_platform_capabilities, portal::capture_fullscreen_portal};
 #[cfg(target_os = "linux")]
 use snapin_core::AppPaths;
 
@@ -27,14 +24,17 @@ use snapin_core::AppPaths;
 /// 针对不同操作系统自动适配最优原生通路：
 /// - Linux: GNOME 扩展零白闪优先，XDG Portal 兜底；
 /// - Windows / macOS: xcap 原生极速通道。
-pub async fn capture_fullscreen_snapshot() -> Result<RgbaImage, PlatformError> {
+pub async fn capture_fullscreen_snapshot(include_cursor: bool) -> Result<RgbaImage, PlatformError> {
     #[cfg(target_os = "linux")]
     {
-        capture_linux().await
+        capture_linux(include_cursor).await
     }
 
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
+        if include_cursor {
+            tracing::warn!("当前平台的 xcap 截屏通道不包含鼠标指针，本次将忽略该选项");
+        }
         capture_xcap().await
     }
 
@@ -48,11 +48,11 @@ pub async fn capture_fullscreen_snapshot() -> Result<RgbaImage, PlatformError> {
 
 /// Linux 平台专用抓屏逻辑：扩展直通与 Portal 降级
 #[cfg(target_os = "linux")]
-async fn capture_linux() -> Result<RgbaImage, PlatformError> {
+async fn capture_linux(include_cursor: bool) -> Result<RgbaImage, PlatformError> {
     let caps = get_platform_capabilities();
 
     if caps.gnome_extension_active {
-        match capture_via_extension().await {
+        match capture_via_extension(include_cursor).await {
             Ok(image) => return Ok(image),
             Err(err) => {
                 tracing::warn!("GNOME 扩展零白闪通道未命中，降级至 XDG Portal 通道，原因: {err:#}");
@@ -66,16 +66,23 @@ async fn capture_linux() -> Result<RgbaImage, PlatformError> {
         );
     }
 
+    if include_cursor {
+        tracing::warn!("XDG Portal 截屏通道不包含鼠标指针，本次将回退为无指针截图");
+    }
     capture_fullscreen_portal().await
 }
 
 /// 通过 GNOME Shell 扩展执行零白闪截屏并解码
 #[cfg(target_os = "linux")]
-async fn capture_via_extension() -> Result<RgbaImage, PlatformError> {
+async fn capture_via_extension(include_cursor: bool) -> Result<RgbaImage, PlatformError> {
     let target_path = AppPaths::generate_temp_path("screen", "png");
     let target_str = target_path.to_string_lossy().to_string();
 
-    let success = capture_fullscreen_extension(&target_str).await?;
+    let success = crate::extension_client::capture_fullscreen_extension_with_cursor(
+        &target_str,
+        include_cursor,
+    )
+    .await?;
     if !success {
         return Err(PlatformError::Capture {
             message: format!("GNOME 扩展返回截屏失败，目标路径: {target_str}"),

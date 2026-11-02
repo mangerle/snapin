@@ -8,6 +8,7 @@ import GLib from 'gi://GLib';
 //   1. PlaceWindowByTitle —— Wayland 禁止客户端自行摆放或提级窗口，贴图窗口的绝对定位与
 //      置顶必须由拥有特权的 Mutter 扩展代为执行。
 //   2. CaptureFullscreen   —— 用合成器内部对象直接把整屏写进给定文件流，无快门白闪。
+//      CaptureFullscreenWithCursor 为同一能力的显式指针开关版本。
 //   3. ListWindows         —— 枚举 Mutter 当前所有可见窗口几何，为快速吸附提供依据。
 const IFACE_XML = `
 <node>
@@ -20,6 +21,11 @@ const IFACE_XML = `
     </method>
     <method name="CaptureFullscreen">
       <arg type="s" direction="in" name="targetPath"/>
+      <arg type="b" direction="out" name="success"/>
+    </method>
+    <method name="CaptureFullscreenWithCursor">
+      <arg type="s" direction="in" name="targetPath"/>
+      <arg type="b" direction="in" name="includeCursor"/>
       <arg type="b" direction="out" name="success"/>
     </method>
     <method name="ListWindows">
@@ -294,6 +300,29 @@ export default class SnapinHelperExtension extends Extension {
             return true;
         } catch (e) {
             console.error('Snapin 原生截屏失败:', e);
+            return false;
+        }
+    }
+
+    /**
+     * 截取全屏并显式控制是否包含鼠标指针。
+     * @param {string} targetPath 存储目标 PNG 路径
+     * @param {boolean} includeCursor 是否包含鼠标指针
+     * @returns {boolean} 是否捕获成功
+     */
+    async CaptureFullscreenWithCursor(targetPath, includeCursor) {
+        if (!targetPath) {
+            return false;
+        }
+        try {
+            let screenshot = new Shell.Screenshot();
+            let file = Gio.File.new_for_path(targetPath);
+            let stream = file.replace(null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+            await screenshot.screenshot(Boolean(includeCursor), stream);
+            stream.close(null);
+            return true;
+        } catch (e) {
+            console.error('Snapin 原生截屏（含指针选项）失败:', e);
             return false;
         }
     }
