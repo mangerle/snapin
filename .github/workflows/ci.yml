@@ -56,6 +56,12 @@ jobs:
       - name: 编译检查全部目标
         run: cargo check --locked --workspace --all-targets
 
+      - name: 配置最低支持 Rust 工具链
+        run: rustup toolchain install 1.96.0 --profile minimal
+
+      - name: 验证最低支持 Rust 版本
+        run: cargo +1.96.0 check --locked --workspace --all-targets
+
   windows-check:
     name: Windows 编译检查
     runs-on: windows-latest
