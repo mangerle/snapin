@@ -4,7 +4,7 @@ use crate::editor::toolbar::SubToolOptions;
 use crate::geometry::Point;
 use snapin_annotation::action::AnnotationShape;
 use snapin_annotation::shapes::TextAction;
-use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
+use snapin_render::{with_thread_local_text_renderer, TextDrawOptions, TextMeasureOptions};
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
 use winit::keyboard::{Key, NamedKey};
 
@@ -216,10 +216,12 @@ impl TextInputSession {
             let max_h = pixmap.height() as f32;
             let (line_w, cursor_offset) = renderer.measure_text_input(
                 frame.text,
-                frame.font_size,
-                frame.line_height,
-                max_w,
-                max_h,
+                TextMeasureOptions {
+                    font_size: frame.font_size,
+                    line_height: frame.line_height,
+                    max_width: max_w,
+                    max_height: max_h,
+                },
             );
             draw_input_background(pixmap, frame, line_w);
             renderer.draw_text_rgba(
@@ -230,10 +232,12 @@ impl TextInputSession {
             if frame.underline_preedit && !self.preedit.is_empty() {
                 let (_, text_cursor) = renderer.measure_text_input(
                     &self.text,
-                    frame.font_size,
-                    frame.line_height,
-                    max_w,
-                    max_h,
+                    TextMeasureOptions {
+                        font_size: frame.font_size,
+                        line_height: frame.line_height,
+                        max_width: max_w,
+                        max_height: max_h,
+                    },
                 );
                 render_preedit_underline(
                     pixmap,

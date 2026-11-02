@@ -264,10 +264,10 @@ fn render_row_label(
     row: MenuRowSpec<'_>,
 ) {
     let scale = layout.scale;
-    let text_color = if row.hovered {
-        Color::from_rgba8(255, 255, 255, 255)
+    let text_rgba = if row.hovered {
+        (255, 255, 255, 255)
     } else {
-        Color::from_rgba8(30, 41, 59, 255)
+        (30, 41, 59, 255)
     };
     let font_size = 13.0 * scale;
     let text_y = row.top + (layout.item_height - font_size * 1.25) / 2.0;
@@ -286,11 +286,10 @@ fn render_row_label(
     } else {
         layout.x + 14.0 * scale
     };
-    text_renderer.draw_text(
+    text_renderer.draw_text_rgba(
         pixmap,
         row.item.label,
-        TextDrawOptions::new(text_x, text_y, font_size, (30, 41, 59, 255)),
-        text_color,
+        TextDrawOptions::new(text_x, text_y, font_size, text_rgba),
     );
 }
 

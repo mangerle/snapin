@@ -127,12 +127,11 @@ struct TextCardLayout {
 
 /// 逐行渲染便签文本。
 fn draw_text_lines(pixmap: &mut Pixmap, lines: &[&str], layout: TextCardLayout) {
-    let text_color = tiny_skia::Color::from_rgba8(15, 23, 42, 255);
     with_thread_local_text_renderer(|text_renderer| {
         let mut cur_y = layout.padding_y + 4.0;
         for line in lines {
             if !line.is_empty() {
-                text_renderer.draw_text(
+                text_renderer.draw_text_rgba(
                     &mut pixmap.as_mut(),
                     line,
                     TextDrawOptions::new(
@@ -141,7 +140,6 @@ fn draw_text_lines(pixmap: &mut Pixmap, lines: &[&str], layout: TextCardLayout) 
                         layout.font_size,
                         (15, 23, 42, 255),
                     ),
-                    text_color,
                 );
             }
             cur_y += layout.line_height;

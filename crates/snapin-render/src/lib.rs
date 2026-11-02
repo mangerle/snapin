@@ -11,5 +11,5 @@ pub use layout::CenteredTextOptions;
 pub use snapin_config::config::{BeautifyBackground, SocialSize};
 pub use text::{
     with_thread_local_text_renderer, StyledTextDrawOptions, TextBoxOptions, TextDrawOptions,
-    TextRenderer, TextStyleOptions,
+    TextMeasureOptions, TextRenderer, TextStyleOptions,
 };

@@ -3,13 +3,14 @@
 //! 基于 cosmic-text 提供统一的多语言中英文字体加载、高精度排版与 Alpha 混合像素流转，
 //! 并提供线程局部缓存以避免在非主干上下文内重复扫描与初始化系统字体库。
 
+use super::layout::{BoxTextLayout, BoxedTextPaint};
 use super::raster::{blend_glyph_rgba, GlyphPixel};
 use cosmic_text::{
     Attrs, Buffer, Color as CosmicColor, Family, FontSystem, Metrics, Shaping, Style, SwashCache,
     Weight,
 };
 use std::cell::RefCell;
-use tiny_skia::{Color, PixmapMut};
+use tiny_skia::PixmapMut;
 
 thread_local! {
     static THREAD_LOCAL_TEXT_RENDERER: RefCell<TextRenderer> = RefCell::new(TextRenderer::new());
@@ -65,6 +66,19 @@ pub struct StyledTextDrawOptions<'a> {
     pub style: TextStyleOptions<'a>,
 }
 
+/// 输入框文本测量的字号、行高与可用画布范围。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextMeasureOptions {
+    /// 字号
+    pub font_size: f32,
+    /// 行高
+    pub line_height: f32,
+    /// 最大可用宽度
+    pub max_width: f32,
+    /// 最大可用高度
+    pub max_height: f32,
+}
+
 /// 单行纯文本绘制的位置、字号与颜色参数。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TextDrawOptions {
@@ -93,23 +107,6 @@ impl TextRenderer {
             font_system: FontSystem::new(),
             swash_cache: SwashCache::new(),
         }
-    }
-
-    /// 在指定坐标绘制中文或英文排版文字（使用 tiny_skia::Color）
-    pub fn draw_text(
-        &mut self,
-        pixmap: &mut PixmapMut,
-        text: &str,
-        options: TextDrawOptions,
-        color: Color,
-    ) {
-        let rgba = (
-            (color.red() * 255.0).round() as u8,
-            (color.green() * 255.0).round() as u8,
-            (color.blue() * 255.0).round() as u8,
-            (color.alpha() * 255.0).round() as u8,
-        );
-        self.draw_text_rgba(pixmap, text, TextDrawOptions { rgba, ..options });
     }
 
     /// 在指定坐标绘制中文或英文排版文字（使用 RGBA 原始字节四元组）
@@ -219,7 +216,15 @@ impl TextRenderer {
 
         for attempt in 0..FONT_SHRINK_ATTEMPTS {
             let line_height = font_size * 1.25;
-            let mut buffer = self.shape_box_text(text, font_size, line_height, box_w, box_h);
+            let mut buffer = self.shape_box_text(
+                text,
+                BoxTextLayout {
+                    font_size,
+                    line_height,
+                    box_width: box_w,
+                    box_height: box_h,
+                },
+            );
             let total_text_h = (buffer.layout_runs().count() as f32) * line_height;
 
             // 收手条件：高度已落入包围盒、字号触底、或收缩次数耗尽。
@@ -228,7 +233,14 @@ impl TextRenderer {
             let is_last_attempt = attempt + 1 == FONT_SHRINK_ATTEMPTS;
             if total_text_h <= box_h || font_size <= MIN_BOX_FONT_SIZE || is_last_attempt {
                 let vertical_offset = ((box_h - total_text_h) / 2.0).max(0.0);
-                self.paint_buffer_in_box(pixmap, &mut buffer, &options, vertical_offset);
+                self.paint_buffer_in_box(
+                    pixmap,
+                    BoxedTextPaint {
+                        buffer: &mut buffer,
+                        options: &options,
+                        vertical_offset,
+                    },
+                );
                 return;
             }
 
@@ -254,7 +266,7 @@ mod tests {
     fn test_text_renderer_basic_draw() {
         let mut pixmap = Pixmap::new(100, 40).unwrap();
         let mut renderer = TextRenderer::new();
-        renderer.draw_text(
+        renderer.draw_text_rgba(
             &mut pixmap.as_mut(),
             "Snapin",
             TextDrawOptions {
@@ -263,7 +275,6 @@ mod tests {
                 font_size: 16.0,
                 rgba: (255, 255, 255, 255),
             },
-            Color::from_rgba8(255, 255, 255, 255),
         );
         let has_pixel = pixmap.data().iter().any(|&b| b > 0);
         assert!(has_pixel, "排版绘制应写入非零像素");

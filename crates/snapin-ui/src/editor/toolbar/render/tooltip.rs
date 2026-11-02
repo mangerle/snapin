@@ -8,7 +8,7 @@ use super::super::layout::SubControl;
 use super::super::Toolbar;
 use crate::drawing::{add_round_rect, RoundRect};
 use crate::geometry::Rect;
-use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
+use snapin_render::{with_thread_local_text_renderer, TextDrawOptions, TextMeasureOptions};
 use tiny_skia::{FillRule, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 提示文字字号（界面像素）
@@ -206,10 +206,12 @@ fn layout(request: TooltipLayoutRequest<'_>) -> Option<TooltipLayout> {
     let (text_width, _) = with_thread_local_text_renderer(|renderer| {
         renderer.measure_text_input(
             message,
-            font_size,
-            font_size * 1.3,
-            screen_w.max(1.0),
-            font_size * 1.6,
+            TextMeasureOptions {
+                font_size,
+                line_height: font_size * 1.3,
+                max_width: screen_w.max(1.0),
+                max_height: font_size * 1.6,
+            },
         )
     });
     if text_width <= 0.0 {

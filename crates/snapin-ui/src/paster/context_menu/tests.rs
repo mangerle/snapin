@@ -65,11 +65,10 @@ fn test_text_renderer_draws_pixels() {
     let mut pixmap = tiny_skia::Pixmap::new(200, 100).unwrap();
     pixmap.fill(tiny_skia::Color::from_rgba8(26, 28, 40, 255));
     let before = pixmap.data().to_vec();
-    tr.draw_text(
+    tr.draw_text_rgba(
         &mut pixmap.as_mut(),
         "复制图像",
         render::TextDrawOptions::new(10.0, 10.0, 14.0, (255, 255, 255, 255)),
-        tiny_skia::Color::WHITE,
     );
     let after = pixmap.data();
     let changed = before.iter().zip(after.iter()).any(|(a, b)| a != b);

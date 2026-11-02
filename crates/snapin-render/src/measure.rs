@@ -1,25 +1,18 @@
 //! 文本测量：输入框行宽与光标右边界偏移。
 
-use super::text::TextRenderer;
+use super::text::{TextMeasureOptions, TextRenderer};
 use cosmic_text::{Attrs, Buffer, Color as CosmicColor, Metrics, Shaping};
 
 impl TextRenderer {
     /// 测量输入框文本布局尺寸，返回行宽 (line_w) 与相对末尾字形右边界偏移量 (rel_cursor_x)
-    pub fn measure_text_input(
-        &mut self,
-        text: &str,
-        font_size: f32,
-        line_height: f32,
-        max_w: f32,
-        max_h: f32,
-    ) -> (f32, f32) {
+    pub fn measure_text_input(&mut self, text: &str, options: TextMeasureOptions) -> (f32, f32) {
         if text.is_empty() {
             return (0.0, 0.0);
         }
 
-        let metrics = Metrics::new(font_size, line_height);
+        let metrics = Metrics::new(options.font_size, options.line_height);
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
-        buffer.set_size(&mut self.font_system, max_w, max_h);
+        buffer.set_size(&mut self.font_system, options.max_width, options.max_height);
         buffer.set_text(&mut self.font_system, text, Attrs::new(), Shaping::Advanced);
         buffer.shape_until_scroll(&mut self.font_system, false);
 

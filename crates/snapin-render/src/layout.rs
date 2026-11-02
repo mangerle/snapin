@@ -5,6 +5,22 @@ use super::text::{TextBoxOptions, TextRenderer};
 use cosmic_text::{Attrs, Buffer, Color as CosmicColor, Metrics, Shaping, Weight};
 use tiny_skia::PixmapMut;
 
+/// 包围盒文本排版所需的字号、行高与盒尺寸。
+#[derive(Clone, Copy)]
+pub(super) struct BoxTextLayout {
+    pub(super) font_size: f32,
+    pub(super) line_height: f32,
+    pub(super) box_width: f32,
+    pub(super) box_height: f32,
+}
+
+/// 将排版缓冲区裁剪落笔到文本框所需的参数。
+pub(super) struct BoxedTextPaint<'a> {
+    pub(super) buffer: &'a mut Buffer,
+    pub(super) options: &'a TextBoxOptions,
+    pub(super) vertical_offset: f32,
+}
+
 /// 居中加粗文本的几何与样式参数。
 #[derive(Debug, Clone, Copy)]
 pub struct CenteredTextOptions {
@@ -25,17 +41,14 @@ impl TextRenderer {
     /// 若直接用 `box_h` 作为视口高度，当盒高不足一行时会排布出零行文本并绘制成空白，
     /// 表现为“翻译/标注文字莫名消失”。保底一行既保证始终有可见字形，
     /// 又让溢出判断自然收敛（total_text_h 至少为一个行高，必然高于不足的盒高）。
-    pub(super) fn shape_box_text(
-        &mut self,
-        text: &str,
-        font_size: f32,
-        line_height: f32,
-        box_w: f32,
-        box_h: f32,
-    ) -> Buffer {
-        let metrics = Metrics::new(font_size, line_height);
+    pub(super) fn shape_box_text(&mut self, text: &str, layout: BoxTextLayout) -> Buffer {
+        let metrics = Metrics::new(layout.font_size, layout.line_height);
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
-        buffer.set_size(&mut self.font_system, box_w, box_h.max(line_height));
+        buffer.set_size(
+            &mut self.font_system,
+            layout.box_width,
+            layout.box_height.max(layout.line_height),
+        );
         buffer.set_text(&mut self.font_system, text, Attrs::new(), Shaping::Advanced);
         buffer.shape_until_scroll(&mut self.font_system, false);
         buffer
@@ -48,10 +61,13 @@ impl TextRenderer {
     pub(super) fn paint_buffer_in_box(
         &mut self,
         pixmap: &mut PixmapMut,
-        buffer: &mut Buffer,
-        options: &TextBoxOptions,
-        vertical_offset: f32,
+        paint: BoxedTextPaint<'_>,
     ) {
+        let BoxedTextPaint {
+            buffer,
+            options,
+            vertical_offset,
+        } = paint;
         let (x, y, box_w, box_h) = options.rect;
         let color = CosmicColor::rgba(
             options.rgba.0,
