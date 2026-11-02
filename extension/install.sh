@@ -4,8 +4,9 @@ set -e
 
 EXT_UUID="snapin@wangle.local"
 OLD_UUID="snapin-helper@wangle.local"
-TARGET_DIR="$HOME/.local/share/gnome-shell/extensions/$EXT_UUID"
-OLD_DIR="$HOME/.local/share/gnome-shell/extensions/$OLD_UUID"
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+TARGET_DIR="$DATA_HOME/gnome-shell/extensions/$EXT_UUID"
+OLD_DIR="$DATA_HOME/gnome-shell/extensions/$OLD_UUID"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "正在清理旧版本 GNOME Shell 扩展..."

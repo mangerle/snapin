@@ -184,10 +184,16 @@ impl AppPaths {
 
     /// 获取 GNOME Shell 扩展安装目标路径
     pub fn gnome_extension_dir(uuid: &str) -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home)
-            .join(".local/share/gnome-shell/extensions")
-            .join(uuid)
+        let data_home = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .map(|home| home.join(".local/share"))
+            })
+            .unwrap_or_else(|| PathBuf::from("."));
+        data_home.join("gnome-shell/extensions").join(uuid)
     }
 
     /// 生成高并发安全的 64 位全局唯一序列 ID
@@ -324,6 +330,9 @@ mod tests {
         let temp_path = AppPaths::generate_temp_path("test", "raw");
         assert!(temp_path.to_string_lossy().contains("test_"));
         assert!(temp_path.to_string_lossy().ends_with(".raw"));
+
+        let extension_dir = AppPaths::gnome_extension_dir("snapin@wangle.local");
+        assert!(extension_dir.ends_with("gnome-shell/extensions/snapin@wangle.local"));
     }
 
     #[test]
