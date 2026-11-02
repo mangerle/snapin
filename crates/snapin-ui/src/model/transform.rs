@@ -25,6 +25,9 @@ impl Default for PasterTransform {
 impl PasterTransform {
     /// 按照给定的滚轮角度增量调整缩放倍率，限制在 10% 到 1000% 之间
     pub fn zoom(&mut self, delta_y: f32) {
+        if !delta_y.is_finite() || delta_y == 0.0 {
+            return;
+        }
         let factor = if delta_y > 0.0 { 1.1 } else { 0.9 };
         self.scale = (self.scale * factor).clamp(0.1, 10.0);
     }
@@ -140,6 +143,19 @@ mod tests {
         assert_eq!(transform.opacity, 0.1);
         transform.adjust_opacity(5.0);
         assert_eq!(transform.opacity, 1.0);
+    }
+
+    #[test]
+    fn test_zero_and_non_finite_zoom_delta_do_not_change_scale() {
+        let mut transform = PasterTransform::default();
+        let original = transform.scale;
+
+        transform.zoom(0.0);
+        assert_eq!(transform.scale, original);
+        transform.zoom(f32::NAN);
+        assert_eq!(transform.scale, original);
+        transform.zoom(f32::INFINITY);
+        assert_eq!(transform.scale, original);
     }
 
     #[test]
