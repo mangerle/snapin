@@ -8,10 +8,10 @@ use crate::raw_image::MAX_RAW_PIXELS;
 use image::{ImageFormat, RgbaImage};
 use serde::{Deserialize, Serialize};
 use snapin_foundation::AppPaths;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions, TryLockError};
 use std::io::{BufWriter, Cursor, Write};
 use std::path::{Component, Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// 剪贴板历史最大条数。
 pub const CLIPBOARD_HISTORY_LIMIT: usize = 10;
@@ -23,6 +23,62 @@ const MAX_CLIPBOARD_INDEX_BYTES: usize = 1024 * 1024;
 const MAX_CLIPBOARD_IMAGE_FILE_BYTES: usize = 64 * 1024 * 1024;
 /// 剪贴板历史图像允许的最大宽度与高度。
 const MAX_CLIPBOARD_IMAGE_SIDE: u32 = 16_384;
+/// 剪贴板历史跨进程锁的最长等待时间。
+const HISTORY_LOCK_TIMEOUT: Duration = Duration::from_secs(3);
+/// 锁竞争轮询间隔。
+const HISTORY_LOCK_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+#[derive(Debug)]
+struct HistoryLock {
+    _file: File,
+}
+
+impl HistoryLock {
+    fn acquire(operation: &str) -> Result<Self, StorageError> {
+        let path = AppPaths::config_dir().join("clipboard-history.lock");
+        Self::acquire_at(&path, HISTORY_LOCK_TIMEOUT, operation)
+    }
+
+    fn acquire_at(path: &Path, timeout: Duration, operation: &str) -> Result<Self, StorageError> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|source| StorageError::Io {
+                path: parent.display().to_string(),
+                source,
+            })?;
+        }
+        let file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(path)
+            .map_err(|source| StorageError::Io {
+                path: path.display().to_string(),
+                source,
+            })?;
+        let started = Instant::now();
+        loop {
+            match file.try_lock() {
+                Ok(()) => return Ok(Self { _file: file }),
+                Err(TryLockError::WouldBlock) if started.elapsed() < timeout => {
+                    std::thread::sleep(HISTORY_LOCK_POLL_INTERVAL);
+                }
+                Err(TryLockError::WouldBlock) => {
+                    return Err(StorageError::LockTimeout {
+                        operation: operation.to_string(),
+                        timeout_ms: timeout.as_millis(),
+                    })
+                }
+                Err(TryLockError::Error(source)) => {
+                    return Err(StorageError::Io {
+                        path: path.display().to_string(),
+                        source,
+                    })
+                }
+            }
+        }
+    }
+}
 
 /// 剪贴板条目类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,6 +108,7 @@ pub fn clipboard_history_dir() -> PathBuf {
 
 /// 读取并清理过期历史。
 pub fn load_clipboard_history() -> Result<Vec<ClipboardEntry>, StorageError> {
+    let _lock = HistoryLock::acquire("读取历史")?;
     load_and_prune(clipboard_history_dir())
 }
 
@@ -60,6 +117,7 @@ pub fn append_clipboard_text(
     text: &str,
     kind: ClipboardEntryKind,
 ) -> Result<Vec<ClipboardEntry>, StorageError> {
+    let _lock = HistoryLock::acquire("追加文本")?;
     let dir = clipboard_history_dir();
     let mut entries = load_and_prune(dir.clone())?;
     if entries
@@ -84,6 +142,7 @@ pub fn append_clipboard_text(
 
 /// 追加图像条目。
 pub fn append_clipboard_image(image: &RgbaImage) -> Result<Vec<ClipboardEntry>, StorageError> {
+    let _lock = HistoryLock::acquire("追加图像")?;
     let dir = clipboard_history_dir();
     let mut entries = load_and_prune(dir.clone())?;
     let (id, file_name) = save_clipboard_image(&dir, image)?;
@@ -109,6 +168,7 @@ pub fn append_clipboard_image(image: &RgbaImage) -> Result<Vec<ClipboardEntry>, 
 
 /// 读取条目对应的图像文件。
 pub fn load_clipboard_image(entry: &ClipboardEntry) -> Result<RgbaImage, StorageError> {
+    let _lock = HistoryLock::acquire("读取图像")?;
     load_clipboard_image_from(&clipboard_history_dir(), entry)
 }
 
@@ -157,6 +217,7 @@ fn load_clipboard_image_from(
 
 /// 清空全部剪贴板历史。
 pub fn clear_clipboard_history() -> Result<(), StorageError> {
+    let _lock = HistoryLock::acquire("清空历史")?;
     let dir = clipboard_history_dir();
     if dir.exists() {
         std::fs::remove_dir_all(&dir).map_err(|source| StorageError::Io {
@@ -486,5 +547,17 @@ mod tests {
         };
 
         assert!(load_clipboard_image_from(dir.path(), &entry).is_err());
+    }
+
+    #[test]
+    fn test_history_lock_rejects_concurrent_owner_after_timeout() {
+        let dir = tempfile::tempdir().expect("应可创建测试目录");
+        let path = dir.path().join("clipboard-history.lock");
+        let _first = HistoryLock::acquire_at(&path, Duration::from_millis(50), "首次")
+            .expect("首次加锁应成功");
+
+        let error = HistoryLock::acquire_at(&path, Duration::from_millis(20), "并发")
+            .expect_err("第二次加锁应超时");
+        assert!(matches!(error, StorageError::LockTimeout { .. }));
     }
 }

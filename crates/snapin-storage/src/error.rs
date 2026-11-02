@@ -24,4 +24,13 @@ pub enum StorageError {
         /// 可直接展示的中文原因
         message: String,
     },
+
+    /// 剪贴板历史跨进程锁等待超时
+    #[error("剪贴板历史操作等待锁超时，操作: {operation}，等待上限: {timeout_ms}ms")]
+    LockTimeout {
+        /// 正在执行的操作
+        operation: String,
+        /// 等待上限毫秒数
+        timeout_ms: u128,
+    },
 }
