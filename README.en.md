@@ -25,7 +25,7 @@ The screenshot overlay uses winit plus tiny-skia software rasterization. On Linu
 
 Download the latest package from [Releases](https://github.com/mangerle/snapin/releases). Debian packages are recommended on Linux.
 
-For source builds:
+Source builds require Rust 1.96 or newer:
 
 ```bash
 cargo build --release

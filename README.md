@@ -11,7 +11,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="LICENSES/LicenseRef-Slint-Royalty-free-2.0.md"><img src="https://img.shields.io/badge/Slint-Royalty--free%202.0-2379f4.svg" alt="Slint: Royalty-free 2.0"></a>
-  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-stable-dea584.svg" alt="Rust stable"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-1.96%2B-dea584.svg" alt="Rust 1.96+"></a>
   <a href="#环境要求"><img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-2ea44f.svg" alt="Platform: Linux / Windows / macOS"></a>
   <a href="#环境要求"><img src="https://img.shields.io/badge/Linux-Wayland%20%7C%20GNOME%2045--51-4a86cf.svg" alt="Linux: Wayland / GNOME 45-51"></a>
 </p>
@@ -108,7 +108,7 @@ Snapin 是纯 Rust 打造的跨平台截图与贴图工具，支持 Linux、Wind
 
 - macOS 系统需在"系统设置 → 隐私与安全性 → 屏幕录制"中为 Snapin 授权，截屏功能才可正常使用。
 
-构建（仅 Linux）需要 Rust stable 与以下系统库：
+构建需要 Rust 1.96 或更高版本；Linux 另需以下系统库：
 
 ```bash
 sudo apt-get install -y \
