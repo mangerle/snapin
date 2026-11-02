@@ -252,52 +252,62 @@ impl ArgbShmSurface {
         if self.present_retry_at.is_some_and(|retry_at| now < retry_at) {
             return Ok(PresentOutcome::Deferred);
         }
-
-        let (width, height) = self.size;
-        let expected = width as usize * height as usize;
-        let src = pixmap.data().as_chunks::<4>().0;
-        if src.len() != expected {
-            return Err(UiError::Render {
-                message: format!(
-                    "ARGB8888 表面像素容量与源位图不匹配，表面: {expected}，源位图: {}",
-                    src.len()
-                ),
-            });
-        }
+        self.validate_source_size(pixmap)?;
 
         // 1. 先回收已到达的 wl_buffer.release 事件，尽量让候选缓冲区处于可写状态
         self.dispatch_pending()?;
-
         // 2. 尺寸变化或首次呈现时懒重建前后两块缓冲区
+        let (width, height) = self.size;
         self.ensure_buffers(width, height)?;
-
         // 3. 在严格上限内等待可写槽位；超时则安全延迟本帧
         let Some(slot) = self.acquire_writable_slot(now + BUFFER_RELEASE_WAIT)? else {
             self.present_retry_at = Some(now + BUFFER_RETRY_DELAY);
             return Ok(PresentOutcome::Deferred);
         };
 
-        // ensure_buffers 刚刚确认缓冲区存在，None 分支仅为防御性兜底
+        // 4. 写入像素、挂载、施加 damage 并 commit
+        self.write_pixmap_to_slot(pixmap, slot)?;
+        // 5. 乒乓翻转候选槽位，并立即冲刷请求，确保本帧尽快到达合成器
+        self.ping.mark_committed();
+        self.present_retry_at = None;
+        self.conn.flush().map_err(|error| UiError::ShmSurface {
+            message: format!("冲刷 ARGB8888 提交请求失败: {error}"),
+        })?;
+        Ok(PresentOutcome::Presented)
+    }
+
+    /// 校验源位图像素容量与表面声明尺寸一致。
+    fn validate_source_size(&self, pixmap: &Pixmap) -> Result<(), UiError> {
+        let (width, height) = self.size;
+        let expected = width as usize * height as usize;
+        let actual = pixmap.data().as_chunks::<4>().0.len();
+        if actual != expected {
+            return Err(UiError::Render {
+                message: format!(
+                    "ARGB8888 表面像素容量与源位图不匹配，表面: {expected}，源位图: {actual}"
+                ),
+            });
+        }
+        Ok(())
+    }
+
+    /// 将源位图写入指定乒乓槽位并提交给合成器。
+    fn write_pixmap_to_slot(&mut self, pixmap: &Pixmap, slot: usize) -> Result<(), UiError> {
+        // ensure_buffers 刚刚确认缓冲区存在，None 分支仅为防御性兜底。
         let Some(buffers) = self.buffers.as_mut() else {
             return Err(UiError::ShmSurface {
                 message: "ARGB8888 共享内存缓冲区未就绪".to_string(),
             });
         };
-        let (front, back) = (&mut buffers.0, &mut buffers.1);
-        let buffer = if slot == 0 { front } else { back };
-
-        // 4. 写入像素、挂载、施加 damage 并 commit
+        let buffer = if slot == 0 {
+            &mut buffers.0
+        } else {
+            &mut buffers.1
+        };
         copy_pixmap_into(buffer.pixels_mut(), pixmap);
         buffer.attach(&self.surface);
         damage_and_commit(&self.surface, buffer.width, buffer.height);
-
-        // 5. 乒乓翻转候选槽位，并立即冲刷请求，确保本帧尽快到达合成器
-        self.ping.mark_committed();
-        self.present_retry_at = None;
-        self.conn.flush().map_err(|e| UiError::ShmSurface {
-            message: format!("冲刷 ARGB8888 提交请求失败: {e}"),
-        })?;
-        Ok(PresentOutcome::Presented)
+        Ok(())
     }
 
     /// 返回延迟呈现的下一处理时刻。
