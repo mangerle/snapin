@@ -91,6 +91,18 @@ pub(super) async fn create(
     if cancel.is_cancelled() {
         return None;
     }
+    match prepare_paster_request(request, cancel).await {
+        Ok(request) => open_paster(workspace, request).await,
+        Err(Some(response)) => Some(response),
+        Err(None) => None,
+    }
+}
+
+/// 校验并读取贴图请求，生成可直接投递到工作区的参数。
+async fn prepare_paster_request(
+    request: CreatePasterRequest,
+    cancel: &CancellationToken,
+) -> Result<OpenPasterRequest, Option<DaemonResponse>> {
     let CreatePasterRequest {
         width,
         height,
@@ -99,49 +111,56 @@ pub(super) async fn create(
         title,
         raw_path,
     } = request;
-    let Some(expected_len) = snapin_storage::checked_rgba_byte_len(width, height) else {
-        return Some(DaemonResponse::error(
-            DaemonErrorCode::InvalidInput,
-            "贴图像素尺寸非法或超过上限",
-        ));
-    };
+    validate_pixel_size(width, height).map_err(Some)?;
     let file_path = PathBuf::from(&raw_path);
-
-    if let Err(response) = verify_runtime_file(&file_path).await {
-        return Some(response);
-    }
+    let pixmap = load_runtime_pixmap(file_path, width, height, cancel).await?;
     if cancel.is_cancelled() {
-        return None;
+        return Err(None);
     }
+    Ok(OpenPasterRequest {
+        title,
+        x,
+        y,
+        pixmap,
+    })
+}
 
+/// 校验像素尺寸是否可安全分配。
+fn validate_pixel_size(width: u32, height: u32) -> Result<usize, DaemonResponse> {
+    snapin_storage::checked_rgba_byte_len(width, height).ok_or_else(|| {
+        DaemonResponse::error(DaemonErrorCode::InvalidInput, "贴图像素尺寸非法或超过上限")
+    })
+}
+
+/// 校验受控路径、读取像素并在所有失败/取消路径清理临时文件。
+async fn load_runtime_pixmap(
+    file_path: PathBuf,
+    width: u32,
+    height: u32,
+    cancel: &CancellationToken,
+) -> Result<Pixmap, Option<DaemonResponse>> {
+    let expected_len = validate_pixel_size(width, height).map_err(Some)?;
+    verify_runtime_file(&file_path).await.map_err(Some)?;
+    if cancel.is_cancelled() {
+        return Err(None);
+    }
     let temp_file = RuntimePixmapFile::new(file_path);
-    let pixmap = match read_pixel_pixmap(temp_file.path(), width, height, expected_len).await {
-        Ok(pixmap) => pixmap,
-        Err(response) => return Some(response),
-    };
+    let pixmap = read_pixel_pixmap(temp_file.path(), width, height, expected_len)
+        .await
+        .map_err(Some)?;
     if cancel.is_cancelled() {
-        return None;
+        return Err(None);
     }
     if let Err(error) = temp_file.remove().await {
-        return Some(DaemonResponse::error(
+        return Err(Some(DaemonResponse::error(
             DaemonErrorCode::Io,
             format!("清理贴图临时像素文件失败: {error}"),
-        ));
+        )));
     }
     if cancel.is_cancelled() {
-        return None;
+        return Err(None);
     }
-
-    open_paster(
-        workspace,
-        OpenPasterRequest {
-            title,
-            x,
-            y,
-            pixmap,
-        },
-    )
-    .await
+    Ok(pixmap)
 }
 
 /// 将已读取的贴图投递到工作区并确认 Wayland 精确放置。
