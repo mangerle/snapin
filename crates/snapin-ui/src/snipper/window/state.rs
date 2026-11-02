@@ -19,6 +19,16 @@ use std::sync::Arc;
 use winit::keyboard::ModifiersState;
 use winit::window::CursorIcon;
 
+/// 当前在途媒体任务的完整快照。
+///
+/// 类型、任务 ID 与取消闭包必须同时存在或同时消失；集中为单值可避免三个
+/// `Option` 被独立修改后进入“有 ID 无类型”或“有取消闭包无任务”的非法状态。
+pub(crate) struct PendingMediaJob {
+    kind: SnipperJobKind,
+    id: JobId,
+    cancel: JobCancel,
+}
+
 /// 截图会话可变运行状态封装
 pub struct SnipperState {
     pub selection: SelectionState,
@@ -53,12 +63,8 @@ pub struct SnipperState {
     pub status_message: Option<String>,
     /// 媒体任务运行时（测试或无宿主环境下为空）
     pub job_runtime: Option<Arc<SnipperJobRuntime>>,
-    /// 当前正在执行的 OCR/翻译任务类型
-    pub pending_job: Option<SnipperJobKind>,
-    /// 当前后台任务的执行器分配 ID，用于丢弃过期回调
-    pub pending_job_id: Option<JobId>,
-    /// 当前后台任务的取消闭包
-    pub pending_job_cancel: Option<JobCancel>,
+    /// 当前在途媒体任务；三要素由单一值维护，避免部分状态组合
+    pub(crate) pending_job: Option<PendingMediaJob>,
     /// 智能打码可点击文字区域；马赛克已实时写入标注历史，点击区域切换遮挡
     pub redaction_preview: Option<RedactionPreview>,
     /// 最近一次二维码识别结果；存在时 Ctrl+Enter 可打开首个安全链接
@@ -111,8 +117,6 @@ impl SnipperState {
             status_message: None,
             job_runtime: None,
             pending_job: None,
-            pending_job_id: None,
-            pending_job_cancel: None,
             redaction_preview: None,
             qr_result: None,
             ocr_panel: None,
@@ -133,11 +137,38 @@ impl SnipperState {
 
     /// 取消当前后台任务（若存在）。
     pub fn cancel_pending_job(&mut self) {
-        if let Some(cancel) = self.pending_job_cancel.take() {
-            cancel();
+        if let Some(pending) = self.pending_job.take() {
+            (pending.cancel)();
         }
-        self.pending_job = None;
-        self.pending_job_id = None;
+    }
+
+    /// 是否存在尚未完成的媒体任务。
+    pub fn has_pending_job(&self) -> bool {
+        self.pending_job.is_some()
+    }
+
+    /// 登记一个已成功提交的媒体任务。
+    pub(crate) fn begin_pending_job(&mut self, kind: SnipperJobKind, id: JobId, cancel: JobCancel) {
+        debug_assert!(self.pending_job.is_none(), "同一截图会话只能有一个在途任务");
+        self.pending_job = Some(PendingMediaJob { kind, id, cancel });
+    }
+
+    /// 仅当任务类型与 ID 都匹配时移除在途任务，返回是否为当前任务。
+    pub(crate) fn take_matching_job(&mut self, kind: SnipperJobKind, id: JobId) -> bool {
+        let matches = self
+            .pending_job
+            .as_ref()
+            .is_some_and(|pending| pending.kind == kind && pending.id == id);
+        if matches {
+            self.pending_job = None;
+        }
+        matches
+    }
+
+    /// 当前任务 ID；仅供同 crate 的任务状态校验与测试使用。
+    #[cfg(test)]
+    pub(crate) fn pending_job_id(&self) -> Option<JobId> {
+        self.pending_job.as_ref().map(|pending| pending.id)
     }
 
     /// 设置画布顶部提示信息
@@ -264,6 +295,7 @@ pub fn commit_active_text_input(state: &mut SnipperState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Mutex;
 
     static TOOLBAR_MEMORY_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -283,6 +315,27 @@ mod tests {
     #[test]
     fn test_cursor_not_ready_until_first_move() {
         assert!(!SnipperState::new().cursor_ready);
+    }
+
+    /// 在途任务必须由类型、ID 和取消闭包共同组成，任一项不匹配都不得清除当前任务。
+    #[test]
+    fn test_pending_job_requires_matching_kind_and_id_and_cancel_runs() {
+        let mut state = SnipperState::new();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let cancel_flag = cancelled.clone();
+        state.begin_pending_job(
+            SnipperJobKind::Ocr,
+            JobId::new(7),
+            Box::new(move || cancel_flag.store(true, Ordering::Release)),
+        );
+
+        assert!(!state.take_matching_job(SnipperJobKind::Save, JobId::new(7)));
+        assert!(!state.take_matching_job(SnipperJobKind::Ocr, JobId::new(8)));
+        assert!(state.has_pending_job(), "错误回调不得清除当前任务");
+
+        state.cancel_pending_job();
+        assert!(cancelled.load(Ordering::Acquire));
+        assert!(!state.has_pending_job());
     }
 
     /// 默认关闭记忆时，新建截图应恢复配置默认值而不是沿用上次改动。

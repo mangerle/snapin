@@ -16,13 +16,10 @@ pub fn handle_job_outcome(
     kind: SnipperJobKind,
     outcome: MediaJobOutcome,
 ) {
-    if state.pending_job_id != Some(job_id) {
+    if !state.take_matching_job(kind, job_id) {
         tracing::debug!("丢弃过期的截图媒体任务结果: {job_id:?}");
         return;
     }
-    state.pending_job = None;
-    state.pending_job_id = None;
-    state.pending_job_cancel = None;
 
     match outcome {
         MediaJobOutcome::Ocr { text, lines } => {
@@ -158,16 +155,16 @@ mod tests {
     }
 
     /// 让状态接受一个测试任务 ID，模拟真实提交成功后的待处理态。
-    fn accept_job(state: &mut SnipperState) -> JobId {
+    fn accept_job(state: &mut SnipperState, kind: SnipperJobKind) -> JobId {
         let job_id = JobId::new(1);
-        state.pending_job_id = Some(job_id);
+        state.begin_pending_job(kind, job_id, Box::new(|| {}));
         job_id
     }
 
     #[test]
     fn test_handle_empty_ocr_outcome_keeps_session_open() {
         let mut state = SnipperState::new();
-        let job_id = accept_job(&mut state);
+        let job_id = accept_job(&mut state, SnipperJobKind::Ocr);
         handle_job_outcome(
             &mut state,
             job_id,
@@ -186,7 +183,7 @@ mod tests {
     fn test_handle_empty_redact_outcome_does_not_show_status() {
         let mut state = SnipperState::new();
         state.set_status_message("智能打码执行中的旧提示");
-        let job_id = accept_job(&mut state);
+        let job_id = accept_job(&mut state, SnipperJobKind::Redact);
         handle_job_outcome(
             &mut state,
             job_id,
@@ -207,7 +204,7 @@ mod tests {
     #[test]
     fn test_handle_translate_outcome_pushes_annotation() {
         let mut state = SnipperState::new();
-        let job_id = accept_job(&mut state);
+        let job_id = accept_job(&mut state, SnipperJobKind::Translate);
         handle_job_outcome(
             &mut state,
             job_id,
@@ -223,7 +220,7 @@ mod tests {
     #[test]
     fn test_handle_saved_outcome_sets_result() {
         let mut state = SnipperState::new();
-        let job_id = accept_job(&mut state);
+        let job_id = accept_job(&mut state, SnipperJobKind::Save);
         let path = PathBuf::from("/tmp/snapin_test.png");
         handle_job_outcome(
             &mut state,
@@ -240,7 +237,7 @@ mod tests {
     #[test]
     fn test_handle_save_cancelled_keeps_session_open() {
         let mut state = SnipperState::new();
-        let job_id = accept_job(&mut state);
+        let job_id = accept_job(&mut state, SnipperJobKind::Save);
         handle_job_outcome(
             &mut state,
             job_id,
@@ -254,7 +251,7 @@ mod tests {
     #[test]
     fn test_handle_job_failure_sets_status() {
         let mut state = SnipperState::new();
-        let job_id = accept_job(&mut state);
+        let job_id = accept_job(&mut state, SnipperJobKind::Translate);
         handle_job_outcome(
             &mut state,
             job_id,
@@ -274,7 +271,7 @@ mod tests {
     #[test]
     fn test_ocr_success_keeps_session_open() {
         let mut state = SnipperState::new();
-        let job_id = accept_job(&mut state);
+        let job_id = accept_job(&mut state, SnipperJobKind::Ocr);
         handle_job_outcome(
             &mut state,
             job_id,
@@ -297,7 +294,7 @@ mod tests {
     #[test]
     fn test_redact_outcome_applies_mosaic_immediately() {
         let mut state = SnipperState::new();
-        let job_id = accept_job(&mut state);
+        let job_id = accept_job(&mut state, SnipperJobKind::Redact);
         handle_job_outcome(
             &mut state,
             job_id,
@@ -321,7 +318,7 @@ mod tests {
     #[test]
     fn test_qr_outcome_keeps_result_for_link_action() {
         let mut state = SnipperState::new();
-        let job_id = accept_job(&mut state);
+        let job_id = accept_job(&mut state, SnipperJobKind::Qr);
         handle_job_outcome(
             &mut state,
             job_id,
@@ -364,8 +361,7 @@ mod stale_tests {
     #[test]
     fn test_stale_job_outcome_is_ignored() {
         let mut state = SnipperState::new();
-        state.pending_job = Some(SnipperJobKind::Save);
-        state.pending_job_id = Some(JobId::new(2));
+        state.begin_pending_job(SnipperJobKind::Save, JobId::new(2), Box::new(|| {}));
 
         handle_job_outcome(
             &mut state,
@@ -376,7 +372,7 @@ mod stale_tests {
             },
         );
 
-        assert_eq!(state.pending_job_id, Some(JobId::new(2)));
+        assert_eq!(state.pending_job_id(), Some(JobId::new(2)));
         assert!(state.outcome.is_none());
         assert!(state.status_message.is_none());
     }

@@ -70,7 +70,7 @@ pub fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
 /// 保存选区图像至文件
 pub fn handle_action_save(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
-    if state.pending_job.is_some() {
+    if state.has_pending_job() {
         state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
@@ -101,7 +101,7 @@ pub fn handle_action_save(state: &mut SnipperState, original_rgba: &RgbaImage) {
 /// 按当前美化设置直接保存截图，供全局美化热键使用。
 pub fn handle_action_save_beautified(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
-    if state.pending_job.is_some() {
+    if state.has_pending_job() {
         state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
@@ -197,7 +197,7 @@ fn color_text_at_cursor(state: &SnipperState, img: &RgbaImage) -> String {
 /// 执行选区 OCR 文字识别并静默复制全文至系统剪贴板
 pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
-    if state.pending_job.is_some() {
+    if state.has_pending_job() {
         state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
@@ -226,7 +226,7 @@ pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
 /// 执行智能打码 OCR，完成后先进入遮挡样式预览。
 pub fn handle_action_redact(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
-    if state.pending_job.is_some() {
+    if state.has_pending_job() {
         state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
@@ -248,7 +248,7 @@ pub fn handle_action_redact(state: &mut SnipperState, original_rgba: &RgbaImage)
 /// 识别选区中的全部二维码，并将首个结果复制到剪贴板。
 pub fn handle_action_qr(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
-    if state.pending_job.is_some() {
+    if state.has_pending_job() {
         state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
@@ -278,7 +278,7 @@ pub fn handle_action_ocr_panel(state: &mut SnipperState, original_rgba: &RgbaIma
 
 /// 导出 OCR 面板当前选中的文本行。
 pub fn handle_action_export_ocr(state: &mut SnipperState, format: OcrExportFormat) {
-    if state.pending_job.is_some() {
+    if state.has_pending_job() {
         state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
@@ -318,9 +318,7 @@ fn dispatch_job(state: &mut SnipperState, kind: SnipperJobKind, job: MediaJob) {
 
     match runtime.submit(kind, job) {
         Ok((job_id, cancel)) => {
-            state.pending_job = Some(kind);
-            state.pending_job_id = Some(job_id);
-            state.pending_job_cancel = Some(cancel);
+            state.begin_pending_job(kind, job_id, cancel);
             if kind == SnipperJobKind::Redact {
                 state.clear_status_message();
             } else {
@@ -337,7 +335,7 @@ fn dispatch_job(state: &mut SnipperState, kind: SnipperJobKind, job: MediaJob) {
 /// 执行选区截图原位翻译替换
 pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
-    if state.pending_job.is_some() {
+    if state.has_pending_job() {
         state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
