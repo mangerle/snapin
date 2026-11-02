@@ -7,8 +7,8 @@ pub mod protocol;
 pub mod server;
 
 pub use client::{
-    notify_daemon_reload_config, send_command_to_daemon, send_request_to_daemon,
-    send_request_to_path,
+    notify_daemon_reload_config, probe_daemon, send_command_to_daemon, send_request_to_daemon,
+    send_request_to_path, DaemonProbe,
 };
 pub use codec::{read_framed_message, write_framed_message};
 pub use error::DaemonError;

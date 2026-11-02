@@ -22,7 +22,7 @@ use actions::{
 use anyhow::{Context, Result};
 use shutdown::ShutdownCoordinator;
 use snapin_core::config::Config;
-use snapin_daemon::{send_command_to_daemon, DaemonRequest, IpcListener};
+use snapin_daemon::{probe_daemon, DaemonProbe, IpcListener};
 use snapin_platform::{
     enable_gnome_extension, send_desktop_notification, sync_hotkeys_to_gnome,
     PlatformHotkeyListener, PlatformTray,
@@ -55,12 +55,24 @@ pub fn run_daemon_process(cfg: Config) -> Result<()> {
         .context("创建守护进程后台运行时失败")?;
     let handle = runtime.handle().clone();
 
-    // 1. 幂等启动：已有守护进程时只确保扩展启用后退出
-    if let Ok(true) = runtime.block_on(send_command_to_daemon(&DaemonRequest::Ping)) {
-        tracing::info!("Snapin 守护服务已在后台运行中，无需重复启动。");
-        enable_gnome_extension();
-        runtime.shutdown_timeout(Duration::from_secs(1));
-        return Ok(());
+    // 1. 幂等启动：已有守护进程时只确保扩展启用后退出。
+    //    套接字被占用但对端协议不兼容（典型为升级前的旧版本还在运行）时必须直接失败：
+    //    继续初始化只会随后在绑定阶段被拒绝，白白改动扩展与快捷键状态。
+    match runtime.block_on(probe_daemon()) {
+        DaemonProbe::Online => {
+            tracing::info!("Snapin 守护服务已在后台运行中，无需重复启动。");
+            enable_gnome_extension();
+            runtime.shutdown_timeout(Duration::from_secs(1));
+            return Ok(());
+        }
+        DaemonProbe::Unresponsive { reason } => {
+            runtime.shutdown_timeout(Duration::from_secs(1));
+            anyhow::bail!(
+                "检测到正在运行但无法通信的 Snapin 守护进程（可能是旧版本或已无响应），\
+                 请先结束该进程后重试，原因: {reason}"
+            );
+        }
+        DaemonProbe::Absent => {}
     }
 
     // 只有真正的长驻入口才参与更新健康观察：短命令不会确认升级，不能累加崩溃计数。

@@ -131,6 +131,38 @@ pub async fn send_command_to_daemon(command: &DaemonRequest) -> Result<bool, Dae
     }
 }
 
+/// 守护进程探测结果：区分“确实没有实例”与“套接字被占用但无法按当前协议通信”。
+///
+/// 升级后常见旧版本守护进程仍占用套接字，此时按“未运行”处理会派生新实例：
+/// 新实例要么删掉存活套接字抢占路径（两个守护进程同时注册托盘与热键），
+/// 要么反复启动失败。调用方必须先依据本枚举区分这两种状态再决定是否派生。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DaemonProbe {
+    /// 没有进程监听套接字
+    Absent,
+    /// 存在可按当前协议通信的守护进程
+    Online,
+    /// 套接字可建立连接，但对端未按当前协议应答（旧版本或已无响应）
+    Unresponsive {
+        /// 底层失败原因，用于向用户提示具体现场
+        reason: String,
+    },
+}
+
+/// 探测常驻守护进程的在线状态。
+///
+/// 只发起一次 Ping 往返：连接被拒绝或套接字不存在判定为未运行；收到任何响应判定为在线；
+/// 连接成功却读取失败或超时判定为协议不兼容/无响应，从而避免误判为“未运行”而重复派生。
+pub async fn probe_daemon() -> DaemonProbe {
+    match send_request_to_daemon(&DaemonRequest::Ping).await {
+        Ok(Some(_)) => DaemonProbe::Online,
+        Ok(None) => DaemonProbe::Absent,
+        Err(error) => DaemonProbe::Unresponsive {
+            reason: error.to_string(),
+        },
+    }
+}
+
 /// 尝试向常驻守护进程发送热重载配置指令（非阻塞投递）。
 ///
 /// 优先复用调用方已有的 Tokio 运行时，没有上下文时使用进程级共享任务运行时；

@@ -2,8 +2,11 @@
 
 mod connection;
 
+#[cfg(unix)]
 use super::client::send_request_to_path;
-use super::protocol::{get_socket_path, DaemonRequest, DaemonResponse, IpcInvocation};
+#[cfg(unix)]
+use super::protocol::DaemonRequest;
+use super::protocol::{get_socket_path, IpcInvocation};
 use crate::error::DaemonError;
 use connection::spawn_connection_handler;
 use std::fs::{File, OpenOptions, TryLockError};
@@ -38,16 +41,21 @@ impl IpcListener {
 
         #[cfg(unix)]
         if socket_path.exists() {
-            // 发送 Ping 试探已有实例是否真实存活
-            if let Ok(Some(DaemonResponse::Pong)) =
-                send_request_to_path(&socket_path, &DaemonRequest::Ping).await
-            {
-                return Err(DaemonError::Socket {
-                    socket_path: socket_path.to_string_lossy().to_string(),
-                    message: "已有另一个 Snapin 守护进程在运行中".to_string(),
-                });
+            // 只要套接字还能接受连接并给出任何应答，就说明另有进程在监听。此时绝不能
+            // 删除路径去抢占：旧版本或卡死的实例会变成继续注册托盘、热键与扩展交互的
+            // 孤儿进程，与新实例同时存在（表现为同一会话出现两份托盘图标）。
+            // 只有确认无人监听（连接被拒绝）时才可以把它当作残留文件清理。
+            match send_request_to_path(&socket_path, &DaemonRequest::Ping).await {
+                Ok(None) => {
+                    let _ = std::fs::remove_file(&socket_path);
+                }
+                Ok(Some(_)) | Err(_) => {
+                    return Err(DaemonError::Socket {
+                        socket_path: socket_path.to_string_lossy().to_string(),
+                        message: "套接字已被另一个进程监听（可能是旧版本或无响应的 Snapin 守护进程），请先结束该进程后再启动".to_string(),
+                    });
+                }
             }
-            let _ = std::fs::remove_file(&socket_path);
         }
 
         #[cfg(unix)]
@@ -77,18 +85,14 @@ impl IpcListener {
             .create(&pipe_name)
         {
             Ok(server) => server,
+            // first_pipe_instance 保证同一时刻只存在一个服务端实例：
+            // 创建失败即说明已有守护进程占用该命名管道，必须拒绝启动而不是继续。
             Err(e) => {
-                if let Ok(Some(DaemonResponse::Pong)) =
-                    send_request_to_path(&socket_path, &DaemonRequest::Ping).await
-                {
-                    return Err(DaemonError::Socket {
-                        socket_path: pipe_name,
-                        message: "已有另一个 Snapin 守护进程在运行中".to_string(),
-                    });
-                }
                 return Err(DaemonError::Socket {
                     socket_path: pipe_name,
-                    message: format!("绑定 IPC 命名管道失败: {e}"),
+                    message: format!(
+                        "无法创建独占 IPC 命名管道，可能已有另一个 Snapin 守护进程在运行: {e}"
+                    ),
                 });
             }
         };
@@ -246,5 +250,44 @@ mod tests {
             "第二个监听器必须被单实例锁拒绝"
         );
         drop(first);
+    }
+
+    /// 无进程监听的残留套接字文件应被清理后重新绑定。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_bind_removes_stale_socket_file() {
+        let dir = tempfile::tempdir().expect("应可创建测试目录");
+        let socket_path = dir.path().join("snapin-stale.sock");
+        let listener = tokio::net::UnixListener::bind(&socket_path).expect("应可创建测试套接字");
+        drop(listener);
+        assert!(socket_path.exists(), "关闭监听后套接字文件应残留");
+
+        let bound = IpcListener::bind(Some(socket_path.clone()))
+            .await
+            .expect("残留套接字应可被清理并重新绑定");
+        assert!(socket_path.exists(), "重新绑定后套接字文件应存在");
+        drop(bound);
+    }
+
+    /// 已有人监听时不得删除套接字抢占路径，否则旧版本或无响应实例会继续运行，
+    /// 与新实例同时注册托盘图标与热键。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_bind_refuses_socket_already_listened() {
+        let dir = tempfile::tempdir().expect("应可创建测试目录");
+        let socket_path = dir.path().join("snapin-live.sock");
+        let listener = tokio::net::UnixListener::bind(&socket_path).expect("应可创建测试套接字");
+        let accept_task = tokio::spawn(async move {
+            // 只接受连接后立即关闭，模拟无法按当前协议应答的占用者
+            let _ = listener.accept().await;
+        });
+
+        let result = IpcListener::bind(Some(socket_path.clone())).await;
+        assert!(
+            matches!(result, Err(DaemonError::Socket { .. })),
+            "已被监听的套接字必须拒绝抢占"
+        );
+        assert!(socket_path.exists(), "拒绝启动时不得删除既有套接字");
+        let _ = accept_task.await;
     }
 }
