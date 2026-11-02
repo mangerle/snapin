@@ -22,7 +22,7 @@ const PASTER_TEMP_PREFIX: &str = "paster_pin_";
 ///
 /// 运行时目录读取、临时文件删除或选区缓存清理失败时返回错误。
 pub async fn clear_snip_history() -> Result<()> {
-    let runtime_dir = AppPaths::runtime_dir();
+    let runtime_dir = AppPaths::ensure_runtime_dir().context("创建私有运行时目录失败")?;
     let socket_path = AppPaths::default_socket_path();
     let count = tokio::task::spawn_blocking(move || {
         cleanup_runtime_dir(&runtime_dir, &socket_path, TEMP_FILE_MIN_AGE)
