@@ -45,6 +45,14 @@ pub fn dispatch_toolbar_action(
             super::super::actions::handle_action_ocr(state, original_rgba);
             true
         }
+        ToolbarAction::SmartRedact => {
+            super::super::actions::handle_action_redact(state, original_rgba);
+            true
+        }
+        ToolbarAction::Qr => {
+            super::super::actions::handle_action_qr(state, original_rgba);
+            true
+        }
         ToolbarAction::Translate => {
             super::super::actions::handle_action_translate(state, original_rgba);
             true

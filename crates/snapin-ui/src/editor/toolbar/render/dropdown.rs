@@ -1,7 +1,7 @@
 //! 二级属性栏下拉菜单绘制。
 
 use super::super::icons::{add_round_rect, make_paint};
-use super::super::items::CORNER_RADIUS_PRESETS;
+use super::super::items::{CORNER_RADIUS_PRESETS, FONT_SIZE_PRESETS};
 use super::super::layout::{DropdownLayout, SubDropdown};
 use super::super::Toolbar;
 use super::widgets::{
@@ -9,6 +9,7 @@ use super::widgets::{
     stroke_sample,
 };
 use snapin_core::annotation::{ArrowStyle, BadgeStyle, LineStyle};
+use snapin_core::render::with_thread_local_text_renderer;
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 绘制展开的下拉菜单面板与选项预览
@@ -104,6 +105,15 @@ pub(super) fn render_dropdown(
                     DropdownPreview::Corner(*radius),
                 )
             }
+            SubDropdown::FontSize => {
+                let Some(font_size) = FONT_SIZE_PRESETS.get(index) else {
+                    continue;
+                };
+                (
+                    (toolbar.sub_options.font_size - *font_size).abs() < 0.5,
+                    DropdownPreview::FontSize(*font_size),
+                )
+            }
         };
 
         if is_current {
@@ -158,6 +168,18 @@ pub(super) fn render_dropdown(
                 style,
                 ink,
             ),
+            DropdownPreview::FontSize(font_size) => {
+                with_thread_local_text_renderer(|renderer| {
+                    renderer.draw_text_rgba(
+                        pixmap,
+                        &format!("{font_size:.0} px"),
+                        row.x + 12.0 * s,
+                        center_y - 8.0 * s,
+                        14.0 * s,
+                        (45, 48, 56, 255),
+                    );
+                });
+            }
         }
 
         if is_current {
@@ -178,4 +200,5 @@ enum DropdownPreview {
     Badge(BadgeStyle),
     Arrow(ArrowStyle),
     Corner(f32),
+    FontSize(f32),
 }

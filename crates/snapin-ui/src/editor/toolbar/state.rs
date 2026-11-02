@@ -88,6 +88,7 @@ impl Toolbar {
         ToolbarItem::Tool(Tool::Blur),
         ToolbarItem::Tool(Tool::Spotlight),
         ToolbarItem::Tool(Tool::Text),
+        ToolbarItem::Action(ToolbarAction::Qr),
         ToolbarItem::Action(ToolbarAction::Undo),
         ToolbarItem::Action(ToolbarAction::Redo),
         ToolbarItem::Action(ToolbarAction::Ocr),

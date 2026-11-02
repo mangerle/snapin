@@ -11,6 +11,7 @@ use super::widgets::{
 };
 use crate::editor::toolbar::items::Tool;
 use crate::geometry::Rect;
+use snapin_core::render::with_thread_local_text_renderer;
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 绘制二级属性栏内容 (形状切换 + 3 档粗细 + 6 个预设色块，自适应 HiDPI 缩放)
@@ -161,6 +162,76 @@ pub(super) fn render_sub_options(toolbar: &Toolbar, pixmap: &mut PixmapMut, rect
                         1.8 * s,
                     );
                 }
+            }
+            Some(SubControl::SmartRedact) => {
+                with_thread_local_text_renderer(|renderer| {
+                    renderer.draw_text_rgba(
+                        pixmap,
+                        "智能打码",
+                        entry.rect.x + 7.0 * s,
+                        entry.rect.y + 5.0 * s,
+                        12.0 * s,
+                        (37, 99, 235, 255),
+                    );
+                });
+            }
+            Some(SubControl::MosaicManual) => {
+                fill_button_highlight(pixmap, &entry.rect, highlight, s);
+                with_thread_local_text_renderer(|renderer| {
+                    renderer.draw_text_rgba(
+                        pixmap,
+                        "马赛克",
+                        entry.rect.x + 8.0 * s,
+                        entry.rect.y + 5.0 * s,
+                        12.0 * s,
+                        (37, 99, 235, 255),
+                    );
+                });
+            }
+            Some(SubControl::FontSize) => {
+                let open = toolbar.open_dropdown == Some(SubDropdown::FontSize);
+                if open {
+                    fill_button_highlight(pixmap, &entry.rect, highlight, s);
+                }
+                with_thread_local_text_renderer(|renderer| {
+                    renderer.draw_text_rgba(
+                        pixmap,
+                        &format!("A {}", toolbar.sub_options.font_size.round() as u32),
+                        entry.rect.x + 7.0 * s,
+                        entry.rect.y + 5.0 * s,
+                        12.0 * s,
+                        (45, 48, 56, 255),
+                    );
+                });
+                render_caret(
+                    pixmap,
+                    entry.rect.x + entry.rect.width - 9.0 * s,
+                    center_y,
+                    s,
+                );
+            }
+            Some(SubControl::SpotlightIntensity(intensity)) => {
+                let selected = (toolbar.sub_options.spotlight_intensity as i16 - intensity as i16)
+                    .unsigned_abs()
+                    <= 16;
+                if selected {
+                    fill_button_highlight(pixmap, &entry.rect, highlight, s);
+                }
+                fill_circle(
+                    pixmap,
+                    entry.rect.x + entry.rect.width / 2.0,
+                    center_y,
+                    8.0 * s,
+                    Color::from_rgba8(15, 23, 42, intensity),
+                );
+                stroke_circle(
+                    pixmap,
+                    entry.rect.x + entry.rect.width / 2.0,
+                    center_y,
+                    8.0 * s,
+                    Color::from_rgba8(148, 163, 184, 255),
+                    s,
+                );
             }
         }
     }

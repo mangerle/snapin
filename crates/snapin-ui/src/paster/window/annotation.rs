@@ -171,6 +171,7 @@ pub(crate) fn handle_toolbar_click(
                 state.redo_annotation();
             }
             ToolbarAction::Ocr => submit_paster_ocr(state),
+            ToolbarAction::SmartRedact | ToolbarAction::Qr => {}
             ToolbarAction::Translate => submit_paster_translate(state),
             ToolbarAction::MouseThrough => {
                 state.set_mouse_through(!state.chrome.mouse_through, window);

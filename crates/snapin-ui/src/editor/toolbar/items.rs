@@ -30,7 +30,7 @@ pub enum Tool {
 
 /// 工具栏工具的描述元数据。
 ///
-/// 二级属性栏控件组合、主栏几何入口与聚光灯无属性栏等差异集中在此，
+/// 二级属性栏控件组合、主栏几何入口、文字字号与聚光灯强度等差异集中在此，
 /// 布局、命中与渲染不再各自维护工具特例。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ToolDescriptor {
@@ -40,6 +40,8 @@ pub struct ToolDescriptor {
     pub geometric_slot: bool,
     /// 是否提供二级属性栏
     pub has_sub_bar: bool,
+    /// 是否提供笔触或遮挡尺寸控件
+    pub stroke_width: bool,
     /// 是否提供矩形/椭圆形状切换
     pub shape_controls: bool,
     /// 是否提供圆角半径控件
@@ -54,6 +56,12 @@ pub struct ToolDescriptor {
     pub arrow_style: bool,
     /// 是否提供预设调色板
     pub color_palette: bool,
+    /// 是否提供智能打码入口
+    pub smart_redact: bool,
+    /// 是否提供字号控件
+    pub font_size: bool,
+    /// 是否提供聚光灯强度控件
+    pub spotlight_intensity: bool,
 }
 
 /// 工具描述表；新增工具时在此补齐一条并同步图标。
@@ -66,6 +74,7 @@ pub const TOOL_DESCRIPTORS: &[ToolDescriptor] = &[
         tool: Tool::Rect,
         geometric_slot: true,
         has_sub_bar: true,
+        stroke_width: true,
         shape_controls: true,
         corner_radius: true,
         line_style: true,
@@ -73,11 +82,15 @@ pub const TOOL_DESCRIPTORS: &[ToolDescriptor] = &[
         badge_style: false,
         arrow_style: false,
         color_palette: true,
+        smart_redact: false,
+        font_size: false,
+        spotlight_intensity: false,
     },
     ToolDescriptor {
         tool: Tool::Ellipse,
         geometric_slot: true,
         has_sub_bar: true,
+        stroke_width: true,
         shape_controls: true,
         corner_radius: false,
         line_style: true,
@@ -85,11 +98,15 @@ pub const TOOL_DESCRIPTORS: &[ToolDescriptor] = &[
         badge_style: false,
         arrow_style: false,
         color_palette: true,
+        smart_redact: false,
+        font_size: false,
+        spotlight_intensity: false,
     },
     ToolDescriptor {
         tool: Tool::Arrow,
         geometric_slot: false,
         has_sub_bar: true,
+        stroke_width: true,
         shape_controls: false,
         corner_radius: false,
         line_style: false,
@@ -97,11 +114,15 @@ pub const TOOL_DESCRIPTORS: &[ToolDescriptor] = &[
         badge_style: false,
         arrow_style: true,
         color_palette: true,
+        smart_redact: false,
+        font_size: false,
+        spotlight_intensity: false,
     },
     ToolDescriptor {
         tool: Tool::Pen,
         geometric_slot: false,
         has_sub_bar: true,
+        stroke_width: true,
         shape_controls: false,
         corner_radius: false,
         line_style: false,
@@ -109,11 +130,15 @@ pub const TOOL_DESCRIPTORS: &[ToolDescriptor] = &[
         badge_style: false,
         arrow_style: false,
         color_palette: true,
+        smart_redact: false,
+        font_size: false,
+        spotlight_intensity: false,
     },
     ToolDescriptor {
         tool: Tool::Marker,
         geometric_slot: false,
         has_sub_bar: true,
+        stroke_width: true,
         shape_controls: false,
         corner_radius: false,
         line_style: false,
@@ -121,11 +146,15 @@ pub const TOOL_DESCRIPTORS: &[ToolDescriptor] = &[
         badge_style: false,
         arrow_style: false,
         color_palette: true,
+        smart_redact: false,
+        font_size: false,
+        spotlight_intensity: false,
     },
     ToolDescriptor {
         tool: Tool::Text,
         geometric_slot: false,
         has_sub_bar: true,
+        stroke_width: false,
         shape_controls: false,
         corner_radius: false,
         line_style: false,
@@ -133,11 +162,15 @@ pub const TOOL_DESCRIPTORS: &[ToolDescriptor] = &[
         badge_style: false,
         arrow_style: false,
         color_palette: true,
+        smart_redact: false,
+        font_size: true,
+        spotlight_intensity: false,
     },
     ToolDescriptor {
         tool: Tool::Badge,
         geometric_slot: false,
         has_sub_bar: true,
+        stroke_width: true,
         shape_controls: false,
         corner_radius: false,
         line_style: false,
@@ -145,23 +178,31 @@ pub const TOOL_DESCRIPTORS: &[ToolDescriptor] = &[
         badge_style: true,
         arrow_style: false,
         color_palette: true,
+        smart_redact: false,
+        font_size: false,
+        spotlight_intensity: false,
     },
     ToolDescriptor {
         tool: Tool::Mosaic,
         geometric_slot: false,
         has_sub_bar: true,
+        stroke_width: true,
         shape_controls: false,
         corner_radius: false,
         line_style: false,
         fill_toggle: false,
         badge_style: false,
         arrow_style: false,
-        color_palette: true,
+        color_palette: false,
+        smart_redact: true,
+        font_size: false,
+        spotlight_intensity: false,
     },
     ToolDescriptor {
         tool: Tool::Blur,
         geometric_slot: false,
         has_sub_bar: true,
+        stroke_width: true,
         shape_controls: false,
         corner_radius: false,
         line_style: false,
@@ -169,11 +210,15 @@ pub const TOOL_DESCRIPTORS: &[ToolDescriptor] = &[
         badge_style: false,
         arrow_style: false,
         color_palette: false,
+        smart_redact: false,
+        font_size: false,
+        spotlight_intensity: false,
     },
     ToolDescriptor {
         tool: Tool::Spotlight,
         geometric_slot: false,
-        has_sub_bar: false,
+        has_sub_bar: true,
+        stroke_width: false,
         shape_controls: false,
         corner_radius: false,
         line_style: false,
@@ -181,6 +226,9 @@ pub const TOOL_DESCRIPTORS: &[ToolDescriptor] = &[
         badge_style: false,
         arrow_style: false,
         color_palette: false,
+        smart_redact: false,
+        font_size: false,
+        spotlight_intensity: true,
     },
 ];
 
@@ -201,6 +249,10 @@ pub enum ToolbarAction {
     Redo,
     /// OCR 文字识别并复制到剪贴板
     Ocr,
+    /// 识别全部文字并进入马赛克/模糊预览
+    SmartRedact,
+    /// 识别选区中的二维码
+    Qr,
     /// 截图原位翻译
     Translate,
     /// 切换贴图鼠标穿透（仅贴图工具栏使用）
@@ -271,7 +323,7 @@ impl Tool {
             Self::Marker => "荧光笔",
             Self::Text => "文字",
             Self::Badge => "序号",
-            Self::Mosaic => "马赛克",
+            Self::Mosaic => "马赛克与智能打码",
             Self::Blur => "模糊",
             Self::Spotlight => "聚光灯",
         }
@@ -285,6 +337,8 @@ impl ToolbarAction {
             Self::Undo => "撤销",
             Self::Redo => "重做",
             Self::Ocr => "文字识别",
+            Self::SmartRedact => "智能打码",
+            Self::Qr => "二维码",
             Self::Translate => "翻译",
             Self::MouseThrough => "鼠标穿透",
             Self::Pin => "贴图置顶",
@@ -303,6 +357,8 @@ impl ToolbarAction {
             Self::Undo => Some("Ctrl+Z"),
             Self::Redo => Some("Ctrl+Y"),
             Self::Ocr => Some("O"),
+            Self::SmartRedact => Some("R"),
+            Self::Qr => Some("Q"),
             Self::Translate => Some("T"),
             Self::Pin => Some("F3"),
             Self::Copy => Some("Ctrl+C"),
@@ -338,6 +394,9 @@ impl StrokeWidthLevel {
 /// 圆角半径预设档位（像素），顺序与圆角下拉菜单一致
 pub const CORNER_RADIUS_PRESETS: &[f32] = &[0.0, 6.0, 12.0, 20.0];
 
+/// 文字字号预设（像素），顺序与字号下拉菜单一致。
+pub const FONT_SIZE_PRESETS: &[f32] = &[12.0, 16.0, 20.0, 24.0, 32.0, 48.0];
+
 /// 二级属性栏选项
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SubToolOptions {
@@ -359,6 +418,8 @@ pub struct SubToolOptions {
     pub badge_style: BadgeStyle,
     /// 箭头形态样式
     pub arrow_style: ArrowStyle,
+    /// 聚光灯压暗强度（RGBA alpha）
+    pub spotlight_intensity: u8,
 }
 
 impl Default for SubToolOptions {
@@ -373,6 +434,7 @@ impl Default for SubToolOptions {
             corner_radius: 0.0,
             badge_style: BadgeStyle::Filled,
             arrow_style: ArrowStyle::Tapered,
+            spotlight_intensity: 160,
         }
     }
 }
@@ -437,7 +499,10 @@ mod tests {
         }
         assert!(tool_descriptor(Tool::Rect).geometric_slot);
         assert!(tool_descriptor(Tool::Ellipse).geometric_slot);
-        assert!(!tool_descriptor(Tool::Spotlight).has_sub_bar);
+        assert!(tool_descriptor(Tool::Spotlight).has_sub_bar);
+        assert!(tool_descriptor(Tool::Spotlight).spotlight_intensity);
+        assert!(tool_descriptor(Tool::Mosaic).smart_redact);
+        assert!(tool_descriptor(Tool::Text).font_size);
         assert!(!tool_descriptor(Tool::Blur).color_palette);
         assert!(tool_descriptor(Tool::Badge).badge_style);
         assert!(tool_descriptor(Tool::Arrow).arrow_style);
@@ -455,7 +520,22 @@ mod tests {
             .filter(|item| matches!(item, ToolbarItem::Action(_)))
             .count();
         assert_eq!(tool_count, 9);
-        assert_eq!(action_count, 8);
+        assert_eq!(action_count, 9);
+
+        let text_index = crate::editor::toolbar::Toolbar::MAIN_ITEMS
+            .iter()
+            .position(|item| *item == ToolbarItem::Tool(Tool::Text))
+            .expect("文字工具必须存在");
+        assert_eq!(
+            crate::editor::toolbar::Toolbar::MAIN_ITEMS.get(text_index + 1),
+            Some(&ToolbarItem::Action(ToolbarAction::Qr)),
+            "二维码按钮必须紧跟文字工具"
+        );
+        assert!(
+            !crate::editor::toolbar::Toolbar::MAIN_ITEMS
+                .contains(&ToolbarItem::Action(ToolbarAction::SmartRedact)),
+            "智能打码应合入马赛克二级栏，不能占据主栏"
+        );
     }
 
     /// 每个工具与动作都必须有非空中文名称；工具没有键位，动作只声明真实存在的绑定。
@@ -482,6 +562,8 @@ mod tests {
             ToolbarAction::Undo,
             ToolbarAction::Redo,
             ToolbarAction::Ocr,
+            ToolbarAction::SmartRedact,
+            ToolbarAction::Qr,
             ToolbarAction::Translate,
             ToolbarAction::MouseThrough,
             ToolbarAction::Pin,

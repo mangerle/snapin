@@ -49,6 +49,66 @@ fn test_toolbar_hit_test() {
     assert!(tb.sub_rect.is_some());
 }
 
+/// 文字工具二级栏必须提供字号下拉，并可写回预设字号。
+#[test]
+fn test_text_font_size_dropdown_sets_font_size() {
+    let mut tb = Toolbar::default();
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 500.0,
+        height: 300.0,
+    };
+    tb.update_layout(&selection, 1920.0, 1080.0);
+    let text_rect = interaction::main_item_rects(&tb.main_rect, tb.main_items, tb.ui_scale)
+        .into_iter()
+        .find(|(item, _)| *item == ToolbarItem::Tool(Tool::Text))
+        .map(|(_, rect)| rect)
+        .expect("文字按钮应存在");
+    tb.handle_click(text_rect.x + 5.0, text_rect.y + 5.0);
+
+    let layout = tb.sub_layout().expect("文字工具必须展开二级栏");
+    let font_rect = layout
+        .rect_of(SubControl::FontSize)
+        .expect("文字工具必须有字号控件");
+    tb.handle_click(font_rect.x + 5.0, font_rect.y + 5.0);
+    let dropdown = tb
+        .sub_layout()
+        .and_then(|layout| layout.dropdown.as_ref())
+        .expect("字号下拉应展开");
+    let row = dropdown.rows.get(4).expect("字号下拉应有 32px 预设");
+    tb.handle_click(row.x + 4.0, row.y + 4.0);
+    assert_eq!(tb.sub_options.font_size, 32.0);
+}
+
+/// 马赛克二级栏的智能打码按钮返回一次性动作，不切换工具状态。
+#[test]
+fn test_mosaic_smart_redact_sub_control_returns_action() {
+    let mut tb = Toolbar::default();
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 500.0,
+        height: 300.0,
+    };
+    tb.update_layout(&selection, 1920.0, 1080.0);
+    let mosaic_rect = interaction::main_item_rects(&tb.main_rect, tb.main_items, tb.ui_scale)
+        .into_iter()
+        .find(|(item, _)| *item == ToolbarItem::Tool(Tool::Mosaic))
+        .map(|(_, rect)| rect)
+        .expect("马赛克按钮应存在");
+    tb.handle_click(mosaic_rect.x + 5.0, mosaic_rect.y + 5.0);
+    let layout = tb.sub_layout().expect("马赛克工具必须展开二级栏");
+    let action_rect = layout
+        .rect_of(SubControl::SmartRedact)
+        .expect("必须提供智能打码入口");
+    assert_eq!(
+        tb.handle_click(action_rect.x + 5.0, action_rect.y + 5.0),
+        Some(ToolbarAction::SmartRedact)
+    );
+    assert_eq!(tb.active_tool, Some(Tool::Mosaic));
+}
+
 #[test]
 fn test_toolbar_shape_button_toggles_without_cycling() {
     let mut tb = Toolbar::default();

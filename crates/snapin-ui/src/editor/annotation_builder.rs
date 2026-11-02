@@ -21,6 +21,7 @@ pub struct AnnotationStyle {
     pub corner_radius: f32,
     pub badge_style: BadgeStyle,
     pub arrow_style: ArrowStyle,
+    pub spotlight_intensity: u8,
 }
 
 impl AnnotationStyle {
@@ -41,6 +42,7 @@ impl AnnotationStyle {
             corner_radius: toolbar.sub_options.corner_radius,
             badge_style: toolbar.sub_options.badge_style,
             arrow_style: toolbar.sub_options.arrow_style,
+            spotlight_intensity: toolbar.sub_options.spotlight_intensity,
         }
     }
 }
@@ -250,7 +252,7 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
             let rect = Rect::from_points(first, last);
             Some(AnnotationShape::Mosaic(MosaicAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
-                cell_size: 10,
+                cell_size: (params.style.stroke_width * 2.0).clamp(4.0, 50.0) as u32,
             }))
         }
         Tool::Blur => {
@@ -264,6 +266,7 @@ pub fn build_shape(params: &AnnotationDraftParams) -> Option<AnnotationShape> {
             let rect = Rect::from_points(first, last);
             Some(AnnotationShape::Spotlight(SpotlightAction {
                 rect: (rect.x, rect.y, rect.width, rect.height),
+                intensity: params.style.spotlight_intensity,
             }))
         }
         Tool::Badge => {
@@ -300,6 +303,7 @@ mod tests {
                 corner_radius: 0.0,
                 badge_style: BadgeStyle::Filled,
                 arrow_style: ArrowStyle::Tapered,
+                spotlight_intensity: 160,
             },
         }
     }
@@ -311,6 +315,17 @@ mod tests {
         assert!(build_shape(&params(Tool::Rect, &[(1.0, 2.0)])).is_none());
         assert!(build_shape(&params(Tool::Arrow, &[(1.0, 2.0)])).is_none());
         assert!(build_shape(&params(Tool::Pen, &[(1.0, 2.0)])).is_none());
+    }
+
+    /// 马赛克网格密度必须来自二级栏尺寸参数，不能继续写死为 10。
+    #[test]
+    fn test_mosaic_uses_selected_cell_size() {
+        let mut draft = params(Tool::Mosaic, &[(0.0, 0.0), (20.0, 20.0)]);
+        draft.style.stroke_width = 8.0;
+        match build_shape(&draft) {
+            Some(AnnotationShape::Mosaic(action)) => assert_eq!(action.cell_size, 16),
+            other => panic!("应生成马赛克图元，实际: {other:?}"),
+        }
     }
 
     /// 序号工具允许单点定位，仍应生成图元。

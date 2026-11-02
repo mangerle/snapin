@@ -75,6 +75,12 @@ pub fn render_item_icon(
         ToolbarItem::Action(ToolbarAction::Ocr) => {
             actions::render_icon_ocr(pixmap, cx, cy, s, &paint, &stroke)
         }
+        ToolbarItem::Action(ToolbarAction::Qr) => {
+            actions::render_icon_qr(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Action(ToolbarAction::SmartRedact) => {
+            tools::render_icon_mosaic(pixmap, cx, cy, s, &paint, &stroke)
+        }
         ToolbarItem::Action(ToolbarAction::Translate) => {
             actions::render_icon_translate(pixmap, cx, cy, s, &paint, &stroke)
         }

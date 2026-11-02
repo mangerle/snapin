@@ -229,6 +229,36 @@ pub fn render_icon_ocr(
     }
 }
 
+/// 二维码图标：三个定位方块与中间简化数据点。
+pub fn render_icon_qr(
+    pixmap: &mut PixmapMut,
+    cx: f32,
+    cy: f32,
+    s: f32,
+    paint: &Paint,
+    stroke: &Stroke,
+) {
+    let mut pb = PathBuilder::new();
+    for (x, y) in [
+        (cx - 6.0 * s, cy - 6.0 * s),
+        (cx + 1.0 * s, cy - 6.0 * s),
+        (cx - 6.0 * s, cy + 1.0 * s),
+    ] {
+        add_round_rect(&mut pb, x, y, 5.0 * s, 5.0 * s, 0.6 * s);
+    }
+    for (x, y) in [
+        (cx + 1.5 * s, cy + 1.5 * s),
+        (cx + 4.5 * s, cy + 1.5 * s),
+        (cx + 1.5 * s, cy + 4.5 * s),
+        (cx + 5.5 * s, cy + 5.5 * s),
+    ] {
+        pb.push_circle(x, y, 0.8 * s);
+    }
+    if let Some(path) = pb.finish() {
+        pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
+    }
+}
+
 /// 图标 15: 双叠层圆角方框内嵌 "A" 与 "文" (截图翻译)
 ///
 /// 前框先以按钮当前底色填充再描边，遮住后框被压住的一角，

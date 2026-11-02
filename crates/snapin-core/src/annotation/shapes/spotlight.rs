@@ -12,6 +12,13 @@ use tiny_skia::{Paint, PixmapMut, Rect as SkiaRect, Transform};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpotlightAction {
     pub rect: (f32, f32, f32, f32),
+    /// 聚光灯外区域压暗强度（0 到 255）
+    #[serde(default = "default_intensity")]
+    pub intensity: u8,
+}
+
+fn default_intensity() -> u8 {
+    160
 }
 
 impl SpotlightAction {
@@ -28,7 +35,7 @@ impl SpotlightAction {
         }
 
         let mut paint = Paint::default();
-        paint.set_color_rgba8(0, 0, 0, 160);
+        paint.set_color_rgba8(0, 0, 0, self.intensity);
         let areas = [
             (0.0, 0.0, width, top),
             (0.0, bottom, width, height - bottom),
@@ -76,6 +83,7 @@ mod tests {
         pixmap.fill(Color::WHITE);
         let action = SpotlightAction {
             rect: (3.0, 3.0, 3.0, 3.0),
+            intensity: 160,
         };
         action.draw(&mut pixmap.as_mut());
 

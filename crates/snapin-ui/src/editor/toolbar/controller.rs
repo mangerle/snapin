@@ -4,7 +4,7 @@
 //! 渲染层读取同一份布局结果，避免交互与绘制各维护一套坐标。
 
 use super::interaction::hit_test_main_items;
-use super::items::{preset_colors, tool_descriptor, CORNER_RADIUS_PRESETS};
+use super::items::{preset_colors, tool_descriptor, CORNER_RADIUS_PRESETS, FONT_SIZE_PRESETS};
 use super::layout::{
     calculate_main_layout, calculate_sub_layout, SubControl, SubDropdown, SubLayout,
 };
@@ -206,6 +206,11 @@ impl Toolbar {
                     self.sub_options.corner_radius = *radius;
                 }
             }
+            Some(SubDropdown::FontSize) => {
+                if let Some(font_size) = FONT_SIZE_PRESETS.get(row) {
+                    self.sub_options.font_size = *font_size;
+                }
+            }
             None => {}
         }
         self.open_dropdown = None;
@@ -350,6 +355,20 @@ impl Toolbar {
                 if let Some(color) = preset_colors().get(index) {
                     self.sub_options.color = *color;
                 }
+            }
+            Some(SubControl::SmartRedact) => return Some(ToolbarAction::SmartRedact),
+            Some(SubControl::MosaicManual) => self.set_active_tool(Some(Tool::Mosaic)),
+            Some(SubControl::FontSize) => {
+                self.open_dropdown = if self.open_dropdown == Some(SubDropdown::FontSize) {
+                    None
+                } else {
+                    Some(SubDropdown::FontSize)
+                };
+                self.dropdown_hover = None;
+                self.update_sub_rect();
+            }
+            Some(SubControl::SpotlightIntensity(intensity)) => {
+                self.sub_options.spotlight_intensity = intensity;
             }
             None => {}
         }

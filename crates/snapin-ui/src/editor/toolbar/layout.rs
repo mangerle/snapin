@@ -20,6 +20,8 @@ pub(crate) enum SubDropdown {
     Arrow,
     /// 圆角半径预设
     Corner,
+    /// 文字字号预设
+    FontSize,
 }
 
 /// 二级栏可交互控件
@@ -35,6 +37,14 @@ pub(crate) enum SubControl {
     ArrowStyle,
     /// 预设颜色，参数为调色板下标
     Color(usize),
+    /// 手动马赛克模式
+    MosaicManual,
+    /// 智能打码入口
+    SmartRedact,
+    /// 文字字号
+    FontSize,
+    /// 聚光灯强度
+    SpotlightIntensity(u8),
 }
 
 /// 二级栏中的一个布局槽位（控件或纯视觉分隔线）
@@ -182,12 +192,30 @@ fn build_entries(
         cursor.push(None, 16.0 * s);
     }
 
-    for level in [
-        StrokeWidthLevel::Thin,
-        StrokeWidthLevel::Medium,
-        StrokeWidthLevel::Thick,
-    ] {
-        cursor.push(Some(SubControl::Stroke(level)), 24.0 * s);
+    if descriptor.smart_redact {
+        cursor.push(Some(SubControl::MosaicManual), 52.0 * s);
+        cursor.push(Some(SubControl::SmartRedact), 64.0 * s);
+        cursor.push(None, 16.0 * s);
+    }
+
+    if descriptor.stroke_width {
+        for level in [
+            StrokeWidthLevel::Thin,
+            StrokeWidthLevel::Medium,
+            StrokeWidthLevel::Thick,
+        ] {
+            cursor.push(Some(SubControl::Stroke(level)), 24.0 * s);
+        }
+    }
+
+    if descriptor.font_size {
+        cursor.push(Some(SubControl::FontSize), 64.0 * s);
+    }
+
+    if descriptor.spotlight_intensity {
+        for intensity in [96, 160, 220] {
+            cursor.push(Some(SubControl::SpotlightIntensity(intensity)), 28.0 * s);
+        }
     }
 
     if descriptor.line_style {
@@ -251,10 +279,19 @@ pub(crate) fn calculate_sub_layout(
     let mut entries = Vec::with_capacity(16);
     let pad = 12.0 * s;
     let end_x = build_entries(active_tool, sub_x + pad, center_y, s, &mut entries);
+    let width = (end_x - sub_x).max(120.0 * s);
+    let max_x = (screen_w - width - 8.0 * s).max(8.0 * s);
+    let clamped_x = sub_x.min(max_x).max(8.0 * s);
+    let shift = clamped_x - sub_x;
+    if shift.abs() > f32::EPSILON {
+        for entry in &mut entries {
+            entry.rect.x += shift;
+        }
+    }
     let sub_rect = Rect {
-        x: sub_x,
+        x: clamped_x,
         y: sub_y,
-        width: (end_x - sub_x).max(120.0 * s),
+        width,
         height: sub_h,
     };
 
@@ -264,6 +301,7 @@ pub(crate) fn calculate_sub_layout(
             SubDropdown::Badge => SubControl::BadgeStyle,
             SubDropdown::Arrow => SubControl::ArrowStyle,
             SubDropdown::Corner => SubControl::CornerRadius,
+            SubDropdown::FontSize => SubControl::FontSize,
         };
         let anchor_rect = entries
             .iter()
@@ -275,6 +313,7 @@ pub(crate) fn calculate_sub_layout(
             SubDropdown::Badge => 2,
             SubDropdown::Arrow => 3,
             SubDropdown::Corner => CORNER_RADIUS_PRESETS.len(),
+            SubDropdown::FontSize => crate::editor::toolbar::items::FONT_SIZE_PRESETS.len(),
         };
         let row_h = 28.0 * s;
         let panel_h = rows as f32 * row_h + 8.0 * s;
@@ -387,6 +426,48 @@ mod tests {
             .entries
             .iter()
             .any(|e| e.control == Some(SubControl::LineStyle)));
+
+        let mosaic_layout =
+            calculate_sub_layout(&main, Some(Tool::Mosaic), None, 1920.0, 1080.0, 1.0)
+                .expect("马赛克工具应生成二级栏");
+        assert!(mosaic_layout
+            .entries
+            .iter()
+            .any(|e| e.control == Some(SubControl::SmartRedact)));
+        assert!(mosaic_layout
+            .entries
+            .iter()
+            .any(|e| matches!(e.control, Some(SubControl::Stroke(_)))));
+
+        let text_layout = calculate_sub_layout(&main, Some(Tool::Text), None, 1920.0, 1080.0, 1.0)
+            .expect("文字工具应生成二级栏");
+        assert!(text_layout
+            .entries
+            .iter()
+            .any(|e| e.control == Some(SubControl::FontSize)));
+
+        for tool in [Tool::Blur, Tool::Spotlight] {
+            assert!(
+                calculate_sub_layout(&main, Some(tool), None, 1920.0, 1080.0, 1.0).is_some(),
+                "{tool:?} 必须提供二级属性栏"
+            );
+        }
+    }
+
+    /// 屏幕边缘的矩形二级栏必须整体回收，圆角控件不能落到屏幕外。
+    #[test]
+    fn test_sub_bar_is_clamped_inside_screen() {
+        let main = Rect {
+            x: 1260.0,
+            y: 300.0,
+            width: 600.0,
+            height: 40.0,
+        };
+        let layout = calculate_sub_layout(&main, Some(Tool::Rect), None, 1366.0, 768.0, 1.0)
+            .expect("矩形二级栏应存在");
+        assert!(layout.rect.x >= 8.0);
+        assert!(layout.rect.x + layout.rect.width <= 1358.0 + 0.01);
+        assert!(layout.rect_of(SubControl::CornerRadius).is_some());
     }
 
     /// 控件热区必须落在面板内且互不重叠，面板宽度应覆盖到最后一个控件
