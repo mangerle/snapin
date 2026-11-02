@@ -81,58 +81,76 @@ fn tooltip_target(toolbar: &Toolbar) -> Option<(String, Rect)> {
 /// 组合二级控件提示；数值和箭头控件附带当前选择值。
 fn sub_control_message(toolbar: &Toolbar, control: SubControl) -> String {
     let label = snapin_foundation::i18n::tr(control.label_for_tool(toolbar.active_tool));
-    match control {
-        SubControl::Size => format!("{label}：{:.0}", toolbar.sub_options.custom_stroke_width),
-        SubControl::EffectStrength => format!("{label}：{}", toolbar.sub_options.effect_strength),
-        SubControl::CornerRadius => {
-            format!("{label}：{:.0}", toolbar.sub_options.corner_radius)
-        }
-        SubControl::FontSize => format!("{label}：{:.0}", toolbar.sub_options.font_size),
+    sub_control_numeric_message(toolbar, control, label)
+        .or_else(|| sub_control_style_message(toolbar, control, label))
+        .unwrap_or_else(|| label.to_string())
+}
+
+/// 为数值控件组合“名称：当前值”提示。
+fn sub_control_numeric_message(
+    toolbar: &Toolbar,
+    control: SubControl,
+    label: &str,
+) -> Option<String> {
+    let options = &toolbar.sub_options;
+    Some(match control {
+        SubControl::Size => format!("{label}：{:.0}", options.custom_stroke_width),
+        SubControl::EffectStrength => format!("{label}：{}", options.effect_strength),
+        SubControl::CornerRadius => format!("{label}：{:.0}", options.corner_radius),
+        SubControl::FontSize => format!("{label}：{:.0}", options.font_size),
         SubControl::TextBackgroundOpacity => {
-            format!("{label}：{}%", toolbar.sub_options.text_background_opacity)
+            format!("{label}：{}%", options.text_background_opacity)
         }
         SubControl::TextBackgroundPadding => {
-            format!(
-                "{label}：{:.0}",
-                toolbar.sub_options.text_background_padding
-            )
+            format!("{label}：{:.0}", options.text_background_padding)
         }
-        SubControl::TextBackgroundCornerRadius => format!(
-            "{label}：{:.0}",
-            toolbar.sub_options.text_background_corner_radius
-        ),
+        SubControl::TextBackgroundCornerRadius => {
+            format!("{label}：{:.0}", options.text_background_corner_radius)
+        }
         SubControl::SpotlightOpacity => format!(
             "{label}：{}%",
-            (u16::from(toolbar.sub_options.spotlight_intensity) * 100 / 255) as u8
+            (u16::from(options.spotlight_intensity) * 100 / 255) as u8
         ),
-        SubControl::MagnifierScale => {
-            format!("{label}：{:.1}x", toolbar.sub_options.magnifier_scale)
-        }
+        SubControl::MagnifierScale => format!("{label}：{:.1}x", options.magnifier_scale),
+        _ => return None,
+    })
+}
+
+/// 为离散样式控件组合当前选项名称。
+fn sub_control_style_message(
+    toolbar: &Toolbar,
+    control: SubControl,
+    label: &str,
+) -> Option<String> {
+    let options = &toolbar.sub_options;
+    Some(match control {
         SubControl::StartArrow => format!(
             "{label}：{}",
-            snapin_foundation::i18n::tr(toolbar.sub_options.start_arrow_head.label())
+            snapin_foundation::i18n::tr(options.start_arrow_head.label())
         ),
         SubControl::EndArrow => format!(
             "{label}：{}",
-            snapin_foundation::i18n::tr(toolbar.sub_options.end_arrow_head.label())
+            snapin_foundation::i18n::tr(options.end_arrow_head.label())
         ),
-        SubControl::BadgeSequence => {
-            format!("{label}：{}", toolbar.sub_options.badge_sequence.label(1))
+        SubControl::BadgeSequence => format!("{label}：{}", options.badge_sequence.label(1)),
+        SubControl::MarkerShape => {
+            format!(
+                "{label}：{}",
+                snapin_foundation::i18n::tr(options.marker_shape.label())
+            )
         }
-        SubControl::MarkerShape => format!(
-            "{label}：{}",
-            snapin_foundation::i18n::tr(toolbar.sub_options.marker_shape.label())
-        ),
         SubControl::MarkerBlendMode => format!(
             "{label}：{}",
-            snapin_foundation::i18n::tr(toolbar.sub_options.marker_blend_mode.label())
+            snapin_foundation::i18n::tr(options.marker_blend_mode.label())
         ),
-        SubControl::MosaicMode => format!(
-            "{label}：{}",
-            snapin_foundation::i18n::tr(toolbar.sub_options.mosaic_mode.label())
-        ),
-        _ => label.to_string(),
-    }
+        SubControl::MosaicMode => {
+            format!(
+                "{label}：{}",
+                snapin_foundation::i18n::tr(options.mosaic_mode.label())
+            )
+        }
+        _ => return None,
+    })
 }
 
 /// 查找悬浮按钮在主栏中的矩形。

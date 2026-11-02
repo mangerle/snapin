@@ -10,44 +10,91 @@ impl Toolbar {
     /// 应用下拉菜单中选中的行
     pub fn apply_dropdown_row(&mut self, row: usize) {
         match self.open_dropdown {
-            Some(SubDropdown::Line) => {
+            Some(
+                dropdown @ (SubDropdown::Line
+                | SubDropdown::Badge
+                | SubDropdown::Arrow
+                | SubDropdown::StartArrow
+                | SubDropdown::EndArrow),
+            ) => self.apply_stroke_dropdown(dropdown, row),
+            Some(
+                dropdown @ (SubDropdown::FontSize
+                | SubDropdown::BadgeSequence
+                | SubDropdown::FontFamily),
+            ) => self.apply_text_dropdown(dropdown, row),
+            Some(
+                dropdown @ (SubDropdown::MosaicMode
+                | SubDropdown::MagnifierConnector
+                | SubDropdown::MarkerShape
+                | SubDropdown::MarkerBlendMode),
+            ) => self.apply_effect_dropdown(dropdown, row),
+            None => {}
+        }
+        self.open_dropdown = None;
+        self.dropdown_hover = None;
+        self.update_sub_rect();
+    }
+
+    /// 应用描边、箭头与序号底板类下拉选项。
+    fn apply_stroke_dropdown(&mut self, dropdown: SubDropdown, row: usize) {
+        match dropdown {
+            SubDropdown::Line => {
                 if let Some(style) = LineStyle::ALL.get(row) {
                     self.sub_options.line_style = *style;
                 }
             }
-            Some(SubDropdown::Badge) => {
-                if row == 0 {
-                    self.sub_options.badge_style = BadgeStyle::Filled;
-                } else if row == 1 {
-                    self.sub_options.badge_style = BadgeStyle::Outline;
-                }
+            SubDropdown::Badge => {
+                self.sub_options.badge_style = match row {
+                    0 => BadgeStyle::Filled,
+                    1 => BadgeStyle::Outline,
+                    _ => self.sub_options.badge_style,
+                };
             }
-            Some(SubDropdown::Arrow) => {
+            SubDropdown::Arrow => {
                 if let Some(style) = ArrowStyle::ALL.get(row) {
                     self.sub_options.arrow_style = *style;
                 }
             }
-            Some(SubDropdown::FontSize) => {
-                if let Some(font_size) = FONT_SIZE_PRESETS.get(row) {
-                    self.sub_options.font_size = *font_size;
-                }
-            }
-            Some(SubDropdown::StartArrow) => {
+            SubDropdown::StartArrow => {
                 if let Some(style) = snapin_annotation::style::ArrowHeadStyle::ALL.get(row) {
                     self.sub_options.start_arrow_head = *style;
                 }
             }
-            Some(SubDropdown::EndArrow) => {
+            SubDropdown::EndArrow => {
                 if let Some(style) = snapin_annotation::style::ArrowHeadStyle::ALL.get(row) {
                     self.sub_options.end_arrow_head = *style;
                 }
             }
-            Some(SubDropdown::BadgeSequence) => {
+            _ => {}
+        }
+    }
+
+    /// 应用字号、字体与序号格式类下拉选项。
+    fn apply_text_dropdown(&mut self, dropdown: SubDropdown, row: usize) {
+        match dropdown {
+            SubDropdown::FontSize => {
+                if let Some(font_size) = FONT_SIZE_PRESETS.get(row) {
+                    self.sub_options.font_size = *font_size;
+                }
+            }
+            SubDropdown::BadgeSequence => {
                 if let Some(sequence) = snapin_annotation::BadgeSequence::ALL.get(row) {
                     self.sub_options.badge_sequence = *sequence;
                 }
             }
-            Some(SubDropdown::MosaicMode) => {
+            SubDropdown::FontFamily => {
+                if let Some((_, family)) = FONT_FAMILY_PRESETS.get(row) {
+                    self.sub_options.font_family = *family;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// 应用遮挡、荧光笔与放大镜类下拉选项。
+    fn apply_effect_dropdown(&mut self, dropdown: SubDropdown, row: usize) {
+        match dropdown {
+            SubDropdown::MosaicMode => {
                 self.sub_options.mosaic_mode = match row {
                     0 => MosaicMode::Mosaic,
                     1 => MosaicMode::Blur,
@@ -55,35 +102,27 @@ impl Toolbar {
                     _ => self.sub_options.mosaic_mode,
                 };
             }
-            Some(SubDropdown::FontFamily) => {
-                if let Some((_, family)) = FONT_FAMILY_PRESETS.get(row) {
-                    self.sub_options.font_family = *family;
-                }
-            }
-            Some(SubDropdown::MagnifierConnector) => {
+            SubDropdown::MagnifierConnector => {
                 if let Some(connector) = MagnifierConnector::ALL.get(row) {
                     self.sub_options.magnifier_connector = *connector;
                 }
             }
-            Some(SubDropdown::MarkerShape) => {
+            SubDropdown::MarkerShape => {
                 self.sub_options.marker_shape = match row {
                     0 => snapin_annotation::MarkerShape::Stroke,
                     1 => snapin_annotation::MarkerShape::Rectangle,
                     _ => self.sub_options.marker_shape,
                 };
             }
-            Some(SubDropdown::MarkerBlendMode) => {
+            SubDropdown::MarkerBlendMode => {
                 self.sub_options.marker_blend_mode = match row {
                     0 => snapin_annotation::MarkerBlendMode::Multiply,
                     1 => snapin_annotation::MarkerBlendMode::Normal,
                     _ => self.sub_options.marker_blend_mode,
                 };
             }
-            None => {}
+            _ => {}
         }
-        self.open_dropdown = None;
-        self.dropdown_hover = None;
-        self.update_sub_rect();
     }
 
     /// 在二级栏数值控件上滚动滚轮时连续调节参数。
@@ -106,18 +145,30 @@ impl Toolbar {
             return false;
         };
         let direction = if delta > 0.0 { 1.0 } else { -1.0 };
+        if !self.adjust_numeric_control(control, direction) {
+            return false;
+        }
+        if self.remember_sub_options {
+            store_remembered_sub_options(self.sub_options);
+        }
+        true
+    }
+
+    /// 根据控件类型应用一次滚轮步进，返回是否为可调控件。
+    fn adjust_numeric_control(&mut self, control: SubControl, direction: f32) -> bool {
+        if matches!(
+            control,
+            SubControl::EffectStrength
+                | SubControl::TextBackgroundOpacity
+                | SubControl::SpotlightOpacity
+        ) {
+            self.adjust_u8_control(control, direction);
+            return true;
+        }
         match control {
             SubControl::Size => {
                 self.sub_options.custom_stroke_width =
                     (self.sub_options.custom_stroke_width + direction).clamp(1.0, 48.0);
-            }
-            SubControl::EffectStrength => {
-                self.sub_options.effect_strength = add_signed_u8(
-                    self.sub_options.effect_strength,
-                    if direction > 0.0 { 4 } else { -4 },
-                    4,
-                    255,
-                );
             }
             SubControl::CornerRadius => {
                 self.sub_options.corner_radius =
@@ -126,14 +177,6 @@ impl Toolbar {
             SubControl::FontSize => {
                 self.sub_options.font_size =
                     (self.sub_options.font_size + direction * 2.0).clamp(12.0, 72.0);
-            }
-            SubControl::TextBackgroundOpacity => {
-                self.sub_options.text_background_opacity = add_signed_u8(
-                    self.sub_options.text_background_opacity,
-                    if direction > 0.0 { 10 } else { -10 },
-                    0,
-                    255,
-                );
             }
             SubControl::TextBackgroundPadding => {
                 self.sub_options.text_background_padding =
@@ -144,6 +187,34 @@ impl Toolbar {
                     (self.sub_options.text_background_corner_radius + direction * 2.0)
                         .clamp(0.0, 48.0);
             }
+            SubControl::MagnifierScale => {
+                self.sub_options.magnifier_scale =
+                    (self.sub_options.magnifier_scale + direction * 0.25).clamp(1.0, 8.0);
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// 调节 u8 百分比或强度类控件。
+    fn adjust_u8_control(&mut self, control: SubControl, direction: f32) {
+        match control {
+            SubControl::EffectStrength => {
+                self.sub_options.effect_strength = add_signed_u8(
+                    self.sub_options.effect_strength,
+                    if direction > 0.0 { 4 } else { -4 },
+                    4,
+                    255,
+                );
+            }
+            SubControl::TextBackgroundOpacity => {
+                self.sub_options.text_background_opacity = add_signed_u8(
+                    self.sub_options.text_background_opacity,
+                    if direction > 0.0 { 10 } else { -10 },
+                    0,
+                    255,
+                );
+            }
             SubControl::SpotlightOpacity => {
                 self.sub_options.spotlight_intensity = add_signed_u8(
                     self.sub_options.spotlight_intensity,
@@ -152,16 +223,8 @@ impl Toolbar {
                     255,
                 );
             }
-            SubControl::MagnifierScale => {
-                self.sub_options.magnifier_scale =
-                    (self.sub_options.magnifier_scale + direction * 0.25).clamp(1.0, 8.0);
-            }
-            _ => return false,
+            _ => {}
         }
-        if self.remember_sub_options {
-            store_remembered_sub_options(self.sub_options);
-        }
-        true
     }
 }
 

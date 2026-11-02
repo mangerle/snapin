@@ -210,20 +210,7 @@ impl TextInputSession {
                 max_w,
                 max_h,
             );
-
-            // 1. 优先绘制黑色外框与底衬
-            let min_w = (frame.font_size * 3.0).max(64.0 * frame.scale);
-            let box_w = (line_w + 16.0 * frame.scale).max(min_w);
-            let box_h = frame.line_height + 8.0 * frame.scale;
-            render_input_box(
-                pixmap,
-                frame.x - 6.0 * frame.scale,
-                frame.y - 4.0 * frame.scale,
-                box_w,
-                box_h,
-            );
-
-            // 2. 绘制文字像素
+            draw_input_background(pixmap, frame, line_w);
             renderer.draw_text_rgba(
                 pixmap,
                 frame.text,
@@ -232,8 +219,6 @@ impl TextInputSession {
                 frame.font_size,
                 self.color,
             );
-
-            // 3. 预编辑文本以深色下划线标示，与已确认文本区分
             if frame.underline_preedit && !self.preedit.is_empty() {
                 let (_, text_cursor) = renderer.measure_text_input(
                     &self.text,
@@ -242,16 +227,10 @@ impl TextInputSession {
                     max_w,
                     max_h,
                 );
-                let start_x = if self.text.is_empty() {
-                    frame.x
-                } else {
-                    frame.x + text_cursor
-                };
-                let end_x = frame.x + cursor_offset;
                 render_preedit_underline(
                     pixmap,
-                    start_x,
-                    end_x,
+                    preedit_start_x(frame, self.text.is_empty(), text_cursor),
+                    frame.x + cursor_offset,
                     frame.y + frame.font_size * 1.15,
                     frame.scale,
                 );
@@ -259,6 +238,29 @@ impl TextInputSession {
 
             frame.x + cursor_offset
         })
+    }
+}
+
+/// 绘制输入框黑色外框与底衬。
+fn draw_input_background(pixmap: &mut PixmapMut, frame: &InputFrame<'_>, line_width: f32) {
+    let min_width = (frame.font_size * 3.0).max(64.0 * frame.scale);
+    let box_width = (line_width + 16.0 * frame.scale).max(min_width);
+    let box_height = frame.line_height + 8.0 * frame.scale;
+    render_input_box(
+        pixmap,
+        frame.x - 6.0 * frame.scale,
+        frame.y - 4.0 * frame.scale,
+        box_width,
+        box_height,
+    );
+}
+
+/// 返回预编辑下划线相对输入框的起始 X 坐标。
+fn preedit_start_x(frame: &InputFrame<'_>, text_empty: bool, text_cursor: f32) -> f32 {
+    if text_empty {
+        frame.x
+    } else {
+        frame.x + text_cursor
     }
 }
 
