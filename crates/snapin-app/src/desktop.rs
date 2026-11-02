@@ -78,11 +78,18 @@ impl AppDesktop {
         });
         let (clipboard_tx, clipboard_rx) = mpsc::channel(DESKTOP_WRITE_QUEUE_CAPACITY);
         let (selection_tx, selection_rx) = mpsc::channel(DESKTOP_WRITE_QUEUE_CAPACITY);
+        let cancel = runtime.cancellation_token();
         runtime
-            .spawn_in(TaskPool::Background, run_clipboard_writer(clipboard_rx))
+            .spawn_in(
+                TaskPool::Background,
+                run_clipboard_writer(clipboard_rx, cancel.clone()),
+            )
             .map_err(|error| worker_start_error("启动系统剪贴板写入任务", error))?;
         runtime
-            .spawn_in(TaskPool::Background, run_selection_writer(selection_rx))
+            .spawn_in(
+                TaskPool::Background,
+                run_selection_writer(selection_rx, cancel),
+            )
             .map_err(|error| worker_start_error("启动历史选区写入任务", error))?;
         Ok(Self {
             config,
@@ -95,23 +102,64 @@ impl AppDesktop {
     }
 }
 
-async fn run_clipboard_writer(mut receiver: mpsc::Receiver<ClipboardWrite>) {
-    while let Some(write) = receiver.recv().await {
-        if let Err(error) = tokio::task::spawn_blocking(move || write.execute()).await {
-            tracing::warn!("等待系统剪贴板写入任务失败: {error}");
+async fn run_clipboard_writer(
+    mut receiver: mpsc::Receiver<ClipboardWrite>,
+    cancel: snapin_runtime::CancellationToken,
+) {
+    loop {
+        let write = tokio::select! {
+            _ = cancel.cancelled() => None,
+            write = receiver.recv() => write,
+        };
+        if let Some(write) = write {
+            execute_clipboard_write(write).await;
+            continue;
         }
+        while let Ok(write) = receiver.try_recv() {
+            execute_clipboard_write(write).await;
+        }
+        break;
     }
 }
 
-async fn run_selection_writer(mut receiver: mpsc::Receiver<Rect>) {
-    while let Some(rect) = receiver.recv().await {
-        let result = tokio::task::spawn_blocking(move || {
-            save_last_selection((rect.x, rect.y, rect.width, rect.height));
-        })
-        .await;
-        if let Err(error) = result {
-            tracing::warn!("等待历史选区写入任务失败: {error}");
+async fn run_selection_writer(
+    mut receiver: mpsc::Receiver<Rect>,
+    cancel: snapin_runtime::CancellationToken,
+) {
+    loop {
+        let rect = tokio::select! {
+            _ = cancel.cancelled() => None,
+            rect = receiver.recv() => rect,
+        };
+        if let Some(rect) = rect {
+            execute_selection_write(rect).await;
+            continue;
         }
+        // 停机时只保留最后选区，避免对中间状态做多次无意义落盘。
+        let mut latest = None;
+        while let Ok(rect) = receiver.try_recv() {
+            latest = Some(rect);
+        }
+        if let Some(rect) = latest {
+            execute_selection_write(rect).await;
+        }
+        break;
+    }
+}
+
+async fn execute_clipboard_write(write: ClipboardWrite) {
+    if let Err(error) = tokio::task::spawn_blocking(move || write.execute()).await {
+        tracing::warn!("等待系统剪贴板写入任务失败: {error}");
+    }
+}
+
+async fn execute_selection_write(rect: Rect) {
+    let result = tokio::task::spawn_blocking(move || {
+        save_last_selection((rect.x, rect.y, rect.width, rect.height));
+    })
+    .await;
+    if let Err(error) = result {
+        tracing::warn!("等待历史选区写入任务失败: {error}");
     }
 }
 
