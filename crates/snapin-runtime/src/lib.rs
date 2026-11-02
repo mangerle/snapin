@@ -22,7 +22,7 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::runtime::{Builder, Handle, Runtime};
@@ -131,6 +131,8 @@ struct RuntimeInner {
     pools: [Pool; 5],
     cancel: CancellationToken,
     shutting_down: AtomicBool,
+    /// 串行化任务登记与停机切换，消除“检查未停机后又把任务登记到已关闭 Tracker”的窗口。
+    admission: Mutex<()>,
     next_task_id: AtomicU64,
     /// 仍在运行的任务中止句柄；停机超时后统一 abort，避免异步任务继续存活。
     active_tasks: Mutex<HashMap<u64, tokio::task::AbortHandle>>,
@@ -213,6 +215,7 @@ impl TaskRuntime {
                 pools,
                 cancel: CancellationToken::new(),
                 shutting_down: AtomicBool::new(false),
+                admission: Mutex::new(()),
                 next_task_id: AtomicU64::new(1),
                 active_tasks: Mutex::new(HashMap::new()),
                 _owned: owned,
@@ -243,6 +246,7 @@ impl TaskRuntime {
     where
         F: Future<Output = ()> + Send + 'static,
     {
+        let _admission = self.lock_admission();
         if self.inner.shutting_down.load(Ordering::Acquire) {
             return Err(TaskRuntimeError::ShuttingDown);
         }
@@ -303,6 +307,7 @@ impl TaskRuntime {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
+        let _admission = self.lock_admission();
         if self.inner.shutting_down.load(Ordering::Acquire) {
             return Err(TaskRuntimeError::ShuttingDown);
         }
@@ -353,9 +358,12 @@ impl TaskRuntime {
     /// 该方法只能在 Tokio 运行时之外或独立运行时中调用；在异步任务内部调用
     /// 会等待自身而永久挂起，调用方必须避免自等待。
     pub async fn shutdown(&self, timeout: Duration) -> bool {
-        self.inner.shutting_down.store(true, Ordering::Release);
-        self.inner.cancel.cancel();
-        self.inner.tracker.close();
+        {
+            let _admission = self.lock_admission();
+            self.inner.shutting_down.store(true, Ordering::Release);
+            self.inner.cancel.cancel();
+            self.inner.tracker.close();
+        }
 
         if timeout.is_zero() {
             self.inner.tracker.wait().await;
@@ -403,6 +411,14 @@ impl TaskRuntime {
             .map_err(|_| TaskRuntimeError::QueueFull {
                 capacity: pool.capacity,
             })
+    }
+
+    /// 获取准入锁；锁中毒只表示某次登记发生 panic，准入状态本身仍是完整值。
+    fn lock_admission(&self) -> MutexGuard<'_, ()> {
+        self.inner
+            .admission
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
