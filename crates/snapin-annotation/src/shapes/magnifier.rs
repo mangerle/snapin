@@ -96,6 +96,13 @@ fn default_shadow() -> bool {
     true
 }
 
+/// 放大镜连接线路径与端点。
+struct ConnectorGeometry {
+    path: tiny_skia::Path,
+    start: Point,
+    end: Point,
+}
+
 /// 放大镜连接线的端点、法向与端帽半长。
 struct ConnectorLine {
     start: Point,
@@ -144,6 +151,37 @@ impl MagnifierAction {
     }
 
     fn draw_connector(&self, pixmap: &mut PixmapMut, source: Rect, dest: Rect) {
+        let Some(line) = self.connector_geometry(source, dest) else {
+            return;
+        };
+        let mut paint = Paint::default();
+        paint.set_color_rgba8(
+            self.border_color.0,
+            self.border_color.1,
+            self.border_color.2,
+            self.border_color.3,
+        );
+        let style = match self.connector {
+            MagnifierConnector::Solid => LineStyle::Solid,
+            MagnifierConnector::Dotted => LineStyle::Dotted,
+            MagnifierConnector::Frame | MagnifierConnector::None => LineStyle::Solid,
+        };
+        style.stroke_path(
+            pixmap,
+            &paint,
+            StrokePathSpec::new(&line.path, self.border_width.max(1.0)),
+        );
+        if self.connector == MagnifierConnector::Frame {
+            self.draw_connector_caps(
+                pixmap,
+                ConnectorLine::new(line.start, line.end, self.border_width),
+                &paint,
+            );
+        }
+    }
+
+    /// 计算连接线端点与路径。
+    fn connector_geometry(&self, source: Rect, dest: Rect) -> Option<ConnectorGeometry> {
         let source_center = rect_center(source);
         let dest_center = rect_center(dest);
         let direction = (
@@ -168,33 +206,11 @@ impl MagnifierAction {
         let mut builder = PathBuilder::new();
         builder.move_to(start.x, start.y);
         builder.line_to(end.x, end.y);
-        let Some(path) = builder.finish() else {
-            return;
-        };
-        let mut paint = Paint::default();
-        paint.set_color_rgba8(
-            self.border_color.0,
-            self.border_color.1,
-            self.border_color.2,
-            self.border_color.3,
-        );
-        let style = match self.connector {
-            MagnifierConnector::Solid => LineStyle::Solid,
-            MagnifierConnector::Dotted => LineStyle::Dotted,
-            MagnifierConnector::Frame | MagnifierConnector::None => LineStyle::Solid,
-        };
-        style.stroke_path(
-            pixmap,
-            &paint,
-            StrokePathSpec::new(&path, self.border_width.max(1.0)),
-        );
-        if self.connector == MagnifierConnector::Frame {
-            self.draw_connector_caps(
-                pixmap,
-                ConnectorLine::new(start, end, self.border_width),
-                &paint,
-            );
-        }
+        Some(ConnectorGeometry {
+            path: builder.finish()?,
+            start,
+            end,
+        })
     }
 
     fn draw_connector_caps(&self, pixmap: &mut PixmapMut, line: ConnectorLine, paint: &Paint) {
