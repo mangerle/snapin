@@ -2,6 +2,7 @@
 
 use super::*;
 use snapin_runtime::TaskPool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// 打开剪贴板历史独立面板。
 ///
@@ -58,6 +59,7 @@ fn register_activate_callback(
     runtime: TaskRuntime,
 ) {
     let weak = window.as_weak();
+    let activating = Arc::new(AtomicBool::new(false));
     window.on_activate(move |index| {
         let Some(entry) = entries.get(index as usize).cloned() else {
             return;
@@ -65,9 +67,21 @@ fn register_activate_callback(
         let Some(window) = weak.upgrade() else {
             return;
         };
+        if activating.swap(true, Ordering::AcqRel) {
+            window.set_status_message(SharedString::from("正在复制上一条历史，请稍候..."));
+            return;
+        }
         window.set_status_message(SharedString::from("正在读取剪贴板历史..."));
-        spawn_activate_task(weak.clone(), runtime.clone(), entry);
+        spawn_activate_task(weak.clone(), runtime.clone(), entry, activating.clone());
     });
+}
+
+struct ActivationGuard(Arc<AtomicBool>);
+
+impl Drop for ActivationGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 /// 在 I/O 池读取历史内容并写入剪贴板，成功后再请求守护进程创建贴图。
@@ -75,10 +89,13 @@ fn spawn_activate_task(
     weak: slint::Weak<ClipboardPanel>,
     runtime: TaskRuntime,
     entry: ClipboardEntry,
+    activating: Arc<AtomicBool>,
 ) {
     let task_runtime = runtime.clone();
     let error_weak = weak.clone();
+    let task_activating = activating.clone();
     let spawn_result = runtime.spawn(async move {
+        let _guard = ActivationGuard(task_activating);
         let copied = task_runtime
             .run_blocking_in(TaskPool::Io, move || copy_entry_to_clipboard(&entry))
             .await
@@ -102,6 +119,7 @@ fn spawn_activate_task(
         });
     });
     if let Err(error) = spawn_result {
+        activating.store(false, Ordering::Release);
         if let Some(window) = error_weak.upgrade() {
             window.set_status_message(SharedString::from(format!("无法提交复制任务: {error}")));
         }
@@ -204,4 +222,18 @@ fn apply_clipboard_rows(window: &ClipboardPanel, entries: &[ClipboardEntry]) {
     }
     window.set_titles(ModelRc::new(VecModel::from(titles)));
     window.set_previews(ModelRc::new(VecModel::from(previews)));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_activation_guard_releases_flag_on_drop() {
+        let flag = Arc::new(AtomicBool::new(true));
+        {
+            let _guard = ActivationGuard(flag.clone());
+        }
+        assert!(!flag.load(Ordering::Acquire));
+    }
 }
