@@ -1,6 +1,6 @@
 //! 序号气泡标签测量、导向线、箭头与文字绘制。
 
-use super::BadgeAction;
+use super::{BadgeAction, BadgeCircle};
 use crate::geometry::Point;
 use crate::render::{
     with_thread_local_text_renderer, CenteredTextOptions, StyledTextDrawOptions, TextRenderer,
@@ -20,26 +20,22 @@ struct BadgeLabelMetrics<'a> {
     text_y: f32,
     text_width: f32,
     text_height: f32,
+    style: TextStyleOptions<'a>,
 }
 
-/// 序号气泡的圆心与半径。
-#[derive(Debug, Clone, Copy)]
-pub(super) struct BadgeCircle {
-    pub(super) center_x: f32,
-    pub(super) center_y: f32,
-    pub(super) radius: f32,
+/// 序号数字的一次性绘制请求。
+pub(super) struct BadgeNumberDraw<'a, 'p> {
+    pub(super) renderer: &'a mut TextRenderer,
+    pub(super) pixmap: &'a mut PixmapMut<'p>,
+    pub(super) circle: BadgeCircle,
+    pub(super) rgba: (u8, u8, u8, u8),
 }
 
 /// 在序号右侧绘制可选注释文字、背景、导向线与箭头。
 impl BadgeAction {
-    pub(super) fn draw_text_label(&self, pixmap: &mut PixmapMut, cx: f32, cy: f32, radius: f32) {
-        let Some(metrics) = self.label_metrics(cx, cy, radius) else {
+    pub(super) fn draw_text_label(&self, pixmap: &mut PixmapMut, circle: BadgeCircle) {
+        let Some(metrics) = self.label_metrics(circle) else {
             return;
-        };
-        let circle = BadgeCircle {
-            center_x: cx,
-            center_y: cy,
-            radius,
         };
         self.draw_label_guide(pixmap, circle, &metrics);
         self.draw_label_arrow(pixmap, circle, &metrics);
@@ -48,7 +44,7 @@ impl BadgeAction {
     }
 
     /// 计算注释文字的光学位置与包围尺寸。
-    fn label_metrics(&self, cx: f32, cy: f32, radius: f32) -> Option<BadgeLabelMetrics<'_>> {
+    fn label_metrics(&self, circle: BadgeCircle) -> Option<BadgeLabelMetrics<'_>> {
         let text = self.text.trim();
         if text.is_empty() {
             return None;
@@ -56,16 +52,21 @@ impl BadgeAction {
         let font_size = if self.font_size > 0.0 {
             self.font_size
         } else {
-            (radius * 1.05).max(10.0)
+            (circle.radius * 1.05).max(10.0)
         };
-        let text_x = cx + radius + (radius * 0.45).max(6.0);
+        let text_x = circle.center_x + circle.radius + (circle.radius * 0.45).max(6.0);
         Some(BadgeLabelMetrics {
             text,
             font_size,
             text_x,
-            text_y: cy - font_size * 0.62,
+            text_y: circle.center_y - font_size * 0.62,
             text_width: estimate_text_width(text, font_size).max(1.0),
             text_height: font_size * 1.25,
+            style: TextStyleOptions {
+                bold: self.bold,
+                italic: self.italic,
+                font_family: self.font_family.as_deref(),
+            },
         })
     }
 
@@ -160,13 +161,8 @@ impl BadgeAction {
     fn draw_label_text(&self, pixmap: &mut PixmapMut, metrics: &BadgeLabelMetrics<'_>) {
         let rgba = self.text_color.unwrap_or(self.color).to_tuple();
         with_thread_local_text_renderer(|renderer| {
-            let style = TextStyleOptions {
-                bold: self.bold,
-                italic: self.italic,
-                font_family: self.font_family.as_deref(),
-            };
             if self.stroke_width > 0.0 {
-                self.draw_text_halo(renderer, pixmap, metrics, style);
+                self.draw_text_halo(renderer, pixmap, metrics);
             }
             renderer.draw_text_styled_rgba(
                 pixmap,
@@ -176,7 +172,7 @@ impl BadgeAction {
                     y: metrics.text_y,
                     font_size: metrics.font_size,
                     rgba,
-                    style,
+                    style: metrics.style,
                 },
             );
         });
@@ -188,7 +184,6 @@ impl BadgeAction {
         renderer: &mut TextRenderer,
         pixmap: &mut PixmapMut,
         metrics: &BadgeLabelMetrics<'_>,
-        style: TextStyleOptions<'_>,
     ) {
         for (dx, dy) in [
             (-1.0, -1.0),
@@ -208,20 +203,20 @@ impl BadgeAction {
                     y: metrics.text_y + dy * self.stroke_width,
                     font_size: metrics.font_size,
                     rgba: self.stroke_color.to_tuple(),
-                    style,
+                    style: metrics.style,
                 },
             );
         }
     }
 
     /// 按序号位数选择字号，并复用渲染层的通用几何居中能力。
-    pub(super) fn draw_label(
-        &self,
-        renderer: &mut TextRenderer,
-        pixmap: &mut PixmapMut,
-        circle: BadgeCircle,
-        rgba: (u8, u8, u8, u8),
-    ) {
+    pub(super) fn draw_label(&self, request: BadgeNumberDraw<'_, '_>) {
+        let BadgeNumberDraw {
+            renderer,
+            pixmap,
+            circle,
+            rgba,
+        } = request;
         let radius = circle.radius;
         let font_size = if self.number < 10 {
             radius * 1.35

@@ -2,7 +2,7 @@
 
 mod label;
 
-use self::label::BadgeCircle;
+use self::label::BadgeNumberDraw;
 
 use super::{estimate_text_width, map_point, SizeParam};
 use crate::geometry::{Point, Rect};
@@ -60,6 +60,14 @@ pub struct BadgeAction {
     pub arrow_style: Option<ArrowStyle>,
 }
 
+/// 序号气泡的圆心与半径。
+#[derive(Debug, Clone, Copy)]
+pub(super) struct BadgeCircle {
+    pub(super) center_x: f32,
+    pub(super) center_y: f32,
+    pub(super) radius: f32,
+}
+
 fn default_stroke_color() -> ColorRgba {
     ColorRgba::opaque(255, 255, 255)
 }
@@ -101,40 +109,39 @@ impl Default for BadgeAction {
 
 impl BadgeAction {
     pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
-        let (cx, cy) = (self.center.x + offset_x, self.center.y + offset_y);
-        let r = self.radius;
+        let circle = BadgeCircle {
+            center_x: self.center.x + offset_x,
+            center_y: self.center.y + offset_y,
+            radius: self.radius,
+        };
 
         if self.style == BadgeStyle::Outline {
-            self.draw_outline(pixmap, cx, cy, r);
-            self.draw_text_label(pixmap, cx, cy, r);
+            self.draw_outline(pixmap, circle);
+            self.draw_text_label(pixmap, circle);
             return;
         }
-        self.draw_filled_badge(pixmap, cx, cy, r);
-        self.draw_text_label(pixmap, cx, cy, r);
+        self.draw_filled_badge(pixmap, circle);
+        self.draw_text_label(pixmap, circle);
     }
 
     /// 绘制实心序号气泡的阴影、底板、外环和数字。
-    fn draw_filled_badge(&self, pixmap: &mut PixmapMut, cx: f32, cy: f32, radius: f32) {
-        self.draw_badge_shadow(pixmap, cx, cy, radius);
-        self.draw_filled_circle(pixmap, cx, cy, radius);
+    fn draw_filled_badge(&self, pixmap: &mut PixmapMut, circle: BadgeCircle) {
+        self.draw_badge_shadow(pixmap, circle);
+        self.draw_filled_circle(pixmap, circle);
         with_thread_local_text_renderer(|renderer| {
-            self.draw_label(
+            self.draw_label(BadgeNumberDraw {
                 renderer,
                 pixmap,
-                BadgeCircle {
-                    center_x: cx,
-                    center_y: cy,
-                    radius,
-                },
-                (255, 255, 255, 255),
-            );
+                circle,
+                rgba: (255, 255, 255, 255),
+            });
         });
     }
 
     /// 绘制气泡柔和外圈微阴影。
-    fn draw_badge_shadow(&self, pixmap: &mut PixmapMut, cx: f32, cy: f32, radius: f32) {
+    fn draw_badge_shadow(&self, pixmap: &mut PixmapMut, circle: BadgeCircle) {
         let mut pb_shadow = PathBuilder::new();
-        pb_shadow.push_circle(cx, cy + 1.0, radius + 1.0);
+        pb_shadow.push_circle(circle.center_x, circle.center_y + 1.0, circle.radius + 1.0);
         if let Some(path) = pb_shadow.finish() {
             let mut shadow_paint = Paint {
                 anti_alias: true,
@@ -152,9 +159,9 @@ impl BadgeAction {
     }
 
     /// 绘制彩色圆形底板与高对比外环。
-    fn draw_filled_circle(&self, pixmap: &mut PixmapMut, cx: f32, cy: f32, radius: f32) {
+    fn draw_filled_circle(&self, pixmap: &mut PixmapMut, circle: BadgeCircle) {
         let mut pb = PathBuilder::new();
-        pb.push_circle(cx, cy, radius);
+        pb.push_circle(circle.center_x, circle.center_y, circle.radius);
         if let Some(path) = pb.finish() {
             let mut paint = Paint {
                 anti_alias: true,
@@ -246,7 +253,7 @@ impl BadgeAction {
 
 impl BadgeAction {
     /// 空心描边样式：只画彩色圆环与同色数字，不遮挡底图
-    fn draw_outline(&self, pixmap: &mut PixmapMut, cx: f32, cy: f32, r: f32) {
+    fn draw_outline(&self, pixmap: &mut PixmapMut, circle: BadgeCircle) {
         let mut paint = Paint {
             anti_alias: true,
             ..Default::default()
@@ -254,26 +261,22 @@ impl BadgeAction {
         paint.set_color_rgba8(self.color.0, self.color.1, self.color.2, self.color.3);
 
         let mut pb = PathBuilder::new();
-        pb.push_circle(cx, cy, r);
+        pb.push_circle(circle.center_x, circle.center_y, circle.radius);
         if let Some(path) = pb.finish() {
             let stroke = Stroke {
-                width: (r * 0.16).clamp(1.8, 6.0),
+                width: (circle.radius * 0.16).clamp(1.8, 6.0),
                 ..Default::default()
             };
             pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
         }
 
         with_thread_local_text_renderer(|renderer| {
-            self.draw_label(
+            self.draw_label(BadgeNumberDraw {
                 renderer,
                 pixmap,
-                BadgeCircle {
-                    center_x: cx,
-                    center_y: cy,
-                    radius: r,
-                },
-                self.color.to_tuple(),
-            );
+                circle,
+                rgba: self.color.to_tuple(),
+            });
         });
     }
 }
