@@ -5,7 +5,7 @@ use crate::drawing::make_paint;
 use crate::editor::annotation_builder::{render_draft_preview, AnnotationDraftParams};
 use crate::editor::toolbar::Tool;
 use crate::error::UiError;
-use crate::paster::context_menu::render::render_context_menu;
+use crate::paster::context_menu::render::{render_context_menu, ContextMenuRenderOptions};
 use crate::paster::surface::PasterSurface;
 use crate::paster::window::annotation::{image_to_screen_point, refresh_toolbar_layout};
 use crate::paster::window::input_region::{
@@ -165,9 +165,11 @@ fn render_toolbar_and_menu(
                     &state.interaction.context_menu,
                     &mut target_pixmap.as_mut(),
                     tr,
-                    state.chrome.show_toolbar,
-                    state.chrome.has_shadow,
-                    state.chrome.smooth_scaling,
+                    ContextMenuRenderOptions {
+                        show_toolbar: state.chrome.show_toolbar,
+                        has_shadow: state.chrome.has_shadow,
+                        smooth_scaling: state.chrome.smooth_scaling,
+                    },
                 );
             }
         });

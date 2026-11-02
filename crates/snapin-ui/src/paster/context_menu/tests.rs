@@ -7,7 +7,13 @@ fn test_context_menu_open_and_close() {
     let mut menu = ContextMenuState::default();
     let items = ContextMenuState::build_main_items(true, false);
     assert!(!menu.is_open);
-    menu.open_at(100.0, 150.0, 1000.0, 1000.0, &items);
+    menu.open_at(OpenMenuRequest {
+        x: 100.0,
+        y: 150.0,
+        window_width: 1000.0,
+        window_height: 1000.0,
+        main_items: &items,
+    });
     assert!(menu.is_open);
     assert_eq!(menu.x, 100.0);
     assert_eq!(menu.y, 150.0);
@@ -15,7 +21,13 @@ fn test_context_menu_open_and_close() {
     assert!(!menu.is_open);
 
     // 边界避让测试：在底部 y=950 处点击，由于超出 1000，自动向上翻折
-    menu.open_at(100.0, 950.0, 1000.0, 1000.0, &items);
+    menu.open_at(OpenMenuRequest {
+        x: 100.0,
+        y: 950.0,
+        window_width: 1000.0,
+        window_height: 1000.0,
+        main_items: &items,
+    });
     assert!(menu.y < 950.0);
 }
 
@@ -33,7 +45,13 @@ fn test_context_menu_items_structure() {
 fn test_context_menu_click_action() {
     let mut menu = ContextMenuState::default();
     let items = ContextMenuState::build_main_items(false, true);
-    menu.open_at(50.0, 50.0, 1000.0, 1000.0, &items);
+    menu.open_at(OpenMenuRequest {
+        x: 50.0,
+        y: 50.0,
+        window_width: 1000.0,
+        window_height: 1000.0,
+        main_items: &items,
+    });
 
     // 点击第一项 "复制图像" (y 在 55.0 ~ 83.0 之间)
     let clicked = menu.handle_click(60.0, 65.0, &items, true);

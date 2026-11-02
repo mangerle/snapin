@@ -10,7 +10,7 @@ use super::menu_actions::{
 use super::state::apply_window_scale_resize;
 use super::state::interaction::InteractionMode;
 use crate::editor::toolbar::Tool;
-use crate::paster::context_menu::ContextMenuState;
+use crate::paster::context_menu::{ContextMenuState, OpenMenuRequest};
 use snapin_config::config::DoubleClickAction;
 use std::time::Instant;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
@@ -169,13 +169,13 @@ pub fn handle_paster_mouse_button(
                 state.chrome.show_toolbar,
                 state.chrome.has_shadow,
             );
-            state.interaction.context_menu.open_at(
-                state.viewport.cursor_pos.0,
-                state.viewport.cursor_pos.1,
-                win_size.width as f32,
-                win_size.height as f32,
-                &main_items,
-            );
+            state.interaction.context_menu.open_at(OpenMenuRequest {
+                x: state.viewport.cursor_pos.0,
+                y: state.viewport.cursor_pos.1,
+                window_width: win_size.width as f32,
+                window_height: win_size.height as f32,
+                main_items: &main_items,
+            });
             true
         }
         (MouseButton::Left, ElementState::Pressed) => handle_left_press(state, window),

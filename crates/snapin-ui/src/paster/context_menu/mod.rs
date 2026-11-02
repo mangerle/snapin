@@ -20,6 +20,15 @@ pub struct ContextMenuState {
     pub hovered_sub_idx: Option<usize>,
 }
 
+/// 打开上下文菜单所需的锚点、窗口边界与菜单项。
+pub struct OpenMenuRequest<'a> {
+    pub x: f32,
+    pub y: f32,
+    pub window_width: f32,
+    pub window_height: f32,
+    pub main_items: &'a [MenuItem],
+}
+
 /// 主菜单中当前命中的非分隔行。
 #[derive(Debug, Clone, Copy)]
 struct MenuRowHit {
@@ -72,7 +81,14 @@ impl ContextMenuState {
     }
 
     /// 在指定坐标弹出上下文菜单，并自适应窗口物理边界进行上下左右智能避让
-    pub fn open_at(&mut self, x: f32, y: f32, win_w: f32, win_h: f32, main_items: &[MenuItem]) {
+    pub fn open_at(&mut self, request: OpenMenuRequest<'_>) {
+        let OpenMenuRequest {
+            x,
+            y,
+            window_width: win_w,
+            window_height: win_h,
+            main_items,
+        } = request;
         self.is_open = true;
         self.win_w = win_w;
         self.win_h = win_h;

@@ -16,21 +16,35 @@ pub struct MenuLayout {
     pub scale: f32,
 }
 
+/// 上下文菜单整帧渲染配置。
+#[derive(Debug, Clone, Copy)]
+pub struct ContextMenuRenderOptions {
+    pub show_toolbar: bool,
+    pub has_shadow: bool,
+    pub smooth_scaling: bool,
+}
+
+/// 单个菜单面板的布局、菜单项与悬停状态。
+#[derive(Debug, Clone, Copy)]
+struct MenuPanelSpec<'a> {
+    layout: MenuLayout,
+    items: &'a [MenuItem],
+    hovered_idx: Option<usize>,
+}
+
 /// 绘制整个上下文菜单及其二级子菜单
 pub fn render_context_menu(
     menu: &ContextMenuState,
     pixmap: &mut PixmapMut,
     text_renderer: &mut TextRenderer,
-    show_toolbar: bool,
-    has_shadow: bool,
-    smooth_scaling: bool,
+    options: ContextMenuRenderOptions,
 ) {
     if !menu.is_open {
         return;
     }
 
     let s = menu.ui_scale;
-    let main_items = ContextMenuState::build_main_items(show_toolbar, has_shadow);
+    let main_items = ContextMenuState::build_main_items(options.show_toolbar, options.has_shadow);
     let main_layout = MenuLayout {
         x: menu.x,
         y: menu.y,
@@ -43,14 +57,16 @@ pub fn render_context_menu(
     render_menu_panel(
         pixmap,
         text_renderer,
-        main_layout,
-        &main_items,
-        menu.hovered_main_idx,
+        MenuPanelSpec {
+            layout: main_layout,
+            items: &main_items,
+            hovered_idx: menu.hovered_main_idx,
+        },
     );
 
     // 2. 渲染二级子菜单面板 (若处于展开状态)
     if let Some((sub_type, sx, sy)) = menu.active_submenu {
-        let sub_items = ContextMenuState::build_sub_items(sub_type, smooth_scaling);
+        let sub_items = ContextMenuState::build_sub_items(sub_type, options.smooth_scaling);
         let sub_layout = MenuLayout {
             x: sx,
             y: sy,
@@ -61,9 +77,11 @@ pub fn render_context_menu(
         render_menu_panel(
             pixmap,
             text_renderer,
-            sub_layout,
-            &sub_items,
-            menu.hovered_sub_idx,
+            MenuPanelSpec {
+                layout: sub_layout,
+                items: &sub_items,
+                hovered_idx: menu.hovered_sub_idx,
+            },
         );
     }
 }
@@ -72,10 +90,13 @@ pub fn render_context_menu(
 fn render_menu_panel(
     pixmap: &mut PixmapMut,
     text_renderer: &mut TextRenderer,
-    layout: MenuLayout,
-    items: &[MenuItem],
-    hovered_idx: Option<usize>,
+    panel: MenuPanelSpec<'_>,
 ) {
+    let MenuPanelSpec {
+        layout,
+        items,
+        hovered_idx,
+    } = panel;
     let s = layout.scale;
     let (y, item_height) = (layout.y, layout.item_height);
     let sep_h = 8.0 * s;
