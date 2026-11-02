@@ -19,11 +19,15 @@ const MAX_CLIPBOARD_TEXT_BYTES: usize = 4 * 1024 * 1024;
 fn with_clipboard<R, F: FnMut(&mut Clipboard) -> Result<R, arboard::Error>>(
     mut f: F,
 ) -> Result<R, PlatformError> {
-    let mut guard = CLIPBOARD_INSTANCE
-        .lock()
-        .map_err(|e| PlatformError::Clipboard {
-            message: format!("剪贴板互斥锁中毒: {e}"),
-        })?;
+    let mut guard = match CLIPBOARD_INSTANCE.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            tracing::warn!("系统剪贴板句柄锁已中毒，销毁旧句柄后重建");
+            let mut guard = poisoned.into_inner();
+            *guard = None;
+            guard
+        }
+    };
 
     if guard.is_none() {
         *guard = Clipboard::new().ok();
