@@ -1,6 +1,6 @@
 //! 文本排版：包围盒折行、盒内裁剪落笔与居中加粗文本。
 
-use super::raster::blend_glyph_rgba;
+use super::raster::{blend_glyph_rgba, GlyphPixel};
 use super::text::{TextBoxOptions, TextRenderer};
 use cosmic_text::{Attrs, Buffer, Color as CosmicColor, Metrics, Shaping, Weight};
 use tiny_skia::PixmapMut;
@@ -77,7 +77,16 @@ impl TextRenderer {
                 let inside_canvas = px >= 0 && px < width && py >= 0 && py < height;
                 if inside_box && inside_canvas {
                     let idx = ((py as usize) * (width as usize) + (px as usize)) * 4;
-                    blend_glyph_rgba(pixmap.data_mut(), idx, c.r(), c.g(), c.b(), c.a());
+                    blend_glyph_rgba(
+                        pixmap.data_mut(),
+                        idx,
+                        GlyphPixel {
+                            red: c.r(),
+                            green: c.g(),
+                            blue: c.b(),
+                            alpha: c.a(),
+                        },
+                    );
                 }
             },
         );
@@ -173,7 +182,16 @@ impl TextRenderer {
                 let py = paint.offset.1 as i32 + gy;
                 if px >= 0 && px < width && py >= 0 && py < height {
                     let idx = ((py as usize) * (width as usize) + (px as usize)) * 4;
-                    blend_glyph_rgba(pixmap.data_mut(), idx, c.r(), c.g(), c.b(), c.a());
+                    blend_glyph_rgba(
+                        pixmap.data_mut(),
+                        idx,
+                        GlyphPixel {
+                            red: c.r(),
+                            green: c.g(),
+                            blue: c.b(),
+                            alpha: c.a(),
+                        },
+                    );
                 }
             },
         );

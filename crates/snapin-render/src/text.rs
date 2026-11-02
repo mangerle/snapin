@@ -3,7 +3,7 @@
 //! 基于 cosmic-text 提供统一的多语言中英文字体加载、高精度排版与 Alpha 混合像素流转，
 //! 并提供线程局部缓存以避免在非主干上下文内重复扫描与初始化系统字体库。
 
-use super::raster::blend_glyph_rgba;
+use super::raster::{blend_glyph_rgba, GlyphPixel};
 use cosmic_text::{
     Attrs, Buffer, Color as CosmicColor, Family, FontSystem, Metrics, Shaping, Style, SwashCache,
     Weight,
@@ -183,7 +183,16 @@ impl TextRenderer {
                 let py = y as i32 + gy;
                 if px >= 0 && px < width && py >= 0 && py < height {
                     let idx = ((py as usize) * (width as usize) + (px as usize)) * 4;
-                    blend_glyph_rgba(pixmap.data_mut(), idx, c.r(), c.g(), c.b(), c.a());
+                    blend_glyph_rgba(
+                        pixmap.data_mut(),
+                        idx,
+                        GlyphPixel {
+                            red: c.r(),
+                            green: c.g(),
+                            blue: c.b(),
+                            alpha: c.a(),
+                        },
+                    );
                 }
             },
         );
