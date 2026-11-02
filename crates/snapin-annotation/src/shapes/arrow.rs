@@ -58,6 +58,13 @@ struct ArrowHeadGeometry {
     half_width: f32,
 }
 
+/// 三角箭头端点的描边宽度与填充/空心样式。
+#[derive(Clone, Copy)]
+struct TriangleHeadStyle {
+    stroke_width: f32,
+    style: ArrowHeadStyle,
+}
+
 /// 箭头杆与端点共享的画笔和线型。
 struct ArrowStroke<'a, 'p> {
     paint: &'a Paint<'p>,
@@ -116,7 +123,15 @@ impl ArrowAction {
         match style {
             ArrowHeadStyle::None => {}
             ArrowHeadStyle::Triangle | ArrowHeadStyle::Outline => {
-                draw_triangle_head(pixmap, paint, &geometry, self.stroke_width, style);
+                draw_triangle_head(
+                    pixmap,
+                    paint,
+                    &geometry,
+                    TriangleHeadStyle {
+                        stroke_width: self.stroke_width,
+                        style,
+                    },
+                );
             }
             ArrowHeadStyle::Bar => draw_bar_head(pixmap, paint, &geometry, self.stroke_width),
             ArrowHeadStyle::Circle => draw_circle_head(pixmap, paint, &geometry),
@@ -204,8 +219,7 @@ fn draw_triangle_head(
     pixmap: &mut PixmapMut,
     paint: &Paint,
     geometry: &ArrowHeadGeometry,
-    stroke_width: f32,
-    style: ArrowHeadStyle,
+    appearance: TriangleHeadStyle,
 ) {
     let (vx, vy) = geometry.normal;
     let mut builder = PathBuilder::new();
@@ -222,7 +236,7 @@ fn draw_triangle_head(
     let Some(path) = builder.finish() else {
         return;
     };
-    if style == ArrowHeadStyle::Triangle {
+    if appearance.style == ArrowHeadStyle::Triangle {
         pixmap.fill_path(
             &path,
             paint,
@@ -236,7 +250,7 @@ fn draw_triangle_head(
         &path,
         paint,
         &Stroke {
-            width: stroke_width.max(1.0),
+            width: appearance.stroke_width.max(1.0),
             ..Default::default()
         },
         Transform::identity(),
