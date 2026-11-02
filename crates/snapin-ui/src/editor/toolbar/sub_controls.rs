@@ -95,13 +95,12 @@ impl Toolbar {
             return false;
         };
         let hovered = layout.hit(px, py);
-        let control = if hovered.is_some_and(is_numeric_control) {
-            hovered
-        } else if layout.rect.contains(px, py) {
-            self.focused_sub_control
-                .filter(|control| is_numeric_control(*control))
-        } else {
-            None
+        let control = match hovered {
+            Some(control) if is_numeric_control(control) => Some(control),
+            Some(_) => None,
+            None => self
+                .focused_sub_control
+                .filter(|control| is_numeric_control(*control)),
         };
         let Some(control) = control else {
             return false;

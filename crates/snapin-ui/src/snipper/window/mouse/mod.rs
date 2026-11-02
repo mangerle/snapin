@@ -260,6 +260,9 @@ fn handle_locked_press(
         return true;
     }
 
+    // 点击画布表示离开二级栏数值控件；后续滚轮恢复默认粗细调节。
+    state.toolbar.clear_sub_focus();
+
     commit_active_text_input(state);
 
     // 已提交标注的编辑优先于新建文本与新图元：默认只允许编辑最新一条，

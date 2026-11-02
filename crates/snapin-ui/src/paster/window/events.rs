@@ -213,6 +213,9 @@ fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
         return true;
     }
 
+    // 点击图像或窗口空白区域后，结束二级栏数值控件的滚轮焦点。
+    state.interaction.toolbar.clear_sub_focus();
+
     // 文字工具在图像内按下时开启 IME 输入会话，而不是走拖拽笔迹路径
     if state.interaction.toolbar.active_tool == Some(Tool::Text)
         && state.screen_point_inside_image(state.viewport.cursor_pos)

@@ -530,7 +530,7 @@ fn test_arrow_style_dropdown_selects_style() {
     assert!(tb.open_dropdown.is_none());
 }
 
-/// 圆角控件点击后聚焦，滚轮在二级栏内连续调整图标后的数值。
+/// 圆角控件点击后保持焦点，光标移出二级栏后滚轮仍连续调整圆角数值。
 #[test]
 fn test_corner_radius_click_then_wheel_changes_value() {
     let mut tb = Toolbar::default();
@@ -557,10 +557,10 @@ fn test_corner_radius_click_then_wheel_changes_value() {
     assert_eq!(tb.focused_sub_control, Some(SubControl::CornerRadius));
     assert!(tb.open_dropdown.is_none(), "圆角控件不再展开下拉菜单");
 
-    let sub = tb.sub_rect.expect("二级栏应可见");
-    assert!(tb.handle_sub_wheel(sub.x + sub.width / 2.0, sub.y + 2.0, 1.0));
+    // 点击圆角后即使光标移出二级栏，滚轮仍应继续调整圆角，而不是回落为粗细。
+    assert!(tb.handle_sub_wheel(0.0, 0.0, 1.0));
     assert_eq!(tb.sub_options.corner_radius, 2.0);
-    assert!(tb.handle_sub_wheel(sub.x + sub.width / 2.0, sub.y + 2.0, 1.0));
+    assert!(tb.handle_sub_wheel(0.0, 0.0, 1.0));
     assert_eq!(tb.sub_options.corner_radius, 4.0);
 }
 

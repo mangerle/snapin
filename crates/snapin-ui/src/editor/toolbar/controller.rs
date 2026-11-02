@@ -196,6 +196,11 @@ impl Toolbar {
         self.update_sub_rect();
     }
 
+    /// 清除数值控件焦点；点击画布后滚轮恢复默认当前工具的尺寸行为。
+    pub(crate) fn clear_sub_focus(&mut self) {
+        self.focused_sub_control = None;
+    }
+
     /// 用户开启跨截图记忆时，保存当前二级栏选项。
     fn persist_remembered_options(&self) {
         if self.remember_sub_options {
@@ -272,6 +277,7 @@ impl Toolbar {
 
         // 2. 主栏按钮
         if let Some(item) = self.hit_test_main(px, py) {
+            self.focused_sub_control = None;
             match item {
                 ToolbarItem::Tool(Tool::Rect) => {
                     // 形状按钮只做开合：点击选中矩形（默认形状），再点取消。
