@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Snapin Linux Wayland 平台底层驱动：Portal截屏、GNOME Shell扩展通信、剪贴板读写与系统热键"
+description = "Snapin 跨平台桌面集成：截屏、剪贴板、热键、托盘、自启动与窗口能力"
 
 [dependencies]
 snapin-config.workspace = true
