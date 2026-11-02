@@ -1,7 +1,7 @@
 //! 翻译图元排版与应用配置到服务层枚举的映射。
 
-use snapin_core::annotation::shapes::TranslationShapeItem;
-use snapin_core::config::{CoverMode, TranslateProvider};
+use snapin_annotation::shapes::TranslationShapeItem;
+use snapin_config::config::{CoverMode, TranslateProvider};
 use snapin_service::ocr::OcrTextBlock;
 use snapin_service::ocr::{estimate_dominant_background_color, get_contrasting_text_color};
 use snapin_service::ServiceTranslateProvider;
@@ -17,7 +17,7 @@ pub(super) struct TranslationPlacement {
 
 /// 将核心配置的翻译服务商映射为服务层独立枚举。
 ///
-/// 服务层刻意不依赖 `snapin-core`，两层配置模型在应用边界完成一次显式转换；
+/// 服务层刻意不依赖 `snapin-config`，两层配置模型在应用边界完成一次显式转换；
 /// 这样服务 crate 可以独立测试与复用，而 UI 不需要知道两套枚举的存在。
 pub(super) fn to_service_provider(provider: TranslateProvider) -> ServiceTranslateProvider {
     match provider {

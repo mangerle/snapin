@@ -8,7 +8,7 @@ use super::state::apply_window_scale_resize;
 use super::state::interaction::InteractionMode;
 use crate::editor::toolbar::Tool;
 use crate::paster::context_menu::ContextMenuState;
-use snapin_core::config::DoubleClickAction;
+use snapin_config::config::DoubleClickAction;
 use std::time::Instant;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 use winit::keyboard::{Key, NamedKey};

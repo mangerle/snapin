@@ -1,20 +1,22 @@
-//! Snapin 核心领域模型与算法基建 crate。
+//! Snapin 核心能力门面。
 //!
-//! 提供错误定义、配置模型、软光栅文本渲染排版以及矢量标注图元引擎。
+//! 具体实现已按依赖与职责拆分为基础契约、配置、渲染和标注四个 crate。本 crate
+//! 只保留稳定的聚合路径，供同时需要多个核心领域的应用层使用；轻量消费者应直接
+//! 依赖所需子 crate，避免无谓引入 Tiny-Skia 与 Cosmic-Text。
 
-pub mod annotation;
-pub mod config;
-pub mod error;
-pub mod geometry;
-pub mod i18n;
-pub mod paths;
-pub mod render;
-pub mod trigger;
+pub use snapin_annotation as annotation;
+pub use snapin_config::config;
+pub use snapin_foundation::{error, geometry, i18n, paths, trigger};
+pub use snapin_render as render;
 
 pub use annotation::{AnnotationHistory, AnnotationShape};
-pub use config::{BeautifyConfig, Config, HotkeyConfig, OutputConfig, PasterConfig, SnipConfig};
 pub use error::CoreError;
 pub use geometry::Rect;
 pub use paths::AppPaths;
 pub use render::{with_thread_local_text_renderer, TextRenderer};
+pub use snapin_config::config::{
+    BeautifyConfig, Config, HotkeyConfig, OutputConfig, PasterConfig, SnipConfig,
+};
 pub use trigger::{PostCaptureAction, SnipMode};
+
+pub use snapin_foundation::trf;

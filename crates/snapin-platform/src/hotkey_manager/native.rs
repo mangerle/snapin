@@ -4,7 +4,7 @@ use super::{configured_bindings, hotkey_to_accelerator, HotkeyAction};
 use crate::error::PlatformError;
 use global_hotkey::hotkey::HotKey;
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
-use snapin_core::config::HotkeyConfig;
+use snapin_config::config::HotkeyConfig;
 use std::collections::HashMap;
 
 pub(crate) struct NativeHotkeyListener {

@@ -4,8 +4,8 @@
 //! 系统对话框或保存后通知。编码落盘统一放入阻塞线程池，对话框与通知在异步
 //! 上下文等待，避免阻塞后台运行时。
 
-use snapin_core::config::{Config, OutputConfig};
-use snapin_core::AppPaths;
+use snapin_config::config::{Config, OutputConfig};
+use snapin_foundation::AppPaths;
 use snapin_platform::{
     open_path_in_file_manager, pick_save_path, send_desktop_notification, write_image_to_clipboard,
 };
@@ -82,13 +82,13 @@ pub(super) async fn execute_save_paster(
     };
 
     if config.output.notify_on_save {
-        let body = snapin_core::trf!(
+        let body = snapin_foundation::trf!(
             "贴图图像已保存至: {}",
             "Pin image saved to: {}",
             path.display()
         );
         if let Err(error) =
-            send_desktop_notification(snapin_core::i18n::tr("Snapin 贴图已保存"), &body).await
+            send_desktop_notification(snapin_foundation::i18n::tr("Snapin 贴图已保存"), &body).await
         {
             tracing::debug!("发送贴图保存通知失败或系统通知不可用: {error}");
         }

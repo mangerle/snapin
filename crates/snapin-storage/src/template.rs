@@ -1,7 +1,7 @@
 //! 路径与文件名时间模板解析辅助模块。
 
 use chrono::Local;
-use snapin_core::AppPaths;
+use snapin_foundation::AppPaths;
 use std::path::PathBuf;
 
 /// 将路径开头的 `~` 展开为真实用户主目录，兼容 Unix `/` 与 Windows `\` 分隔符。

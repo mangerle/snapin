@@ -4,7 +4,7 @@
 //! 必须保持同一套几何规则，否则同一句提示在截图与贴图中会出现视觉漂移。
 
 use crate::drawing::add_round_rect;
-use snapin_core::render::with_thread_local_text_renderer;
+use snapin_render::with_thread_local_text_renderer;
 use tiny_skia::{FillRule, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 状态提示胶囊的视觉与布局参数。

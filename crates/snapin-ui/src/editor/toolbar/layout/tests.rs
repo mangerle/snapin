@@ -385,7 +385,7 @@ fn test_dropdown_rows_stay_inside_panel() {
     let dropdown = layout.dropdown.as_ref().expect("应生成线型下拉菜单");
     assert_eq!(
         dropdown.rows.len(),
-        snapin_core::annotation::LineStyle::ALL.len(),
+        snapin_annotation::LineStyle::ALL.len(),
         "线型下拉必须覆盖全部线型"
     );
     for row in &dropdown.rows {

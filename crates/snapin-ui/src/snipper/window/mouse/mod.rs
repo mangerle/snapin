@@ -12,7 +12,7 @@ use crate::editor::toolbar::{LineMode, StrokeWidthLevel, Tool};
 use crate::model::ShapeId;
 use crate::snipper::selection::{hit_test_handle, DragMode, Rect, SelectionState};
 use image::RgbaImage;
-use snapin_core::annotation::AnnotationShape;
+use snapin_annotation::AnnotationShape;
 use toolbar_action::{dispatch_toolbar_action, handle_text_tool_click};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 
@@ -276,7 +276,7 @@ fn handle_locked_press(
     if state.toolbar.active_tool.is_none()
         && super::annotation_edit::hit_test_locked(state, (cx, cy))
     {
-        state.set_status_message(snapin_core::i18n::tr(
+        state.set_status_message(snapin_foundation::i18n::tr(
             "旧标注已锁定，按住 Alt 点击可重新编辑",
         ));
         return true;
@@ -450,16 +450,16 @@ fn handle_left_release(
 fn apply_auto_mode(state: &mut SnipperState, original_rgba: &RgbaImage) {
     if let Some(action) = state.post_action.take() {
         match action {
-            snapin_core::PostCaptureAction::SmartRedact => {
+            snapin_foundation::PostCaptureAction::SmartRedact => {
                 super::actions::handle_action_redact(state, original_rgba);
             }
-            snapin_core::PostCaptureAction::Qr => {
+            snapin_foundation::PostCaptureAction::Qr => {
                 super::actions::handle_action_qr(state, original_rgba);
             }
-            snapin_core::PostCaptureAction::Beautify => {
+            snapin_foundation::PostCaptureAction::Beautify => {
                 super::actions::handle_action_save_beautified(state, original_rgba);
             }
-            snapin_core::PostCaptureAction::OcrPanel => {
+            snapin_foundation::PostCaptureAction::OcrPanel => {
                 super::actions::handle_action_ocr(state, original_rgba);
             }
         }
@@ -574,7 +574,7 @@ fn adjust_magnifier_wheel(state: &mut SnipperState, delta_y: f32) -> bool {
             (state.toolbar.sub_options.custom_stroke_width + step).clamp(1.0, 48.0);
         if let Some(index) = index {
             if let Some(mut shape) = state.annotations.shape_at(index).cloned() {
-                shape.adjust_size(snapin_core::annotation::shapes::SizeParam::Stroke(
+                shape.adjust_size(snapin_annotation::shapes::SizeParam::Stroke(
                     state.toolbar.sub_options.custom_stroke_width,
                 ));
                 state.annotations.replace(index, shape);

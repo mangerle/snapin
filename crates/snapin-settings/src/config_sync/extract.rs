@@ -5,11 +5,11 @@ use super::super::mapping::{
 };
 use super::super::SettingsWindow;
 use super::scalar_table::extract_scalar_fields;
-use snapin_core::config::{
+use snapin_config::config::{
     self, ColorFormat, Config, CoverMode, DoubleClickAction, Hotkey, ImageFormat, LogLevel,
     TargetLanguage, TranslateProvider, UiLanguage, ZoomAnchor,
 };
-use snapin_core::render::{BeautifyBackground, SocialSize};
+use snapin_config::config::{BeautifyBackground, SocialSize};
 
 pub(crate) fn extract_config_from_window(win: &SettingsWindow, cfg: &mut Config) {
     extract_scalar_fields(win, cfg);

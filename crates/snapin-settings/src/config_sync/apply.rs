@@ -6,7 +6,7 @@ use super::super::mapping::{
 use super::super::SettingsWindow;
 use super::scalar_table::apply_scalar_fields;
 use slint::SharedString;
-use snapin_core::config::{self, Config};
+use snapin_config::config::{self, Config};
 
 pub(crate) fn sync_config_to_window(win: &SettingsWindow, cfg: &Config) {
     apply_scalar_fields(win, cfg);

@@ -1,9 +1,13 @@
 [workspace]
 members = [
     "crates/snapin-app",
+    "crates/snapin-annotation",
+    "crates/snapin-config",
     "crates/snapin-core",
     "crates/snapin-daemon",
+    "crates/snapin-foundation",
     "crates/snapin-platform",
+    "crates/snapin-render",
     "crates/snapin-ui",
     "crates/snapin-service",
     "crates/snapin-settings",
@@ -26,9 +30,13 @@ repository = "https://github.com/mangerle/snapin"
 [workspace.dependencies]
 # 内部子包依赖
 snapin-app = { path = "crates/snapin-app", version = "1.2.0" }
+snapin-annotation = { path = "crates/snapin-annotation", version = "1.2.0" }
+snapin-config = { path = "crates/snapin-config", version = "1.2.0" }
 snapin-core = { path = "crates/snapin-core", version = "1.2.0" }
 snapin-daemon = { path = "crates/snapin-daemon", version = "1.2.0" }
+snapin-foundation = { path = "crates/snapin-foundation", version = "1.2.0" }
 snapin-platform = { path = "crates/snapin-platform", version = "1.2.0" }
+snapin-render = { path = "crates/snapin-render", version = "1.2.0" }
 snapin-ui = { path = "crates/snapin-ui", version = "1.2.0" }
 snapin-service = { path = "crates/snapin-service", version = "1.2.0" }
 snapin-settings = { path = "crates/snapin-settings", version = "1.2.0" }

@@ -2,9 +2,7 @@
 
 use super::super::icons::{add_round_rect, make_paint};
 use crate::geometry::Rect;
-use snapin_core::annotation::{
-    ArrowHeadStyle, ArrowStyle, BadgeStyle, LineStyle, MagnifierConnector,
-};
+use snapin_annotation::{ArrowHeadStyle, ArrowStyle, BadgeStyle, LineStyle, MagnifierConnector};
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 绘制通用浅米白微圆角容器背景与微阴影 (参考官方经典现代浅色设计)

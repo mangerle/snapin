@@ -1,0 +1,13 @@
+[package]
+name = "snapin-render"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Snapin 文本排版、测量、光栅化与美化导出渲染"
+
+[dependencies]
+snapin-config.workspace = true
+serde.workspace = true
+cosmic-text.workspace = true
+tiny-skia.workspace = true

@@ -7,7 +7,10 @@ license.workspace = true
 description = "Snapin 应用服务层：截图/贴图用例编排、媒体任务执行与守护进程运行时"
 
 [dependencies]
-snapin-core.workspace = true
+snapin-annotation.workspace = true
+snapin-config.workspace = true
+snapin-foundation.workspace = true
+snapin-render.workspace = true
 snapin-daemon.workspace = true
 snapin-platform.workspace = true
 snapin-service.workspace = true

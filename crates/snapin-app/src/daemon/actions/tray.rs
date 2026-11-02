@@ -6,8 +6,8 @@ use super::{
 };
 use crate::services::AppServices;
 use crate::snip::SnipStartRequest;
-use snapin_core::{PostCaptureAction, SnipMode};
 use snapin_daemon::DaemonRequest;
+use snapin_foundation::{PostCaptureAction, SnipMode};
 use snapin_platform::TrayAction;
 use snapin_ui::paster::PasterWorkspaceProxy;
 use std::sync::Arc;

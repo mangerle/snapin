@@ -4,7 +4,7 @@ use super::template::{expand_home_dir, format_template};
 use crate::error::StorageError;
 use chrono::Local;
 use image::RgbaImage;
-use snapin_core::config::{normalize_file_name_template, ImageFormat, OutputConfig};
+use snapin_config::config::{normalize_file_name_template, ImageFormat, OutputConfig};
 use std::fs::OpenOptions;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -243,7 +243,7 @@ fn encode_image_atomically(
     let temp_path = parent.join(format!(
         ".{stem}.{}.{}.{}",
         std::process::id(),
-        snapin_core::AppPaths::generate_unique_id(),
+        snapin_foundation::AppPaths::generate_unique_id(),
         format.extension()
     ));
 
@@ -253,7 +253,7 @@ fn encode_image_atomically(
         return Err(error);
     }
 
-    if let Err(error) = snapin_core::AppPaths::replace_file_atomically(&temp_path, out_path) {
+    if let Err(error) = snapin_foundation::AppPaths::replace_file_atomically(&temp_path, out_path) {
         let _ = std::fs::remove_file(&temp_path);
         return Err(StorageError::Io {
             path: out_path.display().to_string(),
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn test_save_image_with_config_jpeg_and_png() {
-        let unique_id = snapin_core::AppPaths::generate_unique_id();
+        let unique_id = snapin_foundation::AppPaths::generate_unique_id();
         let temp_dir = std::env::temp_dir().join(format!("snapin_test_{unique_id}"));
         let mut cfg = OutputConfig {
             quick_save_dir: temp_dir.to_string_lossy().to_string(),
@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn test_save_image_to_path_supports_formats_and_guards_overwrite() {
-        let unique_id = snapin_core::AppPaths::generate_unique_id();
+        let unique_id = snapin_foundation::AppPaths::generate_unique_id();
         let temp_dir = std::env::temp_dir().join(format!("snapin_save_as_{unique_id}"));
         std::fs::create_dir_all(&temp_dir).expect("创建测试目录失败");
         let cfg = OutputConfig {
@@ -406,7 +406,7 @@ mod tests {
 
     #[test]
     fn test_resolve_save_path_auto_increment_when_exists() {
-        let unique_id = snapin_core::AppPaths::generate_unique_id();
+        let unique_id = snapin_foundation::AppPaths::generate_unique_id();
         let temp_dir = std::env::temp_dir().join(format!("snapin_inc_{unique_id}"));
         let cfg = OutputConfig {
             quick_save_dir: temp_dir.to_string_lossy().to_string(),
@@ -437,7 +437,7 @@ mod tests {
 mod template_extension_tests {
     use super::*;
     use image::Rgba;
-    use snapin_core::config::ImageFormat;
+    use snapin_config::config::ImageFormat;
     use tempfile::tempdir;
 
     /// 历史模板带 `.png` 时不得再追加一次扩展名。

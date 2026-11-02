@@ -179,8 +179,8 @@ mod tests {
     /// 悬停已提交标注显示移动光标，选中后手柄显示方向缩放光标
     #[test]
     fn test_cursor_icon_for_annotation_editing() {
-        use snapin_core::annotation::shapes::RectAction;
-        use snapin_core::annotation::{AnnotationShape, LineStyle};
+        use snapin_annotation::shapes::RectAction;
+        use snapin_annotation::{AnnotationShape, LineStyle};
 
         let mut state = SnipperState::new();
         state.toolbar.ui_scale = 1.0;

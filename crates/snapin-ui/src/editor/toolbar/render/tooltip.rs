@@ -8,7 +8,7 @@ use super::super::layout::SubControl;
 use super::super::Toolbar;
 use crate::drawing::add_round_rect;
 use crate::geometry::Rect;
-use snapin_core::render::with_thread_local_text_renderer;
+use snapin_render::with_thread_local_text_renderer;
 use tiny_skia::{FillRule, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 提示文字字号（界面像素）
@@ -80,7 +80,7 @@ fn tooltip_target(toolbar: &Toolbar) -> Option<(String, Rect)> {
 
 /// 组合二级控件提示；数值和箭头控件附带当前选择值。
 fn sub_control_message(toolbar: &Toolbar, control: SubControl) -> String {
-    let label = snapin_core::i18n::tr(control.label_for_tool(toolbar.active_tool));
+    let label = snapin_foundation::i18n::tr(control.label_for_tool(toolbar.active_tool));
     match control {
         SubControl::Size => format!("{label}：{:.0}", toolbar.sub_options.custom_stroke_width),
         SubControl::EffectStrength => format!("{label}：{}", toolbar.sub_options.effect_strength),
@@ -110,26 +110,26 @@ fn sub_control_message(toolbar: &Toolbar, control: SubControl) -> String {
         }
         SubControl::StartArrow => format!(
             "{label}：{}",
-            snapin_core::i18n::tr(toolbar.sub_options.start_arrow_head.label())
+            snapin_foundation::i18n::tr(toolbar.sub_options.start_arrow_head.label())
         ),
         SubControl::EndArrow => format!(
             "{label}：{}",
-            snapin_core::i18n::tr(toolbar.sub_options.end_arrow_head.label())
+            snapin_foundation::i18n::tr(toolbar.sub_options.end_arrow_head.label())
         ),
         SubControl::BadgeSequence => {
             format!("{label}：{}", toolbar.sub_options.badge_sequence.label(1))
         }
         SubControl::MarkerShape => format!(
             "{label}：{}",
-            snapin_core::i18n::tr(toolbar.sub_options.marker_shape.label())
+            snapin_foundation::i18n::tr(toolbar.sub_options.marker_shape.label())
         ),
         SubControl::MarkerBlendMode => format!(
             "{label}：{}",
-            snapin_core::i18n::tr(toolbar.sub_options.marker_blend_mode.label())
+            snapin_foundation::i18n::tr(toolbar.sub_options.marker_blend_mode.label())
         ),
         SubControl::MosaicMode => format!(
             "{label}：{}",
-            snapin_core::i18n::tr(toolbar.sub_options.mosaic_mode.label())
+            snapin_foundation::i18n::tr(toolbar.sub_options.mosaic_mode.label())
         ),
         _ => label.to_string(),
     }

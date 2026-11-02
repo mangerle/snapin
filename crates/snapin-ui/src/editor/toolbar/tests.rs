@@ -171,7 +171,7 @@ fn test_toolbar_shape_button_toggles_without_cycling() {
 /// 序号形态和数字形态切换都不得修改颜色；默认颜色应保持红色选中。
 #[test]
 fn test_badge_dropdowns_preserve_default_red_color() {
-    use snapin_core::annotation::{BadgeSequence, BadgeStyle};
+    use snapin_annotation::{BadgeSequence, BadgeStyle};
 
     let mut tb = Toolbar::default();
     let selection = Rect {
@@ -241,7 +241,7 @@ fn test_badge_dropdowns_preserve_default_red_color() {
 /// 荧光笔的形状和混合模式都应通过下拉选择，并显示当前选项。
 #[test]
 fn test_marker_dropdowns_change_shape_and_blend_mode() {
-    use snapin_core::annotation::{MarkerBlendMode, MarkerShape};
+    use snapin_annotation::{MarkerBlendMode, MarkerShape};
 
     let mut tb = Toolbar::default();
     let selection = Rect {
@@ -315,7 +315,7 @@ fn test_mosaic_effect_strength_slider_sets_value() {
 /// 线型下拉：点击按钮展开菜单，点击"虚线"行后写回样式并收起菜单
 #[test]
 fn test_line_style_dropdown_selects_style() {
-    use snapin_core::annotation::LineStyle;
+    use snapin_annotation::LineStyle;
 
     let mut tb = Toolbar::default();
     let selection = Rect {
@@ -372,7 +372,7 @@ fn test_line_style_dropdown_selects_style() {
 /// 填充开关与序号底板样式：点击即切换，且与工具类型正确关联
 #[test]
 fn test_fill_toggle_and_badge_style() {
-    use snapin_core::annotation::BadgeStyle;
+    use snapin_annotation::BadgeStyle;
 
     let mut tb = Toolbar::default();
     let selection = Rect {
@@ -477,7 +477,7 @@ fn test_dropdown_closes_when_clicking_other_tool() {
 /// 箭头样式下拉：实线/虚线/锥形三选一，选中后写回并收起菜单
 #[test]
 fn test_arrow_style_dropdown_selects_style() {
-    use snapin_core::annotation::ArrowStyle;
+    use snapin_annotation::ArrowStyle;
 
     let mut tb = Toolbar::default();
     let selection = Rect {

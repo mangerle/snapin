@@ -15,7 +15,7 @@ use crate::model::PasterId;
 use crate::paster::workspace::PasterWorkspaceProxy;
 use crate::ports::{JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, PortError};
 use image::RgbaImage;
-use snapin_core::config::CoverMode;
+use snapin_config::config::CoverMode;
 use std::sync::Arc;
 use tiny_skia::Pixmap;
 

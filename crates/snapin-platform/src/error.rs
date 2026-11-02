@@ -2,7 +2,7 @@
 //!
 //! 封装 Portal 截屏、D-Bus 进程通信、GNOME 扩展客户端交互、剪贴板与底层 I/O 异常。
 
-use snapin_core::error::CoreError;
+use snapin_foundation::error::CoreError;
 use thiserror::Error;
 
 /// 平台抽象层领域错误枚举

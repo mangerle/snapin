@@ -12,8 +12,8 @@ use crate::snipper::window::ocr_panel::OcrPanelState;
 use crate::snipper::window::redaction::{is_redaction_applied, RedactionPreview};
 use crate::status_badge;
 use image::RgbaImage;
-use snapin_core::annotation::AnnotationHistory;
-use snapin_core::render::{with_thread_local_text_renderer, TextBoxOptions};
+use snapin_annotation::AnnotationHistory;
+use snapin_render::{with_thread_local_text_renderer, TextBoxOptions};
 use tiny_skia::{
     Paint, PathBuilder, Pixmap, PixmapMut, Rect as SkiaRect, Stroke, StrokeDash, Transform,
 };
@@ -163,7 +163,7 @@ impl<'a> SnipperCanvas<'a> {
         with_thread_local_text_renderer(|renderer| {
             renderer.draw_text_rgba(
                 pixmap,
-                &snapin_core::trf!(
+                &snapin_foundation::trf!(
                     "OCR 结果  已选择 {}/{}",
                     "OCR Results  Selected {}/{}",
                     panel.lines.iter().filter(|line| line.selected).count(),
@@ -238,7 +238,7 @@ impl<'a> SnipperCanvas<'a> {
 
             renderer.draw_text_box_rgba(
                 pixmap,
-                snapin_core::i18n::tr(
+                snapin_foundation::i18n::tr(
                     "Space 选择  Enter 编辑  A 全选  M 导出 Markdown  J 导出 JSON  Esc 关闭",
                 ),
                 TextBoxOptions {

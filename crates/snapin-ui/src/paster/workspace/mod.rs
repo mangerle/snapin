@@ -26,7 +26,7 @@ use crate::ports::{DesktopPort, MediaJobRunner, WorkspaceState, WorkspaceStateSt
 use crate::snipper::{SnipperOutcome, SnipperView};
 use event_handler::{handle_workspace_user_event, handle_workspace_window_event};
 use paster_events::handle_workspace_about_to_wait;
-use snapin_core::config::Config;
+use snapin_config::config::Config;
 use std::collections::HashMap;
 use std::sync::Arc;
 use winit::event::Event;

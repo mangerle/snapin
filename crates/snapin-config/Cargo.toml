@@ -1,0 +1,18 @@
+[package]
+name = "snapin-config"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Snapin 强类型配置模型、迁移、校验与安全持久化"
+
+[dependencies]
+snapin-foundation.workspace = true
+serde.workspace = true
+serde_ignored.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

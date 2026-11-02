@@ -8,10 +8,10 @@ use super::widgets::{
     fill_circle, render_arrow_head_preview, render_arrow_preview, render_badge_style_icon,
     render_magnifier_connector_preview, stroke_sample, ArrowHeadPreviewSpec,
 };
-use snapin_core::annotation::{
+use snapin_annotation::{
     ArrowStyle, BadgeStyle, LineStyle, MagnifierConnector, MarkerBlendMode, MarkerShape,
 };
-use snapin_core::render::with_thread_local_text_renderer;
+use snapin_render::with_thread_local_text_renderer;
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 绘制展开的下拉菜单面板与选项预览
@@ -108,8 +108,7 @@ pub(super) fn render_dropdown(
                 )
             }
             SubDropdown::StartArrow => {
-                let Some(style) = snapin_core::annotation::style::ArrowHeadStyle::ALL.get(index)
-                else {
+                let Some(style) = snapin_annotation::style::ArrowHeadStyle::ALL.get(index) else {
                     continue;
                 };
                 (
@@ -118,8 +117,7 @@ pub(super) fn render_dropdown(
                 )
             }
             SubDropdown::EndArrow => {
-                let Some(style) = snapin_core::annotation::style::ArrowHeadStyle::ALL.get(index)
-                else {
+                let Some(style) = snapin_annotation::style::ArrowHeadStyle::ALL.get(index) else {
                     continue;
                 };
                 (
@@ -128,7 +126,7 @@ pub(super) fn render_dropdown(
                 )
             }
             SubDropdown::BadgeSequence => {
-                let Some(sequence) = snapin_core::annotation::BadgeSequence::ALL.get(index) else {
+                let Some(sequence) = snapin_annotation::BadgeSequence::ALL.get(index) else {
                     continue;
                 };
                 (
@@ -292,7 +290,7 @@ pub(super) fn render_dropdown(
                 with_thread_local_text_renderer(|renderer| {
                     renderer.draw_text_rgba(
                         pixmap,
-                        snapin_core::i18n::tr(label),
+                        snapin_foundation::i18n::tr(label),
                         row.x + 12.0 * s,
                         center_y - 8.0 * s,
                         14.0 * s,
@@ -320,8 +318,8 @@ enum DropdownPreview {
     Badge(BadgeStyle),
     Arrow(ArrowStyle),
     FontSize(f32),
-    ArrowHead(snapin_core::annotation::style::ArrowHeadStyle, bool),
-    BadgeSequence(snapin_core::annotation::BadgeSequence),
+    ArrowHead(snapin_annotation::style::ArrowHeadStyle, bool),
+    BadgeSequence(snapin_annotation::BadgeSequence),
     MagnifierConnector(MagnifierConnector),
     Text(&'static str),
 }

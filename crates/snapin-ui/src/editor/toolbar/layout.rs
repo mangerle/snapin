@@ -317,19 +317,17 @@ pub(crate) fn calculate_sub_layout_with_options(
             .rect;
 
         let rows = match kind {
-            SubDropdown::Line => snapin_core::annotation::LineStyle::ALL.len(),
+            SubDropdown::Line => snapin_annotation::LineStyle::ALL.len(),
             SubDropdown::Badge => 2,
             SubDropdown::Arrow => 3,
             SubDropdown::FontSize => crate::editor::toolbar::items::FONT_SIZE_PRESETS.len(),
             SubDropdown::StartArrow | SubDropdown::EndArrow => {
-                snapin_core::annotation::style::ArrowHeadStyle::ALL.len()
+                snapin_annotation::style::ArrowHeadStyle::ALL.len()
             }
-            SubDropdown::BadgeSequence => snapin_core::annotation::BadgeSequence::ALL.len(),
+            SubDropdown::BadgeSequence => snapin_annotation::BadgeSequence::ALL.len(),
             SubDropdown::MosaicMode => 3,
             SubDropdown::FontFamily => FONT_FAMILY_PRESETS.len(),
-            SubDropdown::MagnifierConnector => {
-                snapin_core::annotation::MagnifierConnector::ALL.len()
-            }
+            SubDropdown::MagnifierConnector => snapin_annotation::MagnifierConnector::ALL.len(),
             SubDropdown::MarkerShape | SubDropdown::MarkerBlendMode => 2,
         };
         let row_h = 28.0 * s;

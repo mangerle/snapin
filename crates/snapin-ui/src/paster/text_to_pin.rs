@@ -3,8 +3,8 @@
 //! 当系统未处于截图状态而用户直接按下贴图键时，检查剪贴板内容：
 //! 若包含纯文本或颜色值，自动排版并烘焙为带圆角与投影的精致便签图片。
 
-use snapin_core::config::HexColor;
-use snapin_core::render::with_thread_local_text_renderer;
+use snapin_config::config::HexColor;
+use snapin_render::with_thread_local_text_renderer;
 use tiny_skia::{Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 
 /// 判断字符串是否为标准 HEX 颜色格式 (如 `#FF5500` 或 `#F50`)

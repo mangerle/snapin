@@ -3,8 +3,8 @@
 use super::{spawn_clipboard_history_subprocess, spawn_snipper, spawn_workspace_command};
 use crate::services::AppServices;
 use crate::snip::SnipStartRequest;
-use snapin_core::{PostCaptureAction, SnipMode};
 use snapin_daemon::DaemonRequest;
+use snapin_foundation::{PostCaptureAction, SnipMode};
 use snapin_ui::paster::PasterWorkspaceProxy;
 use std::sync::Arc;
 

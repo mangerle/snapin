@@ -16,9 +16,9 @@ use snapin_app::{
     clear_snip_history, ensure_daemon_running, exit_snapin_application, install_gnome_extension,
     run_cli_update, run_daemon_process, run_pin_file,
 };
-use snapin_core::config::{self, Config};
-use snapin_core::{PostCaptureAction, SnipMode};
+use snapin_config::config::{self, Config};
 use snapin_daemon::{send_command_to_daemon, DaemonRequest};
+use snapin_foundation::{PostCaptureAction, SnipMode};
 use snapin_platform::{init_platform_capabilities, sync_hotkeys_to_gnome};
 use snapin_settings::{run_clipboard_history_panel, run_settings_gui};
 use tracing_subscriber::EnvFilter;

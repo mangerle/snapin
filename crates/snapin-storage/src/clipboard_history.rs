@@ -6,7 +6,7 @@
 use crate::error::StorageError;
 use image::RgbaImage;
 use serde::{Deserialize, Serialize};
-use snapin_core::AppPaths;
+use snapin_foundation::AppPaths;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -168,7 +168,7 @@ fn trim_and_save(
         path: temp.display().to_string(),
         source,
     })?;
-    if let Err(source) = snapin_core::AppPaths::replace_file_atomically(&temp, &index) {
+    if let Err(source) = snapin_foundation::AppPaths::replace_file_atomically(&temp, &index) {
         let _ = std::fs::remove_file(&temp);
         return Err(StorageError::Io {
             path: index.display().to_string(),

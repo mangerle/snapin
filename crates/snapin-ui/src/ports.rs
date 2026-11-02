@@ -19,9 +19,9 @@
 
 use crate::snipper::selection::Rect;
 use image::RgbaImage;
-use snapin_core::annotation::shapes::TranslationShapeItem;
-use snapin_core::config::CoverMode;
-use snapin_core::render::BeautifyOptions;
+use snapin_annotation::shapes::TranslationShapeItem;
+use snapin_config::config::CoverMode;
+use snapin_render::BeautifyOptions;
 use std::fmt;
 use std::path::PathBuf;
 
@@ -112,12 +112,12 @@ impl PortError {
 
 impl fmt::Display for PortError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if snapin_core::i18n::language() == snapin_core::config::UiLanguage::EnUs {
+        if snapin_foundation::i18n::language() == snapin_config::config::UiLanguage::EnUs {
             write!(
                 f,
                 "{} failed: {}",
                 self.operation,
-                snapin_core::i18n::localize_error(&self.message)
+                snapin_foundation::i18n::localize_error(&self.message)
             )
         } else {
             write!(f, "{}失败: {}", self.operation, self.message)

@@ -7,8 +7,8 @@
 use super::state::SnipperState;
 use crate::ports::OcrTextItem;
 use crate::snipper::selection::Rect;
-use snapin_core::annotation::shapes::MosaicAction;
-use snapin_core::annotation::{AnnotationHistory, AnnotationShape};
+use snapin_annotation::shapes::MosaicAction;
+use snapin_annotation::{AnnotationHistory, AnnotationShape};
 
 const REDACTION_CELL_SIZE: u32 = 12;
 

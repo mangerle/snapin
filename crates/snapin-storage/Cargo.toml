@@ -7,7 +7,8 @@ license.workspace = true
 description = "Snapin 图像编码保存、文件名模板、选区缓存与原生像素载荷校验"
 
 [dependencies]
-snapin-core.workspace = true
+snapin-config.workspace = true
+snapin-foundation.workspace = true
 image.workspace = true
 chrono.workspace = true
 serde.workspace = true

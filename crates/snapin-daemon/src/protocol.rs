@@ -1,7 +1,7 @@
 //! Unix Domain Socket 守护进程请求与响应协议模型。
 
 use serde::{Deserialize, Serialize};
-use snapin_core::{PostCaptureAction, SnipMode};
+use snapin_foundation::{PostCaptureAction, SnipMode};
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::oneshot;
@@ -87,5 +87,5 @@ pub struct IpcInvocation {
 
 /// 获取本用户的默认 IPC Socket 路径（由 AppPaths 统一纳管）
 pub fn get_socket_path() -> PathBuf {
-    snapin_core::AppPaths::default_socket_path()
+    snapin_foundation::AppPaths::default_socket_path()
 }

@@ -231,7 +231,7 @@ fn handle_ocr_panel_key(state: &mut SnipperState, key: &Key, original_rgba: &Rgb
             state.ocr_panel = None;
             state.ocr_edit_row = None;
             state.active_text_input = None;
-            state.set_status_message(snapin_core::i18n::tr("已关闭 OCR 结果面板"));
+            state.set_status_message(snapin_foundation::i18n::tr("已关闭 OCR 结果面板"));
             true
         }
         Key::Named(NamedKey::ArrowUp) => {
@@ -299,7 +299,9 @@ fn begin_ocr_row_edit(state: &mut SnipperState, screen_width: f32, screen_height
     session.text = line.text.clone();
     state.ocr_edit_row = Some(panel.cursor);
     state.active_text_input = Some(session);
-    state.set_status_message(snapin_core::i18n::tr("编辑 OCR 文本；Enter 确认，Esc 取消"));
+    state.set_status_message(snapin_foundation::i18n::tr(
+        "编辑 OCR 文本；Enter 确认，Esc 取消",
+    ));
 }
 
 /// 处理智能打码交互阶段的退出键；其余快捷键继续交给全局处理。
@@ -322,11 +324,13 @@ fn handle_qr_open_link(state: &mut SnipperState) -> bool {
         .and_then(|codes| codes.first())
         .map(|code| code.text.clone())
     else {
-        state.set_status_message(snapin_core::i18n::tr("请先识别二维码"));
+        state.set_status_message(snapin_foundation::i18n::tr("请先识别二维码"));
         return true;
     };
     match state.desktop.open_url(&url) {
-        Ok(()) => state.set_status_message(snapin_core::i18n::tr("已请求系统浏览器打开二维码链接")),
+        Ok(()) => state.set_status_message(snapin_foundation::i18n::tr(
+            "已请求系统浏览器打开二维码链接",
+        )),
         Err(error) => {
             tracing::warn!("打开二维码链接失败: {error}");
             state.set_status_message(format!("打开二维码链接失败: {error}"));
@@ -366,7 +370,7 @@ pub fn handle_escape(state: &mut SnipperState) -> bool {
         state.ocr_panel = None;
         state.ocr_edit_row = None;
         state.active_text_input = None;
-        state.set_status_message(snapin_core::i18n::tr("已关闭 OCR 结果面板"));
+        state.set_status_message(snapin_foundation::i18n::tr("已关闭 OCR 结果面板"));
         true
     } else if state.redaction_preview.is_some() {
         // 马赛克在识别完成时已经写入标注历史，退出交互模式不得撤销用户当前选择。

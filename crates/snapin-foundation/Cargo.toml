@@ -1,0 +1,22 @@
+[package]
+name = "snapin-foundation"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Snapin 基础契约：错误、路径、几何、国际化与截图触发模型"
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true

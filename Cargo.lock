@@ -6064,8 +6064,9 @@ dependencies = [
  "anyhow",
  "clap",
  "snapin-app",
- "snapin-core",
+ "snapin-config",
  "snapin-daemon",
+ "snapin-foundation",
  "snapin-platform",
  "snapin-settings",
  "snapin-ui",
@@ -6073,6 +6074,20 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "snapin-annotation"
+version = "1.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "snapin-config",
+ "snapin-foundation",
+ "snapin-render",
+ "tiny-skia 0.11.4",
+ "toml 0.8.23",
+ "tracing",
 ]
 
 [[package]]
@@ -6085,9 +6100,12 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "snapin-core",
+ "snapin-annotation",
+ "snapin-config",
  "snapin-daemon",
+ "snapin-foundation",
  "snapin-platform",
+ "snapin-render",
  "snapin-runtime",
  "snapin-service",
  "snapin-storage",
@@ -6101,20 +6119,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "snapin-config"
+version = "1.2.0"
+dependencies = [
+ "serde",
+ "serde_ignored",
+ "snapin-foundation",
+ "tempfile",
+ "thiserror 1.0.69",
+ "toml 0.8.23",
+ "tracing",
+]
+
+[[package]]
 name = "snapin-core"
 version = "1.2.0"
 dependencies = [
- "cosmic-text",
- "rustix 0.38.44",
- "serde",
- "serde_ignored",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
- "tiny-skia 0.11.4",
- "toml 0.8.23",
- "tracing",
- "windows-sys 0.61.2",
+ "snapin-annotation",
+ "snapin-config",
+ "snapin-foundation",
+ "snapin-render",
 ]
 
 [[package]]
@@ -6123,13 +6147,26 @@ version = "1.2.0"
 dependencies = [
  "serde",
  "serde_json",
- "snapin-core",
+ "snapin-foundation",
  "snapin-runtime",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "snapin-foundation"
+version = "1.2.0"
+dependencies = [
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6145,7 +6182,8 @@ dependencies = [
  "rustix 0.38.44",
  "serde",
  "serde_json",
- "snapin-core",
+ "snapin-config",
+ "snapin-foundation",
  "snapin-runtime",
  "thiserror 1.0.69",
  "tokio",
@@ -6153,6 +6191,16 @@ dependencies = [
  "tray-icon",
  "xcap",
  "zbus 4.4.0",
+]
+
+[[package]]
+name = "snapin-render"
+version = "1.2.0"
+dependencies = [
+ "cosmic-text",
+ "serde",
+ "snapin-config",
+ "tiny-skia 0.11.4",
 ]
 
 [[package]]
@@ -6185,7 +6233,7 @@ dependencies = [
  "serde_yaml",
  "sha1",
  "sha2 0.10.9",
- "snapin-core",
+ "snapin-render",
  "tempfile",
  "thiserror 1.0.69",
  "tiny-skia 0.11.4",
@@ -6200,8 +6248,9 @@ dependencies = [
  "arc-swap",
  "slint",
  "slint-build",
- "snapin-core",
+ "snapin-config",
  "snapin-daemon",
+ "snapin-foundation",
  "snapin-platform",
  "snapin-runtime",
  "snapin-storage",
@@ -6219,7 +6268,8 @@ dependencies = [
  "image 0.24.9",
  "serde",
  "serde_json",
- "snapin-core",
+ "snapin-config",
+ "snapin-foundation",
  "tempfile",
  "thiserror 1.0.69",
  "toml 0.8.23",
@@ -6233,7 +6283,10 @@ dependencies = [
  "memmap2",
  "raw-window-handle",
  "rustix 0.38.44",
- "snapin-core",
+ "snapin-annotation",
+ "snapin-config",
+ "snapin-foundation",
+ "snapin-render",
  "softbuffer",
  "thiserror 1.0.69",
  "tiny-skia 0.11.4",

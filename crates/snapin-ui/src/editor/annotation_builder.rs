@@ -2,13 +2,13 @@
 
 use crate::editor::toolbar::{MosaicMode, Tool, Toolbar};
 use crate::geometry::Rect;
-use snapin_core::annotation::action::AnnotationShape;
-use snapin_core::annotation::shapes::{
+use snapin_annotation::action::AnnotationShape;
+use snapin_annotation::shapes::{
     ArrowAction, BadgeAction, BlurAction, EllipseAction, MagnifierAction, MagnifierConnector,
     MagnifierShape, MarkerAction, MarkerBlendMode, MarkerShape, MosaicAction, PenAction,
     PolylineAction, RectAction, SpotlightAction, SpotlightShape,
 };
-use snapin_core::annotation::{ArrowHeadStyle, ArrowStyle, BadgeSequence, BadgeStyle, LineStyle};
+use snapin_annotation::{ArrowHeadStyle, ArrowStyle, BadgeSequence, BadgeStyle, LineStyle};
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, StrokeDash, Transform};
 
 /// 工具栏样式快照：与几何点和序号解耦，预览与最终提交共享同一份样式。

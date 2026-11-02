@@ -1,7 +1,7 @@
 //! 配置热重载指令。
 
 use crate::services::AppServices;
-use snapin_core::config;
+use snapin_config::config;
 use snapin_daemon::DaemonResponse;
 use snapin_ui::paster::PasterWorkspaceProxy;
 

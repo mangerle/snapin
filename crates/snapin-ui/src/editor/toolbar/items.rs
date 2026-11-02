@@ -83,7 +83,7 @@ impl ToolbarItem {
 impl Tool {
     /// 工具中文名称，用于悬浮提示。
     pub fn label(self) -> &'static str {
-        snapin_core::i18n::tr(match self {
+        snapin_foundation::i18n::tr(match self {
             Self::Rect => "矩形",
             Self::Ellipse => "椭圆",
             Self::Arrow => "箭头",
@@ -104,7 +104,7 @@ impl Tool {
 impl ToolbarAction {
     /// 动作中文名称，用于悬浮提示。
     pub fn label(self) -> &'static str {
-        snapin_core::i18n::tr(match self {
+        snapin_foundation::i18n::tr(match self {
             Self::Undo => "撤销",
             Self::Redo => "重做",
             Self::Ocr => "文字识别",

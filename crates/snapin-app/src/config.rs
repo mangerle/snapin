@@ -5,7 +5,7 @@
 //! 原子替换指针。配置属于典型读多写少数据，RCU 语义比全局读写锁更贴合访问模型。
 
 use arc_swap::ArcSwap;
-use snapin_core::config::Config;
+use snapin_config::config::Config;
 use std::sync::Arc;
 
 /// 进程内共享的配置快照。

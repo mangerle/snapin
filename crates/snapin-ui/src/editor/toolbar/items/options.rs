@@ -1,7 +1,7 @@
 //! 工具栏二级属性选项、尺寸档位与调色板。
 
 use super::tools::{LineMode, MosaicMode};
-use snapin_core::annotation::{
+use snapin_annotation::{
     ArrowHeadStyle, ArrowStyle, BadgeSequence, BadgeStyle, LineStyle, MagnifierConnector,
     MagnifierShape, MarkerBlendMode, MarkerShape, SpotlightShape,
 };

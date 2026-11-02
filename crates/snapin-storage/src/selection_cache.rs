@@ -39,7 +39,7 @@ impl SelectionRectRecord {
 
 /// 获取 Snapin 缓存目录。
 fn get_cache_dir() -> PathBuf {
-    snapin_core::AppPaths::cache_dir()
+    snapin_foundation::AppPaths::cache_dir()
 }
 
 /// 保存上次选区坐标至运行时缓存文件
@@ -63,13 +63,14 @@ fn save_last_selection_in(cache_dir: &std::path::Path, rect: (f32, f32, f32, f32
     let temp_path = cache_dir.join(format!(
         ".last_selection.{}.{}.tmp",
         std::process::id(),
-        snapin_core::AppPaths::generate_unique_id()
+        snapin_foundation::AppPaths::generate_unique_id()
     ));
-    if snapin_core::AppPaths::write_secure_file(&temp_path, toml_content.as_bytes()).is_err() {
+    if snapin_foundation::AppPaths::write_secure_file(&temp_path, toml_content.as_bytes()).is_err()
+    {
         let _ = std::fs::remove_file(&temp_path);
         return;
     }
-    if snapin_core::AppPaths::replace_file_atomically(&temp_path, &toml_path).is_err() {
+    if snapin_foundation::AppPaths::replace_file_atomically(&temp_path, &toml_path).is_err() {
         let _ = std::fs::remove_file(&temp_path);
     }
 }

@@ -4,7 +4,7 @@ use super::WorkspaceRuntime;
 use crate::model::PasterId;
 use crate::paster::window::state::PasterWindowState;
 use crate::ports::JobId;
-use snapin_core::annotation::shapes::TranslationShapeItem;
+use snapin_annotation::shapes::TranslationShapeItem;
 use std::path::PathBuf;
 
 /// 处理贴图保存结果：回填文件路径与状态提示。
@@ -33,7 +33,7 @@ pub(super) fn handle_save_finished(
     match result {
         Ok(Some(path)) => {
             inst.state.file_path = Some(path.clone());
-            inst.state.set_status_message(snapin_core::trf!(
+            inst.state.set_status_message(snapin_foundation::trf!(
                 "图像已保存至: {}",
                 "Image saved to: {}",
                 path.display()
@@ -41,10 +41,10 @@ pub(super) fn handle_save_finished(
         }
         Ok(None) => inst
             .state
-            .set_status_message(snapin_core::i18n::tr("已取消保存")),
+            .set_status_message(snapin_foundation::i18n::tr("已取消保存")),
         Err(message) => {
             tracing::warn!("贴图保存失败: {message}");
-            inst.state.set_status_message(snapin_core::trf!(
+            inst.state.set_status_message(snapin_foundation::trf!(
                 "保存失败: {}",
                 "Save failed: {}",
                 message
@@ -109,13 +109,13 @@ fn apply_ocr_result(state: &mut PasterWindowState, result: Result<String, String
         Ok(text) => {
             let text = text.trim();
             if text.is_empty() {
-                state.set_status_message(snapin_core::i18n::tr("未识别到文字"));
+                state.set_status_message(snapin_foundation::i18n::tr("未识别到文字"));
                 return;
             }
             match state.services.desktop.write_text_clipboard(text) {
                 Ok(()) => {
                     let chars = text.chars().count();
-                    state.set_status_message(snapin_core::trf!(
+                    state.set_status_message(snapin_foundation::trf!(
                         "已复制识别文字（{} 字符）",
                         "Recognized text copied ({} characters)",
                         chars
@@ -124,7 +124,7 @@ fn apply_ocr_result(state: &mut PasterWindowState, result: Result<String, String
                 }
                 Err(error) => {
                     tracing::warn!("复制贴图识别文字到系统剪贴板失败: {error}");
-                    state.set_status_message(snapin_core::trf!(
+                    state.set_status_message(snapin_foundation::trf!(
                         "复制识别文字失败: {}",
                         "Failed to copy recognized text: {}",
                         error
@@ -134,7 +134,7 @@ fn apply_ocr_result(state: &mut PasterWindowState, result: Result<String, String
         }
         Err(message) => {
             tracing::warn!("贴图整图文字识别失败: {message}");
-            state.set_status_message(snapin_core::trf!(
+            state.set_status_message(snapin_foundation::trf!(
                 "文字识别失败: {}",
                 "Text recognition failed: {}",
                 message
@@ -151,11 +151,11 @@ fn apply_translate_result(
     match result {
         Ok(items) => {
             if items.is_empty() {
-                state.set_status_message(snapin_core::i18n::tr("未识别到文字"));
+                state.set_status_message(snapin_foundation::i18n::tr("未识别到文字"));
                 return;
             }
             let count = state.apply_translation_items(items);
-            state.set_status_message(snapin_core::trf!(
+            state.set_status_message(snapin_foundation::trf!(
                 "已翻译 {} 段文字",
                 "Translated {} text blocks",
                 count
@@ -164,7 +164,7 @@ fn apply_translate_result(
         }
         Err(message) => {
             tracing::warn!("贴图整图翻译失败: {message}");
-            state.set_status_message(snapin_core::trf!(
+            state.set_status_message(snapin_foundation::trf!(
                 "翻译失败: {}",
                 "Translation failed: {}",
                 message

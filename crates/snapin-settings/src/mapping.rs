@@ -1,14 +1,14 @@
 //! 偏好设置中心图形界面与核心领域枚举之间的索引映射适配层。
 //!
-//! 将 Slint UI 声明式下拉框组件的整数索引与 `snapin-core` 强类型领域枚举进行解耦转换，
+//! 将 Slint UI 声明式下拉框组件的整数索引与 `snapin-config` 强类型领域枚举进行解耦转换，
 //! 避免表现层细节反向污染核心领域模型。对于颜色与放大倍率保留“自定义”槽位，
 //! 防止用户手工配置的非预设值在打开设置并保存后被静默重置。
 
-use snapin_core::config::{
+use snapin_config::config::{BeautifyBackground, SocialSize};
+use snapin_config::config::{
     ColorFormat, CoverMode, DoubleClickAction, HexColor, ImageFormat, LogLevel, TargetLanguage,
     TranslateProvider, UiLanguage, ZoomAnchor,
 };
-use snapin_core::render::{BeautifyBackground, SocialSize};
 
 /// 预设强调色表（顺序与 Slint interface_tab 中的 ComboBox 严格一一对应）
 pub const ACCENT_COLORS: &[&str] = &["#00AEFF", "#10B981", "#F59E0B", "#8B5CF6"];

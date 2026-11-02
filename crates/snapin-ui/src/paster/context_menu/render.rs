@@ -4,7 +4,7 @@ use super::{ContextMenuState, MenuItem};
 use crate::drawing::{add_round_rect, make_paint};
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
-pub use snapin_core::render::TextRenderer;
+pub use snapin_render::TextRenderer;
 
 /// 菜单面板布局参数
 #[derive(Debug, Clone, Copy)]

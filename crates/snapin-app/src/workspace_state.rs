@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use snapin_core::AppPaths;
+use snapin_foundation::AppPaths;
 use snapin_ui::paster::TOTAL_PIN_GROUPS;
 use snapin_ui::{PortError, PortErrorKind, WorkspaceState, WorkspaceStateStore};
 use std::path::{Path, PathBuf};

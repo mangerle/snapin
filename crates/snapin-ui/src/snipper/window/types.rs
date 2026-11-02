@@ -2,8 +2,8 @@
 
 use crate::model::PasterItem;
 use crate::ports::{DesktopPort, MediaJobRunner};
-use snapin_core::config::Config;
-use snapin_core::PostCaptureAction;
+use snapin_config::config::Config;
+use snapin_foundation::PostCaptureAction;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -51,4 +51,4 @@ pub struct SnipperLaunch {
     pub runtime: SnipperRuntime,
 }
 
-pub use snapin_core::SnipMode;
+pub use snapin_foundation::SnipMode;

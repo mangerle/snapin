@@ -6,8 +6,8 @@ use crate::snipper::window::ocr_panel::OcrPanelState;
 use crate::snipper::window::redaction::{apply_redaction, RedactionPreview};
 use crate::snipper::window::state::SnipperState;
 use crate::snipper::window::types::SnipperOutcome;
-use snapin_core::annotation::action::AnnotationShape;
-use snapin_core::annotation::shapes::TranslationAction;
+use snapin_annotation::action::AnnotationShape;
+use snapin_annotation::shapes::TranslationAction;
 
 /// 处理后台任务结果，驱动截图会话状态流转。
 pub fn handle_job_outcome(
@@ -37,14 +37,14 @@ pub fn handle_job_outcome(
             state.ocr_panel = Some(OcrPanelState::from_ocr_lines(&lines));
             let text = text.trim();
             if text.is_empty() {
-                state.set_status_message(snapin_core::i18n::tr("未识别到文字"));
+                state.set_status_message(snapin_foundation::i18n::tr("未识别到文字"));
                 return;
             }
             match state.desktop.write_text_clipboard(text) {
                 Ok(()) => {
                     // 识别结果只写入剪贴板，不结束截图会话：用户常常要在同一张图上继续
                     // 标注或再识别另一块区域，直接关闭会让人来不及确认结果。
-                    state.set_status_message(snapin_core::trf!(
+                    state.set_status_message(snapin_foundation::trf!(
                         "已复制识别文字（{} 字符）",
                         "Recognized text copied ({} characters)",
                         text.chars().count()
@@ -52,7 +52,7 @@ pub fn handle_job_outcome(
                 }
                 Err(error) => {
                     tracing::warn!("复制 OCR 文本至系统剪贴板失败: {error}");
-                    state.set_status_message(snapin_core::trf!(
+                    state.set_status_message(snapin_foundation::trf!(
                         "复制识别文字失败: {}",
                         "Failed to copy recognized text: {}",
                         error
@@ -63,7 +63,7 @@ pub fn handle_job_outcome(
         MediaJobOutcome::QrCodes { codes } => {
             if codes.is_empty() {
                 state.qr_result = None;
-                state.set_status_message(snapin_core::i18n::tr("未识别到二维码"));
+                state.set_status_message(snapin_foundation::i18n::tr("未识别到二维码"));
                 return;
             }
             let count = codes.len();
@@ -72,11 +72,11 @@ pub fn handle_job_outcome(
             match state.desktop.write_text_clipboard(&first) {
                 Ok(()) => {
                     let suffix = if first.starts_with("http://") || first.starts_with("https://") {
-                        snapin_core::i18n::tr("；Ctrl+Enter 打开链接")
+                        snapin_foundation::i18n::tr("；Ctrl+Enter 打开链接")
                     } else {
                         ""
                     };
-                    state.set_status_message(snapin_core::trf!(
+                    state.set_status_message(snapin_foundation::trf!(
                         "已复制二维码内容（共 {} 个）{}",
                         "QR content copied ({} codes){}",
                         count,
@@ -85,7 +85,7 @@ pub fn handle_job_outcome(
                 }
                 Err(error) => {
                     tracing::warn!("复制二维码文本至系统剪贴板失败: {error}");
-                    state.set_status_message(snapin_core::trf!(
+                    state.set_status_message(snapin_foundation::trf!(
                         "复制二维码内容失败: {}",
                         "Failed to copy QR content: {}",
                         error
@@ -95,7 +95,7 @@ pub fn handle_job_outcome(
         }
         MediaJobOutcome::Translated { items } => {
             if items.is_empty() {
-                state.set_status_message(snapin_core::i18n::tr("未获得有效翻译结果"));
+                state.set_status_message(snapin_foundation::i18n::tr("未获得有效翻译结果"));
                 return;
             }
             state
@@ -108,7 +108,7 @@ pub fn handle_job_outcome(
         }
         MediaJobOutcome::Saved { path } => {
             if kind == SnipperJobKind::Export {
-                state.set_status_message(snapin_core::trf!(
+                state.set_status_message(snapin_foundation::trf!(
                     "OCR 结果已导出至: {}",
                     "OCR results exported to: {}",
                     path.display()
@@ -118,12 +118,12 @@ pub fn handle_job_outcome(
             }
         }
         MediaJobOutcome::SaveCancelled => {
-            state.set_status_message(snapin_core::i18n::tr("已取消保存"));
+            state.set_status_message(snapin_foundation::i18n::tr("已取消保存"));
         }
         MediaJobOutcome::Failed { message } => {
             tracing::warn!("{}后台任务失败: {message}", kind.label());
-            let message = snapin_core::i18n::localize_error(&message);
-            state.set_status_message(snapin_core::trf!(
+            let message = snapin_foundation::i18n::localize_error(&message);
+            state.set_status_message(snapin_foundation::trf!(
                 "{}失败: {}",
                 "{} failed: {}",
                 kind.label(),
@@ -138,8 +138,8 @@ mod tests {
     use super::*;
     use crate::ports::MediaJob;
     use image::Rgba;
-    use snapin_core::annotation::shapes::TranslationShapeItem;
-    use snapin_core::config::CoverMode;
+    use snapin_annotation::shapes::TranslationShapeItem;
+    use snapin_config::config::CoverMode;
     use std::path::PathBuf;
 
     fn translation_item() -> TranslationShapeItem {

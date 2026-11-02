@@ -2,7 +2,7 @@
 
 use super::{configured_bindings, hotkey_to_gnome_accelerator, HotkeyAction};
 use crate::error::PlatformError;
-use snapin_core::config::HotkeyConfig;
+use snapin_config::config::HotkeyConfig;
 use std::process::Command;
 
 /// 返回 GNOME 注册所需的路径后缀、显示名与命令行参数。

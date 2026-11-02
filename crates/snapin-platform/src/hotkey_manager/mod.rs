@@ -5,7 +5,7 @@
 //! [`HotkeyAction`] 动作契约。
 
 use crate::error::PlatformError;
-use snapin_core::config::{Hotkey, HotkeyConfig};
+use snapin_config::config::{Hotkey, HotkeyConfig};
 
 #[cfg(target_os = "linux")]
 mod gnome;

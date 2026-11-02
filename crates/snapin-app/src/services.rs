@@ -7,7 +7,7 @@
 use crate::config::{publish_config, shared_config, SharedConfig};
 use crate::desktop::AppDesktop;
 use crate::media::MediaService;
-use snapin_core::config::Config;
+use snapin_config::config::Config;
 use snapin_runtime::TaskRuntime;
 use snapin_ui::{DesktopPort, MediaJobRunner};
 use std::sync::Arc;

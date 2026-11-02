@@ -7,7 +7,7 @@ use super::widgets::{
     fill_button_highlight, fill_circle, render_badge_style_icon, render_corner_radius_icon,
 };
 use crate::geometry::Rect;
-use snapin_core::render::with_thread_local_text_renderer;
+use snapin_render::with_thread_local_text_renderer;
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
 pub(super) fn render_toggle_text(
@@ -23,7 +23,7 @@ pub(super) fn render_toggle_text(
     with_thread_local_text_renderer(|renderer| {
         renderer.draw_text_rgba(
             pixmap,
-            snapin_core::i18n::tr(label),
+            snapin_foundation::i18n::tr(label),
             rect.x + 7.0 * s,
             rect.y + 5.0 * s,
             12.0 * s,
@@ -399,7 +399,7 @@ pub(super) fn render_badge_control(
             with_thread_local_text_renderer(|renderer| {
                 renderer.draw_text_rgba(
                     pixmap,
-                    snapin_core::i18n::tr("序号"),
+                    snapin_foundation::i18n::tr("序号"),
                     rect.x + 7.0 * s,
                     rect.y + 5.0 * s,
                     12.0 * s,

@@ -4,7 +4,7 @@ use super::items::{MosaicMode, FONT_FAMILY_PRESETS, FONT_SIZE_PRESETS};
 use super::layout::{SubControl, SubDropdown};
 use super::state::store_remembered_sub_options;
 use super::Toolbar;
-use snapin_core::annotation::{ArrowStyle, BadgeStyle, LineStyle, MagnifierConnector};
+use snapin_annotation::{ArrowStyle, BadgeStyle, LineStyle, MagnifierConnector};
 
 impl Toolbar {
     /// 应用下拉菜单中选中的行
@@ -33,17 +33,17 @@ impl Toolbar {
                 }
             }
             Some(SubDropdown::StartArrow) => {
-                if let Some(style) = snapin_core::annotation::style::ArrowHeadStyle::ALL.get(row) {
+                if let Some(style) = snapin_annotation::style::ArrowHeadStyle::ALL.get(row) {
                     self.sub_options.start_arrow_head = *style;
                 }
             }
             Some(SubDropdown::EndArrow) => {
-                if let Some(style) = snapin_core::annotation::style::ArrowHeadStyle::ALL.get(row) {
+                if let Some(style) = snapin_annotation::style::ArrowHeadStyle::ALL.get(row) {
                     self.sub_options.end_arrow_head = *style;
                 }
             }
             Some(SubDropdown::BadgeSequence) => {
-                if let Some(sequence) = snapin_core::annotation::BadgeSequence::ALL.get(row) {
+                if let Some(sequence) = snapin_annotation::BadgeSequence::ALL.get(row) {
                     self.sub_options.badge_sequence = *sequence;
                 }
             }
@@ -67,15 +67,15 @@ impl Toolbar {
             }
             Some(SubDropdown::MarkerShape) => {
                 self.sub_options.marker_shape = match row {
-                    0 => snapin_core::annotation::MarkerShape::Stroke,
-                    1 => snapin_core::annotation::MarkerShape::Rectangle,
+                    0 => snapin_annotation::MarkerShape::Stroke,
+                    1 => snapin_annotation::MarkerShape::Rectangle,
                     _ => self.sub_options.marker_shape,
                 };
             }
             Some(SubDropdown::MarkerBlendMode) => {
                 self.sub_options.marker_blend_mode = match row {
-                    0 => snapin_core::annotation::MarkerBlendMode::Multiply,
-                    1 => snapin_core::annotation::MarkerBlendMode::Normal,
+                    0 => snapin_annotation::MarkerBlendMode::Multiply,
+                    1 => snapin_annotation::MarkerBlendMode::Normal,
                     _ => self.sub_options.marker_blend_mode,
                 };
             }

@@ -17,7 +17,7 @@ const MAX_SCREENSHOT_FILE_BYTES: u64 = 256 * 1024 * 1024;
 #[cfg(target_os = "linux")]
 use crate::{capabilities::get_platform_capabilities, portal::capture_fullscreen_portal};
 #[cfg(target_os = "linux")]
-use snapin_core::AppPaths;
+use snapin_foundation::AppPaths;
 
 /// 跨平台获取全屏底图快照
 ///

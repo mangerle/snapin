@@ -59,52 +59,52 @@ enum TrayMenuEntry {
 fn tray_menu() -> Vec<TrayMenuEntry> {
     vec![
         TrayMenuEntry::Action {
-            label: snapin_core::i18n::tr("截屏"),
+            label: snapin_foundation::i18n::tr("截屏"),
             action: TrayAction::Snip,
         },
         TrayMenuEntry::Action {
-            label: snapin_core::i18n::tr("全屏截图"),
+            label: snapin_foundation::i18n::tr("全屏截图"),
             action: TrayAction::Fullscreen,
         },
         TrayMenuEntry::Action {
-            label: snapin_core::i18n::tr("取色器"),
+            label: snapin_foundation::i18n::tr("取色器"),
             action: TrayAction::PickColor,
         },
         TrayMenuEntry::Action {
-            label: snapin_core::i18n::tr("贴图"),
+            label: snapin_foundation::i18n::tr("贴图"),
             action: TrayAction::Paste,
         },
         TrayMenuEntry::Action {
-            label: snapin_core::i18n::tr("智能打码"),
+            label: snapin_foundation::i18n::tr("智能打码"),
             action: TrayAction::SmartRedact,
         },
         TrayMenuEntry::Action {
-            label: snapin_core::i18n::tr("二维码"),
+            label: snapin_foundation::i18n::tr("二维码"),
             action: TrayAction::Qr,
         },
         TrayMenuEntry::Action {
-            label: snapin_core::i18n::tr("美化导出"),
+            label: snapin_foundation::i18n::tr("美化导出"),
             action: TrayAction::Beautify,
         },
         TrayMenuEntry::Action {
-            label: snapin_core::i18n::tr("贴图工作区"),
+            label: snapin_foundation::i18n::tr("贴图工作区"),
             action: TrayAction::Workspace,
         },
         TrayMenuEntry::Action {
-            label: snapin_core::i18n::tr("剪贴板历史"),
+            label: snapin_foundation::i18n::tr("剪贴板历史"),
             action: TrayAction::ClipboardHistory,
         },
         TrayMenuEntry::Action {
-            label: snapin_core::i18n::tr("隐藏/显示所有贴图"),
+            label: snapin_foundation::i18n::tr("隐藏/显示所有贴图"),
             action: TrayAction::TogglePasters,
         },
         TrayMenuEntry::Separator,
         TrayMenuEntry::Action {
-            label: snapin_core::i18n::tr("首选项..."),
+            label: snapin_foundation::i18n::tr("首选项..."),
             action: TrayAction::Preferences,
         },
         TrayMenuEntry::Action {
-            label: snapin_core::i18n::tr("退出 Snapin"),
+            label: snapin_foundation::i18n::tr("退出 Snapin"),
             action: TrayAction::Exit,
         },
     ]

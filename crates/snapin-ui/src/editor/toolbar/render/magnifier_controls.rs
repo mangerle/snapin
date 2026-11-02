@@ -8,7 +8,7 @@ use super::sub_bar_helpers::{
 };
 use super::widgets::{fill_button_highlight, render_magnifier_connector_preview};
 use crate::geometry::Rect;
-use snapin_core::annotation::MagnifierShape;
+use snapin_annotation::MagnifierShape;
 use tiny_skia::{Color, PixmapMut};
 
 /// 绘制放大镜专属控件；不属于放大镜时返回 `false`，交回通用属性栏分支。

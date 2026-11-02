@@ -1,7 +1,7 @@
 //! Snapin CLI 在线自更新子命令执行模块。
 
 use anyhow::{Context, Result};
-use snapin_core::config::Config;
+use snapin_config::config::Config;
 use snapin_updater::{DownloadedUpdate, UpdateEvent, UpdateInfo, UpdateStage};
 
 /// 执行 CLI 更新流程

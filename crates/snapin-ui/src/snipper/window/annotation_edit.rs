@@ -7,7 +7,7 @@ use super::drag_calculator::calculate_drag;
 use super::events::SnipperState;
 use crate::model::ShapeId;
 use crate::snipper::selection::{hit_test_handle, DragMode, Rect, ResizeHandle};
-use snapin_core::annotation::AnnotationShape;
+use snapin_annotation::AnnotationShape;
 
 /// 标注编辑拖拽会话：始终基于按下瞬间的原始图元重建，避免逐帧累积误差
 #[derive(Debug, Clone)]
@@ -257,11 +257,11 @@ mod tests {
     use super::*;
     use crate::editor::toolbar::Tool;
     use crate::snipper::selection::SelectionState;
-    use snapin_core::annotation::shapes::{
+    use snapin_annotation::shapes::{
         MagnifierAction, MagnifierConnector, MagnifierShape, RectAction,
     };
-    use snapin_core::annotation::ColorRgba;
-    use snapin_core::annotation::LineStyle;
+    use snapin_annotation::ColorRgba;
+    use snapin_annotation::LineStyle;
 
     fn state_with_rect() -> SnipperState {
         let mut state = SnipperState::new();

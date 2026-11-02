@@ -8,7 +8,7 @@
 use super::save::{execute_save_paster, execute_save_screenshot, SavePasterRequest};
 use super::translate::{build_translation_items, to_service_provider, TranslationPlacement};
 use super::OcrCache;
-use snapin_core::config::Config;
+use snapin_config::config::Config;
 use snapin_platform::pick_save_path;
 use snapin_service::ocr::{LocalPpOcrEngine, OcrEngine, OcrTextBlock};
 use snapin_service::qr::decode_qr_codes;
@@ -78,7 +78,7 @@ pub(super) async fn execute_job(
 /// 渲染美化截图并保存为当前默认输出格式。
 async fn execute_save_beautified(
     image: image::RgbaImage,
-    options: snapin_core::render::BeautifyOptions,
+    options: snapin_render::BeautifyOptions,
     config: &Config,
 ) -> MediaJobOutcome {
     let output = config.output.clone();
@@ -105,7 +105,7 @@ async fn execute_save_beautified(
         let mut input = tiny_skia::Pixmap::new(image.width(), image.height())
             .ok_or_else(|| "分配美化输入缓冲区失败".to_string())?;
         input.data_mut().copy_from_slice(image.as_raw());
-        let beautified = snapin_core::render::render_beautified(input.as_ref(), &options)?;
+        let beautified = snapin_render::render_beautified(input.as_ref(), &options)?;
         let rgba =
             image::RgbaImage::from_raw(beautified.width(), beautified.height(), beautified.take())
                 .ok_or_else(|| "转换美化输出图像失败".to_string())?;

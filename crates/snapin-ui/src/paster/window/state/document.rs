@@ -5,7 +5,7 @@
 //! `base_pixmap` 与 `annotations` 的同步不变量。
 
 use crate::model::PasterItem;
-use snapin_core::annotation::AnnotationHistory;
+use snapin_annotation::AnnotationHistory;
 use tiny_skia::Pixmap;
 
 /// 贴图内容文档。

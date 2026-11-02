@@ -10,7 +10,7 @@
 //! `ArcSwap` 的 RCU 语义也符合该配置读多写极少的访问模式。
 
 use arc_swap::ArcSwap;
-use snapin_core::config::Config;
+use snapin_config::config::Config;
 use std::sync::Arc;
 
 /// 最近一次成功保存的配置快照。

@@ -7,7 +7,8 @@ license.workspace = true
 description = "Snapin Linux Wayland 平台底层驱动：Portal截屏、GNOME Shell扩展通信、剪贴板读写与系统热键"
 
 [dependencies]
-snapin-core.workspace = true
+snapin-config.workspace = true
+snapin-foundation.workspace = true
 snapin-runtime.workspace = true
 arboard.workspace = true
 tokio.workspace = true

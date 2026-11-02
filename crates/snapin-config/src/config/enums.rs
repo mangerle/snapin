@@ -1,0 +1,329 @@
+//! Snapin 强类型枚举与值转换定义。
+//!
+//! 包含系统日志级别、主题风格、取色格式、默认工具、缩放锚点、贴图交互与输出格式等代数数据类型定义。
+//! 遵循关注点分离原则，核心领域枚举不耦合任何特定 UI 框架的控件下标索引。
+
+use serde::{Deserialize, Serialize};
+
+pub use snapin_foundation::language::UiLanguage;
+
+/// 系统日志记录级别强类型枚举
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Trace,
+    Debug,
+    #[default]
+    Info,
+    Warn,
+    Error,
+}
+
+impl LogLevel {
+    /// 转换为标准日志级别文本
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Trace => "trace",
+            Self::Debug => "debug",
+            Self::Info => "info",
+            Self::Warn => "warn",
+            Self::Error => "error",
+        }
+    }
+}
+
+/// 放大镜取色文本格式强类型枚举
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ColorFormat {
+    #[default]
+    Hex,
+    Rgb,
+    Hsl,
+}
+
+impl ColorFormat {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Hex => "hex",
+            Self::Rgb => "rgb",
+            Self::Hsl => "hsl",
+        }
+    }
+
+    /// 轮转切换至下一种取色格式 (Shift+C 触发)
+    pub fn next(self) -> Self {
+        match self {
+            Self::Hex => Self::Rgb,
+            Self::Rgb => Self::Hsl,
+            Self::Hsl => Self::Hex,
+        }
+    }
+
+    /// 格式化 RGBA 颜色为可读文本
+    pub fn format_color(self, r: u8, g: u8, b: u8) -> String {
+        match self {
+            Self::Hex => format!("#{r:02X}{g:02X}{b:02X}"),
+            Self::Rgb => format!("rgb({r}, {g}, {b})"),
+            Self::Hsl => {
+                let (h, s, l) = rgb_to_hsl(r, g, b);
+                format!("hsl({h}, {s}%, {l}%)")
+            }
+        }
+    }
+}
+
+/// 辅助计算 RGB 转 HSL
+fn rgb_to_hsl(r: u8, g: u8, b: u8) -> (u16, u8, u8) {
+    let rf = r as f32 / 255.0;
+    let gf = g as f32 / 255.0;
+    let bf = b as f32 / 255.0;
+
+    let max = rf.max(gf).max(bf);
+    let min = rf.min(gf).min(bf);
+    let delta = max - min;
+
+    let l = (max + min) / 2.0;
+
+    if delta == 0.0 {
+        return (0, 0, (l * 100.0).round() as u8);
+    }
+
+    let s = if l > 0.5 {
+        delta / (2.0 - max - min)
+    } else {
+        delta / (max + min)
+    };
+
+    let mut h = if max == rf {
+        (gf - bf) / delta + if gf < bf { 6.0 } else { 0.0 }
+    } else if max == gf {
+        (bf - rf) / delta + 2.0
+    } else {
+        (rf - gf) / delta + 4.0
+    };
+    h *= 60.0;
+
+    (
+        h.round() as u16,
+        (s * 100.0).round() as u8,
+        (l * 100.0).round() as u8,
+    )
+}
+
+/// 贴图滚轮缩放时的几何锚点基准枚举
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ZoomAnchor {
+    #[default]
+    Cursor,
+    Center,
+}
+
+impl ZoomAnchor {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Cursor => "cursor",
+            Self::Center => "center",
+        }
+    }
+}
+
+/// 双击贴图窗口时的响应行为枚举
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DoubleClickAction {
+    #[default]
+    Close,
+    CopyAndClose,
+    Copy,
+}
+
+impl DoubleClickAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Close => "close",
+            Self::CopyAndClose => "copy_and_close",
+            Self::Copy => "copy",
+        }
+    }
+}
+
+/// 机器翻译服务商
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TranslateProvider {
+    /// 微软必应免费接口（部分出口 IP 会被必应风控拦截）
+    BingFree,
+    /// 谷歌翻译免费接口（免配置，默认）
+    #[default]
+    GoogleFree,
+    /// 百度翻译开放平台
+    Baidu,
+    /// 网易有道开放平台
+    Youdao,
+    /// 阿里云机器翻译
+    Aliyun,
+}
+
+/// 翻译目标语言
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TargetLanguage {
+    /// 简体中文
+    #[default]
+    Zh,
+    /// 英语
+    En,
+    /// 日语
+    Ja,
+    /// 韩语
+    Ko,
+    /// 法语
+    Fr,
+    /// 德语
+    De,
+    /// 西班牙语
+    Es,
+    /// 俄语
+    Ru,
+}
+
+impl TargetLanguage {
+    /// 转换为第三方翻译 API 使用的标准语言代码
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Zh => "zh",
+            Self::En => "en",
+            Self::Ja => "ja",
+            Self::Ko => "ko",
+            Self::Fr => "fr",
+            Self::De => "de",
+            Self::Es => "es",
+            Self::Ru => "ru",
+        }
+    }
+}
+
+/// 原位翻译背景覆盖模式
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CoverMode {
+    /// 智能取色实色填充
+    #[default]
+    SolidColor,
+    /// 半透明磨砂覆盖
+    FrostedGlass,
+}
+
+/// 社交平台输出尺寸。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SocialSize {
+    /// 保持输入尺寸，仅增加四周留白
+    #[default]
+    Original,
+    /// 1:1 方形画布 1080x1080
+    Square,
+    /// 4:5 竖版画布 1080x1350
+    Portrait,
+    /// 16:9 横版画布 1920x1080
+    Wide,
+}
+
+impl SocialSize {
+    /// 切换到下一个尺寸预设。
+    pub fn next(self) -> Self {
+        match self {
+            Self::Original => Self::Square,
+            Self::Square => Self::Portrait,
+            Self::Portrait => Self::Wide,
+            Self::Wide => Self::Original,
+        }
+    }
+
+    /// 展示名称。
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Original => "原始尺寸",
+            Self::Square => "1:1 方形",
+            Self::Portrait => "4:5 竖版",
+            Self::Wide => "16:9 横版",
+        }
+    }
+
+    /// 返回固定画布尺寸；原始尺寸返回 `None`。
+    pub fn canvas_size(self) -> Option<(u32, u32)> {
+        match self {
+            Self::Original => None,
+            Self::Square => Some((1080, 1080)),
+            Self::Portrait => Some((1080, 1350)),
+            Self::Wide => Some((1920, 1080)),
+        }
+    }
+}
+
+/// 美化背景样式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BeautifyBackground {
+    /// 深色纯色背景
+    #[default]
+    Dark,
+    /// 蓝紫渐变
+    Indigo,
+    /// 日落渐变
+    Sunset,
+    /// 薄荷渐变
+    Mint,
+}
+
+impl BeautifyBackground {
+    /// 切换到下一个背景。
+    pub fn next(self) -> Self {
+        match self {
+            Self::Dark => Self::Indigo,
+            Self::Indigo => Self::Sunset,
+            Self::Sunset => Self::Mint,
+            Self::Mint => Self::Dark,
+        }
+    }
+
+    /// 展示名称。
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Dark => "深色",
+            Self::Indigo => "蓝紫渐变",
+            Self::Sunset => "日落渐变",
+            Self::Mint => "薄荷渐变",
+        }
+    }
+}
+
+/// 图像输出存储编码格式枚举
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ImageFormat {
+    #[default]
+    Png,
+    Jpeg,
+    Webp,
+}
+
+impl ImageFormat {
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Png => "png",
+            Self::Jpeg => "jpg",
+            Self::Webp => "webp",
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Png => "png",
+            Self::Jpeg => "jpeg",
+            Self::Webp => "webp",
+        }
+    }
+}

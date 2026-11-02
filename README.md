@@ -370,7 +370,7 @@ systemd 用户服务与第三方许可文件一并装入 deb 包。
 
 发布新版本时：
 
-1. 更新 `Cargo.toml` 中的 `version`，并同步六个内部 path 依赖的版本号。
+1. 更新 `Cargo.toml` 中的 `version`，并同步 workspace 内全部内部 path 依赖的版本号。
 2. 若修改了扩展的 `extension.js` 或 D-Bus 接口，必须提升 `extension/metadata.json` 的 `version`。
 3. 运行打包脚本并本地安装验证。
 4. 打 `v*` 标签并推送，GitHub Actions 会构建 deb 并创建 Release。
@@ -382,7 +382,11 @@ systemd 用户服务与第三方许可文件一并装入 deb 包。
 - `snapin-runtime`：统一后台任务运行时，提供有界准入、任务追踪、取消令牌与 panic 感知。
 - `snapin-updater`：自更新清单检查、下载验签与崩溃回滚，隔离网络与 `shipup` 依赖。
 - `snapin-storage`：图像编码保存、文件名模板、选区缓存与原生像素载荷校验。
-- `snapin-core`：配置模型、标注图元、文本排版与路径约定，不依赖网络或自更新基础设施。
+- `snapin-foundation`：错误、路径、几何、国际化、触发模式等无重型 UI 依赖的基础契约。
+- `snapin-config`：强类型配置模型、迁移、语义校验与安全持久化。
+- `snapin-render`：文本测量、排版、光栅化与美化导出渲染。
+- `snapin-annotation`：标注图元、撤销重做历史与 Tiny-Skia 绘制实现。
+- `snapin-core`：核心能力聚合门面，仅用于同时需要多个核心领域的消费者。
 - `snapin-ui`：纯表现层，提供 winit 截图窗口、贴图工作区、工具栏、渲染与交互；通过 `ports` 请求宿主能力，不直接读写系统剪贴板、配置文件或网络服务。
 - `snapin-platform`：Portal、GNOME 扩展 D-Bus、剪贴板、热键、通知、窗口与自启动等桌面集成。
 - `snapin-service`：PP-OCRv6 推理与多服务商翻译。
@@ -390,7 +394,7 @@ systemd 用户服务与第三方许可文件一并装入 deb 包。
 - `snapin-daemon`：本地 IPC 协议、服务端与客户端。
 - `extension`：配套 GNOME Shell 扩展。
 
-依赖方向为 `snapin` → `snapin-app` → `snapin-ui` / `snapin-platform` / `snapin-service` / `snapin-storage` / `snapin-updater` → `snapin-core`；`snapin-ui` 不直接依赖平台与服务 crate，`snapin-core` 不依赖网络与自更新基础设施。
+核心依赖方向为 `snapin-foundation` ← `snapin-config` ← `snapin-render` ← `snapin-annotation`；`snapin-ui` 只直接依赖这些核心契约，不依赖平台、存储或服务 crate。`snapin-app` 负责把 UI 端口与基础设施实现装配起来，`snapin-platform`、`snapin-storage`、`snapin-daemon` 只依赖所需的轻量核心 crate，不再传递引入 Tiny-Skia 或 Cosmic-Text。
 
 GUI 生命周期统一由常驻守护进程主线程的单一 winit 事件循环托管，贴图窗口与截图覆盖层共存于同一循环。命令行进程只负责 IPC，若守护进程未运行会自动派生并等待其就绪；设置中心作为独立 Slint 进程运行，不会在守护进程内创建第二个事件循环。
 

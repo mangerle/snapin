@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
-use snapin_core::config::HexColor;
+use snapin_config::config::HexColor;
 use snapin_platform::{read_clipboard_image, read_clipboard_text};
 use snapin_runtime::{TaskPool, TaskRuntime, TaskRuntimeError};
 use snapin_storage::{append_clipboard_image, append_clipboard_text, ClipboardEntryKind};

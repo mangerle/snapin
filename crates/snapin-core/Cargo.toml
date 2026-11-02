@@ -4,24 +4,10 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Snapin 核心领域模型、配置、错误定义、矢量标注引擎与排版渲染基建"
+description = "Snapin 核心能力聚合门面"
 
 [dependencies]
-tiny-skia.workspace = true
-cosmic-text.workspace = true
-serde.workspace = true
-serde_ignored.workspace = true
-toml.workspace = true
-thiserror.workspace = true
-tracing.workspace = true
-
-
-[target.'cfg(unix)'.dependencies]
-rustix.workspace = true
-
-[target.'cfg(windows)'.dependencies]
-windows-sys.workspace = true
-
-[dev-dependencies]
-tempfile.workspace = true
-serde_json.workspace = true
+snapin-annotation.workspace = true
+snapin-config.workspace = true
+snapin-foundation.workspace = true
+snapin-render.workspace = true

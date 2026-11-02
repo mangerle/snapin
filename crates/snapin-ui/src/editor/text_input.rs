@@ -1,9 +1,9 @@
 //! 文本标注实时输入会话管理与即时输入光标渲染。
 
 use crate::editor::toolbar::SubToolOptions;
-use snapin_core::annotation::action::AnnotationShape;
-use snapin_core::annotation::shapes::TextAction;
-use snapin_core::render::with_thread_local_text_renderer;
+use snapin_annotation::action::AnnotationShape;
+use snapin_annotation::shapes::TextAction;
+use snapin_render::with_thread_local_text_renderer;
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
 use winit::keyboard::{Key, NamedKey};
 

@@ -9,7 +9,7 @@ use super::WorkspaceRuntime;
 use crate::model::GroupId;
 use crate::snipper::window::jobs::SnipperJobSink;
 use crate::snipper::{SnipperOutcome, SnipperView};
-use snapin_core::config::Config;
+use snapin_config::config::Config;
 use std::sync::{Arc, Mutex};
 use winit::event::WindowEvent;
 use winit::event_loop::EventLoopWindowTarget;

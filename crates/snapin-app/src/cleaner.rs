@@ -5,7 +5,7 @@
 //! 否则会误删正在处理的像素文件，甚至删除守护进程持有的单实例锁文件。
 
 use anyhow::{Context, Result};
-use snapin_core::AppPaths;
+use snapin_foundation::AppPaths;
 use snapin_platform::send_desktop_notification;
 use snapin_storage::clear_selection_cache;
 use std::path::Path;

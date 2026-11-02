@@ -16,8 +16,8 @@ use super::widgets::{
 };
 use crate::editor::toolbar::items::Tool;
 use crate::geometry::Rect;
-use snapin_core::annotation::SpotlightShape;
-use snapin_core::render::with_thread_local_text_renderer;
+use snapin_annotation::SpotlightShape;
+use snapin_render::with_thread_local_text_renderer;
 use tiny_skia::{Color, PixmapMut};
 
 /// 绘制二级属性栏内容（形状、数值尺寸、线型、颜色与工具专属控件，自适应 HiDPI 缩放）
@@ -270,7 +270,7 @@ pub(super) fn render_sub_options(toolbar: &Toolbar, pixmap: &mut PixmapMut, rect
                 with_thread_local_text_renderer(|renderer| {
                     renderer.draw_text_rgba(
                         pixmap,
-                        snapin_core::i18n::tr(toolbar.sub_options.marker_shape.label()),
+                        snapin_foundation::i18n::tr(toolbar.sub_options.marker_shape.label()),
                         entry.rect.x + 7.0 * s,
                         entry.rect.y + 5.0 * s,
                         12.0 * s,
@@ -292,7 +292,7 @@ pub(super) fn render_sub_options(toolbar: &Toolbar, pixmap: &mut PixmapMut, rect
                 with_thread_local_text_renderer(|renderer| {
                     renderer.draw_text_rgba(
                         pixmap,
-                        snapin_core::i18n::tr(toolbar.sub_options.marker_blend_mode.label()),
+                        snapin_foundation::i18n::tr(toolbar.sub_options.marker_blend_mode.label()),
                         entry.rect.x + 7.0 * s,
                         entry.rect.y + 5.0 * s,
                         12.0 * s,
@@ -356,7 +356,7 @@ pub(super) fn render_sub_options(toolbar: &Toolbar, pixmap: &mut PixmapMut, rect
                 with_thread_local_text_renderer(|renderer| {
                     renderer.draw_text_rgba(
                         pixmap,
-                        snapin_core::i18n::tr(toolbar.sub_options.mosaic_mode.label()),
+                        snapin_foundation::i18n::tr(toolbar.sub_options.mosaic_mode.label()),
                         entry.rect.x + 7.0 * s,
                         entry.rect.y + 5.0 * s,
                         12.0 * s,
@@ -378,8 +378,8 @@ pub(super) fn render_sub_options(toolbar: &Toolbar, pixmap: &mut PixmapMut, rect
                 let family = toolbar
                     .sub_options
                     .font_family
-                    .map(snapin_core::i18n::tr)
-                    .unwrap_or_else(|| snapin_core::i18n::tr("系统默认"));
+                    .map(snapin_foundation::i18n::tr)
+                    .unwrap_or_else(|| snapin_foundation::i18n::tr("系统默认"));
                 with_thread_local_text_renderer(|renderer| {
                     renderer.draw_text_rgba(
                         pixmap,
@@ -412,7 +412,7 @@ pub(super) fn render_sub_options(toolbar: &Toolbar, pixmap: &mut PixmapMut, rect
                 s,
                 &format!(
                     "{} {:.0}",
-                    snapin_core::i18n::tr("边距"),
+                    snapin_foundation::i18n::tr("边距"),
                     toolbar.sub_options.text_background_padding
                 ),
                 toolbar.sub_options.text_background_enabled,
@@ -424,7 +424,7 @@ pub(super) fn render_sub_options(toolbar: &Toolbar, pixmap: &mut PixmapMut, rect
                 s,
                 &format!(
                     "{} {:.0}",
-                    snapin_core::i18n::tr("圆角"),
+                    snapin_foundation::i18n::tr("圆角"),
                     toolbar.sub_options.text_background_corner_radius
                 ),
                 toolbar.sub_options.text_background_enabled,

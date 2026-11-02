@@ -1,7 +1,7 @@
 //! 贴图生成与窗口展示模块。
 
 use anyhow::{bail, Context, Result};
-use snapin_core::AppPaths;
+use snapin_foundation::AppPaths;
 use snapin_platform::{read_clipboard_image, read_clipboard_text, send_desktop_notification};
 use snapin_ui::paster::{
     render_color_swatch_card, render_simple_text_card, try_parse_hex_color, PasterItem,
@@ -52,8 +52,8 @@ pub async fn paste_clipboard_to_workspace(proxy: &PasterWorkspaceProxy) -> Resul
             .context("向集中工作区投递贴图失败")?;
     } else {
         if let Err(error) = send_desktop_notification(
-            snapin_core::i18n::tr("Snapin 贴图提示"),
-            snapin_core::i18n::tr("当前剪贴板为空，无法生成贴图"),
+            snapin_foundation::i18n::tr("Snapin 贴图提示"),
+            snapin_foundation::i18n::tr("当前剪贴板为空，无法生成贴图"),
         )
         .await
         {

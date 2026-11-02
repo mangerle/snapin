@@ -6,7 +6,7 @@
 
 use crate::paster::window::jobs::PasterJobRuntime;
 use crate::ports::DesktopPort;
-use snapin_core::config::Config;
+use snapin_config::config::Config;
 use std::sync::Arc;
 
 /// 贴图窗口运行时依赖。

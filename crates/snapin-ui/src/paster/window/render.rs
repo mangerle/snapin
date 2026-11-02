@@ -13,7 +13,7 @@ use crate::paster::window::input_region::{
 };
 use crate::paster::window::text_session::render_text_session_preview;
 use crate::status_badge;
-use snapin_core::render::with_thread_local_text_renderer;
+use snapin_render::with_thread_local_text_renderer;
 use std::time::Instant;
 use tiny_skia::{Color, FilterQuality, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform};
 

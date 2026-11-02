@@ -165,7 +165,7 @@ fn color_to_rgba(color: Color) -> (u8, u8, u8, u8) {
 mod tests {
     use super::*;
     use crate::model::PasterItem;
-    use snapin_core::annotation::AnnotationShape;
+    use snapin_annotation::AnnotationShape;
     use tiny_skia::Pixmap;
     use winit::keyboard::NamedKey;
 

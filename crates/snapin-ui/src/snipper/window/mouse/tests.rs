@@ -4,12 +4,10 @@ use super::super::types::SnipMode;
 use super::*;
 use crate::ports::OcrTextItem;
 use crate::snipper::window::redaction::{apply_redaction, is_redaction_applied, RedactionPreview};
-use snapin_core::annotation::action::AnnotationShape;
-use snapin_core::annotation::shapes::{
-    MagnifierAction, MagnifierConnector, MagnifierShape, RectAction,
-};
-use snapin_core::annotation::ColorRgba;
-use snapin_core::annotation::LineStyle;
+use snapin_annotation::action::AnnotationShape;
+use snapin_annotation::shapes::{MagnifierAction, MagnifierConnector, MagnifierShape, RectAction};
+use snapin_annotation::ColorRgba;
+use snapin_annotation::LineStyle;
 
 /// 空闲态鼠标移动必须触发重绘，保证放大镜实时跟随光标
 #[test]

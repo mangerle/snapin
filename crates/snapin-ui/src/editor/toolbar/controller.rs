@@ -14,7 +14,7 @@ use super::state::store_remembered_sub_options;
 use super::sub_controls::{next_f32, next_u8};
 use super::{Tool, Toolbar, ToolbarAction, ToolbarItem};
 use crate::geometry::Rect;
-use snapin_core::annotation::{MagnifierShape, SpotlightShape};
+use snapin_annotation::{MagnifierShape, SpotlightShape};
 
 /// 将当前工具栏状态收敛为布局层需要的只读选项。
 fn calculate_sub_layout_options(options: &super::items::SubToolOptions) -> SubLayoutOptions {

@@ -7,7 +7,8 @@ license.workspace = true
 description = "Snapin 基于 Slint 的现代化偏好设置中心图形界面与快捷键配置"
 
 [dependencies]
-snapin-core.workspace = true
+snapin-config.workspace = true
+snapin-foundation.workspace = true
 snapin-daemon.workspace = true
 snapin-platform.workspace = true
 snapin-storage.workspace = true

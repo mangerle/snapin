@@ -164,11 +164,11 @@ mod tests {
         // 4. 构造包含真实文字的合成截图并验证识别文本内容
         let mut pixmap = tiny_skia::Pixmap::new(380, 90).expect("分配测试画布失败");
         pixmap.fill(tiny_skia::Color::WHITE);
-        let mut renderer = snapin_core::render::TextRenderer::new();
+        let mut renderer = snapin_render::TextRenderer::new();
         renderer.draw_text_box_rgba(
             &mut pixmap.as_mut(),
             "Snapin OCR 2026",
-            snapin_core::render::TextBoxOptions {
+            snapin_render::TextBoxOptions {
                 rect: (12.0, 12.0, 356.0, 66.0),
                 font_size: 28.0,
                 rgba: (20, 20, 20, 255),

@@ -2,7 +2,7 @@
 
 use crate::daemon::commands::DaemonResponse;
 use crate::placement::{confirm_paster_placement, register_paster_placement};
-use snapin_core::AppPaths;
+use snapin_foundation::AppPaths;
 use snapin_ui::paster::{PasterItem, PasterWorkspaceProxy};
 use std::path::{Path, PathBuf};
 use tiny_skia::Pixmap;

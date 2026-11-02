@@ -27,7 +27,7 @@ base64 = { workspace = true }
 chrono = { workspace = true }
 
 [dev-dependencies]
-snapin-core = { workspace = true }
+snapin-render = { workspace = true }
 tempfile = { workspace = true }
 tiny-skia = { workspace = true }
 qrcode = { version = "0.14", default-features = false }

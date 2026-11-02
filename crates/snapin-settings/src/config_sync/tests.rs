@@ -5,12 +5,12 @@ use crate::mapping::{
 };
 use crate::SettingsWindow;
 use slint::SharedString;
-use snapin_core::config::{
+use snapin_config::config::{BeautifyBackground, SocialSize};
+use snapin_config::config::{
     ColorFormat, CoverMode, DoubleClickAction, HexColor, ImageFormat, LogLevel, TargetLanguage,
     TranslateProvider, ZoomAnchor,
 };
-use snapin_core::config::{Config, Hotkey};
-use snapin_core::render::{BeautifyBackground, SocialSize};
+use snapin_config::config::{Config, Hotkey};
 
 /// 构造一份逐字段都不同于默认值的样本配置。
 ///

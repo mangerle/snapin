@@ -6,7 +6,7 @@ use crate::snipper::selection::Rect;
 use image::RgbaImage;
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Rect as SkiaRect, Stroke, Transform};
 
-pub use snapin_core::config::ColorFormat;
+pub use snapin_config::config::ColorFormat;
 
 /// 放大镜采样半径：采样 (2r+1) x (2r+1) 像素
 const SAMPLE_RADIUS: i32 = 7;

@@ -13,8 +13,8 @@ use crate::ports::{DesktopPort, JobCancel, JobId, NoopDesktop, QrCodeItem};
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionConstraint, SelectionHistory, SelectionState};
 use crate::snipper::window_rect::WindowRect;
-use snapin_core::annotation::AnnotationHistory;
-use snapin_core::config::{Config, InterfaceConfig, SnipConfig};
+use snapin_annotation::AnnotationHistory;
+use snapin_config::config::{Config, InterfaceConfig, SnipConfig};
 use std::sync::Arc;
 use winit::keyboard::ModifiersState;
 use winit::window::CursorIcon;
@@ -78,7 +78,7 @@ pub struct SnipperState {
     pub config: Config,
     pub mode: SnipMode,
     /// 首次锁定选区后自动执行的动作；触发后立即清空
-    pub post_action: Option<snapin_core::PostCaptureAction>,
+    pub post_action: Option<snapin_foundation::PostCaptureAction>,
 }
 
 impl SnipperState {
@@ -212,7 +212,12 @@ fn apply_snip_config(state: &mut SnipperState, snip: &SnipConfig, mode: SnipMode
     state.toolbar.sub_options = crate::editor::toolbar::SubToolOptions::default();
     state.toolbar.sub_options.custom_stroke_width = snip.default_stroke_width;
     state.toolbar.sub_options.font_size = snip.default_font_size;
-    state.toolbar.sub_options.color = snip.default_color.to_tiny_skia_color();
+    state.toolbar.sub_options.color = tiny_skia::Color::from_rgba8(
+        snip.default_color.r,
+        snip.default_color.g,
+        snip.default_color.b,
+        snip.default_color.a,
+    );
     state.toolbar.remember_sub_options = snip.remember_toolbar_settings;
     if snip.remember_toolbar_settings {
         if let Some(options) = remembered_sub_options() {

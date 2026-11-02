@@ -7,7 +7,7 @@ license.workspace = true
 description = "Snapin Unix Domain Socket 进程间通信、强类型分帧协议与守护进程事件监听"
 
 [dependencies]
-snapin-core.workspace = true
+snapin-foundation.workspace = true
 snapin-runtime.workspace = true
 tokio.workspace = true
 tokio-util = { workspace = true, features = ["rt"] }

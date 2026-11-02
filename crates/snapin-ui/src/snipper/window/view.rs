@@ -119,7 +119,7 @@ fn build_initial_state(
         };
     } else if mode == SnipMode::PickColor {
         state.magnifier.enabled = true;
-        state.set_status_message(snapin_core::i18n::tr("单击复制颜色，Esc 取消"));
+        state.set_status_message(snapin_foundation::i18n::tr("单击复制颜色，Esc 取消"));
     }
 
     state.job_runtime = Some(Arc::new(SnipperJobRuntime::new(runtime.media, job_sink)));

@@ -5,7 +5,7 @@
 
 use crate::SettingsWindow;
 use slint::SharedString;
-use snapin_core::config::Config;
+use snapin_config::config::Config;
 
 macro_rules! bool_table {
     ($($section:ident . $field:ident => $setter:ident / $getter:ident),+ $(,)?) => {

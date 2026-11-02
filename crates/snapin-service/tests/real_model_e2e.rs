@@ -1,7 +1,7 @@
 //! 真实 PP-OCRv6 small 离线模型资产与端到端识别管线集成测试。
 
 use image::RgbaImage;
-use snapin_core::render::text::{TextBoxOptions, TextRenderer};
+use snapin_render::text::{TextBoxOptions, TextRenderer};
 use snapin_service::ocr::{
     is_runtime_available, load_character_dict, LocalOcrPaths, LocalPpOcrEngine, OcrEngine,
 };

@@ -3,7 +3,7 @@
 //! 封装 Wayland 窗口生命周期、事件循环初始化、softbuffer 共享内存帧缓冲操作、
 //! ARGB8888 共享内存表面（贴图透明通路）以及像素内存缓冲分配异常。
 
-use snapin_core::error::CoreError;
+use snapin_foundation::error::CoreError;
 use thiserror::Error;
 
 /// UI 视图与窗口渲染层领域错误枚举

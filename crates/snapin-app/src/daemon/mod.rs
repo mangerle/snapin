@@ -21,7 +21,7 @@ use actions::{
 };
 use anyhow::{Context, Result};
 use shutdown::ShutdownCoordinator;
-use snapin_core::config::Config;
+use snapin_config::config::Config;
 use snapin_daemon::{probe_daemon, DaemonProbe, IpcListener};
 use snapin_platform::{
     enable_gnome_extension, send_desktop_notification, sync_hotkeys_to_gnome,
@@ -48,7 +48,7 @@ use update_loop::run_update_check_loop;
 ///
 /// 后台运行时创建、应用服务初始化、GUI 事件循环或服务任务失败时返回错误。
 pub fn run_daemon_process(cfg: Config) -> Result<()> {
-    snapin_core::i18n::set_language(cfg.general.language);
+    snapin_foundation::i18n::set_language(cfg.general.language);
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_name("snapin-daemon")
@@ -359,8 +359,8 @@ async fn announce_daemon_startup(cfg: &Config, services: &Arc<AppServices>) {
 
     if cfg.general.notify_on_startup {
         if let Err(error) = send_desktop_notification(
-            snapin_core::i18n::tr("Snapin 截图贴图"),
-            snapin_core::i18n::tr("服务已就绪：按 Ctrl+Alt+A 截图，按 F1 贴图"),
+            snapin_foundation::i18n::tr("Snapin 截图贴图"),
+            snapin_foundation::i18n::tr("服务已就绪：按 Ctrl+Alt+A 截图，按 F1 贴图"),
         )
         .await
         {

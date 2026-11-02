@@ -25,7 +25,7 @@ pub fn install_gnome_extension() -> Result<()> {
     #[cfg(target_os = "linux")]
     {
         let uuid = "snapin@wangle.local";
-        let target_dir = snapin_core::AppPaths::gnome_extension_dir(uuid);
+        let target_dir = snapin_foundation::AppPaths::gnome_extension_dir(uuid);
 
         let icons_dir = target_dir.join("icons");
         std::fs::create_dir_all(&icons_dir).context("创建 GNOME 扩展目标目录失败")?;
