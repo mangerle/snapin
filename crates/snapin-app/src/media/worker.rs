@@ -10,7 +10,7 @@ use super::translate::{build_translation_items, to_service_provider, Translation
 use super::OcrCache;
 use snapin_config::config::Config;
 use snapin_platform::pick_save_path;
-use snapin_service::ocr::{LocalPpOcrEngine, OcrEngine, OcrTextBlock};
+use snapin_service::ocr::{LocalPpOcrEngine, OcrEngine, OcrResult, OcrTextBlock};
 use snapin_service::qr::decode_qr_codes;
 use snapin_service::{create_translator, Translator, TranslatorOptions};
 use snapin_storage::{resolve_save_path, save_image_to_path, save_image_with_config};
@@ -299,63 +299,84 @@ async fn execute_translate(
     placement: TranslationPlacement,
     cancel: &Arc<AtomicBool>,
 ) -> MediaJobOutcome {
-    if cancel.load(Ordering::Acquire) {
-        return cancelled();
-    }
-    let engine = match get_ocr_engine(cache, config).await {
-        Ok(engine) => engine,
-        Err(message) => return MediaJobOutcome::Failed { message },
+    let ocr_result = match recognize_for_translation(cache, image.clone(), config, cancel).await {
+        Ok(result) => result,
+        Err(outcome) => return outcome,
     };
-    if cancel.load(Ordering::Acquire) {
-        return cancelled();
-    }
-
-    let ocr_input = image.clone();
-    let ocr_result = tokio::task::spawn_blocking(move || engine.recognize(&ocr_input)).await;
-    let ocr_result = match ocr_result {
-        Ok(Ok(result)) => result,
-        Ok(Err(error)) => {
-            return MediaJobOutcome::Failed {
-                message: error.to_string(),
-            }
-        }
-        Err(error) => {
-            return MediaJobOutcome::Failed {
-                message: format!("OCR 推理任务异常: {error}"),
-            }
-        }
-    };
-    if cancel.load(Ordering::Acquire) {
-        return cancelled();
-    }
     if ocr_result.blocks.is_empty() {
         return MediaJobOutcome::Translated { items: Vec::new() };
     }
+    let translated = match translate_blocks(config, &ocr_result, cancel).await {
+        Ok(translated) => translated,
+        Err(outcome) => return outcome,
+    };
+    layout_translation(image, ocr_result, translated, placement).await
+}
 
+/// 在取消边界内执行 OCR，并将推理错误转换为最终任务回执。
+async fn recognize_for_translation(
+    cache: &Arc<Mutex<OcrCache>>,
+    image: Arc<image::RgbaImage>,
+    config: &Config,
+    cancel: &Arc<AtomicBool>,
+) -> Result<OcrResult, MediaJobOutcome> {
+    if cancel.load(Ordering::Acquire) {
+        return Err(cancelled());
+    }
+    let engine = get_ocr_engine(cache, config)
+        .await
+        .map_err(|message| MediaJobOutcome::Failed { message })?;
+    if cancel.load(Ordering::Acquire) {
+        return Err(cancelled());
+    }
+    let result = tokio::task::spawn_blocking(move || engine.recognize(&image)).await;
+    if cancel.load(Ordering::Acquire) {
+        return Err(cancelled());
+    }
+    match result {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(error)) => Err(MediaJobOutcome::Failed {
+            message: error.to_string(),
+        }),
+        Err(error) => Err(MediaJobOutcome::Failed {
+            message: format!("OCR 推理任务异常: {error}"),
+        }),
+    }
+}
+
+/// 提取 OCR 文本并调用配置的翻译服务。
+async fn translate_blocks(
+    config: &Config,
+    ocr_result: &OcrResult,
+    cancel: &Arc<AtomicBool>,
+) -> Result<Vec<String>, MediaJobOutcome> {
     let mut texts = Vec::with_capacity(ocr_result.blocks.len());
     for block in &ocr_result.blocks {
         texts.push(block.text.clone());
     }
-
     if cancel.load(Ordering::Acquire) {
-        return cancelled();
+        return Err(cancelled());
     }
     let translator = build_translator(config);
     let translated = translator
         .translate_batch(&texts, "auto", config.translate.target_language.as_str())
-        .await;
-    let translated = match translated {
-        Ok(translated) => translated,
-        Err(error) => {
-            return MediaJobOutcome::Failed {
-                message: error.to_string(),
-            }
-        }
-    };
+        .await
+        .map_err(|error| MediaJobOutcome::Failed {
+            message: error.to_string(),
+        })?;
     if cancel.load(Ordering::Acquire) {
-        return cancelled();
+        return Err(cancelled());
     }
+    Ok(translated)
+}
 
+/// 在阻塞线程池中生成原位翻译图元并映射任务结果。
+async fn layout_translation(
+    image: Arc<image::RgbaImage>,
+    ocr_result: OcrResult,
+    translated: Vec<String>,
+    placement: TranslationPlacement,
+) -> MediaJobOutcome {
     let layout = tokio::task::spawn_blocking(move || {
         build_translation_items(&image, &ocr_result.blocks, &translated, placement)
     })
