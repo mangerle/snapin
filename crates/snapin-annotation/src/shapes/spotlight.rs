@@ -58,6 +58,22 @@ fn default_outline_color() -> ColorRgba {
 
 impl SpotlightAction {
     pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
+        let Some((focus, canvas)) = self.focus_rects(pixmap, offset_x, offset_y) else {
+            return;
+        };
+        self.draw_dim(pixmap, canvas, focus);
+        if self.outline {
+            self.draw_focus_outline(pixmap, focus);
+        }
+    }
+
+    /// 计算当前画布与聚焦区域。
+    fn focus_rects(
+        &self,
+        pixmap: &PixmapMut,
+        offset_x: f32,
+        offset_y: f32,
+    ) -> Option<(SkiaRect, SkiaRect)> {
         let (rx, ry, rw, rh) = self.rect;
         let width = pixmap.width() as f32;
         let height = pixmap.height() as f32;
@@ -66,17 +82,17 @@ impl SpotlightAction {
         let right = (rx + rw + offset_x).max(0.0).min(width);
         let bottom = (ry + rh + offset_y).max(0.0).min(height);
         if right <= left || bottom <= top {
-            return;
+            return None;
         }
+        let canvas = SkiaRect::from_xywh(0.0, 0.0, width, height)?;
+        let focus = SkiaRect::from_xywh(left, top, right - left, bottom - top)?;
+        Some((focus, canvas))
+    }
 
+    /// 绘制聚焦区域外的暗色蒙层。
+    fn draw_dim(&self, pixmap: &mut PixmapMut, canvas: SkiaRect, focus: SkiaRect) {
         let mut paint = Paint::default();
         paint.set_color_rgba8(0, 0, 0, self.intensity);
-        let Some(canvas) = SkiaRect::from_xywh(0.0, 0.0, width, height) else {
-            return;
-        };
-        let Some(focus) = SkiaRect::from_xywh(left, top, right - left, bottom - top) else {
-            return;
-        };
         let mut path_builder = PathBuilder::new();
         path_builder.push_rect(canvas);
         self.push_focus_path(&mut path_builder, focus);
@@ -89,25 +105,22 @@ impl SpotlightAction {
                 None,
             );
         }
+    }
 
-        if self.outline {
-            let mut outline_builder = PathBuilder::new();
-            self.push_focus_path(&mut outline_builder, focus);
-            if let Some(path) = outline_builder.finish() {
-                let mut outline_paint = Paint::default();
-                outline_paint.set_color_rgba8(
-                    self.outline_color.0,
-                    self.outline_color.1,
-                    self.outline_color.2,
-                    self.outline_color.3,
-                );
-                self.line_style.stroke_path(
-                    pixmap,
-                    &path,
-                    &outline_paint,
-                    self.outline_width.max(1.0),
-                );
-            }
+    /// 绘制聚焦区域描边。
+    fn draw_focus_outline(&self, pixmap: &mut PixmapMut, focus: SkiaRect) {
+        let mut builder = PathBuilder::new();
+        self.push_focus_path(&mut builder, focus);
+        if let Some(path) = builder.finish() {
+            let mut paint = Paint::default();
+            paint.set_color_rgba8(
+                self.outline_color.0,
+                self.outline_color.1,
+                self.outline_color.2,
+                self.outline_color.3,
+            );
+            self.line_style
+                .stroke_path(pixmap, &path, &paint, self.outline_width.max(1.0));
         }
     }
 

@@ -74,30 +74,44 @@ impl TextAction {
 
         let (x, y) = (self.pos.0 + offset_x, self.pos.1 + offset_y);
         let font_size = self.font_size.max(8.0);
-        if let Some(background) = self.background_color {
-            let width = estimate_text_width(&self.text, font_size) + self.padding * 2.0;
-            let height = font_size * 1.25 + self.padding * 2.0;
-            let rect_x = x - self.padding;
-            let rect_y = y - self.padding;
-            if let Some(path) = rounded_rect_path(rect_x, rect_y, width, height, self.corner_radius)
-            {
-                let mut paint = Paint::default();
-                paint.set_color(Color::from_rgba8(
-                    background.0,
-                    background.1,
-                    background.2,
-                    self.background_opacity,
-                ));
-                pixmap.fill_path(
-                    &path,
-                    &paint,
-                    FillRule::Winding,
-                    Transform::identity(),
-                    None,
-                );
-            }
-        }
+        self.draw_background(pixmap, x, y, font_size);
+        self.draw_text(pixmap, x, y, font_size);
+    }
 
+    /// 绘制文字背景圆角矩形。
+    fn draw_background(&self, pixmap: &mut PixmapMut, x: f32, y: f32, font_size: f32) {
+        let Some(background) = self.background_color else {
+            return;
+        };
+        let width = estimate_text_width(&self.text, font_size) + self.padding * 2.0;
+        let height = font_size * 1.25 + self.padding * 2.0;
+        let Some(path) = rounded_rect_path(
+            x - self.padding,
+            y - self.padding,
+            width,
+            height,
+            self.corner_radius,
+        ) else {
+            return;
+        };
+        let mut paint = Paint::default();
+        paint.set_color(Color::from_rgba8(
+            background.0,
+            background.1,
+            background.2,
+            self.background_opacity,
+        ));
+        pixmap.fill_path(
+            &path,
+            &paint,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+    }
+
+    /// 先绘制文字描边，再绘制正文。
+    fn draw_text(&self, pixmap: &mut PixmapMut, x: f32, y: f32, font_size: f32) {
         with_thread_local_text_renderer(|renderer| {
             let style = TextStyleOptions {
                 bold: self.bold,

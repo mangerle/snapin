@@ -44,50 +44,36 @@ impl TranslationAction {
         if self.items.is_empty() {
             return;
         }
+        self.draw_backgrounds(pixmap, offset_x, offset_y);
+        self.draw_translations(pixmap, offset_x, offset_y);
+    }
 
-        // 1. 批量绘制背景擦除层 (覆盖遮蔽原文字)
+    /// 批量绘制译文背景擦除层。
+    fn draw_backgrounds(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         for item in &self.items {
-            // 没有有效译文或译文与原文相同时不得擦除原图，否则会破坏截图内容。
-            if item.translated.trim().is_empty() || item.translated.trim() == item.original.trim() {
+            if !has_effective_translation(item) {
                 continue;
             }
-
             let rx = item.rect.0 + offset_x;
             let ry = item.rect.1 + offset_y;
             let rw = item.rect.2;
             let rh = item.rect.3;
-
             if rw <= 1.0 || rh <= 1.0 {
                 continue;
             }
-
-            // 根据覆盖模式决定擦除层 Alpha
             let alpha = match item.cover_mode {
                 CoverMode::FrostedGlass => 180,
                 CoverMode::SolidColor => 255,
             };
-
-            let bg_c = Color::from_rgba8(item.bg_color.0, item.bg_color.1, item.bg_color.2, alpha);
-
             let mut paint = Paint::default();
-            paint.set_color(bg_c);
+            paint.set_color(Color::from_rgba8(
+                item.bg_color.0,
+                item.bg_color.1,
+                item.bg_color.2,
+                alpha,
+            ));
             paint.anti_alias = true;
-
-            // 绘制平滑微圆角擦除矩形 (平滑过渡边缘)
-            let mut pb = PathBuilder::new();
-            let radius = 3.0_f32.min(rw / 2.0).min(rh / 2.0);
-            pb.move_to(rx + radius, ry);
-            pb.line_to(rx + rw - radius, ry);
-            pb.quad_to(rx + rw, ry, rx + rw, ry + radius);
-            pb.line_to(rx + rw, ry + rh - radius);
-            pb.quad_to(rx + rw, ry + rh, rx + rw - radius, ry + rh);
-            pb.line_to(rx + radius, ry + rh);
-            pb.quad_to(rx, ry + rh, rx, ry + rh - radius);
-            pb.line_to(rx, ry + radius);
-            pb.quad_to(rx, ry, rx + radius, ry);
-            pb.close();
-
-            if let Some(path) = pb.finish() {
+            if let Some(path) = rounded_rect_path(rx, ry, rw, rh) {
                 pixmap.fill_path(
                     &path,
                     &paint,
@@ -97,30 +83,29 @@ impl TranslationAction {
                 );
             }
         }
+    }
 
-        // 2. 批量调用 cosmic-text 文本渲染器绘制译文
+    /// 批量绘制有效译文文本。
+    fn draw_translations(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         use crate::render::TextBoxOptions;
         with_thread_local_text_renderer(|renderer| {
             for item in &self.items {
-                // 译文与原文相同时保留原图像素，避免无意义的覆盖与重新排版。
-                if item.translated.trim().is_empty()
-                    || item.translated.trim() == item.original.trim()
-                {
+                if !has_effective_translation(item) {
                     continue;
                 }
-
                 let rx = item.rect.0 + offset_x + 2.0;
                 let ry = item.rect.1 + offset_y + 2.0;
-                let rw = (item.rect.2 - 4.0).max(10.0);
-                let rh = (item.rect.3 - 4.0).max(10.0);
-                let font_size = item.font_size.max(9.0);
-
                 renderer.draw_text_box_rgba(
                     pixmap,
                     &item.translated,
                     TextBoxOptions {
-                        rect: (rx, ry, rw, rh),
-                        font_size,
+                        rect: (
+                            rx,
+                            ry,
+                            (item.rect.2 - 4.0).max(10.0),
+                            (item.rect.3 - 4.0).max(10.0),
+                        ),
+                        font_size: item.font_size.max(9.0),
                         rgba: item.text_color.to_tuple(),
                     },
                 );
@@ -168,6 +153,29 @@ impl TranslationAction {
             item.rect.1 += dy;
         }
     }
+}
+
+/// 判断译文是否需要覆盖原文并重新排版。
+fn has_effective_translation(item: &TranslationShapeItem) -> bool {
+    let translated = item.translated.trim();
+    !translated.is_empty() && translated != item.original.trim()
+}
+
+/// 生成译文背景使用的平滑微圆角矩形路径。
+fn rounded_rect_path(x: f32, y: f32, width: f32, height: f32) -> Option<tiny_skia::Path> {
+    let radius = 3.0_f32.min(width / 2.0).min(height / 2.0);
+    let mut builder = PathBuilder::new();
+    builder.move_to(x + radius, y);
+    builder.line_to(x + width - radius, y);
+    builder.quad_to(x + width, y, x + width, y + radius);
+    builder.line_to(x + width, y + height - radius);
+    builder.quad_to(x + width, y + height, x + width - radius, y + height);
+    builder.line_to(x + radius, y + height);
+    builder.quad_to(x, y + height, x, y + height - radius);
+    builder.line_to(x, y + radius);
+    builder.quad_to(x, y, x + radius, y);
+    builder.close();
+    builder.finish()
 }
 
 /// 以零偏移绘制该图元，供测试与一次性回放使用。

@@ -52,40 +52,17 @@ impl MosaicAction {
             return;
         }
 
-        let cell = self.cell_size.max(4) as usize;
-        let stride = width * 4;
-        let data = pixmap.data_mut();
-
-        let mut block_top = top;
-        while block_top < bottom {
-            let block_bottom = (block_top + cell).min(bottom);
-            let mut block_left = left;
-            while block_left < right {
-                let block_right = (block_left + cell).min(right);
-
-                // 取块中心像素作为整块颜色，直接按行写入，绕过 tiny-skia 的
-                // 逐格路径构造与抗锯齿插值，大区域下可减少数量级的光栅化开销。
-                let sample_x = block_left + (block_right - block_left) / 2;
-                let sample_y = block_top + (block_bottom - block_top) / 2;
-                let sample_index = sample_y * width * 4 + sample_x * 4;
-                let pixel = [
-                    data[sample_index],
-                    data[sample_index + 1],
-                    data[sample_index + 2],
-                    data[sample_index + 3],
-                ];
-
-                for row in block_top..block_bottom {
-                    let start = row * stride + block_left * 4;
-                    let end = row * stride + block_right * 4;
-                    for target in data[start..end].as_chunks_mut::<4>().0 {
-                        target.copy_from_slice(&pixel);
-                    }
-                }
-                block_left = block_right;
-            }
-            block_top = block_bottom;
-        }
+        apply_mosaic_rect(
+            pixmap.data_mut(),
+            width,
+            MosaicBounds {
+                left,
+                top,
+                right,
+                bottom,
+            },
+            self.cell_size.max(4) as usize,
+        );
     }
 
     fn draw_brush_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
@@ -234,6 +211,67 @@ fn pixelate_region(data: &mut [u8], width: usize, height: usize, cell: usize) {
 impl MosaicAction {
     pub fn draw(&self, pixmap: &mut tiny_skia::PixmapMut) {
         self.draw_offset(pixmap, 0.0, 0.0);
+    }
+}
+
+/// 整数像素马赛克区域。
+#[derive(Clone, Copy)]
+struct MosaicBounds {
+    left: usize,
+    top: usize,
+    right: usize,
+    bottom: usize,
+}
+
+/// 将矩形区域内每个块替换为块中心颜色。
+fn apply_mosaic_rect(data: &mut [u8], width: usize, bounds: MosaicBounds, cell: usize) {
+    let stride = width * 4;
+    let mut block_top = bounds.top;
+    while block_top < bounds.bottom {
+        let block_bottom = (block_top + cell).min(bounds.bottom);
+        let mut block_left = bounds.left;
+        while block_left < bounds.right {
+            let block_right = (block_left + cell).min(bounds.right);
+            let sample_x = block_left + (block_right - block_left) / 2;
+            let sample_y = block_top + (block_bottom - block_top) / 2;
+            let sample_index = sample_y * width * 4 + sample_x * 4;
+            let pixel = [
+                data[sample_index],
+                data[sample_index + 1],
+                data[sample_index + 2],
+                data[sample_index + 3],
+            ];
+            fill_mosaic_block(
+                data,
+                stride,
+                block_top,
+                block_bottom,
+                block_left,
+                block_right,
+                pixel,
+            );
+            block_left = block_right;
+        }
+        block_top = block_bottom;
+    }
+}
+
+/// 用同一颜色填充一个马赛克块，按行直接写像素。
+fn fill_mosaic_block(
+    data: &mut [u8],
+    stride: usize,
+    top: usize,
+    bottom: usize,
+    left: usize,
+    right: usize,
+    pixel: [u8; 4],
+) {
+    for row in top..bottom {
+        let start = row * stride + left * 4;
+        let end = row * stride + right * 4;
+        for target in data[start..end].as_chunks_mut::<4>().0 {
+            target.copy_from_slice(&pixel);
+        }
     }
 }
 

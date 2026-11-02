@@ -100,6 +100,16 @@ impl Default for BadgeAction {
     }
 }
 
+/// 序号注释文字的位置与尺寸。
+struct BadgeLabelMetrics<'a> {
+    text: &'a str,
+    font_size: f32,
+    text_x: f32,
+    text_y: f32,
+    text_width: f32,
+    text_height: f32,
+}
+
 impl BadgeAction {
     pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         let (cx, cy) = (self.center.0 + offset_x, self.center.1 + offset_y);
@@ -110,10 +120,23 @@ impl BadgeAction {
             self.draw_text_label(pixmap, cx, cy, r);
             return;
         }
+        self.draw_filled_badge(pixmap, cx, cy, r);
+        self.draw_text_label(pixmap, cx, cy, r);
+    }
 
-        // 1. 绘制气泡柔和外圈微阴影
+    /// 绘制实心序号气泡的阴影、底板、外环和数字。
+    fn draw_filled_badge(&self, pixmap: &mut PixmapMut, cx: f32, cy: f32, radius: f32) {
+        self.draw_badge_shadow(pixmap, cx, cy, radius);
+        self.draw_filled_circle(pixmap, cx, cy, radius);
+        with_thread_local_text_renderer(|renderer| {
+            self.draw_label(renderer, pixmap, cx, cy, radius, (255, 255, 255, 255));
+        });
+    }
+
+    /// 绘制气泡柔和外圈微阴影。
+    fn draw_badge_shadow(&self, pixmap: &mut PixmapMut, cx: f32, cy: f32, radius: f32) {
         let mut pb_shadow = PathBuilder::new();
-        pb_shadow.push_circle(cx, cy + 1.0, r + 1.0);
+        pb_shadow.push_circle(cx, cy + 1.0, radius + 1.0);
         if let Some(path) = pb_shadow.finish() {
             let mut shadow_paint = Paint {
                 anti_alias: true,
@@ -128,10 +151,12 @@ impl BadgeAction {
                 None,
             );
         }
+    }
 
-        // 2. 绘制圆形彩色背景底板
+    /// 绘制彩色圆形底板与高对比外环。
+    fn draw_filled_circle(&self, pixmap: &mut PixmapMut, cx: f32, cy: f32, radius: f32) {
         let mut pb = PathBuilder::new();
-        pb.push_circle(cx, cy, r);
+        pb.push_circle(cx, cy, radius);
         if let Some(path) = pb.finish() {
             let mut paint = Paint {
                 anti_alias: true,
@@ -157,92 +182,134 @@ impl BadgeAction {
             };
             pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
         }
-
-        // 3. 使用统一文本基础设施高精排版渲染现代纯白加粗数字 (绝对光学居中)
-        with_thread_local_text_renderer(|renderer| {
-            self.draw_label(renderer, pixmap, cx, cy, r, (255, 255, 255, 255));
-        });
-        self.draw_text_label(pixmap, cx, cy, r);
     }
 
     /// 在序号右侧绘制可选注释文字、背景、导向线与箭头。
     fn draw_text_label(&self, pixmap: &mut PixmapMut, cx: f32, cy: f32, radius: f32) {
+        let Some(metrics) = self.label_metrics(cx, cy, radius) else {
+            return;
+        };
+        self.draw_label_guide(pixmap, cx, cy, radius, &metrics);
+        self.draw_label_arrow(pixmap, cx, cy, radius, &metrics);
+        self.draw_label_background(pixmap, &metrics);
+        self.draw_label_text(pixmap, &metrics);
+    }
+
+    /// 计算注释文字的光学位置与包围尺寸。
+    fn label_metrics(&self, cx: f32, cy: f32, radius: f32) -> Option<BadgeLabelMetrics<'_>> {
         let text = self.text.trim();
         if text.is_empty() {
-            return;
+            return None;
         }
         let font_size = if self.font_size > 0.0 {
             self.font_size
         } else {
             (radius * 1.05).max(10.0)
         };
-        let gap = (radius * 0.45).max(6.0);
-        let text_x = cx + radius + gap;
-        let text_y = cy - font_size * 0.62;
-        let text_width = estimate_text_width(text, font_size).max(1.0);
-        let text_height = font_size * 1.25;
+        let text_x = cx + radius + (radius * 0.45).max(6.0);
+        Some(BadgeLabelMetrics {
+            text,
+            font_size,
+            text_x,
+            text_y: cy - font_size * 0.62,
+            text_width: estimate_text_width(text, font_size).max(1.0),
+            text_height: font_size * 1.25,
+        })
+    }
 
-        if self.guide_line {
-            let mut builder = PathBuilder::new();
-            builder.move_to(cx + radius, cy);
-            builder.line_to(text_x - 2.0, cy);
-            if let Some(path) = builder.finish() {
-                let mut paint = Paint::default();
-                paint.set_color_rgba8(self.color.0, self.color.1, self.color.2, 190);
-                pixmap.stroke_path(
-                    &path,
-                    &paint,
-                    &Stroke {
-                        width: 1.2,
-                        ..Default::default()
-                    },
-                    Transform::identity(),
-                    None,
-                );
-            }
+    /// 绘制序号到注释文字之间的导向线。
+    fn draw_label_guide(
+        &self,
+        pixmap: &mut PixmapMut,
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        metrics: &BadgeLabelMetrics<'_>,
+    ) {
+        if !self.guide_line {
+            return;
         }
-
-        if let Some(style) = self.arrow_style {
-            ArrowAction {
-                start: (text_x + text_width + 8.0, text_y + text_height / 2.0),
-                end: (cx + radius + 2.0, cy),
-                color: self.color,
-                stroke_width: 2.0,
-                style,
-                line_style: LineStyle::Solid,
-                start_head: ArrowHeadStyle::None,
-                end_head: ArrowHeadStyle::Triangle,
-            }
-            .draw_offset(pixmap, 0.0, 0.0);
+        let mut builder = PathBuilder::new();
+        builder.move_to(cx + radius, cy);
+        builder.line_to(metrics.text_x - 2.0, cy);
+        if let Some(path) = builder.finish() {
+            let mut paint = Paint::default();
+            paint.set_color_rgba8(self.color.0, self.color.1, self.color.2, 190);
+            pixmap.stroke_path(
+                &path,
+                &paint,
+                &Stroke {
+                    width: 1.2,
+                    ..Default::default()
+                },
+                Transform::identity(),
+                None,
+            );
         }
+    }
 
-        if let Some(background) = self.background_color {
-            let width = text_width + self.padding * 2.0;
-            let height = text_height + self.padding * 2.0;
-            if let Some(path) = rounded_rect_path(
-                text_x - self.padding,
-                text_y - self.padding,
-                width,
-                height,
-                self.corner_radius,
-            ) {
-                let mut paint = Paint::default();
-                paint.set_color_rgba8(
-                    background.0,
-                    background.1,
-                    background.2,
-                    self.background_opacity,
-                );
-                pixmap.fill_path(
-                    &path,
-                    &paint,
-                    FillRule::Winding,
-                    Transform::identity(),
-                    None,
-                );
-            }
+    /// 绘制指向序号气泡的箭头。
+    fn draw_label_arrow(
+        &self,
+        pixmap: &mut PixmapMut,
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        metrics: &BadgeLabelMetrics<'_>,
+    ) {
+        let Some(style) = self.arrow_style else {
+            return;
+        };
+        ArrowAction {
+            start: (
+                metrics.text_x + metrics.text_width + 8.0,
+                metrics.text_y + metrics.text_height / 2.0,
+            ),
+            end: (cx + radius + 2.0, cy),
+            color: self.color,
+            stroke_width: 2.0,
+            style,
+            line_style: LineStyle::Solid,
+            start_head: ArrowHeadStyle::None,
+            end_head: ArrowHeadStyle::Triangle,
         }
+        .draw_offset(pixmap, 0.0, 0.0);
+    }
 
+    /// 绘制注释文字的圆角背景。
+    fn draw_label_background(&self, pixmap: &mut PixmapMut, metrics: &BadgeLabelMetrics<'_>) {
+        let Some(background) = self.background_color else {
+            return;
+        };
+        let width = metrics.text_width + self.padding * 2.0;
+        let height = metrics.text_height + self.padding * 2.0;
+        let Some(path) = rounded_rect_path(
+            metrics.text_x - self.padding,
+            metrics.text_y - self.padding,
+            width,
+            height,
+            self.corner_radius,
+        ) else {
+            return;
+        };
+        let mut paint = Paint::default();
+        paint.set_color_rgba8(
+            background.0,
+            background.1,
+            background.2,
+            self.background_opacity,
+        );
+        pixmap.fill_path(
+            &path,
+            &paint,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+    }
+
+    /// 绘制注释文字及其可选描边。
+    fn draw_label_text(&self, pixmap: &mut PixmapMut, metrics: &BadgeLabelMetrics<'_>) {
         let rgba = self.text_color.unwrap_or(self.color).to_tuple();
         with_thread_local_text_renderer(|renderer| {
             let style = TextStyleOptions {
@@ -251,41 +318,52 @@ impl BadgeAction {
                 font_family: self.font_family.as_deref(),
             };
             if self.stroke_width > 0.0 {
-                for (dx, dy) in [
-                    (-1.0, -1.0),
-                    (0.0, -1.0),
-                    (1.0, -1.0),
-                    (-1.0, 0.0),
-                    (1.0, 0.0),
-                    (-1.0, 1.0),
-                    (0.0, 1.0),
-                    (1.0, 1.0),
-                ] {
-                    renderer.draw_text_styled_rgba(
-                        pixmap,
-                        text,
-                        StyledTextDrawOptions {
-                            x: text_x + dx * self.stroke_width,
-                            y: text_y + dy * self.stroke_width,
-                            font_size,
-                            rgba: self.stroke_color.to_tuple(),
-                            style,
-                        },
-                    );
-                }
+                self.draw_text_halo(renderer, pixmap, metrics, style);
             }
             renderer.draw_text_styled_rgba(
                 pixmap,
-                text,
+                metrics.text,
                 StyledTextDrawOptions {
-                    x: text_x,
-                    y: text_y,
-                    font_size,
+                    x: metrics.text_x,
+                    y: metrics.text_y,
+                    font_size: metrics.font_size,
                     rgba,
                     style,
                 },
             );
         });
+    }
+
+    /// 绘制八方向描边晕影。
+    fn draw_text_halo(
+        &self,
+        renderer: &mut TextRenderer,
+        pixmap: &mut PixmapMut,
+        metrics: &BadgeLabelMetrics<'_>,
+        style: TextStyleOptions<'_>,
+    ) {
+        for (dx, dy) in [
+            (-1.0, -1.0),
+            (0.0, -1.0),
+            (1.0, -1.0),
+            (-1.0, 0.0),
+            (1.0, 0.0),
+            (-1.0, 1.0),
+            (0.0, 1.0),
+            (1.0, 1.0),
+        ] {
+            renderer.draw_text_styled_rgba(
+                pixmap,
+                metrics.text,
+                StyledTextDrawOptions {
+                    x: metrics.text_x + dx * self.stroke_width,
+                    y: metrics.text_y + dy * self.stroke_width,
+                    font_size: metrics.font_size,
+                    rgba: self.stroke_color.to_tuple(),
+                    style,
+                },
+            );
+        }
     }
 
     /// 按序号位数选择字号，并复用渲染层的通用几何居中能力。
