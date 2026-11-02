@@ -80,7 +80,11 @@ async fn capture_linux(include_cursor: bool) -> Result<RgbaImage, PlatformError>
 /// 通过 GNOME Shell 扩展执行零白闪截屏并解码
 #[cfg(target_os = "linux")]
 async fn capture_via_extension(include_cursor: bool) -> Result<RgbaImage, PlatformError> {
-    let target_path = AppPaths::generate_temp_path("screen", "png");
+    let target_path =
+        AppPaths::generate_temp_path("screen", "png").map_err(|source| PlatformError::Io {
+            path: AppPaths::runtime_dir().display().to_string(),
+            source,
+        })?;
     let _cleanup = TemporaryScreenshotFile::new(target_path.clone());
     let target_str = target_path.to_string_lossy().to_string();
     let success = crate::extension_client::capture_fullscreen_extension_with_cursor(

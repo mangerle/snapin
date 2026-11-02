@@ -189,7 +189,8 @@ pub async fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
     let title = format!("pin_{uid}");
     let width = pixmap.width();
     let height = pixmap.height();
-    let raw_temp = AppPaths::generate_temp_path("paster_pin", "raw");
+    let raw_temp =
+        AppPaths::generate_temp_path("paster_pin", "raw").context("创建贴图运行时临时路径失败")?;
 
     let raw_temp_for_write = raw_temp.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {

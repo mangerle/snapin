@@ -9,6 +9,7 @@ use super::protocol::DaemonRequest;
 use super::protocol::{get_socket_path, IpcInvocation};
 use crate::error::DaemonError;
 use connection::spawn_connection_handler;
+use snapin_foundation::AppPaths;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::PathBuf;
 #[cfg(unix)]
@@ -36,7 +37,16 @@ pub struct IpcListener {
 impl IpcListener {
     /// 绑定套接字并初始化监听器，若检测到已有存活实例则拒绝重复启动，若为残留文件则自动清理
     pub async fn bind(custom_path: Option<PathBuf>) -> Result<Self, DaemonError> {
-        let socket_path = custom_path.unwrap_or_else(get_socket_path);
+        let socket_path = match custom_path {
+            Some(path) => path,
+            None => {
+                AppPaths::ensure_runtime_dir().map_err(|error| DaemonError::Socket {
+                    socket_path: AppPaths::runtime_dir().display().to_string(),
+                    message: format!("创建私有 IPC 运行时目录失败: {error}"),
+                })?;
+                get_socket_path()
+            }
+        };
         let lock_file = acquire_instance_lock(&socket_path)?;
 
         #[cfg(unix)]

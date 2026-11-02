@@ -49,24 +49,24 @@ impl AppPaths {
     /// 确保配置目录存在并收紧为私有权限。
     ///
     /// 目录创建从 getter 中拆出，避免仅读取路径或测试布局时产生磁盘副作用。
-    pub fn ensure_config_dir() -> PathBuf {
+    pub fn ensure_config_dir() -> std::io::Result<PathBuf> {
         let path = Self::config_dir();
-        ensure_private_dir(&path);
-        path
+        ensure_private_dir(&path)?;
+        Ok(path)
     }
 
     /// 确保缓存目录存在并收紧为私有权限。
-    pub fn ensure_cache_dir() -> PathBuf {
+    pub fn ensure_cache_dir() -> std::io::Result<PathBuf> {
         let path = Self::cache_dir();
-        ensure_private_dir(&path);
-        path
+        ensure_private_dir(&path)?;
+        Ok(path)
     }
 
     /// 确保运行时目录存在并收紧为私有权限。
-    pub fn ensure_runtime_dir() -> PathBuf {
+    pub fn ensure_runtime_dir() -> std::io::Result<PathBuf> {
         let path = Self::runtime_dir();
-        ensure_private_dir(&path);
-        path
+        ensure_private_dir(&path)?;
+        Ok(path)
     }
 
     /// 获取默认配置文件路径：`$XDG_CONFIG_HOME/snapin/config.toml` 或系统对应配置目录
@@ -207,11 +207,11 @@ impl AppPaths {
     }
 
     /// 生成防碰撞的安全临时文件绝对路径（位于安全运行时目录下）
-    pub fn generate_temp_path(prefix: &str, ext: &str) -> PathBuf {
-        let dir = Self::ensure_runtime_dir();
+    pub fn generate_temp_path(prefix: &str, ext: &str) -> std::io::Result<PathBuf> {
+        let dir = Self::ensure_runtime_dir()?;
         let id = Self::generate_unique_id();
         let pid = std::process::id();
-        dir.join(format!("{prefix}_{pid}_{id}.{ext}"))
+        Ok(dir.join(format!("{prefix}_{pid}_{id}.{ext}")))
     }
 
     /// 以仅当前用户可读写的权限（0600）创建全新文件。
@@ -300,20 +300,37 @@ impl AppPaths {
 /// 创建目录并收紧为仅当前用户可访问的 0700 权限。
 ///
 /// 权限设置失败时不会阻断主流程（只记录警告），避免在不支持权限位的文件系统上崩溃。
-fn ensure_private_dir(path: &Path) {
-    if let Err(error) = std::fs::create_dir_all(path) {
-        tracing::warn!("创建私有目录失败，路径: {:?}，原因: {error}", path);
-    } else {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Err(error) =
-                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
-            {
-                tracing::warn!("收紧目录权限失败，路径: {:?}，原因: {error}", path);
-            }
-        }
+fn ensure_private_dir(path: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(path)?;
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotADirectory,
+            format!("私有路径不是目录: {}", path.display()),
+        ));
     }
+    if metadata.file_type().is_symlink() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("私有目录不得是符号链接: {}", path.display()),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        if metadata.uid() != rustix::process::getuid().as_raw() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!(
+                    "私有目录属主不匹配，路径: {}，目录 UID: {}",
+                    path.display(),
+                    metadata.uid()
+                ),
+            ));
+        }
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -330,7 +347,7 @@ mod tests {
         assert!(sock_path.ends_with("snapin.sock"));
         assert_eq!(sock_path.parent(), Some(AppPaths::runtime_dir().as_path()));
 
-        let temp_path = AppPaths::generate_temp_path("test", "raw");
+        let temp_path = AppPaths::generate_temp_path("test", "raw").expect("运行时目录必须可创建");
         assert!(temp_path.to_string_lossy().contains("test_"));
         assert!(temp_path.to_string_lossy().ends_with(".raw"));
 
@@ -363,5 +380,34 @@ mod tests {
 
         assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
         assert_eq!(std::fs::read(path).expect("应可读取原文件"), b"original");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_ensure_private_dir_sets_user_only_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().expect("应可创建测试目录");
+        let path = root.path().join("private");
+        ensure_private_dir(&path).expect("私有目录应可创建");
+
+        let mode = std::fs::metadata(&path)
+            .expect("应可读取目录元数据")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_ensure_private_dir_rejects_symlink() {
+        let root = tempfile::tempdir().expect("应可创建测试目录");
+        let target = root.path().join("target");
+        std::fs::create_dir(&target).expect("应可创建目标目录");
+        let link = root.path().join("link");
+        std::os::unix::fs::symlink(&target, &link).expect("应可创建目录符号链接");
+
+        assert!(ensure_private_dir(&link).is_err());
     }
 }

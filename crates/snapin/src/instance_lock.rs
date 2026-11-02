@@ -17,7 +17,8 @@ pub(crate) struct InstanceLock {
 impl InstanceLock {
     /// 尝试获取指定名称的锁；已有活进程持锁时返回 `None`。
     pub(crate) fn try_acquire(name: &str) -> Result<Option<Self>> {
-        let path = AppPaths::ensure_runtime_dir().join(format!("{name}.lock"));
+        let runtime_dir = AppPaths::ensure_runtime_dir().context("创建私有运行时目录失败")?;
+        let path = runtime_dir.join(format!("{name}.lock"));
         Self::try_acquire_at(path)
     }
 
