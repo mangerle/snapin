@@ -16,6 +16,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const CLIPBOARD_HISTORY_LIMIT: usize = 10;
 /// 剪贴板历史保留秒数。
 pub const CLIPBOARD_HISTORY_TTL_SECS: u64 = 24 * 60 * 60;
+/// 剪贴板历史索引允许读取的最大字节数。
+const MAX_CLIPBOARD_INDEX_BYTES: usize = 1024 * 1024;
 
 /// 剪贴板条目类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,7 +134,8 @@ pub fn clear_clipboard_history() -> Result<(), StorageError> {
 
 fn load_and_prune(dir: PathBuf) -> Result<Vec<ClipboardEntry>, StorageError> {
     let index = dir.join("index.json");
-    let content = match std::fs::read_to_string(&index) {
+    let content = match snapin_foundation::read_utf8_file_limited(&index, MAX_CLIPBOARD_INDEX_BYTES)
+    {
         Ok(content) => content,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(source) => {
@@ -375,5 +378,18 @@ mod tests {
             image::open(path).expect("保存的图像应可解码").to_rgba8(),
             image
         );
+    }
+
+    #[test]
+    fn test_load_rejects_oversized_history_index() {
+        let dir = tempfile::tempdir().expect("应可创建测试目录");
+        std::fs::write(
+            dir.path().join("index.json"),
+            vec![b' '; MAX_CLIPBOARD_INDEX_BYTES.saturating_add(1)],
+        )
+        .expect("应可写入超限索引");
+
+        let error = load_and_prune(dir.path().to_path_buf()).expect_err("超限索引必须被拒绝");
+        assert!(matches!(error, StorageError::Io { .. }));
     }
 }

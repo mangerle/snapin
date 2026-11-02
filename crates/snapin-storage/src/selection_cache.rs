@@ -3,6 +3,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// 选区缓存文件允许读取的最大字节数。
+const MAX_SELECTION_CACHE_BYTES: usize = 16 * 1024;
+
 /// 持久化缓存的历史选区矩形数据契约。
 ///
 /// 该结构只描述缓存文件本身的落盘格式，既非用户偏好也不跨模块共享，因此收敛为本模块私有类型，
@@ -85,7 +88,9 @@ fn load_last_selection_from(cache_dir: &std::path::Path) -> Option<(f32, f32, f3
     let toml_path = cache_dir.join("last_selection.toml");
 
     // 优先读取强类型结构化的 TOML 缓存文件
-    if let Ok(content) = std::fs::read_to_string(&toml_path) {
+    if let Ok(content) =
+        snapin_foundation::read_utf8_file_limited(&toml_path, MAX_SELECTION_CACHE_BYTES)
+    {
         if let Ok(record) = toml::from_str::<SelectionRectRecord>(&content) {
             if record.is_valid() {
                 return Some((record.x, record.y, record.width, record.height));
@@ -95,7 +100,9 @@ fn load_last_selection_from(cache_dir: &std::path::Path) -> Option<(f32, f32, f3
 
     // 兜底兼容旧版逗号拼接 txt 缓存文件
     let legacy_path = cache_dir.join("last_selection.txt");
-    if let Ok(content) = std::fs::read_to_string(legacy_path) {
+    if let Ok(content) =
+        snapin_foundation::read_utf8_file_limited(&legacy_path, MAX_SELECTION_CACHE_BYTES)
+    {
         let parts: Vec<&str> = content.split(',').collect();
         if parts.len() == 4 {
             let x: f32 = parts[0].trim().parse().ok()?;
@@ -187,5 +194,17 @@ mod tests {
             .expect("应可写入旧版缓存");
         assert_eq!(clear_selection_cache_in(dir.path()), 1);
         assert!(!dir.path().join("last_selection.txt").exists());
+    }
+
+    #[test]
+    fn test_oversized_selection_cache_is_ignored() {
+        let dir = tempfile::tempdir().expect("应可创建测试缓存目录");
+        std::fs::write(
+            dir.path().join("last_selection.toml"),
+            vec![b' '; MAX_SELECTION_CACHE_BYTES.saturating_add(1)],
+        )
+        .expect("应可写入超限缓存");
+
+        assert!(load_last_selection_from(dir.path()).is_none());
     }
 }
