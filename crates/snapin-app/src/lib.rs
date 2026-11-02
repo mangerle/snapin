@@ -18,6 +18,7 @@ mod installer;
 mod lifecycle;
 mod media;
 mod paste;
+mod placement;
 mod services;
 mod snip;
 mod update;

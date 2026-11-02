@@ -1,86 +1,12 @@
 //! 贴图创建与 Wayland 精确放置指令。
 
 use crate::daemon::commands::DaemonResponse;
+use crate::placement::{confirm_paster_placement, register_paster_placement};
 use snapin_core::AppPaths;
 use snapin_ui::paster::{PasterItem, PasterWorkspaceProxy};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use tiny_skia::Pixmap;
 use tokio::io::AsyncReadExt;
-use tokio::time::timeout;
-
-#[cfg(target_os = "linux")]
-const PLACEMENT_TIMEOUT: Duration = Duration::from_millis(400);
-#[cfg(target_os = "linux")]
-const PLACEMENT_CONFIRM_WINDOW: Duration = Duration::from_millis(800);
-#[cfg(target_os = "linux")]
-const PLACEMENT_CONFIRM_INTERVAL: Duration = Duration::from_millis(40);
-
-/// 向配套 GNOME 扩展登记贴图窗口的精确放置坐标。
-///
-/// 设计原理：Wayland 的 xdg-shell 协议禁止客户端自行决定窗口位置，`WindowBuilder::with_position`
-/// 在原生会话下被合成器直接忽略，绝对定位只能交由持有 Mutter 特权的扩展执行。
-/// 这里采用「先登记坐标、再创建窗口」的次序，扩展会把尚未映射的请求挂起，
-/// 待 `window-created` 触发时立即生效，从而彻底消除窗口映射与放置调用之间的竞态。
-/// 放置失败只影响窗口落点、不影响贴图内容本身，属可降级路径，故仅记录日志而不改写响应结果。
-#[cfg(target_os = "linux")]
-async fn register_paster_placement(title: &str, x: i32, y: i32) {
-    match timeout(
-        PLACEMENT_TIMEOUT,
-        snapin_platform::place_paster_window(title, x, y),
-    )
-    .await
-    {
-        Ok(Ok(_)) => tracing::debug!("已向扩展登记贴图放置请求: {title}，坐标: ({x}, {y})"),
-        Ok(Err(error)) => tracing::warn!("请求 GNOME 扩展登记贴图放置失败: {error}"),
-        Err(_) => tracing::warn!("请求 GNOME 扩展登记贴图放置超时，窗口将由扩展回退定位"),
-    }
-}
-
-/// 非 Linux 平台无需 GNOME 扩展介入绝对定位，客户端已自控窗口位置
-#[cfg(not(target_os = "linux"))]
-async fn register_paster_placement(_title: &str, _x: i32, _y: i32) {}
-
-/// 在窗口投递之后确认放置已真正生效（仅 Linux Wayland 生效）
-#[cfg(target_os = "linux")]
-async fn confirm_paster_placement(title: &str, x: i32, y: i32) {
-    let deadline = tokio::time::Instant::now() + PLACEMENT_CONFIRM_WINDOW;
-    loop {
-        match timeout(
-            PLACEMENT_TIMEOUT,
-            snapin_platform::place_paster_window(title, x, y),
-        )
-        .await
-        {
-            Ok(Ok(true)) => {
-                tracing::debug!("贴图窗口已完成精确放置: {title}，坐标: ({x}, {y})");
-                return;
-            }
-            Ok(Ok(false)) => {}
-            Ok(Err(error)) => {
-                tracing::warn!("确认贴图放置时调用扩展失败: {error}");
-                return;
-            }
-            Err(_) => {
-                tracing::warn!("确认贴图放置时调用扩展超时");
-                return;
-            }
-        }
-
-        if tokio::time::Instant::now() >= deadline {
-            tracing::warn!(
-                "贴图窗口在 {}ms 内仍未能被扩展定位，已回退到合成器默认位置: {title}",
-                PLACEMENT_CONFIRM_WINDOW.as_millis()
-            );
-            return;
-        }
-        tokio::time::sleep(PLACEMENT_CONFIRM_INTERVAL).await;
-    }
-}
-
-/// 非 Linux 平台无需 GNOME 扩展确认放置
-#[cfg(not(target_os = "linux"))]
-async fn confirm_paster_placement(_title: &str, _x: i32, _y: i32) {}
 
 /// 创建贴图窗口所需的完整参数。
 pub(super) struct CreatePasterRequest {

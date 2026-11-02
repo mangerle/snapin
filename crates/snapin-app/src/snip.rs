@@ -3,6 +3,7 @@
 //! 所有截图覆盖层由常驻守护进程的单一 GUI 事件循环托管；本模块负责捕获屏幕、
 //! 枚举窗口候选、构造覆盖层启动参数，并把结果转换为通知或贴图窗口。
 
+use crate::placement::{confirm_paster_placement, register_paster_placement};
 use crate::services::AppServices;
 use anyhow::{Context, Result};
 use snapin_core::config::Config;
@@ -188,9 +189,15 @@ pub(crate) async fn handle_snipper_outcome(
             }
         }
         SnipperOutcome::Pinned(item) => {
+            let title = item.title.clone();
+            let (x, y) = item.position;
+            // Wayland 下客户端无法自定位：必须先把选区物理坐标登记给扩展，
+            // 再投递窗口，最后轮询确认，否则贴图会落到合成器默认位置。
+            register_paster_placement(&title, x, y).await;
             workspace
                 .open_paster(item)
                 .context("向常驻集中工作区投递贴图失败")?;
+            confirm_paster_placement(&title, x, y).await;
         }
         SnipperOutcome::Cancelled => {
             tracing::info!("用户已取消本次截图");
