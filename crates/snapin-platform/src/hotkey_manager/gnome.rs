@@ -204,7 +204,15 @@ fn execute_gsettings_batch(items: &[(&str, &str, &str)]) -> Result<(), PlatformE
                 ));
             }
             Ok(_) => {}
-            Err(error) => failures.push(format!("{schema} {key}: {error}")),
+            Err(error) => {
+                // 启动/超时通常说明 gsettings 后端整体不可用，继续遍历剩余键只会
+                // 叠加多个超时并拖慢守护进程启动。
+                return Err(PlatformError::Hotkey {
+                    message: format!(
+                        "执行 gsettings set 失败，参数: {schema} {key}，原因: {error}"
+                    ),
+                });
+            }
         }
     }
     if failures.is_empty() {
