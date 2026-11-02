@@ -40,62 +40,10 @@ impl IpcListener {
         let lock_file = acquire_instance_lock(&socket_path)?;
 
         #[cfg(unix)]
-        if socket_path.exists() {
-            // 只要套接字还能接受连接并给出任何应答，就说明另有进程在监听。此时绝不能
-            // 删除路径去抢占：旧版本或卡死的实例会变成继续注册托盘、热键与扩展交互的
-            // 孤儿进程，与新实例同时存在（表现为同一会话出现两份托盘图标）。
-            // 只有确认无人监听（连接被拒绝）时才可以把它当作残留文件清理。
-            match send_request_to_path(&socket_path, &DaemonRequest::Ping).await {
-                Ok(None) => {
-                    let _ = std::fs::remove_file(&socket_path);
-                }
-                Ok(Some(_)) | Err(_) => {
-                    return Err(DaemonError::Socket {
-                        socket_path: socket_path.to_string_lossy().to_string(),
-                        message: "套接字已被另一个进程监听（可能是旧版本或无响应的 Snapin 守护进程），请先结束该进程后再启动".to_string(),
-                    });
-                }
-            }
-        }
-
-        #[cfg(unix)]
-        let listener = UnixListener::bind(&socket_path).map_err(|e| DaemonError::Socket {
-            socket_path: socket_path.to_string_lossy().to_string(),
-            message: format!("绑定 IPC 套接字失败: {e}"),
-        })?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Err(error) =
-                std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))
-            {
-                tracing::warn!(
-                    "收紧 IPC 套接字权限失败，路径: {:?}，原因: {error}",
-                    socket_path
-                );
-            }
-        }
+        let listener = bind_unix_listener(&socket_path).await?;
 
         #[cfg(windows)]
-        let pipe_name = crate::client::windows_pipe_name(&socket_path);
-        #[cfg(windows)]
-        let initial_server = match tokio::net::windows::named_pipe::ServerOptions::new()
-            .first_pipe_instance(true)
-            .create(&pipe_name)
-        {
-            Ok(server) => server,
-            // first_pipe_instance 保证同一时刻只存在一个服务端实例：
-            // 创建失败即说明已有守护进程占用该命名管道，必须拒绝启动而不是继续。
-            Err(e) => {
-                return Err(DaemonError::Socket {
-                    socket_path: pipe_name,
-                    message: format!(
-                        "无法创建独占 IPC 命名管道，可能已有另一个 Snapin 守护进程在运行: {e}"
-                    ),
-                });
-            }
-        };
+        let (pipe_name, initial_server) = bind_windows_pipe(&socket_path)?;
 
         tracing::info!("Snapin IPC 监听服务就绪，套接字路径: {:?}", socket_path);
         Ok(Self {
@@ -186,6 +134,62 @@ impl IpcListener {
         connections.shutdown().await;
         tracing::info!("IPC 监听循环已退出");
     }
+}
+
+#[cfg(unix)]
+async fn bind_unix_listener(socket_path: &std::path::Path) -> Result<UnixListener, DaemonError> {
+    if socket_path.exists() {
+        // 只要套接字还能接受连接并给出任何应答，就说明另有进程在监听；绝不能删除
+        // 路径去抢占，否则旧实例会变成与新实例共存的孤儿进程。
+        match send_request_to_path(socket_path, &DaemonRequest::Ping).await {
+            Ok(None) => {
+                let _ = std::fs::remove_file(socket_path);
+            }
+            Ok(Some(_)) | Err(_) => {
+                return Err(DaemonError::Socket {
+                    socket_path: socket_path.to_string_lossy().to_string(),
+                    message: "套接字已被另一个进程监听（可能是旧版本或无响应的 Snapin 守护进程），请先结束该进程后再启动".to_string(),
+                });
+            }
+        }
+    }
+
+    let listener = UnixListener::bind(socket_path).map_err(|error| DaemonError::Socket {
+        socket_path: socket_path.to_string_lossy().to_string(),
+        message: format!("绑定 IPC 套接字失败: {error}"),
+    })?;
+    restrict_unix_socket_permissions(socket_path);
+    Ok(listener)
+}
+
+#[cfg(unix)]
+fn restrict_unix_socket_permissions(socket_path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Err(error) =
+        std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))
+    {
+        tracing::warn!(
+            "收紧 IPC 套接字权限失败，路径: {:?}，原因: {error}",
+            socket_path
+        );
+    }
+}
+
+#[cfg(windows)]
+fn bind_windows_pipe(
+    socket_path: &std::path::Path,
+) -> Result<(String, tokio::net::windows::named_pipe::NamedPipeServer), DaemonError> {
+    let pipe_name = crate::client::windows_pipe_name(socket_path);
+    let server = tokio::net::windows::named_pipe::ServerOptions::new()
+        .first_pipe_instance(true)
+        .create(&pipe_name)
+        .map_err(|error| DaemonError::Socket {
+            socket_path: pipe_name.clone(),
+            message: format!(
+                "无法创建独占 IPC 命名管道，可能已有另一个 Snapin 守护进程在运行: {error}"
+            ),
+        })?;
+    Ok((pipe_name, server))
 }
 
 /// 获取跨进程单实例锁，覆盖 Ping 探测与残留套接字清理之间的竞态窗口。
