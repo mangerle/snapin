@@ -110,6 +110,14 @@ struct BadgeLabelMetrics<'a> {
     text_height: f32,
 }
 
+/// 序号气泡的圆心与半径。
+#[derive(Debug, Clone, Copy)]
+struct BadgeCircle {
+    center_x: f32,
+    center_y: f32,
+    radius: f32,
+}
+
 impl BadgeAction {
     pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         let (cx, cy) = (self.center.x + offset_x, self.center.y + offset_y);
@@ -129,7 +137,16 @@ impl BadgeAction {
         self.draw_badge_shadow(pixmap, cx, cy, radius);
         self.draw_filled_circle(pixmap, cx, cy, radius);
         with_thread_local_text_renderer(|renderer| {
-            self.draw_label(renderer, pixmap, cx, cy, radius, (255, 255, 255, 255));
+            self.draw_label(
+                renderer,
+                pixmap,
+                BadgeCircle {
+                    center_x: cx,
+                    center_y: cy,
+                    radius,
+                },
+                (255, 255, 255, 255),
+            );
         });
     }
 
@@ -189,8 +206,13 @@ impl BadgeAction {
         let Some(metrics) = self.label_metrics(cx, cy, radius) else {
             return;
         };
-        self.draw_label_guide(pixmap, cx, cy, radius, &metrics);
-        self.draw_label_arrow(pixmap, cx, cy, radius, &metrics);
+        let circle = BadgeCircle {
+            center_x: cx,
+            center_y: cy,
+            radius,
+        };
+        self.draw_label_guide(pixmap, circle, &metrics);
+        self.draw_label_arrow(pixmap, circle, &metrics);
         self.draw_label_background(pixmap, &metrics);
         self.draw_label_text(pixmap, &metrics);
     }
@@ -221,17 +243,15 @@ impl BadgeAction {
     fn draw_label_guide(
         &self,
         pixmap: &mut PixmapMut,
-        cx: f32,
-        cy: f32,
-        radius: f32,
+        circle: BadgeCircle,
         metrics: &BadgeLabelMetrics<'_>,
     ) {
         if !self.guide_line {
             return;
         }
         let mut builder = PathBuilder::new();
-        builder.move_to(cx + radius, cy);
-        builder.line_to(metrics.text_x - 2.0, cy);
+        builder.move_to(circle.center_x + circle.radius, circle.center_y);
+        builder.line_to(metrics.text_x - 2.0, circle.center_y);
         if let Some(path) = builder.finish() {
             let mut paint = Paint::default();
             paint.set_color_rgba8(self.color.0, self.color.1, self.color.2, 190);
@@ -252,9 +272,7 @@ impl BadgeAction {
     fn draw_label_arrow(
         &self,
         pixmap: &mut PixmapMut,
-        cx: f32,
-        cy: f32,
-        radius: f32,
+        circle: BadgeCircle,
         metrics: &BadgeLabelMetrics<'_>,
     ) {
         let Some(style) = self.arrow_style else {
@@ -265,7 +283,7 @@ impl BadgeAction {
                 metrics.text_x + metrics.text_width + 8.0,
                 metrics.text_y + metrics.text_height / 2.0,
             ),
-            end: Point::new(cx + radius + 2.0, cy),
+            end: Point::new(circle.center_x + circle.radius + 2.0, circle.center_y),
             color: self.color,
             stroke_width: 2.0,
             style,
@@ -371,11 +389,10 @@ impl BadgeAction {
         &self,
         renderer: &mut TextRenderer,
         pixmap: &mut PixmapMut,
-        cx: f32,
-        cy: f32,
-        radius: f32,
+        circle: BadgeCircle,
         rgba: (u8, u8, u8, u8),
     ) {
+        let radius = circle.radius;
         let font_size = if self.number < 10 {
             radius * 1.35
         } else if self.number < 100 {
@@ -387,7 +404,7 @@ impl BadgeAction {
             pixmap,
             &self.label_text(),
             CenteredTextOptions {
-                center: (cx, cy),
+                center: (circle.center_x, circle.center_y),
                 font_size,
                 max_extent: radius * 4.0,
                 rgba,
@@ -482,7 +499,16 @@ impl BadgeAction {
         }
 
         with_thread_local_text_renderer(|renderer| {
-            self.draw_label(renderer, pixmap, cx, cy, r, self.color.to_tuple());
+            self.draw_label(
+                renderer,
+                pixmap,
+                BadgeCircle {
+                    center_x: cx,
+                    center_y: cy,
+                    radius: r,
+                },
+                self.color.to_tuple(),
+            );
         });
     }
 }
