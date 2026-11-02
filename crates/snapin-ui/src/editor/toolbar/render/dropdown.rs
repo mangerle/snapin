@@ -7,6 +7,7 @@ use super::super::Toolbar;
 use super::widgets::{
     fill_circle, render_arrow_head_preview, render_arrow_preview, render_badge_style_icon,
     render_magnifier_connector_preview, stroke_sample, ArrowHeadPreviewSpec,
+    MagnifierConnectorPreviewSpec,
 };
 use crate::geometry::Rect;
 use snapin_annotation::{
@@ -269,12 +270,14 @@ fn render_preview(
         DropdownPreview::MagnifierConnector(connector) => {
             render_magnifier_connector_preview(
                 pixmap,
-                row.x + 12.0 * s,
-                row.x + row.width - 26.0 * s,
-                center_y,
-                s,
-                connector,
-                ink,
+                MagnifierConnectorPreviewSpec {
+                    x0: row.x + 12.0 * s,
+                    x1: row.x + row.width - 26.0 * s,
+                    center_y,
+                    scale: s,
+                    connector,
+                    color: ink,
+                },
             );
         }
         DropdownPreview::FontSize(font_size) => {

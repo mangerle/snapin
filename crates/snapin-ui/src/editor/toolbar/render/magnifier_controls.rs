@@ -6,7 +6,9 @@ use super::sub_bar_helpers::{
     render_caret, render_magnifier_scale_slider, render_sub_shape_ellipse, render_sub_shape_rect,
     render_toggle_text,
 };
-use super::widgets::{fill_button_highlight, render_magnifier_connector_preview};
+use super::widgets::{
+    fill_button_highlight, render_magnifier_connector_preview, MagnifierConnectorPreviewSpec,
+};
 use crate::geometry::Rect;
 use snapin_annotation::MagnifierShape;
 use tiny_skia::{Color, PixmapMut};
@@ -58,12 +60,14 @@ pub(super) fn render_magnifier_sub_control(
             }
             render_magnifier_connector_preview(
                 pixmap,
-                rect.x + 8.0 * s,
-                rect.x + rect.width - 18.0 * s,
-                center_y,
-                s,
-                toolbar.sub_options.magnifier_connector,
-                Color::from_rgba8(45, 48, 56, 255),
+                MagnifierConnectorPreviewSpec {
+                    x0: rect.x + 8.0 * s,
+                    x1: rect.x + rect.width - 18.0 * s,
+                    center_y,
+                    scale: s,
+                    connector: toolbar.sub_options.magnifier_connector,
+                    color: Color::from_rgba8(45, 48, 56, 255),
+                },
             );
             render_caret(pixmap, rect.x + rect.width - 9.0 * s, center_y, s);
         }

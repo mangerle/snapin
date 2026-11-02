@@ -7,7 +7,7 @@ pub(super) use arrow::{render_arrow_head_preview, render_arrow_preview, ArrowHea
 use super::super::icons::{add_round_rect, make_paint};
 use crate::geometry::Rect;
 use snapin_annotation::{BadgeStyle, LineStyle, MagnifierConnector};
-use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
+use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 绘制通用浅米白微圆角容器背景与微阴影 (参考官方经典现代浅色设计)
 pub(super) fn render_panel_background(pixmap: &mut PixmapMut, rect: &Rect, s: f32) {
@@ -236,23 +236,28 @@ pub(super) fn render_badge_style_icon(
     }
 }
 
+/// 放大镜连接线预览的几何与样式参数。
+pub(super) struct MagnifierConnectorPreviewSpec {
+    pub x0: f32,
+    pub x1: f32,
+    pub center_y: f32,
+    pub scale: f32,
+    pub connector: MagnifierConnector,
+    pub color: Color,
+}
+
 /// 绘制放大镜连接线图示：用两个小框表示源区域与放大图像，并展示当前连接方式。
 pub(super) fn render_magnifier_connector_preview(
     pixmap: &mut PixmapMut,
-    x0: f32,
-    x1: f32,
-    cy: f32,
-    s: f32,
-    connector: MagnifierConnector,
-    color: Color,
+    spec: MagnifierConnectorPreviewSpec,
 ) {
-    let box_size = 7.0 * s;
-    let left = x0;
-    let right = x1 - box_size;
-    let top = cy - box_size / 2.0;
-    let paint = make_paint(color);
+    let box_size = 7.0 * spec.scale;
+    let left = spec.x0;
+    let right = spec.x1 - box_size;
+    let top = spec.center_y - box_size / 2.0;
+    let paint = make_paint(spec.color);
     let box_stroke = Stroke {
-        width: 1.2 * s,
+        width: 1.2 * spec.scale,
         ..Default::default()
     };
     for x in [left, right] {
@@ -269,56 +274,87 @@ pub(super) fn render_magnifier_connector_preview(
     let line_start = left + box_size;
     let line_end = right;
     let mut line = PathBuilder::new();
-    line.move_to(line_start, cy);
-    line.line_to(line_end, cy);
+    line.move_to(line_start, spec.center_y);
+    line.line_to(line_end, spec.center_y);
     if let Some(path) = line.finish() {
-        match connector {
-            MagnifierConnector::Solid => {
-                LineStyle::Solid.stroke_path(pixmap, &path, &paint, 1.4 * s);
-            }
-            MagnifierConnector::Dotted => {
-                LineStyle::Dotted.stroke_path(pixmap, &path, &paint, 1.4 * s);
-            }
-            MagnifierConnector::Frame => {
-                LineStyle::Solid.stroke_path(pixmap, &path, &paint, 1.4 * s);
-                let mut caps = PathBuilder::new();
-                for x in [line_start, line_end] {
-                    caps.move_to(x, cy - 3.0 * s);
-                    caps.line_to(x, cy + 3.0 * s);
-                }
-                if let Some(caps) = caps.finish() {
-                    pixmap.stroke_path(
-                        &caps,
-                        &paint,
-                        &Stroke {
-                            width: 1.2 * s,
-                            ..Default::default()
-                        },
-                        Transform::identity(),
-                        None,
-                    );
-                }
-            }
-            MagnifierConnector::None => {
-                let center_x = (line_start + line_end) / 2.0;
-                let mut cross = PathBuilder::new();
-                cross.move_to(center_x - 2.5 * s, cy - 2.5 * s);
-                cross.line_to(center_x + 2.5 * s, cy + 2.5 * s);
-                cross.move_to(center_x + 2.5 * s, cy - 2.5 * s);
-                cross.line_to(center_x - 2.5 * s, cy + 2.5 * s);
-                if let Some(cross) = cross.finish() {
-                    pixmap.stroke_path(
-                        &cross,
-                        &paint,
-                        &Stroke {
-                            width: 1.2 * s,
-                            ..Default::default()
-                        },
-                        Transform::identity(),
-                        None,
-                    );
-                }
-            }
+        draw_connector_line(pixmap, &path, line_start, line_end, &spec, &paint);
+    }
+}
+
+/// 按连接线模式绘制线段、框线端帽或叉线。
+fn draw_connector_line(
+    pixmap: &mut PixmapMut,
+    path: &tiny_skia::Path,
+    start: f32,
+    end: f32,
+    spec: &MagnifierConnectorPreviewSpec,
+    paint: &Paint,
+) {
+    match spec.connector {
+        MagnifierConnector::Solid => {
+            LineStyle::Solid.stroke_path(pixmap, path, paint, 1.4 * spec.scale);
         }
+        MagnifierConnector::Dotted => {
+            LineStyle::Dotted.stroke_path(pixmap, path, paint, 1.4 * spec.scale);
+        }
+        MagnifierConnector::Frame => {
+            LineStyle::Solid.stroke_path(pixmap, path, paint, 1.4 * spec.scale);
+            draw_connector_caps(pixmap, start, end, spec, paint);
+        }
+        MagnifierConnector::None => draw_connector_cross(pixmap, (start + end) / 2.0, spec, paint),
+    }
+}
+
+/// 绘制框线连接模式两端的竖向端帽。
+fn draw_connector_caps(
+    pixmap: &mut PixmapMut,
+    start: f32,
+    end: f32,
+    spec: &MagnifierConnectorPreviewSpec,
+    paint: &Paint,
+) {
+    let mut caps = PathBuilder::new();
+    for x in [start, end] {
+        caps.move_to(x, spec.center_y - 3.0 * spec.scale);
+        caps.line_to(x, spec.center_y + 3.0 * spec.scale);
+    }
+    if let Some(caps) = caps.finish() {
+        pixmap.stroke_path(
+            &caps,
+            paint,
+            &Stroke {
+                width: 1.2 * spec.scale,
+                ..Default::default()
+            },
+            Transform::identity(),
+            None,
+        );
+    }
+}
+
+/// 绘制表示不连接的叉线。
+fn draw_connector_cross(
+    pixmap: &mut PixmapMut,
+    center_x: f32,
+    spec: &MagnifierConnectorPreviewSpec,
+    paint: &Paint,
+) {
+    let size = 2.5 * spec.scale;
+    let mut cross = PathBuilder::new();
+    cross.move_to(center_x - size, spec.center_y - size);
+    cross.line_to(center_x + size, spec.center_y + size);
+    cross.move_to(center_x + size, spec.center_y - size);
+    cross.line_to(center_x - size, spec.center_y + size);
+    if let Some(cross) = cross.finish() {
+        pixmap.stroke_path(
+            &cross,
+            paint,
+            &Stroke {
+                width: 1.2 * spec.scale,
+                ..Default::default()
+            },
+            Transform::identity(),
+            None,
+        );
     }
 }
