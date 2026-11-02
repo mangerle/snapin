@@ -1,7 +1,6 @@
 //! 贴图窗口物理实例与图形表面构建。
 
 use super::super::window::events::PasterWindowState;
-use super::proxy::PasterAppEvent;
 use super::WorkspaceRuntime;
 use crate::error::UiError;
 use crate::model::PasterId;
@@ -9,8 +8,8 @@ use crate::model::PasterItem;
 use crate::paster::surface::PasterSurface;
 use std::sync::Arc;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::event_loop::EventLoopWindowTarget;
-use winit::window::{Window, WindowBuilder, WindowLevel};
+use winit::event_loop::ActiveEventLoop;
+use winit::window::{Window, WindowLevel};
 
 /// 单个受管贴图窗口的运行时物理实例
 pub struct PasterInstance {
@@ -24,7 +23,7 @@ pub struct PasterInstance {
 pub(crate) fn create_new_paster_window(
     mut item: PasterItem,
     runtime: &mut WorkspaceRuntime,
-    elwt: &EventLoopWindowTarget<PasterAppEvent>,
+    elwt: &ActiveEventLoop,
 ) -> Result<(), UiError> {
     // 新贴图始终归属当前活动分组，避免分组切换后出现“管理器隐藏但窗口仍显示”的分裂状态。
     item.group_id = runtime.manager.active_group();
@@ -33,7 +32,7 @@ pub(crate) fn create_new_paster_window(
     let initial_h = item.pixmap.height();
     let (init_x, init_y) = item.position;
 
-    let builder = WindowBuilder::new()
+    let attributes = Window::default_attributes()
         .with_title(&title)
         .with_decorations(false)
         .with_transparent(true)
@@ -42,14 +41,17 @@ pub(crate) fn create_new_paster_window(
         .with_position(PhysicalPosition::new(init_x, init_y));
 
     #[cfg(target_os = "linux")]
-    let builder = {
-        use winit::platform::wayland::WindowBuilderExtWayland;
-        builder.with_name("snapin-pin", "snapin-pin")
+    let attributes = {
+        use winit::platform::wayland::WindowAttributesExtWayland;
+        attributes.with_name("snapin-pin", "snapin-pin")
     };
 
-    let window = Arc::new(builder.build(elwt).map_err(|e| UiError::Window {
-        message: format!("创建集中工作区贴图窗口失败: {e}"),
-    })?);
+    let window = Arc::new(
+        elwt.create_window(attributes)
+            .map_err(|e| UiError::Window {
+                message: format!("创建集中工作区贴图窗口失败: {e}"),
+            })?,
+    );
 
     // 图形表面优先走支持透明像素的 ARGB8888 共享内存通路，失败时内部回退 softbuffer
     let surface = PasterSurface::new(window.clone())?;

@@ -30,8 +30,9 @@ use snapin_config::config::Config;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
-use winit::event::Event;
-use winit::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy};
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 #[cfg(target_os = "linux")]
 use winit::platform::wayland::EventLoopBuilderExtWayland;
 #[cfg(target_os = "windows")]
@@ -102,7 +103,7 @@ pub fn create_paster_workspace(
 
 /// 按平台创建事件循环；仅 Wayland/Windows 需要 `with_any_thread` 以支持后台线程创建。
 fn build_workspace_event_loop() -> Result<EventLoop<PasterAppEvent>, UiError> {
-    let build = |builder: &mut EventLoopBuilder<PasterAppEvent>| {
+    let build = |mut builder: winit::event_loop::EventLoopBuilder<PasterAppEvent>| {
         builder.build().map_err(|error| UiError::Window {
             message: format!("创建集中多窗口贴图工作区事件循环失败: {error}"),
         })
@@ -110,22 +111,57 @@ fn build_workspace_event_loop() -> Result<EventLoop<PasterAppEvent>, UiError> {
 
     #[cfg(target_os = "linux")]
     {
-        let mut builder = EventLoopBuilder::<PasterAppEvent>::with_user_event();
+        let mut builder = EventLoop::<PasterAppEvent>::with_user_event();
         builder.with_any_thread(true);
-        build(&mut builder)
+        build(builder)
     }
 
     #[cfg(target_os = "windows")]
     {
-        let mut builder = EventLoopBuilder::<PasterAppEvent>::with_user_event();
+        let mut builder = EventLoop::<PasterAppEvent>::with_user_event();
         builder.with_any_thread(true);
-        build(&mut builder)
+        build(builder)
     }
 
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
-        let mut builder = EventLoopBuilder::<PasterAppEvent>::with_user_event();
-        build(&mut builder)
+        build(EventLoop::<PasterAppEvent>::with_user_event())
+    }
+}
+
+/// winit 0.30 应用回调适配器，集中托管工作区事件循环状态。
+struct WorkspaceApplication {
+    runtime: WorkspaceRuntime,
+}
+
+impl ApplicationHandler<PasterAppEvent> for WorkspaceApplication {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        event_loop.set_control_flow(ControlFlow::Wait);
+    }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: PasterAppEvent) {
+        handle_workspace_user_event(event, &mut self.runtime, event_loop);
+    }
+
+    fn window_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        handle_workspace_window_event(window_id, event, &mut self.runtime);
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let deadline = handle_workspace_about_to_wait(&mut self.runtime);
+        event_loop.set_control_flow(match deadline {
+            Some(deadline) => ControlFlow::WaitUntil(deadline),
+            None => ControlFlow::Wait,
+        });
+    }
+
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        tracing::info!("集中多窗口贴图工作区事件循环退出");
     }
 }
 
@@ -165,7 +201,7 @@ pub fn run_paster_workspace_loop(
     let event_proxy = event_loop.create_proxy();
     let proxy = PasterWorkspaceProxy::new(event_proxy.clone());
     let jobs = Rc::new(PasterJobRuntime::new(media, proxy.clone()));
-    let mut runtime = WorkspaceRuntime {
+    let runtime = WorkspaceRuntime {
         instances: HashMap::new(),
         manager,
         cfg,
@@ -178,30 +214,9 @@ pub fn run_paster_workspace_loop(
         on_tick,
     };
 
+    let mut application = WorkspaceApplication { runtime };
     event_loop
-        .run(move |event, elwt| {
-            elwt.set_control_flow(ControlFlow::Wait);
-
-            match event {
-                Event::UserEvent(app_event) => {
-                    handle_workspace_user_event(app_event, &mut runtime, elwt);
-                }
-                Event::WindowEvent { window_id, event } => {
-                    handle_workspace_window_event(window_id, event, &mut runtime);
-                }
-                Event::AboutToWait => {
-                    let deadline = handle_workspace_about_to_wait(&mut runtime);
-                    elwt.set_control_flow(match deadline {
-                        Some(deadline) => ControlFlow::WaitUntil(deadline),
-                        None => ControlFlow::Wait,
-                    });
-                }
-                Event::LoopExiting => {
-                    tracing::info!("集中多窗口贴图工作区事件循环退出");
-                }
-                _ => {}
-            }
-        })
+        .run_app(&mut application)
         .map_err(|e| UiError::Window {
             message: format!("运行集中贴图工作区事件主循环失败: {e}"),
         })

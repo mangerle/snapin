@@ -21,8 +21,8 @@ use image::RgbaImage;
 use std::sync::Arc;
 use winit::dpi::PhysicalSize;
 use winit::event::WindowEvent;
-use winit::event_loop::EventLoopWindowTarget;
-use winit::window::{Fullscreen, Window, WindowBuilder, WindowLevel};
+use winit::event_loop::ActiveEventLoop;
+use winit::window::{Fullscreen, Window, WindowLevel};
 
 /// 全屏截图覆盖层视图。
 pub struct SnipperView {
@@ -38,8 +38,8 @@ impl SnipperView {
     /// # Errors
     ///
     /// 窗口或软件帧缓冲创建失败时返回 [`UiError::Window`] / [`UiError::Softbuffer`]。
-    pub fn new<T: 'static>(
-        window_target: &EventLoopWindowTarget<T>,
+    pub fn new(
+        window_target: &ActiveEventLoop,
         launch: SnipperLaunch,
         job_sink: SnipperJobSink,
     ) -> Result<Self, UiError> {
@@ -73,18 +73,19 @@ impl SnipperView {
 }
 
 /// 创建覆盖层全屏窗口。
-fn create_overlay_window<T: 'static>(
-    window_target: &EventLoopWindowTarget<T>,
+fn create_overlay_window(
+    window_target: &ActiveEventLoop,
     screen_w: u32,
     screen_h: u32,
 ) -> Result<Arc<Window>, UiError> {
-    let window = WindowBuilder::new()
+    let attributes = Window::default_attributes()
         .with_title("Snapin")
         .with_decorations(false)
         .with_window_level(WindowLevel::AlwaysOnTop)
         .with_fullscreen(Some(Fullscreen::Borderless(None)))
-        .with_inner_size(PhysicalSize::new(screen_w, screen_h))
-        .build(window_target)
+        .with_inner_size(PhysicalSize::new(screen_w, screen_h));
+    let window = window_target
+        .create_window(attributes)
         .map_err(|error| UiError::Window {
             message: format!("创建全屏截图窗口失败: {error}"),
         })?;

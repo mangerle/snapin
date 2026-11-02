@@ -15,7 +15,7 @@ pub fn refresh_cursor(window: &Window, state: &mut SnipperState) {
     let icon = desired_cursor_icon(state);
     if state.cursor_icon != icon {
         state.cursor_icon = icon;
-        window.set_cursor_icon(icon);
+        window.set_cursor(icon);
     }
 }
 

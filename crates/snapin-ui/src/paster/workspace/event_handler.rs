@@ -12,7 +12,7 @@ use crate::snipper::{SnipperOutcome, SnipperView};
 use snapin_config::config::Config;
 use std::sync::{Arc, Mutex};
 use winit::event::WindowEvent;
-use winit::event_loop::EventLoopWindowTarget;
+use winit::event_loop::ActiveEventLoop;
 use winit::window::WindowId;
 
 /// 支持的循环轮转贴图最大分组数量
@@ -27,7 +27,7 @@ pub fn is_valid_group_id(id: GroupId) -> bool {
 pub(crate) fn handle_workspace_user_event(
     event: PasterAppEvent,
     runtime: &mut WorkspaceRuntime,
-    elwt: &EventLoopWindowTarget<PasterAppEvent>,
+    elwt: &ActiveEventLoop,
 ) {
     match event {
         PasterAppEvent::ReloadConfig(new_cfg) => reload_config(*new_cfg, runtime),
@@ -147,7 +147,7 @@ fn switch_group(target: Option<GroupId>, runtime: &mut WorkspaceRuntime) {
 fn shutdown_workspace(
     runtime: &mut WorkspaceRuntime,
     responder: Option<tokio::sync::oneshot::Sender<()>>,
-    elwt: &EventLoopWindowTarget<PasterAppEvent>,
+    elwt: &ActiveEventLoop,
 ) {
     if let Some(mut view) = runtime.snipper.take() {
         view.cancel();
@@ -169,7 +169,7 @@ fn shutdown_workspace(
 fn open_snipper(
     launch: crate::snipper::SnipperLaunch,
     runtime: &mut WorkspaceRuntime,
-    elwt: &EventLoopWindowTarget<PasterAppEvent>,
+    elwt: &ActiveEventLoop,
 ) {
     if let Some(mut previous) = runtime.snipper.take() {
         previous.cancel();
