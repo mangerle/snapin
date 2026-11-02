@@ -53,6 +53,9 @@ jobs:
       - name: 运行全工作区测试
         run: cargo test --locked --workspace
 
+      - name: 严格校验 Rustdoc
+        run: RUSTDOCFLAGS='-D warnings' cargo doc --locked --workspace --no-deps
+
       - name: 编译检查全部目标
         run: cargo check --locked --workspace --all-targets
 
