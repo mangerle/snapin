@@ -12,6 +12,9 @@ use std::time::Duration;
 
 /// 原生抓屏或解码任务的最长等待时间，避免 macOS 权限弹窗或驱动挂起拖死整条流程。
 const CAPTURE_TIMEOUT: Duration = Duration::from_secs(15);
+/// 跨平台屏幕捕获允许合成的最大像素数，与原生像素载荷上限保持一致。
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
+const MAX_CAPTURE_PIXELS: u64 = 100_000_000;
 /// 单张全屏 PNG 文件的最大字节数，防止异常文件一次性读入造成内存压力。
 #[cfg(target_os = "linux")]
 pub(crate) const MAX_SCREENSHOT_FILE_BYTES: u64 = 256 * 1024 * 1024;
@@ -200,26 +203,42 @@ fn capture_monitor_desktop(monitors: &[xcap::Monitor]) -> Result<RgbaImage, Plat
     let mut bounds = DesktopBounds::default();
     let mut frames = Vec::with_capacity(monitors.len());
     for monitor in monitors {
-        let origin = (
-            monitor.x().unwrap_or(0),
-            monitor.y().unwrap_or(0),
-            monitor.width().unwrap_or(0),
-            monitor.height().unwrap_or(0),
-        );
-        bounds.include(origin);
+        let (x, y, width, height) = capture_monitor_geometry(monitor)?;
+        bounds.include(x, y, width, height)?;
+        let monitor_name = monitor.name().unwrap_or_else(|_| "未知显示器".to_string());
         let frame = monitor
             .capture_image()
             .map_err(|error| PlatformError::Capture {
-                message: format!(
-                    "多屏环境中捕获显示器 {} 失败: {error}",
-                    monitor.name().unwrap_or_else(|_| "未知".to_string())
-                ),
+                message: format!("多屏环境中捕获显示器 {monitor_name} 失败: {error}"),
             })?;
-        if let Some(frame) = RgbaImage::from_raw(frame.width(), frame.height(), frame.into_raw()) {
-            frames.push((origin.0, origin.1, frame));
-        }
+        let frame = RgbaImage::from_raw(frame.width(), frame.height(), frame.into_raw())
+            .ok_or_else(|| PlatformError::Capture {
+                message: format!("显示器 {monitor_name} 的像素缓冲区转换为图像失败"),
+            })?;
+        frames.push((x, y, frame));
     }
-    Ok(bounds.compose(frames))
+    bounds.compose(frames)
+}
+
+/// 读取单个显示器坐标与尺寸；任一项失败都返回明确错误而不是伪造为零。
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn capture_monitor_geometry(
+    monitor: &xcap::Monitor,
+) -> Result<(i32, i32, u32, u32), PlatformError> {
+    let name = monitor.name().unwrap_or_else(|_| "未知显示器".to_string());
+    let x = monitor.x().map_err(|error| PlatformError::Capture {
+        message: format!("读取显示器 {name} 的 X 坐标失败: {error}"),
+    })?;
+    let y = monitor.y().map_err(|error| PlatformError::Capture {
+        message: format!("读取显示器 {name} 的 Y 坐标失败: {error}"),
+    })?;
+    let width = monitor.width().map_err(|error| PlatformError::Capture {
+        message: format!("读取显示器 {name} 的宽度失败: {error}"),
+    })?;
+    let height = monitor.height().map_err(|error| PlatformError::Capture {
+        message: format!("读取显示器 {name} 的高度失败: {error}"),
+    })?;
+    Ok((x, y, width, height))
 }
 
 /// 临时截图文件的取消安全清理守卫。
@@ -251,41 +270,88 @@ impl Drop for TemporaryScreenshotFile {
 
 /// 多显示器虚拟桌面联合边界。
 #[derive(Default)]
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 struct DesktopBounds {
-    min_x: i32,
-    min_y: i32,
-    max_x: i32,
-    max_y: i32,
+    min_x: i64,
+    min_y: i64,
+    max_x: i64,
+    max_y: i64,
     initialized: bool,
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 impl DesktopBounds {
-    fn include(&mut self, (x, y, width, height): (i32, i32, u32, u32)) {
+    fn include(&mut self, x: i32, y: i32, width: u32, height: u32) -> Result<(), PlatformError> {
+        if width == 0 || height == 0 {
+            return Err(PlatformError::Capture {
+                message: format!("显示器尺寸非法，坐标: ({x}, {y})，尺寸: {width}x{height}"),
+            });
+        }
+        let x = i64::from(x);
+        let y = i64::from(y);
+        let right = x + i64::from(width);
+        let bottom = y + i64::from(height);
         if !self.initialized {
-            (self.min_x, self.min_y, self.max_x, self.max_y) = (x, y, x, y);
+            (self.min_x, self.min_y, self.max_x, self.max_y) = (x, y, right, bottom);
             self.initialized = true;
         }
         self.min_x = self.min_x.min(x);
         self.min_y = self.min_y.min(y);
-        self.max_x = self.max_x.max(x.saturating_add(width as i32));
-        self.max_y = self.max_y.max(y.saturating_add(height as i32));
+        self.max_x = self.max_x.max(right);
+        self.max_y = self.max_y.max(bottom);
+        Ok(())
     }
 
-    fn compose(&self, frames: Vec<(i32, i32, RgbaImage)>) -> RgbaImage {
-        let width = self.max_x.saturating_sub(self.min_x).max(1) as u32;
-        let height = self.max_y.saturating_sub(self.min_y).max(1) as u32;
+    fn compose(&self, frames: Vec<(i32, i32, RgbaImage)>) -> Result<RgbaImage, PlatformError> {
+        if !self.initialized || frames.is_empty() {
+            return Err(PlatformError::Capture {
+                message: "多屏捕获未产生任何有效显示器帧".to_string(),
+            });
+        }
+        let width = u32::try_from(self.max_x - self.min_x).map_err(|_| PlatformError::Capture {
+            message: "多屏虚拟桌面宽度超出支持范围".to_string(),
+        })?;
+        let height =
+            u32::try_from(self.max_y - self.min_y).map_err(|_| PlatformError::Capture {
+                message: "多屏虚拟桌面高度超出支持范围".to_string(),
+            })?;
+        let pixels = u64::from(width).saturating_mul(u64::from(height));
+        if pixels == 0 || pixels > MAX_CAPTURE_PIXELS {
+            return Err(PlatformError::Capture {
+                message: format!(
+                    "多屏虚拟桌面像素数非法，尺寸: {width}x{height}，上限: {MAX_CAPTURE_PIXELS}"
+                ),
+            });
+        }
         let mut combined = RgbaImage::new(width, height);
         for (x, y, frame) in frames {
             image::imageops::overlay(
                 &mut combined,
                 &frame,
-                (x - self.min_x).into(),
-                (y - self.min_y).into(),
+                i64::from(x) - self.min_x,
+                i64::from(y) - self.min_y,
             );
         }
-        combined
+        Ok(combined)
+    }
+}
+
+#[cfg(test)]
+mod bounds_tests {
+    use super::*;
+
+    #[test]
+    fn test_desktop_bounds_rejects_empty_or_zero_sized_frames() {
+        let mut bounds = DesktopBounds::default();
+        assert!(bounds.compose(Vec::new()).is_err());
+        assert!(bounds.include(0, 0, 0, 100).is_err());
+
+        bounds.include(-100, -50, 200, 100).expect("合法边界应接受");
+        let frame = RgbaImage::new(1, 1);
+        let combined = bounds
+            .compose(vec![(-100, -50, frame)])
+            .expect("有效帧应可合成");
+        assert_eq!(combined.dimensions(), (200, 100));
     }
 }
 
