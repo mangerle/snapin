@@ -24,8 +24,7 @@ use shutdown::ShutdownCoordinator;
 use snapin_config::config::Config;
 use snapin_daemon::{probe_daemon, DaemonProbe, IpcListener};
 use snapin_platform::{
-    enable_gnome_extension, send_desktop_notification, sync_hotkeys_to_gnome,
-    PlatformHotkeyListener, PlatformTray,
+    send_desktop_notification, sync_hotkeys_to_gnome, PlatformHotkeyListener, PlatformTray,
 };
 use snapin_runtime::{TaskPool, TaskRuntime};
 use snapin_ui::paster::{
@@ -54,7 +53,6 @@ pub fn run_daemon_process(cfg: Config) -> Result<()> {
     match probe_existing_daemon(&runtime) {
         ExistingDaemon::Online => {
             tracing::info!("Snapin 守护服务已在后台运行中，无需重复启动。");
-            enable_gnome_extension();
             runtime.shutdown_timeout(Duration::from_secs(1));
             return Ok(());
         }
@@ -142,7 +140,6 @@ fn initialize_daemon_platform(runtime: &tokio::runtime::Runtime, cfg: &Config) {
     tracing::info!("Snapin 守护服务启动中...");
     runtime.block_on(snapin_platform::init_platform_capabilities());
     runtime.block_on(run_startup_hotkeys_and_extension(cfg));
-    enable_gnome_extension();
     runtime.block_on(snapin_platform::refresh_platform_capabilities());
 }
 

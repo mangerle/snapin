@@ -152,12 +152,6 @@ fn spawn_daemon_process(executable: &Path) -> Result<(), PlatformError> {
         })
 }
 
-/// 启用配套 GNOME Shell 扩展并自动收割子进程状态，杜绝僵尸进程
-pub fn enable_gnome_extension() {
-    #[cfg(target_os = "linux")]
-    run_bounded_system_command("gnome-extensions", &["enable", "snapin@wangle.local"]);
-}
-
 /// 在后台运行预期会很快退出的系统命令，并自动收割其退出状态。
 ///
 /// 命令进入进程级后台运行时队列；超过 `SYSTEM_COMMAND_TIMEOUT` 会被强制终止，

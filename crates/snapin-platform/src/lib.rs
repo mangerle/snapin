@@ -44,8 +44,8 @@ pub use hotkey_manager::{
     PlatformHotkeyListener,
 };
 pub use lifecycle::{
-    enable_gnome_extension, open_path_in_file_manager, open_url, run_bounded_system_command,
-    spawn_independent_process, start_daemon_process, stop_systemd_service,
+    open_path_in_file_manager, open_url, run_bounded_system_command, spawn_independent_process,
+    start_daemon_process, stop_systemd_service,
 };
 pub use notification::send_desktop_notification;
 
