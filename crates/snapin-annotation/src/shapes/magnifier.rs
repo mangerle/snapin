@@ -5,7 +5,7 @@
 
 use super::{resize_rect, SizeParam};
 use crate::geometry::{Point, Rect};
-use crate::style::{ColorRgba, LineStyle};
+use crate::style::{ColorRgba, LineStyle, StrokePathSpec};
 use serde::{Deserialize, Serialize};
 use tiny_skia::{
     FillRule, Mask, MaskType, Paint, PathBuilder, Pixmap, PixmapMut, PixmapPaint, Rect as SkiaRect,
@@ -161,7 +161,11 @@ impl MagnifierAction {
             MagnifierConnector::Dotted => LineStyle::Dotted,
             MagnifierConnector::Frame | MagnifierConnector::None => LineStyle::Solid,
         };
-        style.stroke_path(pixmap, &path, &paint, self.border_width.max(1.0));
+        style.stroke_path(
+            pixmap,
+            &paint,
+            StrokePathSpec::new(&path, self.border_width.max(1.0)),
+        );
         if self.connector == MagnifierConnector::Frame {
             self.draw_connector_caps(pixmap, start, end, &paint);
         }
@@ -343,7 +347,11 @@ impl MagnifierAction {
             self.border_color.2,
             self.border_color.3,
         );
-        LineStyle::Solid.stroke_path(pixmap, &path, &paint, self.border_width.max(1.0));
+        LineStyle::Solid.stroke_path(
+            pixmap,
+            &paint,
+            StrokePathSpec::new(&path, self.border_width.max(1.0)),
+        );
     }
 
     pub(crate) fn adjust_size(&mut self, param: SizeParam) {

@@ -2,7 +2,7 @@
 
 use super::{map_point, points_bounds, SizeParam};
 use crate::geometry::{Point, Rect};
-use crate::style::{ColorRgba, LineStyle};
+use crate::style::{ColorRgba, LineStyle, StrokePathSpec};
 use serde::{Deserialize, Serialize};
 use tiny_skia::{LineCap, LineJoin, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
@@ -51,7 +51,7 @@ impl PenAction {
                 };
                 pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
             } else {
-                line_style.stroke_path(pixmap, &path, &paint, stroke_width);
+                line_style.stroke_path(pixmap, &paint, StrokePathSpec::new(&path, stroke_width));
             }
         }
     }

@@ -2,7 +2,7 @@
 
 use super::{map_point, points_bounds, SizeParam};
 use crate::geometry::{Point, Rect};
-use crate::style::{ArrowHeadStyle, ColorRgba, LineStyle};
+use crate::style::{ArrowHeadStyle, ColorRgba, LineStyle, StrokePathSpec};
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
@@ -42,8 +42,11 @@ impl PolylineAction {
         let Some(path) = pb.finish() else {
             return;
         };
-        self.line_style
-            .stroke_path(pixmap, &path, &paint, self.stroke_width);
+        self.line_style.stroke_path(
+            pixmap,
+            &paint,
+            StrokePathSpec::new(&path, self.stroke_width),
+        );
         self.draw_heads(pixmap, offset_x, offset_y, &paint);
     }
 

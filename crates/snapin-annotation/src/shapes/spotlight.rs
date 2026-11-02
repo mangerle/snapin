@@ -5,7 +5,7 @@
 
 use super::{resize_rect, valid_rect, SizeParam};
 use crate::geometry::Rect;
-use crate::style::{ColorRgba, LineStyle};
+use crate::style::{ColorRgba, LineStyle, StrokePathSpec};
 use serde::{Deserialize, Serialize};
 use tiny_skia::{FillRule, Paint, PathBuilder, PixmapMut, Rect as SkiaRect, Transform};
 
@@ -119,8 +119,11 @@ impl SpotlightAction {
                 self.outline_color.2,
                 self.outline_color.3,
             );
-            self.line_style
-                .stroke_path(pixmap, &path, &paint, self.outline_width.max(1.0));
+            self.line_style.stroke_path(
+                pixmap,
+                &paint,
+                StrokePathSpec::new(&path, self.outline_width.max(1.0)),
+            );
         }
     }
 

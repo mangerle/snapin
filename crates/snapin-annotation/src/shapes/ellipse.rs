@@ -2,7 +2,7 @@
 
 use super::{resize_rect, valid_rect, SizeParam};
 use crate::geometry::Rect;
-use crate::style::{ColorRgba, LineStyle};
+use crate::style::{ColorRgba, LineStyle, StrokePathSpec};
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Rect as SkiaRect, Transform};
 
@@ -37,8 +37,11 @@ impl EllipseAction {
                         None,
                     );
                 }
-                self.line_style
-                    .stroke_path(pixmap, &path, &paint, self.stroke_width);
+                self.line_style.stroke_path(
+                    pixmap,
+                    &paint,
+                    StrokePathSpec::new(&path, self.stroke_width),
+                );
             }
         }
     }

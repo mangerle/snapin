@@ -50,6 +50,21 @@ pub enum LineStyle {
     DashDotDot,
 }
 
+/// 按指定线型描边路径所需的路径与线宽。
+///
+/// 路径和线宽总是成对出现，收敛为参数对象可避免调用点把线型、颜色与线宽的顺序写错。
+pub struct StrokePathSpec<'a> {
+    path: &'a Path,
+    width: f32,
+}
+
+impl<'a> StrokePathSpec<'a> {
+    /// 构造路径描边参数。
+    pub const fn new(path: &'a Path, width: f32) -> Self {
+        Self { path, width }
+    }
+}
+
 impl LineStyle {
     /// 全部线型，顺序与工具栏下拉列表一致
     pub const ALL: &'static [LineStyle] = &[
@@ -98,17 +113,17 @@ impl LineStyle {
         }
     }
 
-    /// 按当前线型描边给定路径
-    pub fn stroke_path(self, pixmap: &mut PixmapMut, path: &Path, paint: &Paint, width: f32) {
+    /// 按当前线型描边给定路径。
+    pub fn stroke_path(self, pixmap: &mut PixmapMut, paint: &Paint, spec: StrokePathSpec<'_>) {
         let mut stroke = Stroke {
-            width: width.max(1.0),
+            width: spec.width.max(1.0),
             ..Default::default()
         };
-        if let Some(dash) = self.dash(width) {
+        if let Some(dash) = self.dash(spec.width) {
             stroke.dash = Some(dash);
             stroke.line_cap = LineCap::Round;
         }
-        pixmap.stroke_path(path, paint, &stroke, Transform::identity(), None);
+        pixmap.stroke_path(spec.path, paint, &stroke, Transform::identity(), None);
     }
 }
 

@@ -8,7 +8,7 @@ pub(super) use arrow::{
 
 use super::super::icons::{add_round_rect, make_paint, RoundRect};
 use crate::geometry::Rect;
-use snapin_annotation::{BadgeStyle, LineStyle, MagnifierConnector};
+use snapin_annotation::{BadgeStyle, LineStyle, MagnifierConnector, StrokePathSpec};
 use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 横向预览图元的起止坐标、中心线、缩放与颜色。
@@ -233,8 +233,11 @@ pub(super) fn stroke_sample(pixmap: &mut PixmapMut, spec: LineSampleSpec) {
     pb.move_to(spec.x0, spec.y);
     pb.line_to(spec.x1, spec.y);
     if let Some(path) = pb.finish() {
-        spec.style
-            .stroke_path(pixmap, &path, &make_paint(spec.color), spec.width);
+        spec.style.stroke_path(
+            pixmap,
+            &make_paint(spec.color),
+            StrokePathSpec::new(&path, spec.width),
+        );
     }
 }
 
@@ -359,13 +362,25 @@ fn draw_connector_line(
 ) {
     match spec.connector {
         MagnifierConnector::Solid => {
-            LineStyle::Solid.stroke_path(pixmap, path, paint, 1.4 * spec.span.scale);
+            LineStyle::Solid.stroke_path(
+                pixmap,
+                paint,
+                StrokePathSpec::new(path, 1.4 * spec.span.scale),
+            );
         }
         MagnifierConnector::Dotted => {
-            LineStyle::Dotted.stroke_path(pixmap, path, paint, 1.4 * spec.span.scale);
+            LineStyle::Dotted.stroke_path(
+                pixmap,
+                paint,
+                StrokePathSpec::new(path, 1.4 * spec.span.scale),
+            );
         }
         MagnifierConnector::Frame => {
-            LineStyle::Solid.stroke_path(pixmap, path, paint, 1.4 * spec.span.scale);
+            LineStyle::Solid.stroke_path(
+                pixmap,
+                paint,
+                StrokePathSpec::new(path, 1.4 * spec.span.scale),
+            );
             draw_connector_caps(pixmap, spec, paint);
         }
         MagnifierConnector::None => draw_connector_cross(pixmap, spec, paint),

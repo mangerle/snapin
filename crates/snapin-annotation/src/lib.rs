@@ -20,4 +20,6 @@ pub use shapes::{
     PolylineAction, RectAction, SizeParam, SpotlightAction, SpotlightShape, TextAction,
     TranslationAction, TranslationShapeItem,
 };
-pub use style::{ArrowHeadStyle, ArrowStyle, BadgeSequence, BadgeStyle, ColorRgba, LineStyle};
+pub use style::{
+    ArrowHeadStyle, ArrowStyle, BadgeSequence, BadgeStyle, ColorRgba, LineStyle, StrokePathSpec,
+};

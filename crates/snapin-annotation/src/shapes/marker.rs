@@ -4,7 +4,7 @@
 
 use super::{map_point, points_bounds, SizeParam};
 use crate::geometry::{Point, Rect};
-use crate::style::LineStyle;
+use crate::style::{LineStyle, StrokePathSpec};
 use serde::{Deserialize, Serialize};
 use tiny_skia::{BlendMode, LineCap, LineJoin, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
@@ -134,8 +134,11 @@ impl MarkerAction {
             pb.line_to(point.x + offset_x, point.y + offset_y);
         }
         if let Some(path) = pb.finish() {
-            self.line_style
-                .stroke_path(pixmap, &path, &paint, self.stroke_width);
+            self.line_style.stroke_path(
+                pixmap,
+                &paint,
+                StrokePathSpec::new(&path, self.stroke_width),
+            );
         }
     }
 
