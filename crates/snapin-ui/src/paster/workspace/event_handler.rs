@@ -179,15 +179,15 @@ fn open_snipper(
     // EventLoopProxy 在 macOS 上为 Send 但不是 Sync；媒体任务线程需要共享回调，
     // 因此用短临界区互斥锁包裹代理，既满足跨线程约束又只在投递结果时短暂持锁。
     let event_proxy = Arc::new(Mutex::new(runtime.event_proxy.clone()));
-    let sink: SnipperJobSink = Arc::new(move |job_id, kind, outcome| match event_proxy.lock() {
-        Ok(proxy) => {
-            let _ = proxy.send_event(PasterAppEvent::SnipperJobFinished {
-                job_id,
-                kind,
-                outcome,
-            });
-        }
-        Err(_) => tracing::warn!("截图事件代理锁中毒，媒体任务结果未能回传"),
+    let sink: SnipperJobSink = Arc::new(move |job_id, kind, outcome| {
+        let proxy = event_proxy
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _ = proxy.send_event(PasterAppEvent::SnipperJobFinished {
+            job_id,
+            kind,
+            outcome,
+        });
     });
 
     match SnipperView::new(elwt, launch, sink) {

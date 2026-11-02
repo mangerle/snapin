@@ -230,10 +230,12 @@ mod linux {
         }
 
         fn activate(&mut self, _x: i32, _y: i32) {
-            if let Ok(tx) = self.action_tx.lock() {
-                if tx.try_send(TrayAction::Snip).is_err() {
-                    tracing::warn!("托盘动作队列已满，忽略本次托盘激活");
-                }
+            let tx = self
+                .action_tx
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if tx.try_send(TrayAction::Snip).is_err() {
+                tracing::warn!("托盘动作队列已满，忽略本次托盘激活");
             }
         }
 
@@ -256,10 +258,12 @@ mod linux {
 
     impl LinuxSniTray {
         fn emit(&self, action: TrayAction) {
-            if let Ok(tx) = self.action_tx.lock() {
-                if tx.try_send(action).is_err() {
-                    tracing::warn!("托盘动作队列已满，忽略本次菜单动作: {action:?}");
-                }
+            let tx = self
+                .action_tx
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if tx.try_send(action).is_err() {
+                tracing::warn!("托盘动作队列已满，忽略本次菜单动作: {action:?}");
             }
         }
     }
