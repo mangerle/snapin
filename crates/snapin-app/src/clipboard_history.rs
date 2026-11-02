@@ -33,6 +33,7 @@ pub(crate) fn run_clipboard_history_monitor(
         .clone()
         .spawn_in(TaskPool::Background, async move {
             let mut persist_gate = PersistGate::default();
+            let mut published_fingerprint = String::new();
             let mut interval = tokio::time::interval(POLL_INTERVAL);
             interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
             loop {
@@ -53,7 +54,11 @@ pub(crate) fn run_clipboard_history_monitor(
                         }
                     },
                 };
-                cache.store(snapshot.clone());
+                if fingerprint != published_fingerprint {
+                    cache.store(snapshot.clone());
+                    published_fingerprint.clear();
+                    published_fingerprint.push_str(&fingerprint);
+                }
                 if !persist_gate.should_attempt(&fingerprint, Instant::now()) {
                     continue;
                 }
