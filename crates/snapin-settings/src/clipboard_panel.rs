@@ -16,16 +16,20 @@ pub fn run_clipboard_history_panel() -> Result<(), SettingsError> {
     apply_clipboard_rows(&window, &entries);
     let runtime = settings_runtime()?;
     register_clipboard_callbacks(&window, entries, runtime.clone());
-    let run_result = window
-        .run()
-        .map_err(|error| SettingsError::RuntimeFailed(error.to_string()));
+    let run_result = window.run().map_err(|error| SettingsError::Runtime {
+        component: "剪贴板历史面板事件循环",
+        reason: error.to_string(),
+    });
     runtime.shutdown_blocking(Duration::from_secs(3));
     run_result
 }
 
 /// 创建剪贴板历史面板窗口。
 fn create_clipboard_panel() -> Result<ClipboardPanel, SettingsError> {
-    ClipboardPanel::new().map_err(|error| SettingsError::InitFailed(error.to_string()))
+    ClipboardPanel::new().map_err(|error| SettingsError::Initialization {
+        component: "剪贴板历史面板",
+        reason: error.to_string(),
+    })
 }
 
 /// 按用户配置应用面板语言。
@@ -38,7 +42,10 @@ fn initialize_clipboard_language() {
 
 /// 读取剪贴板历史并提供明确的设置中心错误。
 fn load_history_entries() -> Result<Vec<ClipboardEntry>, SettingsError> {
-    load_clipboard_history().map_err(|error| SettingsError::Runtime(error.to_string()))
+    load_clipboard_history().map_err(|error| SettingsError::Runtime {
+        component: "剪贴板历史数据加载",
+        reason: error.to_string(),
+    })
 }
 
 /// 注册激活、清空与关闭面板回调。

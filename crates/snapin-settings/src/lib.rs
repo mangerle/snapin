@@ -41,13 +41,23 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum SettingsError {
-    /// 设置窗口初始化失败
-    #[error("初始化设置中心图形窗口失败: {0}")]
-    InitFailed(String),
+    /// 设置界面组件初始化失败
+    #[error("初始化设置界面失败，组件: {component}，原因: {reason}")]
+    Initialization {
+        /// 初始化失败的界面组件
+        component: &'static str,
+        /// 底层失败原因
+        reason: String,
+    },
 
-    /// 设置中心事件循环运行异常
-    #[error("设置中心事件循环运行异常: {0}")]
-    RuntimeFailed(String),
+    /// 设置界面或交互流程运行失败
+    #[error("设置界面运行失败，组件: {component}，原因: {reason}")]
+    Runtime {
+        /// 运行失败的界面组件或流程
+        component: &'static str,
+        /// 底层失败原因
+        reason: String,
+    },
 
     /// 核心基础库配置异常
     #[error(transparent)]
@@ -58,8 +68,11 @@ pub enum SettingsError {
     Platform(#[from] PlatformError),
 
     /// 统一后台任务运行时初始化失败
-    #[error("初始化设置中心后台任务运行时失败: {0}")]
-    Runtime(String),
+    #[error("初始化设置中心后台任务运行时失败，原因: {reason}")]
+    TaskRuntime {
+        /// 运行时创建失败原因
+        reason: String,
+    },
 }
 
 /// 运行 Slint 偏好设置中心图形界面
@@ -73,9 +86,10 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
     let runtime = settings_runtime()?;
     let cancel = runtime.cancellation_token();
     initialize_settings_state(&window, &runtime, &cancel)?;
-    let run_res = window
-        .run()
-        .map_err(|e| SettingsError::RuntimeFailed(e.to_string()));
+    let run_res = window.run().map_err(|error| SettingsError::Runtime {
+        component: "设置中心事件循环",
+        reason: error.to_string(),
+    });
     cancel.cancel();
     shutdown_settings_runtime(&runtime);
     restore_latest_hotkeys();
@@ -84,7 +98,10 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
 
 /// 创建设置主窗口。
 fn create_settings_window() -> Result<SettingsWindow, SettingsError> {
-    SettingsWindow::new().map_err(|error| SettingsError::InitFailed(error.to_string()))
+    SettingsWindow::new().map_err(|error| SettingsError::Initialization {
+        component: "设置中心主窗口",
+        reason: error.to_string(),
+    })
 }
 
 /// 配置窗口尺寸、应用标识、能力提示与快捷键格式化回调。
@@ -216,10 +233,10 @@ pub(crate) fn apply_language(language: snapin_config::config::UiLanguage) {
 /// 获取设置中心后台任务运行时：优先复用当前 Tokio 上下文，否则使用进程级共享实例。
 pub(crate) fn settings_runtime() -> Result<TaskRuntime, SettingsError> {
     TaskRuntime::current(8).or_else(|current_error| {
-        TaskRuntime::shared().cloned().ok_or_else(|| {
-            SettingsError::Runtime(format!(
-                "当前运行时不可用（{current_error}），进程级共享运行时创建失败"
-            ))
-        })
+        TaskRuntime::shared()
+            .cloned()
+            .ok_or_else(|| SettingsError::TaskRuntime {
+                reason: format!("当前运行时不可用（{current_error}），进程级共享运行时创建失败"),
+            })
     })
 }
