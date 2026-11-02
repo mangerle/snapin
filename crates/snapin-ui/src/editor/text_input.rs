@@ -177,10 +177,12 @@ impl TextInputSession {
             let min_w = (font_size * 3.0).max(64.0 * scale);
             render_input_box(
                 pixmap,
-                x - 6.0 * scale,
-                y - 4.0 * scale,
-                min_w,
-                line_height + 8.0 * scale,
+                InputBoxRect {
+                    x: x - 6.0 * scale,
+                    y: y - 4.0 * scale,
+                    width: min_w,
+                    height: line_height + 8.0 * scale,
+                },
             );
             x
         } else {
@@ -196,7 +198,15 @@ impl TextInputSession {
             self.draw_box_and_text(pixmap, &frame)
         };
 
-        render_input_cursor(pixmap, cursor_x, y, font_size, self.color);
+        render_input_cursor(
+            pixmap,
+            TextCursorSpec {
+                x: cursor_x,
+                y,
+                font_size,
+                color: self.color,
+            },
+        );
     }
 
     /// 测量输入框范围、绘制黑色外框底衬与文字像素，并返回末尾光标 X 坐标
@@ -227,10 +237,12 @@ impl TextInputSession {
                 );
                 render_preedit_underline(
                     pixmap,
-                    preedit_start_x(frame, self.text.is_empty(), text_cursor),
-                    frame.x + cursor_offset,
-                    frame.y + frame.font_size * 1.15,
-                    frame.scale,
+                    PreeditUnderline {
+                        start_x: preedit_start_x(frame, self.text.is_empty(), text_cursor),
+                        end_x: frame.x + cursor_offset,
+                        y: frame.y + frame.font_size * 1.15,
+                        scale: frame.scale,
+                    },
                 );
             }
 
@@ -246,10 +258,12 @@ fn draw_input_background(pixmap: &mut PixmapMut, frame: &InputFrame<'_>, line_wi
     let box_height = frame.line_height + 8.0 * frame.scale;
     render_input_box(
         pixmap,
-        frame.x - 6.0 * frame.scale,
-        frame.y - 4.0 * frame.scale,
-        box_width,
-        box_height,
+        InputBoxRect {
+            x: frame.x - 6.0 * frame.scale,
+            y: frame.y - 4.0 * frame.scale,
+            width: box_width,
+            height: box_height,
+        },
     );
 }
 
@@ -273,8 +287,22 @@ struct InputFrame<'a> {
     underline_preedit: bool,
 }
 
+/// 输入框矩形参数。
+struct InputBoxRect {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+}
+
 /// 绘制文字输入过程中的黑色外边框与高对比度浅白背景衬底
-fn render_input_box(pixmap: &mut PixmapMut, box_x: f32, box_y: f32, box_w: f32, box_h: f32) {
+fn render_input_box(pixmap: &mut PixmapMut, input_box: InputBoxRect) {
+    let InputBoxRect {
+        x: box_x,
+        y: box_y,
+        width: box_w,
+        height: box_h,
+    } = input_box;
     let mut pb = PathBuilder::new();
     let r = 2.5;
     pb.move_to(box_x + r, box_y);
@@ -322,8 +350,22 @@ fn render_input_box(pixmap: &mut PixmapMut, box_x: f32, box_y: f32, box_w: f32, 
     }
 }
 
+/// 预编辑文本下划线参数。
+struct PreeditUnderline {
+    start_x: f32,
+    end_x: f32,
+    y: f32,
+    scale: f32,
+}
+
 /// 绘制预编辑文本下划线，示意该段文字仍处于输入法候选状态。
-fn render_preedit_underline(pixmap: &mut PixmapMut, x0: f32, x1: f32, y: f32, scale: f32) {
+fn render_preedit_underline(pixmap: &mut PixmapMut, underline: PreeditUnderline) {
+    let PreeditUnderline {
+        start_x: x0,
+        end_x: x1,
+        y,
+        scale,
+    } = underline;
     if x1 <= x0 {
         return;
     }
@@ -344,14 +386,22 @@ fn render_preedit_underline(pixmap: &mut PixmapMut, x0: f32, x1: f32, y: f32, sc
     }
 }
 
-/// 绘制输入光标指示竖线
-fn render_input_cursor(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
+/// 输入光标竖线参数。
+struct TextCursorSpec {
+    x: f32,
+    y: f32,
     font_size: f32,
     color: (u8, u8, u8, u8),
-) {
+}
+
+/// 绘制输入光标指示竖线
+fn render_input_cursor(pixmap: &mut PixmapMut, cursor: TextCursorSpec) {
+    let TextCursorSpec {
+        x: cx,
+        y: cy,
+        font_size,
+        color,
+    } = cursor;
     let mut pb = PathBuilder::new();
     pb.move_to(cx, cy);
     pb.line_to(cx, cy + font_size * 1.15);
