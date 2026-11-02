@@ -265,7 +265,9 @@ impl PasterWindowState {
     /// 此时禁止隐藏工具条，否则窗口将完全点击穿透且无法从窗口内部恢复。
     pub fn set_toolbar_visible(&mut self, visible: bool, window: &Window) {
         if !self.can_set_toolbar_visible(visible) {
-            self.set_status_message("鼠标穿透开启时不能隐藏工具条，请先关闭穿透");
+            self.set_status_message(snapin_core::i18n::tr(
+                "鼠标穿透开启时不能隐藏工具条，请先关闭穿透",
+            ));
             return;
         }
 
@@ -302,9 +304,11 @@ impl PasterWindowState {
             self.interaction.stroke.points.clear();
             self.interaction.stroke.is_drawing = false;
             self.interaction.context_menu.close();
-            self.set_status_message("鼠标穿透已开启，点击工具条上的穿透按钮恢复");
+            self.set_status_message(snapin_core::i18n::tr(
+                "鼠标穿透已开启，点击工具条上的穿透按钮恢复",
+            ));
         } else {
-            self.set_status_message("鼠标穿透已关闭");
+            self.set_status_message(snapin_core::i18n::tr("鼠标穿透已关闭"));
         }
 
         apply_window_scale_resize(self, window);

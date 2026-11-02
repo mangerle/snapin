@@ -112,7 +112,16 @@ impl PortError {
 
 impl fmt::Display for PortError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}失败: {}", self.operation, self.message)
+        if snapin_core::i18n::language() == snapin_core::config::UiLanguage::EnUs {
+            write!(
+                f,
+                "{} failed: {}",
+                self.operation,
+                snapin_core::i18n::localize_error(&self.message)
+            )
+        } else {
+            write!(f, "{}失败: {}", self.operation, self.message)
+        }
     }
 }
 

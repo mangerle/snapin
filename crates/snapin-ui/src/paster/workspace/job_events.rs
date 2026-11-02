@@ -33,14 +33,22 @@ pub(super) fn handle_save_finished(
     match result {
         Ok(Some(path)) => {
             inst.state.file_path = Some(path.clone());
-            inst.state
-                .set_status_message(format!("图像已保存至: {}", path.display()));
+            inst.state.set_status_message(snapin_core::trf!(
+                "图像已保存至: {}",
+                "Image saved to: {}",
+                path.display()
+            ));
         }
-        Ok(None) => inst.state.set_status_message("已取消保存"),
+        Ok(None) => inst
+            .state
+            .set_status_message(snapin_core::i18n::tr("已取消保存")),
         Err(message) => {
             tracing::warn!("贴图保存失败: {message}");
-            inst.state
-                .set_status_message(format!("保存失败: {message}"));
+            inst.state.set_status_message(snapin_core::trf!(
+                "保存失败: {}",
+                "Save failed: {}",
+                message
+            ));
         }
     }
 
@@ -101,24 +109,36 @@ fn apply_ocr_result(state: &mut PasterWindowState, result: Result<String, String
         Ok(text) => {
             let text = text.trim();
             if text.is_empty() {
-                state.set_status_message("未识别到文字");
+                state.set_status_message(snapin_core::i18n::tr("未识别到文字"));
                 return;
             }
             match state.services.desktop.write_text_clipboard(text) {
                 Ok(()) => {
                     let chars = text.chars().count();
-                    state.set_status_message(format!("已复制识别文字（{chars} 字符）"));
+                    state.set_status_message(snapin_core::trf!(
+                        "已复制识别文字（{} 字符）",
+                        "Recognized text copied ({} characters)",
+                        chars
+                    ));
                     tracing::info!("贴图整图文字识别完成，已复制 {chars} 个字符到剪贴板");
                 }
                 Err(error) => {
                     tracing::warn!("复制贴图识别文字到系统剪贴板失败: {error}");
-                    state.set_status_message(format!("复制识别文字失败: {error}"));
+                    state.set_status_message(snapin_core::trf!(
+                        "复制识别文字失败: {}",
+                        "Failed to copy recognized text: {}",
+                        error
+                    ));
                 }
             }
         }
         Err(message) => {
             tracing::warn!("贴图整图文字识别失败: {message}");
-            state.set_status_message(format!("文字识别失败: {message}"));
+            state.set_status_message(snapin_core::trf!(
+                "文字识别失败: {}",
+                "Text recognition failed: {}",
+                message
+            ));
         }
     }
 }
@@ -131,16 +151,24 @@ fn apply_translate_result(
     match result {
         Ok(items) => {
             if items.is_empty() {
-                state.set_status_message("未识别到文字");
+                state.set_status_message(snapin_core::i18n::tr("未识别到文字"));
                 return;
             }
             let count = state.apply_translation_items(items);
-            state.set_status_message(format!("已翻译 {count} 段文字"));
+            state.set_status_message(snapin_core::trf!(
+                "已翻译 {} 段文字",
+                "Translated {} text blocks",
+                count
+            ));
             tracing::info!("贴图整图翻译完成，共注入 {count} 段译文");
         }
         Err(message) => {
             tracing::warn!("贴图整图翻译失败: {message}");
-            state.set_status_message(format!("翻译失败: {message}"));
+            state.set_status_message(snapin_core::trf!(
+                "翻译失败: {}",
+                "Translation failed: {}",
+                message
+            ));
         }
     }
 }

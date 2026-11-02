@@ -167,7 +167,7 @@ pub(super) fn render_sub_options(toolbar: &Toolbar, pixmap: &mut PixmapMut, rect
                 with_thread_local_text_renderer(|renderer| {
                     renderer.draw_text_rgba(
                         pixmap,
-                        "智能打码",
+                        snapin_core::i18n::tr("智能打码"),
                         entry.rect.x + 7.0 * s,
                         entry.rect.y + 5.0 * s,
                         12.0 * s,
@@ -180,7 +180,7 @@ pub(super) fn render_sub_options(toolbar: &Toolbar, pixmap: &mut PixmapMut, rect
                 with_thread_local_text_renderer(|renderer| {
                     renderer.draw_text_rgba(
                         pixmap,
-                        "马赛克",
+                        snapin_core::i18n::tr("马赛克"),
                         entry.rect.x + 8.0 * s,
                         entry.rect.y + 5.0 * s,
                         12.0 * s,

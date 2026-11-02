@@ -190,11 +190,11 @@ pub(crate) fn handle_toolbar_click(
 /// 提交整图文字识别任务；已有任务或执行器不可用时只更新顶部提示。
 fn submit_paster_ocr(state: &mut PasterWindowState) {
     if state.has_pending_job() {
-        state.set_status_message("请等待当前任务完成");
+        state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
     let Some(runtime) = state.services.job_runtime.clone() else {
-        state.set_status_message("后台任务媒体执行器不可用");
+        state.set_status_message(snapin_core::i18n::tr("后台任务媒体执行器不可用"));
         return;
     };
     let image = match pixmap_to_rgba_image(&state.document.item.pixmap) {
@@ -208,7 +208,7 @@ fn submit_paster_ocr(state: &mut PasterWindowState) {
     match runtime.submit_ocr(state.document.item.id, image) {
         Ok((job_id, cancel)) => {
             state.begin_job(job_id, cancel);
-            state.set_status_message("正在识别文字...");
+            state.set_status_message(snapin_core::i18n::tr("正在识别文字..."));
         }
         Err(message) => state.set_status_message(format!("提交文字识别任务失败: {message}")),
     }
@@ -217,11 +217,11 @@ fn submit_paster_ocr(state: &mut PasterWindowState) {
 /// 提交整图翻译任务；目标语言与背景覆盖模式取自当前配置。
 fn submit_paster_translate(state: &mut PasterWindowState) {
     if state.has_pending_job() {
-        state.set_status_message("请等待当前任务完成");
+        state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
     let Some(runtime) = state.services.job_runtime.clone() else {
-        state.set_status_message("后台任务媒体执行器不可用");
+        state.set_status_message(snapin_core::i18n::tr("后台任务媒体执行器不可用"));
         return;
     };
     let image = match pixmap_to_rgba_image(&state.document.item.pixmap) {
@@ -239,7 +239,7 @@ fn submit_paster_translate(state: &mut PasterWindowState) {
     ) {
         Ok((job_id, cancel)) => {
             state.begin_job(job_id, cancel);
-            state.set_status_message("正在翻译文字...");
+            state.set_status_message(snapin_core::i18n::tr("正在翻译文字..."));
         }
         Err(message) => state.set_status_message(format!("提交翻译任务失败: {message}")),
     }

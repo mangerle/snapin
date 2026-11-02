@@ -18,8 +18,8 @@ export component AboutTab inherits VerticalLayout {
     padding-right: 8px;
 
     SettingCard {
-        title: "版本与在线更新";
-        subtitle: "基于数字签名安全验证的自动升级系统";
+        title: @tr("版本与在线更新");
+        subtitle: @tr("基于数字签名安全验证的自动升级系统");
 
         VerticalLayout {
             spacing: 12px;
@@ -28,16 +28,16 @@ export component AboutTab inherits VerticalLayout {
                 spacing: 12px;
                 alignment: start;
 
-                Text { text: "当前版本:"; width: 90px; color: #64748b; vertical-alignment: center; }
+                Text { text: @tr("当前版本:"); width: 90px; color: #64748b; vertical-alignment: center; }
                 Text { text: root.app_version; font-weight: 700; color: #1e293b; vertical-alignment: center; }
 
                 if root.update_status != 1: SecondaryButton {
-                    text: "检查更新";
+                    text: @tr("检查更新");
                     clicked => { root.check_for_updates(); }
                 }
 
                 if root.update_status == 1: SecondaryButton {
-                    text: "正在检查...";
+                    text: @tr("正在检查...");
                     enabled: false;
                 }
             }
@@ -45,7 +45,7 @@ export component AboutTab inherits VerticalLayout {
             if root.update_status == 1: HorizontalLayout {
                 spacing: 8px;
                 Text {
-                    text: "正在连接更新服务器检查新版本...";
+                    text: @tr("正在连接更新服务器检查新版本...");
                     color: #2563eb;
                     font-size: 13px;
                     vertical-alignment: center;
@@ -55,7 +55,7 @@ export component AboutTab inherits VerticalLayout {
             if root.update_status == 2: HorizontalLayout {
                 spacing: 8px;
                 Text {
-                    text: "当前已是最新版本";
+                    text: @tr("当前已是最新版本");
                     color: #10b981;
                     font-size: 13px;
                     font-weight: 600;
@@ -88,13 +88,13 @@ export component AboutTab inherits VerticalLayout {
 
                 HorizontalLayout {
                     spacing: 12px;
-                    Text { text: "发现新版本:"; width: 90px; color: #64748b; font-weight: 600; }
+                    Text { text: @tr("发现新版本:"); width: 90px; color: #64748b; font-weight: 600; }
                     Text { text: "v" + root.update_version; font-weight: 700; color: #2563eb; }
                 }
 
                 if root.update_notes != "": VerticalLayout {
                     spacing: 6px;
-                    Text { text: "更新内容:"; color: #64748b; font-size: 12px; font-weight: 600; }
+                    Text { text: @tr("更新内容:"); color: #64748b; font-size: 12px; font-weight: 600; }
                     Rectangle {
                         background: #f8fafc;
                         border-radius: 6px;
@@ -115,7 +115,7 @@ export component AboutTab inherits VerticalLayout {
                 HorizontalLayout {
                     spacing: 12px;
                     PrimaryButton {
-                        text: "立即下载更新";
+                        text: @tr("立即下载更新");
                         clicked => { root.start_download_update(); }
                     }
                 }
@@ -126,7 +126,7 @@ export component AboutTab inherits VerticalLayout {
                 Rectangle { height: 1px; background: #e2e8f0; }
 
                 HorizontalLayout {
-                    Text { text: "正在下载新版本更新包..."; color: #1e293b; font-size: 13px; font-weight: 600; }
+                    Text { text: @tr("正在下载新版本更新包..."); color: #1e293b; font-size: 13px; font-weight: 600; }
                     Text { text: root.download_speed_text; color: #64748b; font-size: 12px; horizontal-alignment: right; }
                 }
 
@@ -154,7 +154,7 @@ export component AboutTab inherits VerticalLayout {
                 HorizontalLayout {
                     spacing: 12px;
                     Text {
-                        text: "新版本更新包已安全下载并完成数字签名验签，点击重启即可生效！";
+                        text: @tr("新版本更新包已安全下载并完成数字签名验签，点击重启即可生效！");
                         color: #10b981;
                         font-size: 13px;
                         font-weight: 600;
@@ -165,7 +165,7 @@ export component AboutTab inherits VerticalLayout {
                 HorizontalLayout {
                     spacing: 12px;
                     PrimaryButton {
-                        text: "立即重启并安装";
+                        text: @tr("立即重启并安装");
                         clicked => { root.restart_and_install(); }
                     }
                 }
@@ -174,8 +174,8 @@ export component AboutTab inherits VerticalLayout {
     }
 
     SettingCard {
-        title: "Snapin 原生截图与贴图工具";
-        subtitle: "专为 Linux Wayland (Ubuntu 24.04 / 26 GNOME) 量身打造的高性能屏幕工具";
+        title: @tr("Snapin 原生截图与贴图工具");
+        subtitle: @tr("专为 Linux Wayland (Ubuntu 24.04 / 26 GNOME) 量身打造的高性能屏幕工具");
 
         VerticalLayout {
             spacing: 12px;
@@ -183,60 +183,60 @@ export component AboutTab inherits VerticalLayout {
 
             HorizontalLayout {
                 spacing: 12px;
-                Text { text: "渲染内核:"; width: 90px; color: #64748b; }
-                Text { text: "纯 CPU 软件光栅化 (tiny-skia + softbuffer)，定点整数零拷贝流水线"; color: #1e293b; }
+                Text { text: @tr("渲染内核:"); width: 90px; color: #64748b; }
+                Text { text: @tr("纯 CPU 软件光栅化 (tiny-skia + softbuffer)，定点整数零拷贝流水线"); color: #1e293b; }
             }
 
             HorizontalLayout {
                 spacing: 12px;
-                Text { text: "桌面支持:"; width: 90px; color: #64748b; }
-                Text { text: "Wayland 原生协议 + GNOME Shell 特权置顶扩展与 XDG Portal 自动降级"; color: #1e293b; }
+                Text { text: @tr("桌面支持:"); width: 90px; color: #64748b; }
+                Text { text: @tr("Wayland 原生协议 + GNOME Shell 特权置顶扩展与 XDG Portal 自动降级"); color: #1e293b; }
             }
 
             HorizontalLayout {
                 spacing: 12px;
-                Text { text: "排版引擎:"; width: 90px; color: #64748b; }
-                Text { text: "cosmic-text 多语言矢量中文字体整形与平滑抗锯齿光栅化"; color: #1e293b; }
+                Text { text: @tr("排版引擎:"); width: 90px; color: #64748b; }
+                Text { text: @tr("cosmic-text 多语言矢量中文字体整形与平滑抗锯齿光栅化"); color: #1e293b; }
             }
 
             HorizontalLayout {
                 spacing: 12px;
-                Text { text: "设置界面:"; width: 90px; color: #64748b; }
-                Text { text: "Slint 响应式声明式桌面 GUI，物理进程隔离，用完即退"; color: #1e293b; }
+                Text { text: @tr("设置界面:"); width: 90px; color: #64748b; }
+                Text { text: @tr("Slint 响应式声明式桌面 GUI，物理进程隔离，用完即退"); color: #1e293b; }
             }
         }
     }
 
     SettingCard {
-        title: "自由开源许可";
-        subtitle: "坚持极简、高效、无冗余的工程哲学打造";
+        title: @tr("自由开源许可");
+        subtitle: @tr("坚持极简、高效、无冗余的工程哲学打造");
 
         VerticalLayout {
             spacing: 8px;
 
             HorizontalLayout {
                 spacing: 12px;
-                Text { text: "源码协议:"; width: 90px; color: #64748b; }
+                Text { text: @tr("源码协议:"); width: 90px; color: #64748b; }
                 Text { text: "Apache License 2.0"; color: #1e293b; }
             }
 
             HorizontalLayout {
                 spacing: 12px;
-                Text { text: "设置界面:"; width: 90px; color: #64748b; }
+                Text { text: @tr("设置界面:"); width: 90px; color: #64748b; }
                 Text { text: "Slint Royalty-free 2.0"; color: #1e293b; }
             }
 
             HorizontalLayout {
                 spacing: 12px;
-                Text { text: "代码仓库:"; width: 90px; color: #64748b; }
+                Text { text: @tr("代码仓库:"); width: 90px; color: #64748b; }
                 Text { text: "https://github.com/mangerle/snapin"; color: #2563eb; }
             }
         }
     }
 
     SettingCard {
-        title: "设置界面框架";
-        subtitle: "本设置中心基于 Slint 构建，依据 Slint Royalty-free 2.0 许可使用";
+        title: @tr("设置界面框架");
+        subtitle: @tr("本设置中心基于 Slint 构建，依据 Slint Royalty-free 2.0 许可使用");
 
         VerticalLayout {
             spacing: 10px;
@@ -251,7 +251,7 @@ export component AboutTab inherits VerticalLayout {
             }
 
             Text {
-                text: "Slint 版权归 SixtyFPS GmbH 所有。完整许可文本见 LICENSES/LicenseRef-Slint-Royalty-free-2.0.md，第三方组件声明见 THIRD_PARTY_NOTICES.md。";
+                text: @tr("Slint 版权归 SixtyFPS GmbH 所有。完整许可文本见 LICENSES/LicenseRef-Slint-Royalty-free-2.0.md，第三方组件声明见 THIRD_PARTY_NOTICES.md。");
                 font-size: 12px;
                 color: #64748b;
                 wrap: word-wrap;

@@ -12,19 +12,19 @@ export component SnipTab inherits VerticalLayout {
     in-out property <float> snip_font_size: 18;    // 12 ~ 48 px
 
     SettingCard {
-        title: "选区记忆";
-        subtitle: "控制再次截图时是否恢复上一次的选区范围";
+        title: @tr("选区记忆");
+        subtitle: @tr("控制再次截图时是否恢复上一次的选区范围");
 
         AppSwitch {
-            title: "记忆并恢复上次截图选区";
-            subtitle: "仅在自定义截屏时恢复上次选区；常规截图始终从空白选区开始";
+            title: @tr("记忆并恢复上次截图选区");
+            subtitle: @tr("仅在自定义截屏时恢复上次选区；常规截图始终从空白选区开始");
             checked <=> root.remember_last_selection;
         }
     }
 
     SettingCard {
-        title: "默认标注样式";
-        subtitle: "配置标注的默认笔触颜色、线宽与文字字号；标注工具需在截图工具栏中自行选择";
+        title: @tr("默认标注样式");
+        subtitle: @tr("配置标注的默认笔触颜色、线宽与文字字号；标注工具需在截图工具栏中自行选择");
 
         VerticalLayout {
             spacing: 16px;
@@ -34,9 +34,9 @@ export component SnipTab inherits VerticalLayout {
 
                 VerticalLayout {
                     spacing: 6px;
-                    Text { text: "默认标注笔触颜色:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    Text { text: @tr("默认标注笔触颜色:"); font-size: 13px; font-weight: 600; color: #334155; }
                     ComboBox {
-                        model: ["醒目赤红 (#EF4444)", "天海晴蓝 (#00AEFF)", "清新翠绿 (#10B981)", "明艳亮黄 (#F59E0B)", "纯洁雪白 (#FFFFFF)", "深邃墨黑 (#000000)", "保留当前自定义颜色"];
+                        model: [@tr("醒目赤红 (#EF4444)"), @tr("天海晴蓝 (#00AEFF)"), @tr("清新翠绿 (#10B981)"), @tr("明艳亮黄 (#F59E0B)"), @tr("纯洁雪白 (#FFFFFF)"), @tr("深邃墨黑 (#000000)"), @tr("保留当前自定义颜色")];
                         current-index <=> root.default_color_index;
                         width: 220px;
                     }
@@ -51,7 +51,7 @@ export component SnipTab inherits VerticalLayout {
                 VerticalLayout {
                     horizontal-stretch: 1;
                     AppSlider {
-                        title: "矢量笔触描边粗细";
+                        title: @tr("矢量笔触描边粗细");
                         unit: " px";
                         minimum: 1;
                         maximum: 16;
@@ -62,7 +62,7 @@ export component SnipTab inherits VerticalLayout {
                 VerticalLayout {
                     horizontal-stretch: 1;
                     AppSlider {
-                        title: "文字标注默认字号";
+                        title: @tr("文字标注默认字号");
                         unit: " pt";
                         minimum: 12;
                         maximum: 36;

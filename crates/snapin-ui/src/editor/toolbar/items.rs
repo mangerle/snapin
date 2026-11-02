@@ -296,7 +296,7 @@ impl ToolbarItem {
     }
 
     /// 悬浮提示中展示的中文名称。
-    pub const fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Tool(tool) => tool.label(),
             Self::Action(action) => action.label(),
@@ -314,8 +314,8 @@ impl ToolbarItem {
 
 impl Tool {
     /// 工具中文名称，用于悬浮提示。
-    pub const fn label(self) -> &'static str {
-        match self {
+    pub fn label(self) -> &'static str {
+        snapin_core::i18n::tr(match self {
             Self::Rect => "矩形",
             Self::Ellipse => "椭圆",
             Self::Arrow => "箭头",
@@ -326,14 +326,14 @@ impl Tool {
             Self::Mosaic => "马赛克与智能打码",
             Self::Blur => "模糊",
             Self::Spotlight => "聚光灯",
-        }
+        })
     }
 }
 
 impl ToolbarAction {
     /// 动作中文名称，用于悬浮提示。
-    pub const fn label(self) -> &'static str {
-        match self {
+    pub fn label(self) -> &'static str {
+        snapin_core::i18n::tr(match self {
             Self::Undo => "撤销",
             Self::Redo => "重做",
             Self::Ocr => "文字识别",
@@ -345,7 +345,7 @@ impl ToolbarAction {
             Self::Copy => "复制",
             Self::Save => "保存",
             Self::Close => "关闭",
-        }
+        })
     }
 
     /// 截图会话中真实生效的快捷键。

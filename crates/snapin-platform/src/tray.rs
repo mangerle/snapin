@@ -56,61 +56,63 @@ enum TrayMenuEntry {
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-const TRAY_MENU: &[TrayMenuEntry] = &[
-    TrayMenuEntry::Action {
-        label: "截屏",
-        action: TrayAction::Snip,
-    },
-    TrayMenuEntry::Action {
-        label: "全屏截图",
-        action: TrayAction::Fullscreen,
-    },
-    TrayMenuEntry::Action {
-        label: "取色器",
-        action: TrayAction::PickColor,
-    },
-    TrayMenuEntry::Action {
-        label: "贴图",
-        action: TrayAction::Paste,
-    },
-    TrayMenuEntry::Action {
-        label: "智能打码",
-        action: TrayAction::SmartRedact,
-    },
-    TrayMenuEntry::Action {
-        label: "二维码识别",
-        action: TrayAction::Qr,
-    },
-    TrayMenuEntry::Action {
-        label: "美化导出",
-        action: TrayAction::Beautify,
-    },
-    TrayMenuEntry::Action {
-        label: "贴图工作区",
-        action: TrayAction::Workspace,
-    },
-    TrayMenuEntry::Action {
-        label: "剪贴板历史",
-        action: TrayAction::ClipboardHistory,
-    },
-    TrayMenuEntry::Action {
-        label: "隐藏/显示所有贴图",
-        action: TrayAction::TogglePasters,
-    },
-    TrayMenuEntry::Separator,
-    TrayMenuEntry::Action {
-        label: "首选项...",
-        action: TrayAction::Preferences,
-    },
-    TrayMenuEntry::Action {
-        label: "退出 Snapin",
-        action: TrayAction::Exit,
-    },
-];
+fn tray_menu() -> Vec<TrayMenuEntry> {
+    vec![
+        TrayMenuEntry::Action {
+            label: snapin_core::i18n::tr("截屏"),
+            action: TrayAction::Snip,
+        },
+        TrayMenuEntry::Action {
+            label: snapin_core::i18n::tr("全屏截图"),
+            action: TrayAction::Fullscreen,
+        },
+        TrayMenuEntry::Action {
+            label: snapin_core::i18n::tr("取色器"),
+            action: TrayAction::PickColor,
+        },
+        TrayMenuEntry::Action {
+            label: snapin_core::i18n::tr("贴图"),
+            action: TrayAction::Paste,
+        },
+        TrayMenuEntry::Action {
+            label: snapin_core::i18n::tr("智能打码"),
+            action: TrayAction::SmartRedact,
+        },
+        TrayMenuEntry::Action {
+            label: snapin_core::i18n::tr("二维码"),
+            action: TrayAction::Qr,
+        },
+        TrayMenuEntry::Action {
+            label: snapin_core::i18n::tr("美化导出"),
+            action: TrayAction::Beautify,
+        },
+        TrayMenuEntry::Action {
+            label: snapin_core::i18n::tr("贴图工作区"),
+            action: TrayAction::Workspace,
+        },
+        TrayMenuEntry::Action {
+            label: snapin_core::i18n::tr("剪贴板历史"),
+            action: TrayAction::ClipboardHistory,
+        },
+        TrayMenuEntry::Action {
+            label: snapin_core::i18n::tr("隐藏/显示所有贴图"),
+            action: TrayAction::TogglePasters,
+        },
+        TrayMenuEntry::Separator,
+        TrayMenuEntry::Action {
+            label: snapin_core::i18n::tr("首选项..."),
+            action: TrayAction::Preferences,
+        },
+        TrayMenuEntry::Action {
+            label: snapin_core::i18n::tr("退出 Snapin"),
+            action: TrayAction::Exit,
+        },
+    ]
+}
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 mod native {
-    use super::{TrayAction, TrayMenuEntry, TRAY_MENU};
+    use super::{tray_menu, TrayAction, TrayMenuEntry};
     use crate::error::PlatformError;
     use std::collections::HashMap;
     use tray_icon::{
@@ -134,9 +136,9 @@ mod native {
             })?;
 
             let menu = Menu::new();
-            let mut action_map = HashMap::with_capacity(TRAY_MENU.len());
-            for entry in TRAY_MENU {
-                match *entry {
+            let mut action_map = HashMap::with_capacity(13);
+            for entry in tray_menu() {
+                match entry {
                     TrayMenuEntry::Action { label, action } => {
                         Self::append_item(&menu, label, action, &mut action_map)?;
                     }
@@ -195,7 +197,7 @@ mod native {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use super::{TrayAction, TrayMenuEntry, TRAY_MENU};
+    use super::{tray_menu, TrayAction, TrayMenuEntry};
     use crate::error::PlatformError;
     use ksni::{blocking::TrayMethods, menu::*, Tray};
     use std::sync::Mutex;
@@ -236,9 +238,10 @@ mod linux {
         }
 
         fn menu(&self) -> Vec<MenuItem<Self>> {
-            TRAY_MENU
-                .iter()
-                .map(|entry| match *entry {
+            let entries = tray_menu();
+            entries
+                .into_iter()
+                .map(|entry| match entry {
                     TrayMenuEntry::Separator => MenuItem::Separator,
                     TrayMenuEntry::Action { label, action } => StandardItem {
                         label: label.into(),
@@ -370,12 +373,12 @@ mod tests {
     #[test]
     fn test_tray_menu_actions_are_unique_and_non_empty() {
         let mut actions = Vec::new();
-        for entry in TRAY_MENU {
+        for entry in tray_menu() {
             match entry {
                 TrayMenuEntry::Action { label, action } => {
                     assert!(!label.is_empty(), "托盘菜单标签不能为空");
-                    assert!(!actions.contains(action), "托盘动作重复: {action:?}");
-                    actions.push(*action);
+                    assert!(!actions.contains(&action), "托盘动作重复: {action:?}");
+                    actions.push(action);
                 }
                 TrayMenuEntry::Separator => {}
             }

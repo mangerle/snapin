@@ -122,8 +122,10 @@ async fn wait_snipper_delay(services: &Arc<AppServices>, delay_seconds: u32) -> 
     if delay_seconds == 0 {
         return Ok(());
     }
-    let message = format!("将在 {delay_seconds} 秒后截图");
-    if let Err(error) = send_desktop_notification("Snapin 截图", &message).await {
+    let message = snapin_core::trf!("将在 {} 秒后截图", "Capturing in {} seconds", delay_seconds);
+    if let Err(error) =
+        send_desktop_notification(snapin_core::i18n::tr("Snapin 截图"), &message).await
+    {
         tracing::debug!("发送延时截图通知失败或系统通知不可用: {error}");
     }
     tracing::info!("截图延时等待中: {delay_seconds} 秒");
@@ -148,8 +150,8 @@ pub(crate) async fn start_snipper_task(
             if let Err(error) = workspace.open_snipper(launch) {
                 tracing::error!("向常驻工作区投递截图覆盖层失败: {error}");
                 let _ = send_desktop_notification(
-                    "Snapin 截图失败",
-                    "无法在常驻界面中打开截图覆盖层，详情请查看运行日志",
+                    snapin_core::i18n::tr("Snapin 截图失败"),
+                    snapin_core::i18n::tr("无法在常驻界面中打开截图覆盖层，详情请查看运行日志"),
                 )
                 .await;
             }
@@ -157,8 +159,8 @@ pub(crate) async fn start_snipper_task(
         Err(error) => {
             tracing::warn!("准备截图覆盖层失败: {error:#}");
             let _ = send_desktop_notification(
-                "Snapin 截图失败",
-                "屏幕捕获或截图初始化失败，详情请查看运行日志",
+                snapin_core::i18n::tr("Snapin 截图失败"),
+                snapin_core::i18n::tr("屏幕捕获或截图初始化失败，详情请查看运行日志"),
             )
             .await;
         }

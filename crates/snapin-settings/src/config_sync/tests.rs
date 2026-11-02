@@ -102,6 +102,15 @@ fn test_window_sync_roundtrip_all_scenarios() {
         return;
     };
 
+    assert!(
+        slint::select_bundled_translation("en").is_ok(),
+        "英文 Slint 翻译包必须可加载"
+    );
+    assert!(
+        slint::select_bundled_translation("").is_ok(),
+        "中文 Slint 翻译包必须可加载"
+    );
+
     // 场景一：逐字段非默认值的配置经界面往返后必须完全一致，
     // 任一侧漏写 set_/get_ 或反向换算写反（如百分比未除以 100）都会被捕获
     let expected = sample_config();

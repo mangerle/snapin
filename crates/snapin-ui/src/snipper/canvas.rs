@@ -161,8 +161,9 @@ impl<'a> SnipperCanvas<'a> {
         with_thread_local_text_renderer(|renderer| {
             renderer.draw_text_rgba(
                 pixmap,
-                &format!(
+                &snapin_core::trf!(
                     "OCR 结果  已选择 {}/{}",
+                    "OCR Results  Selected {}/{}",
                     panel.lines.iter().filter(|line| line.selected).count(),
                     panel.lines.len()
                 ),
@@ -235,7 +236,9 @@ impl<'a> SnipperCanvas<'a> {
 
             renderer.draw_text_box_rgba(
                 pixmap,
-                "Space 选择  Enter 编辑  A 全选  M 导出 Markdown  J 导出 JSON  Esc 关闭",
+                snapin_core::i18n::tr(
+                    "Space 选择  Enter 编辑  A 全选  M 导出 Markdown  J 导出 JSON  Esc 关闭",
+                ),
                 TextBoxOptions {
                     rect: (
                         layout.panel.x + 14.0 * s,

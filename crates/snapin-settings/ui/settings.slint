@@ -35,7 +35,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> notify_on_startup: false;
     in-out property <bool> auto_check_update: true;
     in-out property <int> log_level_index: 2;
-    in-out property <string> extension_status_text: "GNOME Shell 窗口特权扩展已就绪";
+    in-out property <string> extension_status_text: @tr("GNOME Shell 窗口特权扩展已就绪");
 
     // 8. 关于与自更新
     in-out property <int> update_status: 0;
@@ -146,7 +146,7 @@ export component SettingsWindow inherits Window {
                         color: #0f172a;
                     }
                     Text {
-                        text: "截图与贴图设置中心";
+                        text: @tr("截图与贴图设置中心");
                         font-size: 11px;
                         color: #64748b;
                     }
@@ -161,49 +161,49 @@ export component SettingsWindow inherits Window {
             // 侧边栏 7 项导航菜单
             NavItem {
                 icon: @image-url("../assets/icons/nav_general.svg");
-                title: "常规设置";
+                title: @tr("常规设置");
                 active: root.active_tab == 0;
                 clicked => { root.active_tab = 0; }
             }
             NavItem {
                 icon: @image-url("../assets/icons/nav_theme.svg");
-                title: "界面外观";
+                title: @tr("界面外观");
                 active: root.active_tab == 1;
                 clicked => { root.active_tab = 1; }
             }
             NavItem {
                 icon: @image-url("../assets/icons/nav_snip.svg");
-                title: "截图流程";
+                title: @tr("截图流程");
                 active: root.active_tab == 2;
                 clicked => { root.active_tab = 2; }
             }
             NavItem {
                 icon: @image-url("../assets/icons/nav_paster.svg");
-                title: "贴图窗口";
+                title: @tr("贴图窗口");
                 active: root.active_tab == 3;
                 clicked => { root.active_tab = 3; }
             }
             NavItem {
                 icon: @image-url("../assets/icons/nav_output.svg");
-                title: "存储与输出";
+                title: @tr("存储与输出");
                 active: root.active_tab == 4;
                 clicked => { root.active_tab = 4; }
             }
             NavItem {
                 icon: @image-url("../assets/icons/nav_ocr.svg");
-                title: "识别与翻译";
+                title: @tr("识别与翻译");
                 active: root.active_tab == 5;
                 clicked => { root.active_tab = 5; }
             }
             NavItem {
                 icon: @image-url("../assets/icons/nav_shortcuts.svg");
-                title: "快捷键与操作";
+                title: @tr("快捷键与操作");
                 active: root.active_tab == 6;
                 clicked => { root.active_tab = 6; }
             }
             NavItem {
                 icon: @image-url("../assets/icons/nav_about.svg");
-                title: "关于";
+                title: @tr("关于");
                 active: root.active_tab == 7;
                 clicked => { root.active_tab = 7; }
             }
@@ -227,25 +227,25 @@ export component SettingsWindow inherits Window {
             VerticalLayout {
                 spacing: 4px;
                 Text {
-                    text: root.active_tab == 0 ? "常规设置" :
-                          root.active_tab == 1 ? "界面与外观" :
-                          root.active_tab == 2 ? "截图流程" :
-                          root.active_tab == 3 ? "贴图窗口" :
-                          root.active_tab == 4 ? "存储与输出" :
-                          root.active_tab == 5 ? "文字识别与截图翻译" :
-                          root.active_tab == 6 ? "全局快捷键与贴图操作" : "关于 Snapin";
+                    text: root.active_tab == 0 ? @tr("常规设置") :
+                          root.active_tab == 1 ? @tr("界面与外观") :
+                          root.active_tab == 2 ? @tr("截图流程") :
+                          root.active_tab == 3 ? @tr("贴图窗口") :
+                          root.active_tab == 4 ? @tr("存储与输出") :
+                          root.active_tab == 5 ? @tr("文字识别与截图翻译") :
+                          root.active_tab == 6 ? @tr("全局快捷键与贴图操作") : @tr("关于 Snapin");
                     font-size: 20px;
                     font-weight: 700;
                     color: #0f172a;
                 }
                 Text {
-                    text: root.active_tab == 0 ? "配置开机自动启动、通知中心状态反馈与 GNOME 原生扩展通道状态" :
-                          root.active_tab == 1 ? "定制选区高亮强调色、鼠标跟随像素放大镜与浮动工具条缩放比" :
-                          root.active_tab == 2 ? "配置选区记忆、默认标注颜色、笔触粗细与文字字号" :
-                          root.active_tab == 3 ? "配置新贴图初始不透明度、滚轮缩放锚点以及双击响应行为" :
-                          root.active_tab == 4 ? "配置截图另存路径、自动时间戳命名规则、图片编码格式、美化导出与通知偏好" :
-                          root.active_tab == 5 ? "配置轻量离线 PP-OCRv6 引擎路径、五大多语言翻译服务商凭证与截图原位智能背景擦除策略" :
-                          root.active_tab == 6 ? "自定义全局截图与贴图唤起热键，查看贴图窗口单键旋转、翻转、缩放快捷操作指南" : "查看 Snapin 架构设计、纯 Rust 软件光栅化特性与自由开源许可声明";
+                    text: root.active_tab == 0 ? @tr("配置开机自动启动、通知中心状态反馈与 GNOME 原生扩展通道状态") :
+                          root.active_tab == 1 ? @tr("定制选区高亮强调色、鼠标跟随像素放大镜与浮动工具条缩放比") :
+                          root.active_tab == 2 ? @tr("配置选区记忆、默认标注颜色、笔触粗细与文字字号") :
+                          root.active_tab == 3 ? @tr("配置新贴图初始不透明度、滚轮缩放锚点以及双击响应行为") :
+                          root.active_tab == 4 ? @tr("配置截图另存路径、自动时间戳命名规则、图片编码格式、美化导出与通知偏好") :
+                          root.active_tab == 5 ? @tr("配置轻量离线 PP-OCRv6 引擎路径、五大多语言翻译服务商凭证与截图原位智能背景擦除策略") :
+                          root.active_tab == 6 ? @tr("自定义全局截图与贴图唤起热键，查看贴图窗口单键旋转、翻转、缩放快捷操作指南") : @tr("查看 Snapin 架构设计、纯 Rust 软件光栅化特性与自由开源许可声明");
                     font-size: 12px;
                     color: #64748b;
                 }
@@ -367,19 +367,19 @@ export component SettingsWindow inherits Window {
                     spacing: 8px;
                     alignment: start;
                     SecondaryButton {
-                        text: "打开配置目录";
+                        text: @tr("打开配置目录");
                         clicked => { root.open_config_folder(); }
                     }
                     SecondaryButton {
-                        text: "恢复默认设置";
+                        text: @tr("恢复默认设置");
                         clicked => { root.restore_defaults(); }
                     }
                     SecondaryButton {
-                        text: "导入配置";
+                        text: @tr("导入配置");
                         clicked => { root.import_config(); }
                     }
                     SecondaryButton {
-                        text: "导出配置";
+                        text: @tr("导出配置");
                         clicked => { root.export_config(); }
                     }
                     if root.status_message != "": Text {
@@ -392,7 +392,7 @@ export component SettingsWindow inherits Window {
                 }
 
                 PrimaryButton {
-                    text: "保存并应用";
+                    text: @tr("保存并应用");
                     clicked => { root.save_and_apply(); }
                 }
             }
@@ -401,7 +401,7 @@ export component SettingsWindow inherits Window {
 }
 
 export component ClipboardPanel inherits Window {
-    title: "Snapin 剪贴板历史";
+    title: @tr("Snapin 剪贴板历史");
     preferred-width: 520px;
     preferred-height: 620px;
     background: #f8fafc;
@@ -419,7 +419,7 @@ export component ClipboardPanel inherits Window {
 
         HorizontalLayout {
             Text {
-                text: "剪贴板历史";
+                text: @tr("剪贴板历史");
                 font-size: 20px;
                 font-weight: 700;
                 color: #0f172a;
@@ -427,17 +427,17 @@ export component ClipboardPanel inherits Window {
             }
             Rectangle { horizontal-stretch: 1; }
             SecondaryButton {
-                text: "清空";
+                text: @tr("清空");
                 clicked => { root.clear_history(); }
             }
             SecondaryButton {
-                text: "关闭";
+                text: @tr("关闭");
                 clicked => { root.close_panel(); }
             }
         }
 
         Text {
-            text: "最多保留 10 条，自动删除超过 1 天的记录。点击条目立即复制并创建贴图。";
+            text: @tr("最多保留 10 条，自动删除超过 1 天的记录。点击条目立即复制并创建贴图。");
             font-size: 12px;
             color: #64748b;
             wrap: word-wrap;

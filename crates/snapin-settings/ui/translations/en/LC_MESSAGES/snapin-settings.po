@@ -1,0 +1,744 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "/usr/share/snapin/models/ppocrv6 或 ~/.local/share/snapin/models/ppocrv6"
+msgstr "/usr/share/snapin/models/ppocrv6 or ~/.local/share/snapin/models/ppocrv6"
+
+msgid "16:9 横版 1920x1080"
+msgstr "16:9 landscape 1920x1080"
+
+msgid "16x 极致微距"
+msgstr "16x extreme detail"
+
+msgid "1:1 方形 1080x1080"
+msgstr "1:1 square 1080x1080"
+
+msgid "4:5 竖版 1080x1350"
+msgstr "4:5 portrait 1080x1350"
+
+msgid "4x 适中放大"
+msgstr "4x moderate zoom"
+
+msgid "8x 清晰微距 (推荐)"
+msgstr "8x detail (recommended)"
+
+msgid "GNOME Shell 窗口特权扩展已就绪"
+msgstr "GNOME Shell privilege extension is ready"
+
+msgid "GNOME Shell 窗口特权扩展已部署就绪"
+msgstr "GNOME Shell privilege extension is deployed"
+
+msgid "GNOME 原生特权扩展通道"
+msgstr "GNOME native privilege extension channel"
+
+msgid "HEX 格式 (如 #00AEFF)"
+msgstr "HEX (for example #00AEFF)"
+
+msgid "HSL 格式 (如 hsl(199,100%,50%))"
+msgstr "HSL (for example hsl(199,100%,50%))"
+
+msgid "JPEG (适合大图与照片)"
+msgstr "JPEG (large images and photos)"
+
+msgid "JPEG 有损编码质量"
+msgstr "JPEG quality"
+
+msgid "Linux GNOME 扩展通道可原生包含指针；其他平台暂由系统截屏能力决定"
+msgstr "The Linux GNOME extension can include the pointer; other platforms depend on system capture support"
+
+msgid "PNG (无损压缩 - 推荐)"
+msgstr "PNG (lossless, recommended)"
+
+msgid "PP-OCRv6 离线文字识别引擎"
+msgstr "PP-OCRv6 offline OCR engine"
+
+msgid "RGB 格式 (如 rgb(0,174,255))"
+msgstr "RGB (for example rgb(0,174,255))"
+
+msgid "Slint 响应式声明式桌面 GUI，物理进程隔离，用完即退"
+msgstr "Slint declarative desktop GUI with process isolation"
+
+msgid "Slint 版权归 SixtyFPS GmbH 所有。完整许可文本见 LICENSES/LicenseRef-Slint-Royalty-free-2.0.md，第三方组件声明见 THIRD_PARTY_NOTICES.md。"
+msgstr "Slint is copyright SixtyFPS GmbH. See LICENSES/LicenseRef-Slint-Royalty-free-2.0.md and THIRD_PARTY_NOTICES.md."
+
+msgid "Snapin 剪贴板历史"
+msgstr "Snapin Clipboard History"
+
+msgid "Snapin 原生截图与贴图工具"
+msgstr "Snapin native screenshot and pin tool"
+
+msgid "Wayland 原生协议 + GNOME Shell 特权置顶扩展与 XDG Portal 自动降级"
+msgstr "Native Wayland, GNOME Shell pinning extension, and automatic XDG Portal fallback"
+
+msgid "WebP (无损高压缩率)"
+msgstr "WebP (high compression)"
+
+msgid "cosmic-text 多语言矢量中文字体整形与平滑抗锯齿光栅化"
+msgstr "cosmic-text multilingual shaping and anti-aliased rasterization"
+
+msgid "一键隐藏当前桌面所有贴图，再次按下恢复显示"
+msgstr "Hide all pins with one shortcut; press again to restore"
+
+msgid "专为 Linux Wayland (Ubuntu 24.04 / 26 GNOME) 量身打造的高性能屏幕工具"
+msgstr "High-performance screen utility tailored for Linux Wayland and GNOME"
+
+msgid "中文 (简体)"
+msgstr "Chinese (Simplified)"
+
+msgid "为截图添加背景、圆角、阴影和水印后导出"
+msgstr "Add background, rounded corners, shadows, and a watermark to exported screenshots"
+
+msgid "为贴图授予强制置顶与精确落位特权，并提供 0 快门白闪的原生截屏"
+msgstr "Grant always-on-top and precise placement privileges with native shutter-flash-free capture"
+
+msgid "二维码识别 (QR)"
+msgstr "QR Code (QR)"
+
+msgid "交互手势与快捷响应"
+msgstr "Interaction and shortcuts"
+
+msgid "仅在自定义截屏时恢复上次选区；常规截图始终从空白选区开始"
+msgstr "Restore the last selection only for custom capture"
+
+msgid "仅复制图像到剪贴板"
+msgstr "Copy image only"
+
+msgid "代码仓库:"
+msgstr "Repository:"
+
+msgid "以细微虚线标出单个物理像素边界，便于精确定位目标像素"
+msgstr "Show thin dashed pixel boundaries"
+
+msgid "优雅紫罗兰 (#8B5CF6)"
+msgstr "Elegant Violet (#8B5CF6)"
+
+msgid "俄语 (Русский)"
+msgstr "Russian (Русский)"
+
+msgid "保存图片到本地文件后发送桌面通知"
+msgstr "Notify after saving an image"
+
+msgid "保存并应用"
+msgstr "Save and Apply"
+
+msgid "保存截图时弹出文件保存对话框"
+msgstr "Show a save dialog when saving screenshots"
+
+msgid "保存截图时自动应用美化"
+msgstr "Apply beautification when saving screenshots"
+
+msgid "保存贴图为磁盘文件"
+msgstr "Save pin to disk"
+
+msgid "保留当前自定义倍率"
+msgstr "Keep custom zoom"
+
+msgid "保留当前自定义颜色"
+msgstr "Keep custom color"
+
+msgid "光标悬停时提供像素级精密取色与参考网格辅助"
+msgstr "Pixel-level color picking and grid guidance"
+
+msgid "光标移入置顶贴图窗口即可敲击以下单键极速操作"
+msgstr "Hover a pinned window and use these single-key shortcuts"
+
+msgid "全局快捷键与贴图操作"
+msgstr "Global Shortcuts and Pin Controls"
+
+msgid "关于"
+msgstr "About"
+
+msgid "关于 Snapin"
+msgstr "About Snapin"
+
+msgid "关闭"
+msgstr "Close"
+
+msgid "关闭当前贴图"
+msgstr "Close current pin"
+
+msgid "切换贴图分组 (Switch Group)"
+msgstr "Switch Pin Group"
+
+msgid "剪贴板历史"
+msgstr "Clipboard History"
+
+msgid "剪贴板历史 (Clipboard)"
+msgstr "Clipboard History"
+
+msgid "区域截图 (Snip)"
+msgstr "Area Capture"
+
+msgid "半透明磨砂模糊 (覆盖高斯半透明磨砂遮罩，突出译文层次感)"
+msgstr "Frosted blur overlay"
+
+msgid "原始尺寸"
+msgstr "Original size"
+
+msgid "双击贴图窗口响应行为:"
+msgstr "Double-click behavior:"
+
+msgid "发现新版本:"
+msgstr "New version found:"
+
+msgid "取色器与像素放大镜"
+msgstr "Color Picker and Magnifier"
+
+msgid "后台服务启动成功后在系统通知中心提示热键绑定信息"
+msgstr "Notify about hotkeys when the background service starts"
+
+msgid "后台静默检查并在发现新版本时发送气泡通知，不消耗流量下载安装包"
+msgstr "Check silently for updates and notify without downloading"
+
+msgid "启用投影阴影"
+msgstr "Enable drop shadow"
+
+msgid "启用鼠标跟随像素放大镜"
+msgstr "Enable cursor-following magnifier"
+
+msgid "告警 (Warn)"
+msgstr "Warn"
+
+msgid "固定在贴图中心点"
+msgstr "Pin at center"
+
+msgid "图像圆角半径"
+msgstr "Image corner radius"
+
+msgid "图像编码格式与质量"
+msgstr "Image Format and Quality"
+
+msgid "在多个独立贴图工作区分组之间循环快速切换"
+msgstr "Cycle through pin groups"
+
+msgid "在截图下方增加柔和阴影层次"
+msgstr "Add a soft shadow below the screenshot"
+
+msgid "在放大镜内显示像素物理对齐网格线"
+msgstr "Show pixel alignment grid in the magnifier"
+
+msgid "在系统通知中心提示复制成功"
+msgstr "Notify after copying"
+
+msgid "在高分辨率屏（如 2K / 4K）下，Snapin 会自动侦测系统缩放比并适配最佳图标清晰度。"
+msgstr "On high-resolution displays Snapin automatically adapts toolbar scaling."
+
+msgid "坚持极简、高效、无冗余的工程哲学打造"
+msgstr "Built with a minimal, efficient, and focused engineering philosophy"
+
+msgid "基于数字签名安全验证的自动升级系统"
+msgstr "Automatic updates with signed verification"
+
+msgid "复制到剪贴板不受影响，仅处理保存与导出文件"
+msgstr "Copying is unaffected; only save and export output is beautified"
+
+msgid "复制图像到剪贴板后发送桌面通知"
+msgstr "Notify after copying an image"
+
+msgid "复制图像并关闭贴图"
+msgstr "Copy image and close pin"
+
+msgid "复制当前图像到剪贴板"
+msgstr "Copy current image"
+
+msgid "天海晴蓝 (#00AEFF)"
+msgstr "Sky Blue (#00AEFF)"
+
+msgid "存储与输出"
+msgstr "Storage and Output"
+
+msgid "守护服务就绪时发送桌面通知"
+msgstr "Notify when the background service is ready"
+
+msgid "完成复制或落盘时发送系统通知"
+msgstr "Notify after copying or saving"
+
+msgid "定制 Snapin 选区边框高亮色"
+msgstr "Customize the selection highlight color"
+
+msgid "定制选区高亮强调色、鼠标跟随像素放大镜与浮动工具条缩放比"
+msgstr "Customize highlight color, magnifier, and toolbar scale"
+
+msgid "定格屏幕并进入交互式选区裁切与标注模式"
+msgstr "Freeze the screen and enter interactive capture and annotation"
+
+msgid "导入配置"
+msgstr "Import Config"
+
+msgid "导出配置"
+msgstr "Export Config"
+
+msgid "工具栏 UI 缩放比例"
+msgstr "Toolbar UI scale"
+
+msgid "已禁用"
+msgstr "Disabled"
+
+msgid "常规设置"
+msgstr "General"
+
+msgid "开启后点击保存可自选目录与文件名；关闭则直接保存到下方默认文件夹"
+msgstr "Choose the save location when saving, or use the default folder"
+
+msgid "开启后，后续保存截图会自动应用以下圆角、阴影、背景、水印和社交尺寸设置"
+msgstr "Apply the following beautification settings to future saved screenshots"
+
+msgid "开机静默运行，无需手动打开终端，随时响应 F1 与 F3 全局热键"
+msgstr "Run silently at login and respond to global hotkeys"
+
+msgid "强调色彩"
+msgstr "Accent Color"
+
+msgid "当前已是最新版本"
+msgstr "You are up to date"
+
+msgid "当前版本:"
+msgstr "Current version:"
+
+msgid "微软必应翻译 (免 Key，易触发风控)"
+msgstr "Microsoft Bing Translate (no key, rate-limited)"
+
+msgid "德语 (Deutsch)"
+msgstr "German (Deutsch)"
+
+msgid "快捷键与操作"
+msgstr "Shortcuts and Controls"
+
+msgid "快速贴图 (Paste)"
+msgstr "Quick Pin"
+
+msgid "恢复默认设置"
+msgstr "Restore Defaults"
+
+msgid "截图与贴图设置中心"
+msgstr "Screenshot and Pin Settings"
+
+msgid "截图原位背景擦除覆盖模式:"
+msgstr "In-place translation cover mode:"
+
+msgid "截图流程"
+msgstr "Capture"
+
+msgid "截图美化导出"
+msgstr "Screenshot Beautification"
+
+msgid "截图翻译 (Translate)"
+msgstr "Capture Translation"
+
+msgid "截屏时包含鼠标指针"
+msgstr "Include mouse cursor in screenshots"
+
+msgid "打开最近十条文本、图像与颜色记录，快速再次贴图"
+msgstr "Open the latest 10 text, image, and color entries"
+
+msgid "打开缩略图墙并集中管理工作区内的全部贴图"
+msgstr "Open the thumbnail wall and manage all pins"
+
+msgid "打开配置目录"
+msgstr "Open Config Folder"
+
+msgid "批量显隐贴图 (Toggle)"
+msgstr "Toggle All Pins"
+
+msgid "按设置的缩放锚点无级缩放贴图"
+msgstr "Scale pins using the configured anchor"
+
+msgid "排版引擎:"
+msgstr "Layout engine:"
+
+msgid "控制再次截图时是否恢复上一次的选区范围"
+msgstr "Control whether the previous selection is restored"
+
+msgid "提示保存成功与目标文件路径，点击可直接调起文件夹"
+msgstr "Show the saved path in a notification"
+
+msgid "提示：双击左键的行为与滚轮缩放锚点由“贴图窗口”设置页决定。"
+msgstr "Double-click behavior and zoom anchor are configured on the Pin Window page."
+
+msgid "提示：快捷键录制修改后，点击界面下方“保存并应用”即可自动同步生效至系统。"
+msgstr "Click Save and Apply after changing shortcuts."
+
+msgid "操作通知"
+msgstr "Notifications"
+
+msgid "支持变量: {{YYYY}} 年, {{MM}} 月, {{DD}} 日, {{HH}} 时, {{mm}} 分, {{ss}} 秒。"
+msgstr "Variables: {{YYYY}} year, {{MM}} month, {{DD}} day, {{HH}} hour, {{mm}} minute, {{ss}} second."
+
+msgid "支持各大主流翻译引擎与原图无缝文字抹平替换"
+msgstr "Supports major translation engines and in-place replacement"
+
+msgid "放大镜像素倍率:"
+msgstr "Magnifier zoom:"
+
+msgid "文件存储与自动命名"
+msgstr "File Storage and Naming"
+
+msgid "文字标注默认字号"
+msgstr "Default text annotation size"
+
+msgid "文字识别与截图翻译"
+msgstr "OCR and Capture Translation"
+
+msgid "新版本更新包已安全下载并完成数字签名验签，点击重启即可生效！"
+msgstr "The signed update has been downloaded. Restart to apply it."
+
+msgid "新贴图初始不透明度"
+msgstr "Initial pin opacity"
+
+msgid "日光亮橙 (#F59E0B)"
+msgstr "Sunset Orange (#F59E0B)"
+
+msgid "日志调试"
+msgstr "Logging"
+
+msgid "日落渐变"
+msgstr "Sunset Gradient"
+
+msgid "日语 (日本語)"
+msgstr "Japanese (日本語)"
+
+msgid "时间戳命名模板:"
+msgstr "Timestamp filename template:"
+
+msgid "明艳亮黄 (#F59E0B)"
+msgstr "Bright Amber (#F59E0B)"
+
+msgid "智能取色平铺填充 (采样原文字周边色调，平滑融合实色背景)"
+msgstr "Smart sampled solid fill"
+
+msgid "智能打码 (Smart Redact)"
+msgstr "Smart Redaction"
+
+msgid "更新内容:"
+msgstr "Changes:"
+
+msgid "最多保留 10 条，自动删除超过 1 天的记录。点击条目立即复制并创建贴图。"
+msgstr "Keep the latest 10 entries for one day. Click an entry to copy it and create a pin."
+
+msgid "有道 App Key"
+msgstr "Youdao App Key"
+
+msgid "有道 App Secret"
+msgstr "Youdao App Secret"
+
+msgid "本设置中心基于 Slint 构建，依据 Slint Royalty-free 2.0 许可使用"
+msgstr "Built with Slint under the Slint Royalty-free 2.0 license"
+
+msgid "机器翻译与原位替换覆盖策略"
+msgstr "Machine Translation and Cover Strategy"
+
+msgid "权衡保存选区图像时的画质保真度与磁盘文件大小"
+msgstr "Balance image quality and file size"
+
+msgid "查看 Snapin 架构设计、纯 Rust 软件光栅化特性与自由开源许可声明"
+msgstr "View Snapin architecture, Rust rendering, and open-source licenses"
+
+msgid "标准 (Info - 推荐)"
+msgstr "Info (recommended)"
+
+msgid "框选后自动检测二维码并复制内容或打开安全网页链接"
+msgstr "Detect QR codes after selection and copy content or open safe links"
+
+msgid "框选完成后立即对选区执行整图 OCR 与翻译，并保留标注工具栏"
+msgstr "Translate the selected area after capture"
+
+msgid "桌面支持:"
+msgstr "Desktop support:"
+
+msgid "检查更新"
+msgstr "Check for Updates"
+
+msgid "正在下载新版本更新包..."
+msgstr "Downloading update..."
+
+msgid "正在检查..."
+msgstr "Checking..."
+
+msgid "正在连接更新服务器检查新版本..."
+msgstr "Connecting to the update server..."
+
+msgid "水印文字（留空则不显示）:"
+msgstr "Watermark text (leave empty to disable):"
+
+msgid "水平翻转 / 垂直翻转图像"
+msgstr "Flip horizontally / vertically"
+
+msgid "法语 (Français)"
+msgstr "French (Français)"
+
+msgid "注: GNOME Wayland 采用 ES 模块隔离架构，若新安装未生效，注销并重新登录桌面一次即可永久常驻加载。"
+msgstr "GNOME Wayland isolates ES modules. Sign out and back in after installing or upgrading the extension."
+
+msgid "浮动工具栏缩放"
+msgstr "Toolbar Scale"
+
+msgid "深色"
+msgstr "Dark"
+
+msgid "深邃墨黑 (#000000)"
+msgstr "Deep Black (#000000)"
+
+msgid "清新翠绿 (#10B981)"
+msgstr "Fresh Green (#10B981)"
+
+msgid "清空"
+msgstr "Clear"
+
+msgid "渲染内核:"
+msgstr "Renderer:"
+
+msgid "源码协议:"
+msgstr "Source license:"
+
+msgid "滚轮缩放几何锚点:"
+msgstr "Wheel zoom anchor:"
+
+msgid "点击按键胶囊即可自主录制专属快捷键（支持 F1~F12、单键及多键组合，按 Backspace 或 × 清空）"
+msgstr "Click a key capsule to record a shortcut"
+
+msgid "版本与在线更新"
+msgstr "Version and Updates"
+
+msgid "界面与外观"
+msgstr "Interface"
+
+msgid "界面外观"
+msgstr "Appearance"
+
+msgid "界面语言:"
+msgstr "Language:"
+
+msgid "登录系统时自动启动后台守护服务"
+msgstr "Start the background service at login"
+
+msgid "百度 App ID"
+msgstr "Baidu App ID"
+
+msgid "百度 Secret Key"
+msgstr "Baidu Secret Key"
+
+msgid "百度翻译 (支持超大字符量)"
+msgstr "Baidu Translate"
+
+msgid "百度翻译开放平台:"
+msgstr "Baidu Translate Platform:"
+
+msgid "直接关闭贴图"
+msgstr "Close pin directly"
+
+msgid "矢量笔触描边粗细"
+msgstr "Vector stroke width"
+
+msgid "离线模型资产安装目录 (留空将自动按 XDG 规范层级自适应探测):"
+msgstr "Offline model directory (leave empty for automatic detection):"
+
+msgid "移动光标时实时显示局部放大像素与当前颜色代码"
+msgstr "Show magnified pixels and color values while moving the cursor"
+
+msgid "立即下载更新"
+msgstr "Download Update"
+
+msgid "立即重启并安装"
+msgstr "Restart and Install"
+
+msgid "第三方翻译服务商 API 凭证配置"
+msgstr "Third-party Translation Credentials"
+
+msgid "简体中文"
+msgstr "Chinese (Simplified)"
+
+msgid "系统全局快捷键"
+msgstr "Global Shortcuts"
+
+msgid "系统日志输出级别:"
+msgstr "System log level:"
+
+msgid "系统自启与通知"
+msgstr "Startup and Notifications"
+
+msgid "纯 CPU 软件光栅化 (tiny-skia + softbuffer)，定点整数零拷贝流水线"
+msgstr "Pure CPU software rasterization with zero-copy pipelines"
+
+msgid "纯洁雪白 (#FFFFFF)"
+msgstr "Pure White (#FFFFFF)"
+
+msgid "网易有道智云平台:"
+msgstr "Youdao Zhiyun Platform:"
+
+msgid "网易有道翻译 (专业多语言)"
+msgstr "Youdao Translate"
+
+msgid "美化导出 (Beautify)"
+msgstr "Beautification"
+
+msgid "翡翠青绿 (#10B981)"
+msgstr "Emerald Green (#10B981)"
+
+msgid "背景样式:"
+msgstr "Background:"
+
+msgid "自动检查新版本（模式 B 轻量提醒）"
+msgstr "Automatically check for updates"
+
+msgid "自动识别选区全部文字并进入马赛克或模糊遮挡预览"
+msgstr "Detect all text and preview mosaic or blur redaction"
+
+msgid "自定义全局截图与贴图唤起热键，查看贴图窗口单键旋转、翻转、缩放快捷操作指南"
+msgstr "Customize global shortcuts and review pin controls"
+
+msgid "自由开源许可"
+msgstr "Open-source Licenses"
+
+msgid "若选用百度、有道或阿里翻译，需在此填入对应开放平台颁发的密钥凭证"
+msgstr "Enter credentials for Baidu, Youdao, or Alibaba Cloud translation"
+
+msgid "英语 (English)"
+msgstr "English"
+
+msgid "蓝紫渐变"
+msgstr "Indigo Gradient"
+
+msgid "薄荷渐变"
+msgstr "Mint Gradient"
+
+msgid "西班牙语 (Español)"
+msgstr "Spanish (Español)"
+
+msgid "记忆并恢复上次截图选区"
+msgstr "Remember and restore the previous selection"
+
+msgid "设置界面:"
+msgstr "Settings UI:"
+
+msgid "设置界面框架"
+msgstr "Settings UI Framework"
+
+msgid "识别与翻译"
+msgstr "OCR and Translation"
+
+msgid "请按下快捷键..."
+msgstr "Press a shortcut..."
+
+msgid "读取剪贴板图片或文字，瞬间将其转换为置顶独立窗口"
+msgstr "Create a pinned window from clipboard text or image"
+
+msgid "调节不透明度 (微调减小 / 增大)"
+msgstr "Adjust opacity (decrease / increase)"
+
+msgid "调节截图完成时贴合在选区底部的标注工具条尺寸"
+msgstr "Adjust the annotation toolbar size"
+
+msgid "调试 (Debug)"
+msgstr "Debug"
+
+msgid "谷歌翻译 (免 Key 稳定)"
+msgstr "Google Translate"
+
+msgid "贴图工作区 (Workspace)"
+msgstr "Pin Workspace"
+
+msgid "贴图窗口"
+msgstr "Pin Window"
+
+msgid "贴图窗口专属快捷操作速查"
+msgstr "Pin Window Shortcuts"
+
+msgid "跟随鼠标光标位置 (推荐)"
+msgstr "Follow cursor (recommended)"
+
+msgid "输出尺寸:"
+msgstr "Output size:"
+
+msgid "运行策略说明: 在截图选区点击工具栏 [OCR] 图标或按快捷键 O，系统将在毫秒级提取全文并静默复制到系统剪贴板，无需额外弹窗打扰。"
+msgstr "Click OCR or press O to extract text and copy it without an extra dialog."
+
+msgid "追踪 (Trace)"
+msgstr "Trace"
+
+msgid "选区与高亮强调色:"
+msgstr "Selection highlight color:"
+
+msgid "选区记忆"
+msgstr "Selection Memory"
+
+msgid "配置 Snapin 随系统登录启动与后台服务状态反馈"
+msgstr "Configure startup and background service notifications"
+
+msgid "配置底层诊断日志记录级别"
+msgstr "Configure diagnostic log level"
+
+msgid "配置开机自动启动、通知中心状态反馈与 GNOME 原生扩展通道状态"
+msgstr "Configure startup, notifications, and the GNOME extension"
+
+msgid "配置截图另存为与快捷保存时的默认落盘路径与命名规范"
+msgstr "Configure save paths and filename rules"
+
+msgid "配置截图另存路径、自动时间戳命名规则、图片编码格式、美化导出与通知偏好"
+msgstr "Configure save path, filenames, encoding, beautification, and notifications"
+
+msgid "配置新贴图初始不透明度、滚轮缩放锚点以及双击响应行为"
+msgstr "Configure pin opacity, zoom anchor, and double-click behavior"
+
+msgid "配置标注的默认笔触颜色、线宽与文字字号；标注工具需在截图工具栏中自行选择"
+msgstr "Configure default annotation color, width, and text size"
+
+msgid "配置滚轮连续缩放定位点与鼠标双击贴图时的默认行为"
+msgstr "Configure wheel zoom anchor and double-click behavior"
+
+msgid "配置轻量离线 PP-OCRv6 引擎路径、五大多语言翻译服务商凭证与截图原位智能背景擦除策略"
+msgstr "Configure OCR model paths, translation credentials, and cover strategy"
+
+msgid "配置选区记忆、默认标注颜色、笔触粗细与文字字号"
+msgstr "Configure selection memory, annotation color, width, and text size"
+
+msgid "醒目赤红 (#EF4444)"
+msgstr "Vivid Red (#EF4444)"
+
+msgid "采用轻量级 PP-OCRv6 small ONNX 模型，纯离线零网络传输保护用户隐私"
+msgstr "Uses the local PP-OCRv6 small ONNX model with no image upload"
+
+msgid "错误 (Error)"
+msgstr "Error"
+
+msgid "阿里云 AccessKey ID"
+msgstr "Alibaba Cloud AccessKey ID"
+
+msgid "阿里云 AccessKey Secret"
+msgstr "Alibaba Cloud AccessKey Secret"
+
+msgid "阿里云机器翻译 (企业级引擎)"
+msgstr "Alibaba Cloud Translate"
+
+msgid "阿里云机器翻译 API:"
+msgstr "Alibaba Cloud Translation API:"
+
+msgid "韩语 (한국어)"
+msgstr "Korean (한국어)"
+
+msgid "顺时针旋转 90° / 逆时针旋转 90°"
+msgstr "Rotate clockwise / counterclockwise 90°"
+
+msgid "默认取色格式:"
+msgstr "Default color format:"
+
+msgid "默认快捷保存文件夹路径:"
+msgstr "Default quick-save folder:"
+
+msgid "默认机器翻译服务商:"
+msgstr "Default translation provider:"
+
+msgid "默认标注样式"
+msgstr "Default annotation style"
+
+msgid "默认标注笔触颜色:"
+msgstr "Default annotation color:"
+
+msgid "默认翻译目标语言:"
+msgstr "Default target language:"
+
+msgid "默认输出图片格式:"
+msgstr "Default output format:"
+
+msgid "鼠标滚轮"
+msgstr "Mouse wheel"

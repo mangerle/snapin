@@ -71,7 +71,7 @@ pub fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
 pub fn handle_action_save(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
     if state.pending_job.is_some() {
-        state.set_status_message("请等待当前任务完成");
+        state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
 
@@ -102,7 +102,7 @@ pub fn handle_action_save(state: &mut SnipperState, original_rgba: &RgbaImage) {
 pub fn handle_action_save_beautified(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
     if state.pending_job.is_some() {
-        state.set_status_message("请等待当前任务完成");
+        state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
@@ -149,7 +149,7 @@ pub fn handle_action_pin(state: &mut SnipperState, original_rgba: &RgbaImage) {
                     cropped.width(),
                     cropped.height()
                 );
-                state.set_status_message("创建贴图缓冲区失败");
+                state.set_status_message(snapin_core::i18n::tr("创建贴图缓冲区失败"));
             }
         }
     }
@@ -198,7 +198,7 @@ fn color_text_at_cursor(state: &SnipperState, img: &RgbaImage) -> String {
 pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
     if state.pending_job.is_some() {
-        state.set_status_message("请等待当前任务完成");
+        state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
 
@@ -227,7 +227,7 @@ pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
 pub fn handle_action_redact(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
     if state.pending_job.is_some() {
-        state.set_status_message("请等待当前任务完成");
+        state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
     let Some(origin) = locked_selection_origin(state, original_rgba) else {
@@ -249,7 +249,7 @@ pub fn handle_action_redact(state: &mut SnipperState, original_rgba: &RgbaImage)
 pub fn handle_action_qr(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
     if state.pending_job.is_some() {
-        state.set_status_message("请等待当前任务完成");
+        state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
     let Some(origin) = locked_selection_origin(state, original_rgba) else {
@@ -270,7 +270,7 @@ pub fn handle_action_qr(state: &mut SnipperState, original_rgba: &RgbaImage) {
 /// 重新打开最近一次 OCR 结果面板；没有结果时立即执行一次 OCR。
 pub fn handle_action_ocr_panel(state: &mut SnipperState, original_rgba: &RgbaImage) {
     if state.ocr_panel.is_some() {
-        state.set_status_message("OCR 结果面板已打开；Esc 关闭");
+        state.set_status_message(snapin_core::i18n::tr("OCR 结果面板已打开；Esc 关闭"));
     } else {
         handle_action_ocr(state, original_rgba);
     }
@@ -279,16 +279,16 @@ pub fn handle_action_ocr_panel(state: &mut SnipperState, original_rgba: &RgbaIma
 /// 导出 OCR 面板当前选中的文本行。
 pub fn handle_action_export_ocr(state: &mut SnipperState, format: OcrExportFormat) {
     if state.pending_job.is_some() {
-        state.set_status_message("请等待当前任务完成");
+        state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
     let Some(panel) = state.ocr_panel.as_ref() else {
-        state.set_status_message("没有可导出的 OCR 结果");
+        state.set_status_message(snapin_core::i18n::tr("没有可导出的 OCR 结果"));
         return;
     };
     let lines = panel.selected_lines();
     if lines.is_empty() {
-        state.set_status_message("请至少选择一行 OCR 结果");
+        state.set_status_message(snapin_core::i18n::tr("请至少选择一行 OCR 结果"));
         return;
     }
     dispatch_job(
@@ -312,7 +312,7 @@ fn locked_selection_origin(state: &SnipperState, original_rgba: &RgbaImage) -> O
 /// UI 不自行创建线程或 Tokio 任务；取消与结果回传统一由截图任务运行时负责。
 fn dispatch_job(state: &mut SnipperState, kind: SnipperJobKind, job: MediaJob) {
     let Some(runtime) = state.job_runtime.clone() else {
-        state.set_status_message("后台任务媒体执行器不可用");
+        state.set_status_message(snapin_core::i18n::tr("后台任务媒体执行器不可用"));
         return;
     };
 
@@ -334,7 +334,7 @@ fn dispatch_job(state: &mut SnipperState, kind: SnipperJobKind, job: MediaJob) {
 pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
     if state.pending_job.is_some() {
-        state.set_status_message("请等待当前任务完成");
+        state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
 

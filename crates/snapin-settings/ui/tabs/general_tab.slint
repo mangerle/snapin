@@ -11,19 +11,19 @@ export component GeneralTab inherits VerticalLayout {
     in-out property <bool> auto_check_update: true;
     in-out property <int> log_level_index: 2;   // 0: Trace, 1: Debug, 2: Info, 3: Warn, 4: Error
 
-    in property <string> extension_status_text: "GNOME Shell 窗口特权扩展已部署就绪";
+    in property <string> extension_status_text: @tr("GNOME Shell 窗口特权扩展已部署就绪");
     callback open_config_folder();
 
     SettingCard {
-        title: "系统自启与通知";
-        subtitle: "配置 Snapin 随系统登录启动与后台服务状态反馈";
+        title: @tr("系统自启与通知");
+        subtitle: @tr("配置 Snapin 随系统登录启动与后台服务状态反馈");
 
         VerticalLayout {
             spacing: 14px;
 
             AppSwitch {
-                title: "登录系统时自动启动后台守护服务";
-                subtitle: "开机静默运行，无需手动打开终端，随时响应 F1 与 F3 全局热键";
+                title: @tr("登录系统时自动启动后台守护服务");
+                subtitle: @tr("开机静默运行，无需手动打开终端，随时响应 F1 与 F3 全局热键");
                 checked <=> root.autostart;
             }
 
@@ -31,9 +31,9 @@ export component GeneralTab inherits VerticalLayout {
 
             VerticalLayout {
                 spacing: 6px;
-                Text { text: "界面语言:"; font-size: 13px; font-weight: 600; color: #334155; }
+                Text { text: @tr("界面语言:"); font-size: 13px; font-weight: 600; color: #334155; }
                 ComboBox {
-                    model: ["简体中文", "English"];
+                    model: [@tr("简体中文"), "English"];
                     current-index <=> root.language_index;
                     width: 200px;
                 }
@@ -42,16 +42,16 @@ export component GeneralTab inherits VerticalLayout {
             Rectangle { height: 1px; background: #f1f5f9; }
 
             AppSwitch {
-                title: "守护服务就绪时发送桌面通知";
-                subtitle: "后台服务启动成功后在系统通知中心提示热键绑定信息";
+                title: @tr("守护服务就绪时发送桌面通知");
+                subtitle: @tr("后台服务启动成功后在系统通知中心提示热键绑定信息");
                 checked <=> root.notify_on_startup;
             }
 
             Rectangle { height: 1px; background: #f1f5f9; }
 
             AppSwitch {
-                title: "自动检查新版本（模式 B 轻量提醒）";
-                subtitle: "后台静默检查并在发现新版本时发送气泡通知，不消耗流量下载安装包";
+                title: @tr("自动检查新版本（模式 B 轻量提醒）");
+                subtitle: @tr("后台静默检查并在发现新版本时发送气泡通知，不消耗流量下载安装包");
                 checked <=> root.auto_check_update;
             }
         }
@@ -59,19 +59,19 @@ export component GeneralTab inherits VerticalLayout {
 
 
     SettingCard {
-        title: "日志调试";
-        subtitle: "配置底层诊断日志记录级别";
+        title: @tr("日志调试");
+        subtitle: @tr("配置底层诊断日志记录级别");
 
         VerticalLayout {
             spacing: 6px;
             Text {
-                text: "系统日志输出级别:";
+                text: @tr("系统日志输出级别:");
                 font-size: 13px;
                 font-weight: 600;
                 color: #334155;
             }
             ComboBox {
-                model: ["追踪 (Trace)", "调试 (Debug)", "标准 (Info - 推荐)", "告警 (Warn)", "错误 (Error)"];
+                model: [@tr("追踪 (Trace)"), @tr("调试 (Debug)"), @tr("标准 (Info - 推荐)"), @tr("告警 (Warn)"), @tr("错误 (Error)")];
                 current-index <=> root.log_level_index;
                 width: 200px;
             }
@@ -79,8 +79,8 @@ export component GeneralTab inherits VerticalLayout {
     }
 
     SettingCard {
-        title: "GNOME 原生特权扩展通道";
-        subtitle: "为贴图授予强制置顶与精确落位特权，并提供 0 快门白闪的原生截屏";
+        title: @tr("GNOME 原生特权扩展通道");
+        subtitle: @tr("为贴图授予强制置顶与精确落位特权，并提供 0 快门白闪的原生截屏");
 
         VerticalLayout {
             spacing: 10px;
@@ -105,7 +105,7 @@ export component GeneralTab inherits VerticalLayout {
             }
 
             Text {
-                text: "注: GNOME Wayland 采用 ES 模块隔离架构，若新安装未生效，注销并重新登录桌面一次即可永久常驻加载。";
+                text: @tr("注: GNOME Wayland 采用 ES 模块隔离架构，若新安装未生效，注销并重新登录桌面一次即可永久常驻加载。");
                 font-size: 12px;
                 color: #64748b;
                 wrap: word-wrap;

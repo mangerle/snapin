@@ -68,7 +68,7 @@ pub fn copy_paster_to_clipboard(state: &mut PasterWindowState) -> bool {
     };
     match state.services.desktop.write_image_clipboard(&image) {
         Ok(()) => {
-            state.set_status_message("已复制图像到剪贴板");
+            state.set_status_message(snapin_core::i18n::tr("已复制图像到剪贴板"));
             state.services.desktop.notify_copy("贴图图像已复制到剪贴板");
             true
         }
@@ -96,11 +96,11 @@ pub fn save_paster_as(state: &mut PasterWindowState) {
 /// 结果通过工作区用户事件按 `paster_id` 回填。
 fn submit_paster_save(state: &mut PasterWindowState, as_dialog: bool, open_folder_after: bool) {
     if state.has_pending_job() {
-        state.set_status_message("请等待当前任务完成");
+        state.set_status_message(snapin_core::i18n::tr("请等待当前任务完成"));
         return;
     }
     let Some(runtime) = state.services.job_runtime.clone() else {
-        state.set_status_message("后台任务媒体执行器不可用");
+        state.set_status_message(snapin_core::i18n::tr("后台任务媒体执行器不可用"));
         return;
     };
     let Some(image) = paster_image(state, "保存") else {

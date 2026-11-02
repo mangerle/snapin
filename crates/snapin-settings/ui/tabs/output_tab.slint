@@ -20,15 +20,15 @@ export component OutputTab inherits VerticalLayout {
     in-out property <string> beautify_watermark: "Snapin";
 
     SettingCard {
-        title: "文件存储与自动命名";
-        subtitle: "配置截图另存为与快捷保存时的默认落盘路径与命名规范";
+        title: @tr("文件存储与自动命名");
+        subtitle: @tr("配置截图另存为与快捷保存时的默认落盘路径与命名规范");
 
         VerticalLayout {
             spacing: 14px;
 
             AppSwitch {
-                title: "保存截图时弹出文件保存对话框";
-                subtitle: "开启后点击保存可自选目录与文件名；关闭则直接保存到下方默认文件夹";
+                title: @tr("保存截图时弹出文件保存对话框");
+                subtitle: @tr("开启后点击保存可自选目录与文件名；关闭则直接保存到下方默认文件夹");
                 checked <=> root.prompt_save_path;
             }
 
@@ -36,7 +36,7 @@ export component OutputTab inherits VerticalLayout {
 
             VerticalLayout {
                 spacing: 6px;
-                Text { text: "默认快捷保存文件夹路径:"; font-size: 13px; font-weight: 600; color: #334155; }
+                Text { text: @tr("默认快捷保存文件夹路径:"); font-size: 13px; font-weight: 600; color: #334155; }
                 LineEdit {
                     text <=> root.quick_save_dir;
                     placeholder-text: "~/Pictures/Screenshots";
@@ -47,13 +47,13 @@ export component OutputTab inherits VerticalLayout {
 
             VerticalLayout {
                 spacing: 6px;
-                Text { text: "时间戳命名模板:"; font-size: 13px; font-weight: 600; color: #334155; }
+                Text { text: @tr("时间戳命名模板:"); font-size: 13px; font-weight: 600; color: #334155; }
                 LineEdit {
                     text <=> root.file_name_template;
                     placeholder-text: "Snapin_{YYYY}{MM}{DD}_{HH}{mm}{ss}";
                 }
                 Text {
-                    text: "支持变量: {YYYY} 年, {MM} 月, {DD} 日, {HH} 时, {mm} 分, {ss} 秒。";
+                    text: @tr("支持变量: {{YYYY}} 年, {{MM}} 月, {{DD}} 日, {{HH}} 时, {{mm}} 分, {{ss}} 秒。");
                     font-size: 12px;
                     color: #94a3b8;
                 }
@@ -62,8 +62,8 @@ export component OutputTab inherits VerticalLayout {
     }
 
     SettingCard {
-        title: "图像编码格式与质量";
-        subtitle: "权衡保存选区图像时的画质保真度与磁盘文件大小";
+        title: @tr("图像编码格式与质量");
+        subtitle: @tr("权衡保存选区图像时的画质保真度与磁盘文件大小");
 
         VerticalLayout {
             spacing: 16px;
@@ -73,9 +73,9 @@ export component OutputTab inherits VerticalLayout {
 
                 VerticalLayout {
                     spacing: 6px;
-                    Text { text: "默认输出图片格式:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    Text { text: @tr("默认输出图片格式:"); font-size: 13px; font-weight: 600; color: #334155; }
                     ComboBox {
-                        model: ["PNG (无损压缩 - 推荐)", "JPEG (适合大图与照片)", "WebP (无损高压缩率)"];
+                        model: [@tr("PNG (无损压缩 - 推荐)"), @tr("JPEG (适合大图与照片)"), @tr("WebP (无损高压缩率)")];
                         current-index <=> root.format_index;
                         width: 220px;
                     }
@@ -84,7 +84,7 @@ export component OutputTab inherits VerticalLayout {
                 VerticalLayout {
                     horizontal-stretch: 1;
                     AppSlider {
-                        title: "JPEG 有损编码质量";
+                        title: @tr("JPEG 有损编码质量");
                         unit: "%";
                         minimum: 50;
                         maximum: 100;
@@ -96,15 +96,15 @@ export component OutputTab inherits VerticalLayout {
     }
 
     SettingCard {
-        title: "截图美化导出";
-        subtitle: "开启后，后续保存截图会自动应用以下圆角、阴影、背景、水印和社交尺寸设置";
+        title: @tr("截图美化导出");
+        subtitle: @tr("开启后，后续保存截图会自动应用以下圆角、阴影、背景、水印和社交尺寸设置");
 
         VerticalLayout {
             spacing: 14px;
 
             AppSwitch {
-                title: "保存截图时自动应用美化";
-                subtitle: "复制到剪贴板不受影响，仅处理保存与导出文件";
+                title: @tr("保存截图时自动应用美化");
+                subtitle: @tr("复制到剪贴板不受影响，仅处理保存与导出文件");
                 checked <=> root.beautify_enabled;
             }
 
@@ -114,18 +114,18 @@ export component OutputTab inherits VerticalLayout {
                 spacing: 24px;
                 VerticalLayout {
                     spacing: 6px;
-                    Text { text: "输出尺寸:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    Text { text: @tr("输出尺寸:"); font-size: 13px; font-weight: 600; color: #334155; }
                     ComboBox {
-                        model: ["原始尺寸", "1:1 方形 1080x1080", "4:5 竖版 1080x1350", "16:9 横版 1920x1080"];
+                        model: [@tr("原始尺寸"), @tr("1:1 方形 1080x1080"), @tr("4:5 竖版 1080x1350"), @tr("16:9 横版 1920x1080")];
                         current-index <=> root.beautify_social_size_index;
                         width: 230px;
                     }
                 }
                 VerticalLayout {
                     spacing: 6px;
-                    Text { text: "背景样式:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    Text { text: @tr("背景样式:"); font-size: 13px; font-weight: 600; color: #334155; }
                     ComboBox {
-                        model: ["深色", "蓝紫渐变", "日落渐变", "薄荷渐变"];
+                        model: [@tr("深色"), @tr("蓝紫渐变"), @tr("日落渐变"), @tr("薄荷渐变")];
                         current-index <=> root.beautify_background_index;
                         width: 180px;
                     }
@@ -135,7 +135,7 @@ export component OutputTab inherits VerticalLayout {
             Rectangle { height: 1px; background: #f1f5f9; }
 
             AppSlider {
-                title: "图像圆角半径";
+                title: @tr("图像圆角半径");
                 unit: " px";
                 minimum: 0;
                 maximum: 80;
@@ -143,37 +143,37 @@ export component OutputTab inherits VerticalLayout {
             }
 
             AppSwitch {
-                title: "启用投影阴影";
-                subtitle: "在截图下方增加柔和阴影层次";
+                title: @tr("启用投影阴影");
+                subtitle: @tr("在截图下方增加柔和阴影层次");
                 checked <=> root.beautify_shadow;
             }
 
             VerticalLayout {
                 spacing: 6px;
-                Text { text: "水印文字（留空则不显示）:"; font-size: 13px; font-weight: 600; color: #334155; }
+                Text { text: @tr("水印文字（留空则不显示）:"); font-size: 13px; font-weight: 600; color: #334155; }
                 LineEdit { text <=> root.beautify_watermark; placeholder-text: "Snapin"; }
             }
         }
     }
 
     SettingCard {
-        title: "操作通知";
-        subtitle: "完成复制或落盘时发送系统通知";
+        title: @tr("操作通知");
+        subtitle: @tr("完成复制或落盘时发送系统通知");
 
         VerticalLayout {
             spacing: 14px;
 
             AppSwitch {
-                title: "保存图片到本地文件后发送桌面通知";
-                subtitle: "提示保存成功与目标文件路径，点击可直接调起文件夹";
+                title: @tr("保存图片到本地文件后发送桌面通知");
+                subtitle: @tr("提示保存成功与目标文件路径，点击可直接调起文件夹");
                 checked <=> root.notify_on_save;
             }
 
             Rectangle { height: 1px; background: #f1f5f9; }
 
             AppSwitch {
-                title: "复制图像到剪贴板后发送桌面通知";
-                subtitle: "在系统通知中心提示复制成功";
+                title: @tr("复制图像到剪贴板后发送桌面通知");
+                subtitle: @tr("在系统通知中心提示复制成功");
                 checked <=> root.notify_on_copy;
             }
 

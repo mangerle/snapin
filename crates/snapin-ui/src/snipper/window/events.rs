@@ -225,7 +225,7 @@ fn handle_ocr_panel_key(state: &mut SnipperState, key: &Key, original_rgba: &Rgb
             state.ocr_panel = None;
             state.ocr_edit_row = None;
             state.active_text_input = None;
-            state.set_status_message("已关闭 OCR 结果面板");
+            state.set_status_message(snapin_core::i18n::tr("已关闭 OCR 结果面板"));
             true
         }
         Key::Named(NamedKey::ArrowUp) => {
@@ -293,7 +293,7 @@ fn begin_ocr_row_edit(state: &mut SnipperState, screen_width: f32, screen_height
     session.text = line.text.clone();
     state.ocr_edit_row = Some(panel.cursor);
     state.active_text_input = Some(session);
-    state.set_status_message("编辑 OCR 文本；Enter 确认，Esc 取消");
+    state.set_status_message(snapin_core::i18n::tr("编辑 OCR 文本；Enter 确认，Esc 取消"));
 }
 
 /// 处理智能打码预览阶段的键盘操作。
@@ -301,7 +301,7 @@ fn handle_redaction_preview_key(state: &mut SnipperState, key: &Key) -> bool {
     match key {
         Key::Named(NamedKey::Escape) => {
             state.redaction_preview = None;
-            state.set_status_message("已取消智能打码");
+            state.set_status_message(snapin_core::i18n::tr("已取消智能打码"));
             true
         }
         Key::Named(NamedKey::Enter) => {
@@ -315,7 +315,9 @@ fn handle_redaction_preview_key(state: &mut SnipperState, key: &Key) -> bool {
                     preview.style = preview.style.toggle();
                 }
             }
-            state.set_status_message("已选择马赛克；Enter 应用，B 切换模糊，Esc 取消");
+            state.set_status_message(snapin_core::i18n::tr(
+                "已选择马赛克；Enter 应用，B 切换模糊，Esc 取消",
+            ));
             true
         }
         Key::Character(c) if c.eq_ignore_ascii_case("b") => {
@@ -344,11 +346,11 @@ fn handle_qr_open_link(state: &mut SnipperState) -> bool {
         .and_then(|codes| codes.first())
         .map(|code| code.text.clone())
     else {
-        state.set_status_message("请先识别二维码");
+        state.set_status_message(snapin_core::i18n::tr("请先识别二维码"));
         return true;
     };
     match state.desktop.open_url(&url) {
-        Ok(()) => state.set_status_message("已请求系统浏览器打开二维码链接"),
+        Ok(()) => state.set_status_message(snapin_core::i18n::tr("已请求系统浏览器打开二维码链接")),
         Err(error) => {
             tracing::warn!("打开二维码链接失败: {error}");
             state.set_status_message(format!("打开二维码链接失败: {error}"));
@@ -388,11 +390,11 @@ pub fn handle_escape(state: &mut SnipperState) -> bool {
         state.ocr_panel = None;
         state.ocr_edit_row = None;
         state.active_text_input = None;
-        state.set_status_message("已关闭 OCR 结果面板");
+        state.set_status_message(snapin_core::i18n::tr("已关闭 OCR 结果面板"));
         true
     } else if state.redaction_preview.is_some() {
         state.redaction_preview = None;
-        state.set_status_message("已取消智能打码");
+        state.set_status_message(snapin_core::i18n::tr("已取消智能打码"));
         true
     } else if state.active_text_input.is_some() {
         // Esc 统一取消当前输入，与贴图侧保持一致。

@@ -16,8 +16,8 @@ export component ShortcutsTab inherits VerticalLayout {
     in-out property <string> clipboard_history_hotkey: "Ctrl+Shift+V";
 
     SettingCard {
-        title: "系统全局快捷键";
-        subtitle: "点击按键胶囊即可自主录制专属快捷键（支持 F1~F12、单键及多键组合，按 Backspace 或 × 清空）";
+        title: @tr("系统全局快捷键");
+        subtitle: @tr("点击按键胶囊即可自主录制专属快捷键（支持 F1~F12、单键及多键组合，按 Backspace 或 × 清空）");
 
         VerticalLayout {
             spacing: 14px;
@@ -28,8 +28,8 @@ export component ShortcutsTab inherits VerticalLayout {
                 VerticalLayout {
                     spacing: 2px;
                     alignment: center;
-                    Text { text: "区域截图 (Snip)"; font-size: 13px; font-weight: 600; color: #0f172a; }
-                    Text { text: "定格屏幕并进入交互式选区裁切与标注模式"; font-size: 12px; color: #64748b; }
+                    Text { text: @tr("区域截图 (Snip)"); font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: @tr("定格屏幕并进入交互式选区裁切与标注模式"); font-size: 12px; color: #64748b; }
                 }
                 ShortcutRecorder {
                     shortcut <=> root.snip_hotkey;
@@ -44,8 +44,8 @@ export component ShortcutsTab inherits VerticalLayout {
                 VerticalLayout {
                     spacing: 2px;
                     alignment: center;
-                    Text { text: "截图翻译 (Translate)"; font-size: 13px; font-weight: 600; color: #0f172a; }
-                    Text { text: "框选完成后立即对选区执行整图 OCR 与翻译，并保留标注工具栏"; font-size: 12px; color: #64748b; }
+                    Text { text: @tr("截图翻译 (Translate)"); font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: @tr("框选完成后立即对选区执行整图 OCR 与翻译，并保留标注工具栏"); font-size: 12px; color: #64748b; }
                 }
                 ShortcutRecorder {
                     shortcut <=> root.translate_hotkey;
@@ -60,8 +60,8 @@ export component ShortcutsTab inherits VerticalLayout {
                 VerticalLayout {
                     spacing: 2px;
                     alignment: center;
-                    Text { text: "快速贴图 (Paste)"; font-size: 13px; font-weight: 600; color: #0f172a; }
-                    Text { text: "读取剪贴板图片或文字，瞬间将其转换为置顶独立窗口"; font-size: 12px; color: #64748b; }
+                    Text { text: @tr("快速贴图 (Paste)"); font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: @tr("读取剪贴板图片或文字，瞬间将其转换为置顶独立窗口"); font-size: 12px; color: #64748b; }
                 }
                 ShortcutRecorder {
                     shortcut <=> root.paste_hotkey;
@@ -76,8 +76,8 @@ export component ShortcutsTab inherits VerticalLayout {
                 VerticalLayout {
                     spacing: 2px;
                     alignment: center;
-                    Text { text: "批量显隐贴图 (Toggle)"; font-size: 13px; font-weight: 600; color: #0f172a; }
-                    Text { text: "一键隐藏当前桌面所有贴图，再次按下恢复显示"; font-size: 12px; color: #64748b; }
+                    Text { text: @tr("批量显隐贴图 (Toggle)"); font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: @tr("一键隐藏当前桌面所有贴图，再次按下恢复显示"); font-size: 12px; color: #64748b; }
                 }
                 ShortcutRecorder {
                     shortcut <=> root.toggle_hotkey;
@@ -92,8 +92,8 @@ export component ShortcutsTab inherits VerticalLayout {
                 VerticalLayout {
                     spacing: 2px;
                     alignment: center;
-                    Text { text: "切换贴图分组 (Switch Group)"; font-size: 13px; font-weight: 600; color: #0f172a; }
-                    Text { text: "在多个独立贴图工作区分组之间循环快速切换"; font-size: 12px; color: #64748b; }
+                    Text { text: @tr("切换贴图分组 (Switch Group)"); font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: @tr("在多个独立贴图工作区分组之间循环快速切换"); font-size: 12px; color: #64748b; }
                 }
                 ShortcutRecorder {
                     shortcut <=> root.switch_group_hotkey;
@@ -108,8 +108,8 @@ export component ShortcutsTab inherits VerticalLayout {
                 VerticalLayout {
                     spacing: 2px;
                     alignment: center;
-                    Text { text: "智能打码 (Smart Redact)"; font-size: 13px; font-weight: 600; color: #0f172a; }
-                    Text { text: "自动识别选区全部文字并进入马赛克或模糊遮挡预览"; font-size: 12px; color: #64748b; }
+                    Text { text: @tr("智能打码 (Smart Redact)"); font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: @tr("自动识别选区全部文字并进入马赛克或模糊遮挡预览"); font-size: 12px; color: #64748b; }
                 }
                 ShortcutRecorder { shortcut <=> root.smart_redact_hotkey; }
             }
@@ -122,8 +122,8 @@ export component ShortcutsTab inherits VerticalLayout {
                 VerticalLayout {
                     spacing: 2px;
                     alignment: center;
-                    Text { text: "二维码识别 (QR)"; font-size: 13px; font-weight: 600; color: #0f172a; }
-                    Text { text: "框选后自动检测二维码并复制内容或打开安全网页链接"; font-size: 12px; color: #64748b; }
+                    Text { text: @tr("二维码识别 (QR)"); font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: @tr("框选后自动检测二维码并复制内容或打开安全网页链接"); font-size: 12px; color: #64748b; }
                 }
                 ShortcutRecorder { shortcut <=> root.qr_hotkey; }
             }
@@ -136,8 +136,8 @@ export component ShortcutsTab inherits VerticalLayout {
                 VerticalLayout {
                     spacing: 2px;
                     alignment: center;
-                    Text { text: "美化导出 (Beautify)"; font-size: 13px; font-weight: 600; color: #0f172a; }
-                    Text { text: "为截图添加背景、圆角、阴影和水印后导出"; font-size: 12px; color: #64748b; }
+                    Text { text: @tr("美化导出 (Beautify)"); font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: @tr("为截图添加背景、圆角、阴影和水印后导出"); font-size: 12px; color: #64748b; }
                 }
                 ShortcutRecorder { shortcut <=> root.beautify_hotkey; }
             }
@@ -150,8 +150,8 @@ export component ShortcutsTab inherits VerticalLayout {
                 VerticalLayout {
                     spacing: 2px;
                     alignment: center;
-                    Text { text: "贴图工作区 (Workspace)"; font-size: 13px; font-weight: 600; color: #0f172a; }
-                    Text { text: "打开缩略图墙并集中管理工作区内的全部贴图"; font-size: 12px; color: #64748b; }
+                    Text { text: @tr("贴图工作区 (Workspace)"); font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: @tr("打开缩略图墙并集中管理工作区内的全部贴图"); font-size: 12px; color: #64748b; }
                 }
                 ShortcutRecorder { shortcut <=> root.workspace_hotkey; }
             }
@@ -164,8 +164,8 @@ export component ShortcutsTab inherits VerticalLayout {
                 VerticalLayout {
                     spacing: 2px;
                     alignment: center;
-                    Text { text: "剪贴板历史 (Clipboard)"; font-size: 13px; font-weight: 600; color: #0f172a; }
-                    Text { text: "打开最近十条文本、图像与颜色记录，快速再次贴图"; font-size: 12px; color: #64748b; }
+                    Text { text: @tr("剪贴板历史 (Clipboard)"); font-size: 13px; font-weight: 600; color: #0f172a; }
+                    Text { text: @tr("打开最近十条文本、图像与颜色记录，快速再次贴图"); font-size: 12px; color: #64748b; }
                 }
                 ShortcutRecorder { shortcut <=> root.clipboard_history_hotkey; }
             }
@@ -174,7 +174,7 @@ export component ShortcutsTab inherits VerticalLayout {
 
             HorizontalLayout {
                 Text {
-                    text: "提示：快捷键录制修改后，点击界面下方“保存并应用”即可自动同步生效至系统。";
+                    text: @tr("提示：快捷键录制修改后，点击界面下方“保存并应用”即可自动同步生效至系统。");
                     font-size: 12px;
                     color: #94a3b8;
                     vertical-alignment: center;
@@ -184,8 +184,8 @@ export component ShortcutsTab inherits VerticalLayout {
     }
 
     SettingCard {
-        title: "贴图窗口专属快捷操作速查";
-        subtitle: "光标移入置顶贴图窗口即可敲击以下单键极速操作";
+        title: @tr("贴图窗口专属快捷操作速查");
+        subtitle: @tr("光标移入置顶贴图窗口即可敲击以下单键极速操作");
 
         VerticalLayout {
             spacing: 12px;
@@ -193,21 +193,21 @@ export component ShortcutsTab inherits VerticalLayout {
             HorizontalLayout {
                 spacing: 16px;
                 alignment: space-between;
-                Text { text: "复制当前图像到剪贴板"; font-size: 13px; color: #334155; vertical-alignment: center; }
+                Text { text: @tr("复制当前图像到剪贴板"); font-size: 13px; color: #334155; vertical-alignment: center; }
                 Keycap { text: "C"; }
             }
 
             HorizontalLayout {
                 spacing: 16px;
                 alignment: space-between;
-                Text { text: "保存贴图为磁盘文件"; font-size: 13px; color: #334155; vertical-alignment: center; }
+                Text { text: @tr("保存贴图为磁盘文件"); font-size: 13px; color: #334155; vertical-alignment: center; }
                 Keycap { text: "S"; }
             }
 
             HorizontalLayout {
                 spacing: 16px;
                 alignment: space-between;
-                Text { text: "顺时针旋转 90° / 逆时针旋转 90°"; font-size: 13px; color: #334155; vertical-alignment: center; }
+                Text { text: @tr("顺时针旋转 90° / 逆时针旋转 90°"); font-size: 13px; color: #334155; vertical-alignment: center; }
                 HorizontalLayout {
                     spacing: 6px;
                     Keycap { text: "3"; }
@@ -218,7 +218,7 @@ export component ShortcutsTab inherits VerticalLayout {
             HorizontalLayout {
                 spacing: 16px;
                 alignment: space-between;
-                Text { text: "水平翻转 / 垂直翻转图像"; font-size: 13px; color: #334155; vertical-alignment: center; }
+                Text { text: @tr("水平翻转 / 垂直翻转图像"); font-size: 13px; color: #334155; vertical-alignment: center; }
                 HorizontalLayout {
                     spacing: 6px;
                     Keycap { text: "H"; }
@@ -229,14 +229,14 @@ export component ShortcutsTab inherits VerticalLayout {
             HorizontalLayout {
                 spacing: 16px;
                 alignment: space-between;
-                Text { text: "按设置的缩放锚点无级缩放贴图"; font-size: 13px; color: #334155; vertical-alignment: center; }
-                Keycap { text: "鼠标滚轮"; }
+                Text { text: @tr("按设置的缩放锚点无级缩放贴图"); font-size: 13px; color: #334155; vertical-alignment: center; }
+                Keycap { text: @tr("鼠标滚轮"); }
             }
 
             HorizontalLayout {
                 spacing: 16px;
                 alignment: space-between;
-                Text { text: "调节不透明度 (微调减小 / 增大)"; font-size: 13px; color: #334155; vertical-alignment: center; }
+                Text { text: @tr("调节不透明度 (微调减小 / 增大)"); font-size: 13px; color: #334155; vertical-alignment: center; }
                 HorizontalLayout {
                     spacing: 6px;
                     Keycap { text: "1"; }
@@ -247,12 +247,12 @@ export component ShortcutsTab inherits VerticalLayout {
             HorizontalLayout {
                 spacing: 16px;
                 alignment: space-between;
-                Text { text: "关闭当前贴图"; font-size: 13px; color: #334155; vertical-alignment: center; }
+                Text { text: @tr("关闭当前贴图"); font-size: 13px; color: #334155; vertical-alignment: center; }
                 Keycap { text: "Esc"; }
             }
 
             Text {
-                text: "提示：双击左键的行为与滚轮缩放锚点由“贴图窗口”设置页决定。";
+                text: @tr("提示：双击左键的行为与滚轮缩放锚点由“贴图窗口”设置页决定。");
                 font-size: 12px;
                 color: #94a3b8;
                 wrap: word-wrap;

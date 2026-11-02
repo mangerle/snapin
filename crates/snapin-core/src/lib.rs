@@ -6,6 +6,7 @@ pub mod annotation;
 pub mod config;
 pub mod error;
 pub mod geometry;
+pub mod i18n;
 pub mod paths;
 pub mod render;
 pub mod trigger;

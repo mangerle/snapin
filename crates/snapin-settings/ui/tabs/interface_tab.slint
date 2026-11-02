@@ -14,14 +14,14 @@ export component InterfaceTab inherits VerticalLayout {
     in-out property <bool> capture_mouse_cursor: false;
 
     SettingCard {
-        title: "强调色彩";
-        subtitle: "定制 Snapin 选区边框高亮色";
+        title: @tr("强调色彩");
+        subtitle: @tr("定制 Snapin 选区边框高亮色");
 
         VerticalLayout {
             spacing: 6px;
-            Text { text: "选区与高亮强调色:"; font-size: 13px; font-weight: 600; color: #334155; }
+            Text { text: @tr("选区与高亮强调色:"); font-size: 13px; font-weight: 600; color: #334155; }
             ComboBox {
-                model: ["天海晴蓝 (#00AEFF)", "翡翠青绿 (#10B981)", "日光亮橙 (#F59E0B)", "优雅紫罗兰 (#8B5CF6)", "保留当前自定义颜色"];
+                model: [@tr("天海晴蓝 (#00AEFF)"), @tr("翡翠青绿 (#10B981)"), @tr("日光亮橙 (#F59E0B)"), @tr("优雅紫罗兰 (#8B5CF6)"), @tr("保留当前自定义颜色")];
                 current-index <=> root.accent_color_index;
                 width: 220px;
             }
@@ -29,15 +29,15 @@ export component InterfaceTab inherits VerticalLayout {
     }
 
     SettingCard {
-        title: "取色器与像素放大镜";
-        subtitle: "光标悬停时提供像素级精密取色与参考网格辅助";
+        title: @tr("取色器与像素放大镜");
+        subtitle: @tr("光标悬停时提供像素级精密取色与参考网格辅助");
 
         VerticalLayout {
             spacing: 14px;
 
             AppSwitch {
-                title: "启用鼠标跟随像素放大镜";
-                subtitle: "移动光标时实时显示局部放大像素与当前颜色代码";
+                title: @tr("启用鼠标跟随像素放大镜");
+                subtitle: @tr("移动光标时实时显示局部放大像素与当前颜色代码");
                 checked <=> root.enable_magnifier;
             }
 
@@ -48,9 +48,9 @@ export component InterfaceTab inherits VerticalLayout {
 
                 VerticalLayout {
                     spacing: 6px;
-                    Text { text: "默认取色格式:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    Text { text: @tr("默认取色格式:"); font-size: 13px; font-weight: 600; color: #334155; }
                     ComboBox {
-                        model: ["HEX 格式 (如 #00AEFF)", "RGB 格式 (如 rgb(0,174,255))", "HSL 格式 (如 hsl(199,100%,50%))"];
+                        model: [@tr("HEX 格式 (如 #00AEFF)"), @tr("RGB 格式 (如 rgb(0,174,255))"), @tr("HSL 格式 (如 hsl(199,100%,50%))")];
                         current-index <=> root.color_format_index;
                         width: 240px;
                     }
@@ -58,9 +58,9 @@ export component InterfaceTab inherits VerticalLayout {
 
                 VerticalLayout {
                     spacing: 6px;
-                    Text { text: "放大镜像素倍率:"; font-size: 13px; font-weight: 600; color: #334155; }
+                    Text { text: @tr("放大镜像素倍率:"); font-size: 13px; font-weight: 600; color: #334155; }
                     ComboBox {
-                        model: ["4x 适中放大", "8x 清晰微距 (推荐)", "16x 极致微距", "保留当前自定义倍率"];
+                        model: [@tr("4x 适中放大"), @tr("8x 清晰微距 (推荐)"), @tr("16x 极致微距"), @tr("保留当前自定义倍率")];
                         current-index <=> root.magnifier_scale_index;
                         width: 180px;
                     }
@@ -70,36 +70,36 @@ export component InterfaceTab inherits VerticalLayout {
             Rectangle { height: 1px; background: #f1f5f9; }
 
             AppSwitch {
-                title: "在放大镜内显示像素物理对齐网格线";
-                subtitle: "以细微虚线标出单个物理像素边界，便于精确定位目标像素";
+                title: @tr("在放大镜内显示像素物理对齐网格线");
+                subtitle: @tr("以细微虚线标出单个物理像素边界，便于精确定位目标像素");
                 checked <=> root.show_grid_lines;
             }
 
             Rectangle { height: 1px; background: #f1f5f9; }
 
             AppSwitch {
-                title: "截屏时包含鼠标指针";
-                subtitle: "Linux GNOME 扩展通道可原生包含指针；其他平台暂由系统截屏能力决定";
+                title: @tr("截屏时包含鼠标指针");
+                subtitle: @tr("Linux GNOME 扩展通道可原生包含指针；其他平台暂由系统截屏能力决定");
                 checked <=> root.capture_mouse_cursor;
             }
         }
     }
 
     SettingCard {
-        title: "浮动工具栏缩放";
-        subtitle: "调节截图完成时贴合在选区底部的标注工具条尺寸";
+        title: @tr("浮动工具栏缩放");
+        subtitle: @tr("调节截图完成时贴合在选区底部的标注工具条尺寸");
 
         VerticalLayout {
             spacing: 12px;
             AppSlider {
-                title: "工具栏 UI 缩放比例";
+                title: @tr("工具栏 UI 缩放比例");
                 unit: "%";
                 minimum: 80;
                 maximum: 150;
                 value <=> root.toolbar_scale_percent;
             }
             Text {
-                text: "在高分辨率屏（如 2K / 4K）下，Snapin 会自动侦测系统缩放比并适配最佳图标清晰度。";
+                text: @tr("在高分辨率屏（如 2K / 4K）下，Snapin 会自动侦测系统缩放比并适配最佳图标清晰度。");
                 font-size: 12px;
                 color: #94a3b8;
             }

@@ -97,6 +97,8 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
     let runtime = settings_runtime()?;
     let cancel = runtime.cancellation_token();
     let config = config::load_or_create_config(None)?;
+    snapin_core::i18n::set_language(config.general.language);
+    apply_language(config.general.language);
     let config_store = Arc::new(ConfigStore::new(config.clone()));
 
     // 1. 同步初始配置到 Slint 界面并确保系统全局快捷键处于激活状态
@@ -140,6 +142,10 @@ pub fn run_settings_gui() -> Result<(), SettingsError> {
 pub fn run_clipboard_history_panel() -> Result<(), SettingsError> {
     let window =
         ClipboardPanel::new().map_err(|error| SettingsError::InitFailed(error.to_string()))?;
+    if let Ok(config) = config::load_or_create_config(None) {
+        snapin_core::i18n::set_language(config.general.language);
+        apply_language(config.general.language);
+    }
     let entries = std::sync::Arc::new(
         load_clipboard_history().map_err(|error| SettingsError::Runtime(error.to_string()))?,
     );
@@ -170,7 +176,9 @@ pub fn run_clipboard_history_panel() -> Result<(), SettingsError> {
         };
         match result {
             Ok(()) => {
-                window.set_status_message(SharedString::from("已复制到剪贴板，正在创建贴图"));
+                window.set_status_message(SharedString::from(snapin_core::i18n::tr(
+                    "已复制到剪贴板，正在创建贴图",
+                )));
                 let runtime = panel_runtime.clone();
                 let _ = runtime.spawn(async move {
                     let _ =
@@ -190,7 +198,9 @@ pub fn run_clipboard_history_panel() -> Result<(), SettingsError> {
         match clear_clipboard_history() {
             Ok(()) => {
                 apply_clipboard_rows(&window, &[]);
-                window.set_status_message(SharedString::from("剪贴板历史已清空"));
+                window.set_status_message(SharedString::from(snapin_core::i18n::tr(
+                    "剪贴板历史已清空",
+                )));
             }
             Err(error) => window
                 .set_status_message(SharedString::from(format!("清空剪贴板历史失败: {error}"))),
@@ -236,6 +246,13 @@ fn apply_clipboard_rows(window: &ClipboardPanel, entries: &[ClipboardEntry]) {
     window.set_previews(ModelRc::new(VecModel::from(previews)));
 }
 
+/// 应用 Slint 打包翻译语言。
+fn apply_language(language: snapin_core::config::UiLanguage) {
+    if let Err(error) = slint::select_bundled_translation(language.code()) {
+        tracing::warn!("切换界面语言失败，语言: {}，原因: {error}", language.code());
+    }
+}
+
 /// 获取设置中心后台任务运行时：优先复用当前 Tokio 上下文，否则使用进程级共享实例。
 fn settings_runtime() -> Result<TaskRuntime, SettingsError> {
     TaskRuntime::current(8).or_else(|current_error| {
@@ -261,7 +278,9 @@ fn register_callbacks(win: &SettingsWindow, config_store: Arc<ConfigStore>, runt
             return;
         };
         if saving_save.swap(true, Ordering::AcqRel) {
-            window.set_status_message(SharedString::from("正在保存配置，请稍候..."));
+            window.set_status_message(SharedString::from(snapin_core::i18n::tr(
+                "正在保存配置，请稍候...",
+            )));
             return;
         }
 
@@ -282,7 +301,9 @@ fn register_callbacks(win: &SettingsWindow, config_store: Arc<ConfigStore>, runt
                 return;
             }
         };
-        window.set_status_message(SharedString::from("正在保存配置并同步系统设置..."));
+        window.set_status_message(SharedString::from(snapin_core::i18n::tr(
+            "正在保存配置并同步系统设置...",
+        )));
 
         let win_async = win_weak.clone();
         let config_for_task = sanitized;
@@ -333,7 +354,9 @@ fn register_callbacks(win: &SettingsWindow, config_store: Arc<ConfigStore>, runt
                     }
                     Err(error) => {
                         tracing::error!("设置保存任务异常: {error}");
-                        window.set_status_message(SharedString::from("保存失败: 配置写入任务异常"));
+                        window.set_status_message(SharedString::from(snapin_core::i18n::tr(
+                            "保存失败: 配置写入任务异常",
+                        )));
                     }
                 }
             });
@@ -341,7 +364,9 @@ fn register_callbacks(win: &SettingsWindow, config_store: Arc<ConfigStore>, runt
 
         if spawn_result.is_err() {
             saving_save.store(false, Ordering::Release);
-            window.set_status_message(SharedString::from("保存失败: 无法提交后台任务"));
+            window.set_status_message(SharedString::from(snapin_core::i18n::tr(
+                "保存失败: 无法提交后台任务",
+            )));
         }
     });
 
@@ -352,10 +377,14 @@ fn register_callbacks(win: &SettingsWindow, config_store: Arc<ConfigStore>, runt
             return;
         };
         if saving_import.swap(true, Ordering::AcqRel) {
-            window.set_status_message(SharedString::from("正在处理配置，请稍候..."));
+            window.set_status_message(SharedString::from(snapin_core::i18n::tr(
+                "正在处理配置，请稍候...",
+            )));
             return;
         }
-        window.set_status_message(SharedString::from("正在选择要导入的配置文件..."));
+        window.set_status_message(SharedString::from(snapin_core::i18n::tr(
+            "正在选择要导入的配置文件...",
+        )));
         let win_async = win_weak_import.clone();
         let cfg_after = cfg_import.clone();
         let saving_after = saving_import.clone();
@@ -409,6 +438,8 @@ fn register_callbacks(win: &SettingsWindow, config_store: Arc<ConfigStore>, runt
                 match final_result {
                     Ok((config, warnings)) => {
                         cfg_after.commit(config.clone());
+                        snapin_core::i18n::set_language(config.general.language);
+                        apply_language(config.general.language);
                         sync_config_to_window(&window, &config);
                         notify_daemon_reload_config();
                         let message = if warnings.is_empty() {
@@ -427,7 +458,9 @@ fn register_callbacks(win: &SettingsWindow, config_store: Arc<ConfigStore>, runt
         });
         if spawn_result.is_err() {
             saving_import.store(false, Ordering::Release);
-            window.set_status_message(SharedString::from("配置导入失败: 无法提交后台任务"));
+            window.set_status_message(SharedString::from(snapin_core::i18n::tr(
+                "配置导入失败: 无法提交后台任务",
+            )));
         }
     });
 
@@ -439,7 +472,9 @@ fn register_callbacks(win: &SettingsWindow, config_store: Arc<ConfigStore>, runt
         let mut config = config_store.snapshot();
         extract_config_from_window(&window, &mut config);
         let config = config.sanitized();
-        window.set_status_message(SharedString::from("正在选择配置导出位置..."));
+        window.set_status_message(SharedString::from(snapin_core::i18n::tr(
+            "正在选择配置导出位置...",
+        )));
         let win_async = win_weak_export.clone();
         let spawn_result = export_runtime.clone().spawn(async move {
             let result = match pick_config_export_path().await {
@@ -472,7 +507,9 @@ fn register_callbacks(win: &SettingsWindow, config_store: Arc<ConfigStore>, runt
             });
         });
         if spawn_result.is_err() {
-            window.set_status_message(SharedString::from("配置导出失败: 无法提交后台任务"));
+            window.set_status_message(SharedString::from(snapin_core::i18n::tr(
+                "配置导出失败: 无法提交后台任务",
+            )));
         }
     });
 
@@ -482,7 +519,9 @@ fn register_callbacks(win: &SettingsWindow, config_store: Arc<ConfigStore>, runt
             // 只改界面、不提前改内存快照；保存时仍以最近一次成功配置为基底，
             // UI 未暴露的字段因此不会被默认值静默重置。
             sync_config_to_window(&w, &Config::default());
-            w.set_status_message(SharedString::from("已还原为默认推荐配置（点击保存后生效）"));
+            w.set_status_message(SharedString::from(snapin_core::i18n::tr(
+                "已还原为默认推荐配置（点击保存后生效）",
+            )));
         }
     });
 

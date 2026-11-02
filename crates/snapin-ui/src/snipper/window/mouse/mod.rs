@@ -221,7 +221,9 @@ fn handle_locked_press(
     if state.toolbar.active_tool.is_none()
         && super::annotation_edit::hit_test_locked(state, (cx, cy))
     {
-        state.set_status_message("旧标注已锁定，按住 Alt 点击可重新编辑");
+        state.set_status_message(snapin_core::i18n::tr(
+            "旧标注已锁定，按住 Alt 点击可重新编辑",
+        ));
         return true;
     }
 

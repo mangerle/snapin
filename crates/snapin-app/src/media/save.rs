@@ -82,8 +82,14 @@ pub(super) async fn execute_save_paster(
     };
 
     if config.output.notify_on_save {
-        let body = format!("贴图图像已保存至: {}", path.display());
-        if let Err(error) = send_desktop_notification("Snapin 贴图已保存", &body).await {
+        let body = snapin_core::trf!(
+            "贴图图像已保存至: {}",
+            "Pin image saved to: {}",
+            path.display()
+        );
+        if let Err(error) =
+            send_desktop_notification(snapin_core::i18n::tr("Snapin 贴图已保存"), &body).await
+        {
             tracing::debug!("发送贴图保存通知失败或系统通知不可用: {error}");
         }
     }

@@ -6,6 +6,8 @@
 
 <p align="center">纯 Rust 打造的跨平台截图与贴图工具（Linux / Windows / macOS）</p>
 
+<p align="center"><a href="README.en.md">English</a></p>
+
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="LICENSES/LicenseRef-Slint-Royalty-free-2.0.md"><img src="https://img.shields.io/badge/Slint-Royalty--free%202.0-2379f4.svg" alt="Slint: Royalty-free 2.0"></a>
