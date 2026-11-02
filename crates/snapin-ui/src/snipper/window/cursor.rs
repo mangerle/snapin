@@ -30,6 +30,9 @@ fn desired_cursor_icon(state: &SnipperState) -> CursorIcon {
         return match drag {
             AnnotationDrag::Move { .. } => CursorIcon::Move,
             AnnotationDrag::Resize { handle, .. } => resize_cursor(*handle),
+            AnnotationDrag::MagnifierSource { .. } | AnnotationDrag::MagnifierImage { .. } => {
+                CursorIcon::Move
+            }
         };
     }
     if let Some(drag) = active_drag {

@@ -29,7 +29,10 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 /// 级别解析次序为 `RUST_LOG` 环境变量 > 配置文件 `general.log_level` > `info`，
 /// 使临时排障无需改动用户配置即可覆盖落盘的偏好。
 fn init_tracing(config_level: &str) {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(config_level));
+    // arboard 在 Wayland 合成器不支持 data-control 时会主动降级到 X11，
+    // 这是受支持的兼容路径而非应用故障；仅保留其 error 级别，避免正常回退污染告警日志。
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(format!("{config_level},arboard=error")));
     tracing_subscriber::registry()
         .with(filter)
         .with(tracing_subscriber::fmt::layer())

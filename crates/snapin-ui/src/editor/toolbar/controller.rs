@@ -4,14 +4,24 @@
 //! 渲染层读取同一份布局结果，避免交互与绘制各维护一套坐标。
 
 use super::interaction::hit_test_main_items;
-use super::items::{preset_colors, tool_descriptor, CORNER_RADIUS_PRESETS, FONT_SIZE_PRESETS};
+use super::items::{preset_colors, tool_descriptor, LineMode};
 use super::layout::{
-    calculate_main_layout, calculate_sub_layout, SubControl, SubDropdown, SubLayout,
+    calculate_main_layout, calculate_sub_layout_with_options, SubControl, SubDropdown, SubLayout,
+    SubLayoutOptions,
 };
 use super::metrics;
+use super::state::store_remembered_sub_options;
+use super::sub_controls::{next_f32, next_u8};
 use super::{Tool, Toolbar, ToolbarAction, ToolbarItem};
 use crate::geometry::Rect;
-use snapin_core::annotation::{ArrowStyle, BadgeStyle, LineStyle};
+use snapin_core::annotation::{MagnifierShape, SpotlightShape};
+
+/// 将当前工具栏状态收敛为布局层需要的只读选项。
+fn calculate_sub_layout_options(options: &super::items::SubToolOptions) -> SubLayoutOptions {
+    SubLayoutOptions {
+        mosaic_mode: options.mosaic_mode,
+    }
+}
 
 impl Toolbar {
     /// 根据选区与屏幕宽高重新计算工具栏摆放位置 (自适应 HiDPI 缩放)。
@@ -142,20 +152,23 @@ impl Toolbar {
     }
 
     /// 根据当前主工具栏位置重新定位二级属性栏 (自适应 HiDPI 缩放)
-    fn update_sub_rect(&mut self) {
-        self.sub_layout = calculate_sub_layout(
+    pub(super) fn update_sub_rect(&mut self) {
+        self.sub_layout = calculate_sub_layout_with_options(
             &self.main_rect,
             self.active_tool,
             self.open_dropdown,
             self.screen_size.0,
             self.screen_size.1,
             self.ui_scale,
+            calculate_sub_layout_options(&self.sub_options),
         );
         self.sub_rect = self.sub_layout.as_ref().map(|layout| layout.rect);
         if self.sub_layout.is_none() {
             self.open_dropdown = None;
             self.dropdown_hover = None;
+            self.hovered_sub_control = None;
         }
+        self.persist_remembered_options();
     }
 
     /// 当前二级栏布局（供渲染层读取控件热区）
@@ -176,58 +189,40 @@ impl Toolbar {
         if self.active_tool != tool {
             self.open_dropdown = None;
             self.dropdown_hover = None;
+            self.focused_sub_control = None;
+            self.hovered_sub_control = None;
         }
         self.active_tool = tool;
         self.update_sub_rect();
     }
 
-    /// 应用下拉菜单中选中的行
-    pub fn apply_dropdown_row(&mut self, row: usize) {
-        match self.open_dropdown {
-            Some(SubDropdown::Line) => {
-                if let Some(style) = LineStyle::ALL.get(row) {
-                    self.sub_options.line_style = *style;
-                }
-            }
-            Some(SubDropdown::Badge) => {
-                if row == 0 {
-                    self.sub_options.badge_style = BadgeStyle::Filled;
-                } else if row == 1 {
-                    self.sub_options.badge_style = BadgeStyle::Outline;
-                }
-            }
-            Some(SubDropdown::Arrow) => {
-                if let Some(style) = ArrowStyle::ALL.get(row) {
-                    self.sub_options.arrow_style = *style;
-                }
-            }
-            Some(SubDropdown::Corner) => {
-                if let Some(radius) = CORNER_RADIUS_PRESETS.get(row) {
-                    self.sub_options.corner_radius = *radius;
-                }
-            }
-            Some(SubDropdown::FontSize) => {
-                if let Some(font_size) = FONT_SIZE_PRESETS.get(row) {
-                    self.sub_options.font_size = *font_size;
-                }
-            }
-            None => {}
+    /// 用户开启跨截图记忆时，保存当前二级栏选项。
+    fn persist_remembered_options(&self) {
+        if self.remember_sub_options {
+            store_remembered_sub_options(self.sub_options);
         }
-        self.open_dropdown = None;
-        self.dropdown_hover = None;
-        self.update_sub_rect();
     }
 
     /// 鼠标移动命中检测（主栏按钮与下拉菜单行）
     pub fn handle_mouse_move(&mut self, px: f32, py: f32) -> bool {
         let prev_item = self.hovered_item;
         let prev_row = self.dropdown_hover;
+        let prev_sub = self.hovered_sub_control;
         self.hovered_item = self.hit_test_main(px, py);
+        self.hovered_sub_control = if self.hovered_item.is_none() && self.open_dropdown.is_none() {
+            self.sub_layout
+                .as_ref()
+                .and_then(|layout| layout.hit(px, py))
+        } else {
+            None
+        };
         self.dropdown_hover = self
             .sub_layout
             .as_ref()
             .and_then(|layout| layout.dropdown_row_hit(px, py));
-        prev_item != self.hovered_item || prev_row != self.dropdown_hover
+        prev_item != self.hovered_item
+            || prev_sub != self.hovered_sub_control
+            || prev_row != self.dropdown_hover
     }
 
     /// 主栏命中测试 (自适应 HiDPI 缩放)
@@ -257,8 +252,10 @@ impl Toolbar {
             .as_ref()
             .and_then(|layout| layout.dropdown_row_hit(px, py));
         if let Some(row) = dropdown_row {
+            let dropdown = self.open_dropdown;
             self.apply_dropdown_row(row);
-            return None;
+            return (dropdown == Some(SubDropdown::MosaicMode) && row == 2)
+                .then_some(ToolbarAction::SmartRedact);
         }
         if self
             .sub_layout
@@ -304,12 +301,26 @@ impl Toolbar {
             .sub_layout
             .as_ref()
             .and_then(|layout| layout.hit(px, py));
+        if let Some(control) = control {
+            self.focused_sub_control = Some(control);
+        }
         match control {
             Some(SubControl::ShapeRect) => self.set_active_tool(Some(Tool::Rect)),
             Some(SubControl::ShapeEllipse) => self.set_active_tool(Some(Tool::Ellipse)),
-            Some(SubControl::Stroke(level)) => {
-                self.sub_options.stroke_width = level;
-                self.sub_options.custom_stroke_width = level.to_pixel();
+            Some(SubControl::Size) => {
+                // 点击仅聚焦尺寸控件；滚轮在控件内或点击后于二级栏内继续调节。
+            }
+            Some(SubControl::EffectStrength) => {
+                if let Some(rect) = self
+                    .sub_layout
+                    .as_ref()
+                    .and_then(|layout| layout.rect_of(SubControl::EffectStrength))
+                {
+                    let left = rect.x + 12.0 * self.ui_scale;
+                    let right = rect.x + rect.width - 12.0 * self.ui_scale;
+                    let ratio = ((px - left) / (right - left).max(1.0)).clamp(0.0, 1.0);
+                    self.sub_options.effect_strength = (16.0 + ratio * 144.0).round() as u8;
+                }
             }
             Some(SubControl::LineStyle) => {
                 self.open_dropdown = if self.open_dropdown == Some(SubDropdown::Line) {
@@ -323,16 +334,8 @@ impl Toolbar {
             Some(SubControl::FillToggle) => {
                 self.sub_options.filled = !self.sub_options.filled;
             }
-            // 圆角半径：单击展开预设档位，悬停其上滚动滚轮可连续微调
-            Some(SubControl::CornerRadius) => {
-                self.open_dropdown = if self.open_dropdown == Some(SubDropdown::Corner) {
-                    None
-                } else {
-                    Some(SubDropdown::Corner)
-                };
-                self.dropdown_hover = None;
-                self.update_sub_rect();
-            }
+            // 圆角半径：单击仅聚焦，滚轮连续调整图标后的数值。
+            Some(SubControl::CornerRadius) => {}
             Some(SubControl::BadgeStyle) => {
                 self.open_dropdown = if self.open_dropdown == Some(SubDropdown::Badge) {
                     None
@@ -356,8 +359,6 @@ impl Toolbar {
                     self.sub_options.color = *color;
                 }
             }
-            Some(SubControl::SmartRedact) => return Some(ToolbarAction::SmartRedact),
-            Some(SubControl::MosaicManual) => self.set_active_tool(Some(Tool::Mosaic)),
             Some(SubControl::FontSize) => {
                 self.open_dropdown = if self.open_dropdown == Some(SubDropdown::FontSize) {
                     None
@@ -367,12 +368,142 @@ impl Toolbar {
                 self.dropdown_hover = None;
                 self.update_sub_rect();
             }
-            Some(SubControl::SpotlightIntensity(intensity)) => {
-                self.sub_options.spotlight_intensity = intensity;
+            Some(SubControl::StartArrow) => {
+                self.open_dropdown = Some(SubDropdown::StartArrow);
+                self.update_sub_rect();
+            }
+            Some(SubControl::EndArrow) => {
+                self.open_dropdown = Some(SubDropdown::EndArrow);
+                self.update_sub_rect();
+            }
+            Some(SubControl::Bold) => self.sub_options.text_bold = !self.sub_options.text_bold,
+            Some(SubControl::Italic) => {
+                self.sub_options.text_italic = !self.sub_options.text_italic
+            }
+            Some(SubControl::TextStroke) => {
+                self.sub_options.text_stroke_width = if self.sub_options.text_stroke_width > 0.0 {
+                    0.0
+                } else {
+                    2.0
+                };
+            }
+            Some(SubControl::TextBackground) => {
+                self.sub_options.text_background_enabled =
+                    !self.sub_options.text_background_enabled;
+            }
+            Some(SubControl::BadgeSequence) => {
+                self.open_dropdown = Some(SubDropdown::BadgeSequence);
+                self.update_sub_rect();
+            }
+            Some(SubControl::MarkerShape) => {
+                self.open_dropdown = Some(SubDropdown::MarkerShape);
+                self.dropdown_hover = None;
+                self.update_sub_rect();
+            }
+            Some(SubControl::MarkerBlendMode) => {
+                self.open_dropdown = Some(SubDropdown::MarkerBlendMode);
+                self.dropdown_hover = None;
+                self.update_sub_rect();
+            }
+            Some(SubControl::EraserMode) => {
+                self.sub_options.eraser_rectangle_mode = !self.sub_options.eraser_rectangle_mode;
+            }
+            Some(SubControl::ClearAnnotations) => {
+                return Some(ToolbarAction::ClearAnnotations);
+            }
+            Some(SubControl::LineMode) => {
+                self.sub_options.line_mode = match self.sub_options.line_mode {
+                    LineMode::Straight => LineMode::Polyline,
+                    LineMode::Polyline => LineMode::Straight,
+                };
+            }
+            Some(SubControl::ArrowEnabled) => {
+                self.sub_options.line_arrow_enabled = !self.sub_options.line_arrow_enabled;
+            }
+            Some(SubControl::MosaicBrush) => {
+                self.sub_options.mosaic_brush_mode = true;
+                self.sub_options.custom_stroke_width =
+                    self.sub_options.custom_stroke_width.max(12.0);
+            }
+            Some(SubControl::MosaicRectangle) => {
+                self.sub_options.mosaic_brush_mode = false;
+            }
+            Some(SubControl::MosaicMode) => {
+                self.open_dropdown = Some(SubDropdown::MosaicMode);
+                self.dropdown_hover = None;
+                self.update_sub_rect();
+            }
+            Some(SubControl::FontFamily) => {
+                self.open_dropdown = Some(SubDropdown::FontFamily);
+                self.dropdown_hover = None;
+                self.update_sub_rect();
+            }
+            Some(SubControl::TextBackgroundOpacity) => {
+                self.sub_options.text_background_opacity = next_u8(
+                    self.sub_options.text_background_opacity,
+                    &[40, 80, 120, 160, 200, 240],
+                );
+            }
+            Some(SubControl::TextBackgroundPadding) => {
+                self.sub_options.text_background_padding = next_f32(
+                    self.sub_options.text_background_padding,
+                    &[0.0, 2.0, 4.0, 8.0, 12.0, 16.0, 24.0],
+                );
+            }
+            Some(SubControl::TextBackgroundCornerRadius) => {
+                self.sub_options.text_background_corner_radius = next_f32(
+                    self.sub_options.text_background_corner_radius,
+                    &[0.0, 4.0, 8.0, 12.0, 20.0, 30.0, 48.0],
+                );
+            }
+            Some(SubControl::SpotlightShapeRect) => {
+                self.sub_options.spotlight_shape = SpotlightShape::Rectangle;
+            }
+            Some(SubControl::SpotlightShapeEllipse) => {
+                self.sub_options.spotlight_shape = SpotlightShape::Ellipse;
+            }
+            Some(SubControl::SpotlightOpacity) => {
+                self.sub_options.spotlight_intensity = next_u8(
+                    self.sub_options.spotlight_intensity,
+                    &[64, 96, 128, 160, 192, 224],
+                );
+            }
+            Some(SubControl::SpotlightOutline) => {
+                self.sub_options.spotlight_outline = !self.sub_options.spotlight_outline;
+            }
+            Some(SubControl::MagnifierShapeRect) => {
+                self.sub_options.magnifier_shape = MagnifierShape::Rectangle;
+            }
+            Some(SubControl::MagnifierShapeEllipse) => {
+                self.sub_options.magnifier_shape = MagnifierShape::Ellipse;
+            }
+            Some(SubControl::MagnifierScale) => {
+                if let Some(rect) = self
+                    .sub_layout
+                    .as_ref()
+                    .and_then(|layout| layout.rect_of(SubControl::MagnifierScale))
+                {
+                    let left = rect.x + 42.0 * self.ui_scale;
+                    let right = rect.x + rect.width - 12.0 * self.ui_scale;
+                    let ratio = ((px - left) / (right - left).max(1.0)).clamp(0.0, 1.0);
+                    self.sub_options.magnifier_scale = 1.0 + ratio * 7.0;
+                }
+            }
+            Some(SubControl::MagnifierSmooth) => {
+                self.sub_options.magnifier_smooth = !self.sub_options.magnifier_smooth;
+            }
+            Some(SubControl::MagnifierShadow) => {
+                self.sub_options.magnifier_shadow = !self.sub_options.magnifier_shadow;
+            }
+            Some(SubControl::MagnifierConnector) => {
+                self.open_dropdown = Some(SubDropdown::MagnifierConnector);
+                self.dropdown_hover = None;
+                self.update_sub_rect();
             }
             None => {}
         }
 
+        self.persist_remembered_options();
         None
     }
 }

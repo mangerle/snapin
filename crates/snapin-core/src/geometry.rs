@@ -17,6 +17,14 @@ pub struct Rect {
 }
 
 impl Rect {
+    /// 两个矩形是否存在面积交集。
+    pub fn intersects(self, other: Self) -> bool {
+        self.x < other.x + other.width
+            && other.x < self.x + self.width
+            && self.y < other.y + other.height
+            && other.y < self.y + self.height
+    }
+
     /// 根据两个对角点构建正规化的矩形（确保宽高非负）。
     pub fn from_points(p1: (f32, f32), p2: (f32, f32)) -> Self {
         let x = p1.0.min(p2.0);

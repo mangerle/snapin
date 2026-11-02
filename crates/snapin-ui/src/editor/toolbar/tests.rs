@@ -1,8 +1,9 @@
 //! 截图工具栏布局计算与交互行为单元测试。
 
 use super::*;
-use crate::editor::toolbar::items::CORNER_RADIUS_PRESETS;
+use crate::editor::toolbar::items::preset_colors;
 use crate::editor::toolbar::items::{Tool, ToolbarItem};
+use crate::editor::toolbar::layout::SubControl;
 use crate::geometry::Rect;
 
 #[test]
@@ -99,11 +100,19 @@ fn test_mosaic_smart_redact_sub_control_returns_action() {
         .expect("马赛克按钮应存在");
     tb.handle_click(mosaic_rect.x + 5.0, mosaic_rect.y + 5.0);
     let layout = tb.sub_layout().expect("马赛克工具必须展开二级栏");
-    let action_rect = layout
-        .rect_of(SubControl::SmartRedact)
-        .expect("必须提供智能打码入口");
+    let mode_rect = layout
+        .rect_of(SubControl::MosaicMode)
+        .expect("必须提供遮挡模式入口");
+    tb.handle_click(
+        mode_rect.x + mode_rect.width / 2.0,
+        mode_rect.y + mode_rect.height / 2.0,
+    );
+    let dropdown = tb
+        .sub_layout()
+        .and_then(|layout| layout.dropdown.clone())
+        .expect("遮挡模式必须提供下拉菜单");
     assert_eq!(
-        tb.handle_click(action_rect.x + 5.0, action_rect.y + 5.0),
+        tb.handle_click(dropdown.rows[2].x + 5.0, dropdown.rows[2].y + 5.0),
         Some(ToolbarAction::SmartRedact)
     );
     assert_eq!(tb.active_tool, Some(Tool::Mosaic));
@@ -144,16 +153,163 @@ fn test_toolbar_shape_button_toggles_without_cycling() {
     );
 
     // 椭圆只能从二级属性栏显式点选：矩形按钮右侧的椭圆按钮
-    let sub = tb.sub_rect.expect("二级属性栏应可见");
-    let scale = tb.ui_scale;
-    let ellipse_x = sub.x + 42.0 * scale;
-    let ellipse_y = sub.y + sub.height / 2.0;
-    tb.handle_click(ellipse_x, ellipse_y);
+    let ellipse = tb
+        .sub_layout()
+        .and_then(|layout| layout.rect_of(SubControl::ShapeEllipse))
+        .expect("形状二级栏应包含椭圆按钮");
+    tb.handle_click(
+        ellipse.x + ellipse.width / 2.0,
+        ellipse.y + ellipse.height / 2.0,
+    );
     assert_eq!(tb.active_tool, Some(Tool::Ellipse));
 
     // 椭圆形态下再点主按钮：同样只做关闭
     assert_eq!(tb.handle_click(btn_x, btn_y), None);
     assert_eq!(tb.active_tool, None);
+}
+
+/// 序号形态和数字形态切换都不得修改颜色；默认颜色应保持红色选中。
+#[test]
+fn test_badge_dropdowns_preserve_default_red_color() {
+    use snapin_core::annotation::{BadgeSequence, BadgeStyle};
+
+    let mut tb = Toolbar::default();
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 500.0,
+        height: 300.0,
+    };
+    tb.update_layout(&selection, 1920.0, 1080.0);
+    assert_eq!(
+        tb.sub_options.color,
+        preset_colors()[0],
+        "默认颜色必须是红色"
+    );
+
+    let badge_rect = interaction::main_item_rects(&tb.main_rect, tb.main_items, tb.ui_scale)
+        .into_iter()
+        .find(|(item, _)| *item == ToolbarItem::Tool(Tool::Badge))
+        .map(|(_, rect)| rect)
+        .expect("主栏应包含序号注释");
+    tb.handle_click(badge_rect.x + 5.0, badge_rect.y + 5.0);
+
+    let style = tb
+        .sub_layout()
+        .and_then(|layout| layout.rect_of(SubControl::BadgeStyle))
+        .expect("序号二级栏应包含形态控件");
+    tb.handle_click(style.x + 5.0, style.y + 5.0);
+    let style_dropdown = tb
+        .sub_layout()
+        .and_then(|layout| layout.dropdown.clone())
+        .expect("序号形态应展开下拉");
+    tb.handle_click(
+        style_dropdown.rows[1].x + 4.0,
+        style_dropdown.rows[1].y + 5.0,
+    );
+    assert_eq!(tb.sub_options.badge_style, BadgeStyle::Outline);
+    assert_eq!(
+        tb.sub_options.color,
+        preset_colors()[0],
+        "切换形态不得改变颜色"
+    );
+
+    let sequence = tb
+        .sub_layout()
+        .and_then(|layout| layout.rect_of(SubControl::BadgeSequence))
+        .expect("序号二级栏应包含数字形态控件");
+    tb.handle_click(sequence.x + 5.0, sequence.y + 5.0);
+    let sequence_dropdown = tb
+        .sub_layout()
+        .and_then(|layout| layout.dropdown.clone())
+        .expect("数字形态应展开下拉");
+    tb.handle_click(
+        sequence_dropdown.rows[1].x + 4.0,
+        sequence_dropdown.rows[1].y + 5.0,
+    );
+    assert_eq!(
+        tb.sub_options.badge_sequence,
+        BadgeSequence::UppercaseLetter
+    );
+    assert_eq!(
+        tb.sub_options.color,
+        preset_colors()[0],
+        "切换数字形态不得改变颜色"
+    );
+}
+
+/// 荧光笔的形状和混合模式都应通过下拉选择，并显示当前选项。
+#[test]
+fn test_marker_dropdowns_change_shape_and_blend_mode() {
+    use snapin_core::annotation::{MarkerBlendMode, MarkerShape};
+
+    let mut tb = Toolbar::default();
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 500.0,
+        height: 300.0,
+    };
+    tb.update_layout(&selection, 1920.0, 1080.0);
+    let marker_rect = interaction::main_item_rects(&tb.main_rect, tb.main_items, tb.ui_scale)
+        .into_iter()
+        .find(|(item, _)| *item == ToolbarItem::Tool(Tool::Marker))
+        .map(|(_, rect)| rect)
+        .expect("主栏应包含荧光笔");
+    tb.handle_click(marker_rect.x + 5.0, marker_rect.y + 5.0);
+
+    let shape = tb
+        .sub_layout()
+        .and_then(|layout| layout.rect_of(SubControl::MarkerShape))
+        .expect("荧光笔应提供形状下拉");
+    tb.handle_click(shape.x + 5.0, shape.y + 5.0);
+    let dropdown = tb
+        .sub_layout()
+        .and_then(|layout| layout.dropdown.clone())
+        .expect("形状控件应展开下拉");
+    assert_eq!(dropdown.rows.len(), 2);
+    tb.handle_click(dropdown.rows[1].x + 4.0, dropdown.rows[1].y + 5.0);
+    assert_eq!(tb.sub_options.marker_shape, MarkerShape::Rectangle);
+
+    let blend = tb
+        .sub_layout()
+        .and_then(|layout| layout.rect_of(SubControl::MarkerBlendMode))
+        .expect("荧光笔应提供混合模式下拉");
+    tb.handle_click(blend.x + 5.0, blend.y + 5.0);
+    let dropdown = tb
+        .sub_layout()
+        .and_then(|layout| layout.dropdown.clone())
+        .expect("混合模式应展开下拉");
+    tb.handle_click(dropdown.rows[1].x + 4.0, dropdown.rows[1].y + 5.0);
+    assert_eq!(tb.sub_options.marker_blend_mode, MarkerBlendMode::Normal);
+}
+
+/// 马赛克强度应支持点击滑块位置直接设置数值。
+#[test]
+fn test_mosaic_effect_strength_slider_sets_value() {
+    let mut tb = Toolbar::default();
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 500.0,
+        height: 300.0,
+    };
+    tb.update_layout(&selection, 1920.0, 1080.0);
+    let mosaic_rect = interaction::main_item_rects(&tb.main_rect, tb.main_items, tb.ui_scale)
+        .into_iter()
+        .find(|(item, _)| *item == ToolbarItem::Tool(Tool::Mosaic))
+        .map(|(_, rect)| rect)
+        .expect("主栏应包含马赛克");
+    tb.handle_click(mosaic_rect.x + 5.0, mosaic_rect.y + 5.0);
+    let slider = tb
+        .sub_layout()
+        .and_then(|layout| layout.rect_of(SubControl::EffectStrength))
+        .expect("马赛克应提供效果强度滑块");
+    tb.handle_click(
+        slider.x + slider.width / 2.0,
+        slider.y + slider.height / 2.0,
+    );
+    assert!((tb.sub_options.effect_strength as i16 - 88).abs() <= 2);
 }
 
 /// 线型下拉：点击按钮展开菜单，点击"虚线"行后写回样式并收起菜单
@@ -349,8 +505,8 @@ fn test_arrow_style_dropdown_selects_style() {
     assert_eq!(tb.active_tool, Some(Tool::Arrow));
     assert_eq!(
         tb.sub_options.arrow_style,
-        ArrowStyle::Tapered,
-        "箭头默认应为锥形"
+        ArrowStyle::Solid,
+        "箭头默认应为实线，保证线型设置立即生效"
     );
 
     let style_btn = tb
@@ -374,9 +530,9 @@ fn test_arrow_style_dropdown_selects_style() {
     assert!(tb.open_dropdown.is_none());
 }
 
-/// 圆角控件可点击：展开预设档位并写回半径
+/// 圆角控件点击后聚焦，滚轮在二级栏内连续调整图标后的数值。
 #[test]
-fn test_corner_radius_dropdown_selects_preset() {
+fn test_corner_radius_click_then_wheel_changes_value() {
     let mut tb = Toolbar::default();
     let selection = Rect {
         x: 100.0,
@@ -398,17 +554,14 @@ fn test_corner_radius_dropdown_selects_preset() {
         corner.x + corner.width / 2.0,
         corner.y + corner.height / 2.0,
     );
-    let dropdown = tb
-        .sub_layout()
-        .and_then(|layout| layout.dropdown.clone())
-        .expect("点击圆角控件应展开预设下拉");
-    assert_eq!(dropdown.rows.len(), CORNER_RADIUS_PRESETS.len());
+    assert_eq!(tb.focused_sub_control, Some(SubControl::CornerRadius));
+    assert!(tb.open_dropdown.is_none(), "圆角控件不再展开下拉菜单");
 
-    // 第二档预设（6px）
-    let row = dropdown.rows[1];
-    tb.handle_click(row.x + 4.0, row.y + row.height / 2.0);
-    assert_eq!(tb.sub_options.corner_radius, CORNER_RADIUS_PRESETS[1]);
-    assert!(tb.open_dropdown.is_none(), "选中后菜单应收起");
+    let sub = tb.sub_rect.expect("二级栏应可见");
+    assert!(tb.handle_sub_wheel(sub.x + sub.width / 2.0, sub.y + 2.0, 1.0));
+    assert_eq!(tb.sub_options.corner_radius, 2.0);
+    assert!(tb.handle_sub_wheel(sub.x + sub.width / 2.0, sub.y + 2.0, 1.0));
+    assert_eq!(tb.sub_options.corner_radius, 4.0);
 }
 
 /// 拖动手柄：命中右端手柄才能开始拖动，拖动后位置夹取到屏幕内，

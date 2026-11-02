@@ -36,6 +36,12 @@ pub fn render_item_icon(
             tools::render_icon_arrow(pixmap, cx, cy, s, active_color, &paint, &stroke)
         }
         ToolbarItem::Tool(Tool::Pen) => tools::render_icon_pen(pixmap, cx, cy, s, &paint, &stroke),
+        ToolbarItem::Tool(Tool::Line) => {
+            tools::render_icon_line(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Tool(Tool::Eraser) => {
+            tools::render_icon_eraser(pixmap, cx, cy, s, &paint, &stroke)
+        }
         ToolbarItem::Tool(Tool::Marker) => {
             tools::render_icon_marker(pixmap, cx, cy, s, &paint, &stroke)
         }
@@ -47,6 +53,9 @@ pub fn render_item_icon(
         }
         ToolbarItem::Tool(Tool::Spotlight) => {
             tools::render_icon_spotlight(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Tool(Tool::Magnifier) => {
+            tools::render_icon_magnifier(pixmap, cx, cy, s, &paint, &stroke)
         }
         ToolbarItem::Tool(Tool::Text) => {
             tools::render_icon_text(pixmap, cx, cy, s, &paint, &stroke)
@@ -80,6 +89,9 @@ pub fn render_item_icon(
         }
         ToolbarItem::Action(ToolbarAction::SmartRedact) => {
             tools::render_icon_mosaic(pixmap, cx, cy, s, &paint, &stroke)
+        }
+        ToolbarItem::Action(ToolbarAction::ClearAnnotations) => {
+            actions::render_icon_close(pixmap, cx, cy, s, &paint, &stroke)
         }
         ToolbarItem::Action(ToolbarAction::Translate) => {
             actions::render_icon_translate(pixmap, cx, cy, s, &paint, &stroke)

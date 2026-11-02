@@ -3,7 +3,7 @@
 use super::SnipperJobKind;
 use crate::ports::{JobId, MediaJobOutcome};
 use crate::snipper::window::ocr_panel::OcrPanelState;
-use crate::snipper::window::redaction::RedactionPreview;
+use crate::snipper::window::redaction::{apply_redaction, RedactionPreview};
 use crate::snipper::window::state::SnipperState;
 use crate::snipper::window::types::SnipperOutcome;
 use snapin_core::annotation::action::AnnotationShape;
@@ -28,16 +28,13 @@ pub fn handle_job_outcome(
         MediaJobOutcome::Ocr { text, lines } => {
             if kind == SnipperJobKind::Redact {
                 if lines.is_empty() {
-                    state.set_status_message(snapin_core::i18n::tr(
-                        "未识别到文字，无法生成打码区域",
-                    ));
+                    state.clear_status_message();
                     return;
                 }
-                let count = lines.len();
-                state.redaction_preview = Some(RedactionPreview::from_ocr_lines(&lines));
-                state.set_status_message(format!(
-                    "识别到 {count} 行文字；Enter 应用马赛克，M 马赛克，B 模糊，Esc 取消"
-                ));
+                let preview = RedactionPreview::from_ocr_lines(&lines);
+                let applied = apply_redaction(state, &preview);
+                state.redaction_preview = (applied > 0).then_some(preview);
+                state.clear_status_message();
                 return;
             }
             state.ocr_panel = Some(OcrPanelState::from_ocr_lines(&lines));
@@ -184,6 +181,29 @@ mod tests {
         assert_eq!(state.status_message.as_deref(), Some("未识别到文字"));
     }
 
+    /// 智能打码空结果不显示顶部提示，保持画布与工具栏原状。
+    #[test]
+    fn test_handle_empty_redact_outcome_does_not_show_status() {
+        let mut state = SnipperState::new();
+        state.set_status_message("智能打码执行中的旧提示");
+        let job_id = accept_job(&mut state);
+        handle_job_outcome(
+            &mut state,
+            job_id,
+            SnipperJobKind::Redact,
+            MediaJobOutcome::Ocr {
+                text: String::new(),
+                lines: Vec::new(),
+            },
+        );
+
+        assert!(state.redaction_preview.is_none());
+        assert!(
+            state.status_message.is_none(),
+            "智能打码空结果不得保留顶部提示"
+        );
+    }
+
     #[test]
     fn test_handle_translate_outcome_pushes_annotation() {
         let mut state = SnipperState::new();
@@ -273,9 +293,9 @@ mod tests {
         );
     }
 
-    /// 智能打码结果只生成预览，用户确认前不得改写标注历史。
+    /// 智能打码结果应立即写入马赛克，无需用户再次确认。
     #[test]
-    fn test_redact_outcome_waits_for_confirmation() {
+    fn test_redact_outcome_applies_mosaic_immediately() {
         let mut state = SnipperState::new();
         let job_id = accept_job(&mut state);
         handle_job_outcome(
@@ -291,7 +311,10 @@ mod tests {
             },
         );
         assert!(state.redaction_preview.is_some());
-        assert!(!state.annotations.can_undo());
+        assert!(matches!(
+            state.annotations.undo_stack(),
+            [AnnotationShape::Mosaic(_)]
+        ));
     }
 
     /// 二维码结果应保留在状态中供后续打开链接。

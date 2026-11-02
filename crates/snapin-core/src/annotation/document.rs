@@ -100,7 +100,9 @@ impl AnnotationDocument {
             return false;
         };
         match last {
-            AnnotationShape::Text(_) | AnnotationShape::Translation(_) => {
+            AnnotationShape::Text(_)
+            | AnnotationShape::Translation(_)
+            | AnnotationShape::Badge(_) => {
                 last.adjust_size(SizeParam::Font(font_size));
                 true
             }
@@ -158,6 +160,27 @@ impl AnnotationDocument {
     /// 获取指定索引图元的不可变借用。
     pub fn shape_at(&self, index: usize) -> Option<&AnnotationShape> {
         self.shapes.get(index)
+    }
+
+    /// 删除指定索引的图元并返回被删除项。
+    pub(crate) fn remove_at(&mut self, index: usize) -> Option<AnnotationShape> {
+        (index < self.shapes.len()).then(|| self.shapes.remove(index))
+    }
+
+    /// 删除所有包围盒与给定矩形相交的图元。
+    pub(crate) fn remove_intersecting(&mut self, rect: Rect) -> Vec<AnnotationShape> {
+        let mut removed = Vec::new();
+        let mut index = self.shapes.len();
+        while index > 0 {
+            index -= 1;
+            if self.shapes[index]
+                .bounds()
+                .is_some_and(|bounds| bounds.intersects(rect))
+            {
+                removed.push(self.shapes.remove(index));
+            }
+        }
+        removed
     }
 
     /// 用编辑后的图元替换指定索引；越界返回 false。

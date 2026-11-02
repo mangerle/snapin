@@ -1,244 +1,10 @@
-//! 工具栏按钮动作、笔触粗细与颜色选项数据契约。
+//! 工具栏按钮动作、工具类型与二级属性选项的统一导出入口。
 
-use snapin_core::annotation::{ArrowStyle, BadgeStyle, LineStyle};
-use tiny_skia::Color;
+mod options;
+mod tools;
 
-/// 可激活的标注工具。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Tool {
-    /// 矩形或椭圆标注
-    Rect,
-    /// 椭圆标注
-    Ellipse,
-    /// 箭头标注
-    Arrow,
-    /// 自由画笔
-    Pen,
-    /// 荧光记号笔
-    Marker,
-    /// 文本输入
-    Text,
-    /// 步骤数字序号气泡
-    Badge,
-    /// 马赛克打码
-    Mosaic,
-    /// 局部高斯模糊遮挡
-    Blur,
-    /// 聚光灯遮罩
-    Spotlight,
-}
-
-/// 工具栏工具的描述元数据。
-///
-/// 二级属性栏控件组合、主栏几何入口、文字字号与聚光灯强度等差异集中在此，
-/// 布局、命中与渲染不再各自维护工具特例。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ToolDescriptor {
-    /// 工具标识
-    pub tool: Tool,
-    /// 主栏是否作为矩形/椭圆几何入口显示
-    pub geometric_slot: bool,
-    /// 是否提供二级属性栏
-    pub has_sub_bar: bool,
-    /// 是否提供笔触或遮挡尺寸控件
-    pub stroke_width: bool,
-    /// 是否提供矩形/椭圆形状切换
-    pub shape_controls: bool,
-    /// 是否提供圆角半径控件
-    pub corner_radius: bool,
-    /// 是否提供线型控件
-    pub line_style: bool,
-    /// 是否提供填充开关
-    pub fill_toggle: bool,
-    /// 是否提供序号底板样式
-    pub badge_style: bool,
-    /// 是否提供箭头样式
-    pub arrow_style: bool,
-    /// 是否提供预设调色板
-    pub color_palette: bool,
-    /// 是否提供智能打码入口
-    pub smart_redact: bool,
-    /// 是否提供字号控件
-    pub font_size: bool,
-    /// 是否提供聚光灯强度控件
-    pub spotlight_intensity: bool,
-}
-
-/// 工具描述表；新增工具时在此补齐一条并同步图标。
-///
-/// 主栏按钮顺序仍由截图/贴图各自的显式序列维护：两套工具栏的动作集合不同，
-/// 直接由描述表推导会迫使动作也进入工具模型，反而把命令与工具耦合得更紧。
-/// 描述表负责控件组合与几何入口等行为差异，按钮顺序作为可见 UX 契约显式列出。
-pub const TOOL_DESCRIPTORS: &[ToolDescriptor] = &[
-    ToolDescriptor {
-        tool: Tool::Rect,
-        geometric_slot: true,
-        has_sub_bar: true,
-        stroke_width: true,
-        shape_controls: true,
-        corner_radius: true,
-        line_style: true,
-        fill_toggle: true,
-        badge_style: false,
-        arrow_style: false,
-        color_palette: true,
-        smart_redact: false,
-        font_size: false,
-        spotlight_intensity: false,
-    },
-    ToolDescriptor {
-        tool: Tool::Ellipse,
-        geometric_slot: true,
-        has_sub_bar: true,
-        stroke_width: true,
-        shape_controls: true,
-        corner_radius: false,
-        line_style: true,
-        fill_toggle: true,
-        badge_style: false,
-        arrow_style: false,
-        color_palette: true,
-        smart_redact: false,
-        font_size: false,
-        spotlight_intensity: false,
-    },
-    ToolDescriptor {
-        tool: Tool::Arrow,
-        geometric_slot: false,
-        has_sub_bar: true,
-        stroke_width: true,
-        shape_controls: false,
-        corner_radius: false,
-        line_style: false,
-        fill_toggle: false,
-        badge_style: false,
-        arrow_style: true,
-        color_palette: true,
-        smart_redact: false,
-        font_size: false,
-        spotlight_intensity: false,
-    },
-    ToolDescriptor {
-        tool: Tool::Pen,
-        geometric_slot: false,
-        has_sub_bar: true,
-        stroke_width: true,
-        shape_controls: false,
-        corner_radius: false,
-        line_style: false,
-        fill_toggle: false,
-        badge_style: false,
-        arrow_style: false,
-        color_palette: true,
-        smart_redact: false,
-        font_size: false,
-        spotlight_intensity: false,
-    },
-    ToolDescriptor {
-        tool: Tool::Marker,
-        geometric_slot: false,
-        has_sub_bar: true,
-        stroke_width: true,
-        shape_controls: false,
-        corner_radius: false,
-        line_style: false,
-        fill_toggle: false,
-        badge_style: false,
-        arrow_style: false,
-        color_palette: true,
-        smart_redact: false,
-        font_size: false,
-        spotlight_intensity: false,
-    },
-    ToolDescriptor {
-        tool: Tool::Text,
-        geometric_slot: false,
-        has_sub_bar: true,
-        stroke_width: false,
-        shape_controls: false,
-        corner_radius: false,
-        line_style: false,
-        fill_toggle: false,
-        badge_style: false,
-        arrow_style: false,
-        color_palette: true,
-        smart_redact: false,
-        font_size: true,
-        spotlight_intensity: false,
-    },
-    ToolDescriptor {
-        tool: Tool::Badge,
-        geometric_slot: false,
-        has_sub_bar: true,
-        stroke_width: true,
-        shape_controls: false,
-        corner_radius: false,
-        line_style: false,
-        fill_toggle: false,
-        badge_style: true,
-        arrow_style: false,
-        color_palette: true,
-        smart_redact: false,
-        font_size: false,
-        spotlight_intensity: false,
-    },
-    ToolDescriptor {
-        tool: Tool::Mosaic,
-        geometric_slot: false,
-        has_sub_bar: true,
-        stroke_width: true,
-        shape_controls: false,
-        corner_radius: false,
-        line_style: false,
-        fill_toggle: false,
-        badge_style: false,
-        arrow_style: false,
-        color_palette: false,
-        smart_redact: true,
-        font_size: false,
-        spotlight_intensity: false,
-    },
-    ToolDescriptor {
-        tool: Tool::Blur,
-        geometric_slot: false,
-        has_sub_bar: true,
-        stroke_width: true,
-        shape_controls: false,
-        corner_radius: false,
-        line_style: false,
-        fill_toggle: false,
-        badge_style: false,
-        arrow_style: false,
-        color_palette: false,
-        smart_redact: false,
-        font_size: false,
-        spotlight_intensity: false,
-    },
-    ToolDescriptor {
-        tool: Tool::Spotlight,
-        geometric_slot: false,
-        has_sub_bar: true,
-        stroke_width: false,
-        shape_controls: false,
-        corner_radius: false,
-        line_style: false,
-        fill_toggle: false,
-        badge_style: false,
-        arrow_style: false,
-        color_palette: false,
-        smart_redact: false,
-        font_size: false,
-        spotlight_intensity: true,
-    },
-];
-
-/// 按工具查找描述元数据；表必须覆盖全部工具。
-pub fn tool_descriptor(tool: Tool) -> &'static ToolDescriptor {
-    TOOL_DESCRIPTORS
-        .iter()
-        .find(|descriptor| descriptor.tool == tool)
-        .expect("工具描述表必须覆盖全部 Tool 变体")
-}
+pub use options::*;
+pub use tools::*;
 
 /// 工具栏一次性命令动作。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -263,6 +29,8 @@ pub enum ToolbarAction {
     Copy,
     /// 保存为图片文件
     Save,
+    /// 一键清空全部标注
+    ClearAnnotations,
     /// 取消并关闭截图
     Close,
 }
@@ -320,12 +88,15 @@ impl Tool {
             Self::Ellipse => "椭圆",
             Self::Arrow => "箭头",
             Self::Pen => "画笔",
+            Self::Line => "直线与折线",
             Self::Marker => "荧光笔",
             Self::Text => "文字",
-            Self::Badge => "序号",
-            Self::Mosaic => "马赛克与智能打码",
+            Self::Badge => "序号注释",
+            Self::Mosaic => "马赛克、模糊与智能打码",
             Self::Blur => "模糊",
             Self::Spotlight => "聚光灯",
+            Self::Magnifier => "放大镜",
+            Self::Eraser => "橡皮擦",
         })
     }
 }
@@ -344,6 +115,7 @@ impl ToolbarAction {
             Self::Pin => "贴图置顶",
             Self::Copy => "复制",
             Self::Save => "保存",
+            Self::ClearAnnotations => "清空标注",
             Self::Close => "关闭",
         })
     }
@@ -364,98 +136,9 @@ impl ToolbarAction {
             Self::Copy => Some("Ctrl+C"),
             Self::Save => Some("Ctrl+S"),
             Self::Close => Some("Esc"),
-            Self::MouseThrough => None,
+            Self::MouseThrough | Self::ClearAnnotations => None,
         }
     }
-}
-
-/// 笔刷粗细预设档位
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StrokeWidthLevel {
-    /// 细 (2px)
-    Thin,
-    /// 中 (4px)
-    Medium,
-    /// 粗 (8px)
-    Thick,
-}
-
-impl StrokeWidthLevel {
-    /// 获取实际像素数值
-    pub fn to_pixel(self) -> f32 {
-        match self {
-            Self::Thin => 2.0,
-            Self::Medium => 4.0,
-            Self::Thick => 8.0,
-        }
-    }
-}
-
-/// 圆角半径预设档位（像素），顺序与圆角下拉菜单一致
-pub const CORNER_RADIUS_PRESETS: &[f32] = &[0.0, 6.0, 12.0, 20.0];
-
-/// 文字字号预设（像素），顺序与字号下拉菜单一致。
-pub const FONT_SIZE_PRESETS: &[f32] = &[12.0, 16.0, 20.0, 24.0, 32.0, 48.0];
-
-/// 二级属性栏选项
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct SubToolOptions {
-    /// 预设笔触粗细档位
-    pub stroke_width: StrokeWidthLevel,
-    /// 自由连续笔触粗细 (像素值，受鼠标滚轮连续动态微调，范围 1.0 ~ 50.0)
-    pub custom_stroke_width: f32,
-    /// 当前前景色 RGBA [0.0, 1.0]
-    pub color: Color,
-    /// 字体大小 (用于文本标注，受鼠标滚轮连续动态微调，范围 12.0 ~ 72.0)
-    pub font_size: f32,
-    /// 矩形/椭圆的描边线型
-    pub line_style: LineStyle,
-    /// 矩形/椭圆是否填充当前颜色（否则只描边）
-    pub filled: bool,
-    /// 矩形圆角半径（像素），在二级栏圆角控件上滚动鼠标滚轮连续调节
-    pub corner_radius: f32,
-    /// 序号底板样式
-    pub badge_style: BadgeStyle,
-    /// 箭头形态样式
-    pub arrow_style: ArrowStyle,
-    /// 聚光灯压暗强度（RGBA alpha）
-    pub spotlight_intensity: u8,
-}
-
-impl Default for SubToolOptions {
-    fn default() -> Self {
-        Self {
-            stroke_width: StrokeWidthLevel::Medium,
-            custom_stroke_width: 4.0,
-            color: Color::from_rgba8(239, 68, 68, 255), // 默认红色
-            font_size: 20.0,
-            line_style: LineStyle::Solid,
-            filled: false,
-            corner_radius: 0.0,
-            badge_style: BadgeStyle::Filled,
-            arrow_style: ArrowStyle::Tapered,
-            spotlight_intensity: 160,
-        }
-    }
-}
-
-impl SubToolOptions {
-    /// 获取当前生效的笔触粗细像素值
-    pub fn current_stroke_width(&self) -> f32 {
-        self.custom_stroke_width
-    }
-}
-
-/// 获取预设调色板列表 (红、橙黄、绿、蓝、白、黑)
-pub fn preset_colors() -> [Color; 6] {
-    [
-        Color::from_rgba8(239, 68, 68, 255),   // 红
-        Color::from_rgba8(245, 158, 11, 255),  // 橙黄
-        Color::from_rgba8(16, 185, 129, 255),  // 绿
-        Color::from_rgba8(59, 130, 246, 255),  // 蓝
-        Color::from_rgba8(255, 255, 255, 255), // 白
-        Color::from_rgba8(24, 24, 27, 255),    // 黑
-    ]
 }
 
 #[cfg(test)]
@@ -485,12 +168,15 @@ mod tests {
             Tool::Ellipse,
             Tool::Arrow,
             Tool::Pen,
+            Tool::Line,
             Tool::Marker,
             Tool::Text,
             Tool::Badge,
             Tool::Mosaic,
             Tool::Blur,
             Tool::Spotlight,
+            Tool::Magnifier,
+            Tool::Eraser,
         ];
         assert_eq!(TOOL_DESCRIPTORS.len(), tools.len());
         for tool in tools {
@@ -506,6 +192,8 @@ mod tests {
         assert!(!tool_descriptor(Tool::Blur).color_palette);
         assert!(tool_descriptor(Tool::Badge).badge_style);
         assert!(tool_descriptor(Tool::Arrow).arrow_style);
+        assert!(tool_descriptor(Tool::Magnifier).magnifier_options);
+        assert!(tool_descriptor(Tool::Eraser).eraser_mode);
     }
 
     /// 主栏必须同时包含可激活工具与一次性动作，且动作不会成为激活态。
@@ -519,7 +207,7 @@ mod tests {
             .iter()
             .filter(|item| matches!(item, ToolbarItem::Action(_)))
             .count();
-        assert_eq!(tool_count, 9);
+        assert_eq!(tool_count, 11);
         assert_eq!(action_count, 9);
 
         let text_index = crate::editor::toolbar::Toolbar::MAIN_ITEMS
@@ -552,6 +240,8 @@ mod tests {
             Tool::Mosaic,
             Tool::Blur,
             Tool::Spotlight,
+            Tool::Magnifier,
+            Tool::Eraser,
         ];
         for tool in tools {
             assert!(!tool.label().is_empty(), "{tool:?} 必须有中文名称");

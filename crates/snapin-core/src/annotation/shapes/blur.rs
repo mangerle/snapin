@@ -7,7 +7,10 @@ use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect, SizeParam
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use tiny_skia::PixmapMut;
+use tiny_skia::{
+    LineCap, LineJoin, Mask, MaskType, Paint, PathBuilder, Pixmap, PixmapMut, PixmapPaint, Stroke,
+    Transform,
+};
 
 /// 模糊绘制复用缓冲，避免每次撤销/重做都分配四份区域大小的像素内存。
 #[derive(Default)]
@@ -28,10 +31,20 @@ pub struct BlurAction {
     pub rect: (f32, f32, f32, f32),
     /// 模糊半径（像素），实际计算时夹取到 1..=50
     pub radius: u32,
+    /// 画笔模式轨迹；为空时按矩形区域处理。
+    #[serde(default)]
+    pub points: Vec<(f32, f32)>,
+    /// 画笔模式直径。
+    #[serde(default)]
+    pub brush_width: f32,
 }
 
 impl BlurAction {
     pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
+        if !self.points.is_empty() {
+            self.draw_brush_offset(pixmap, offset_x, offset_y);
+            return;
+        }
         let (rx, ry, rw, rh) = self.rect;
         let left = (rx + offset_x).max(0.0).floor() as usize;
         let top = (ry + offset_y).max(0.0).floor() as usize;
@@ -83,9 +96,116 @@ impl BlurAction {
         });
     }
 
+    fn draw_brush_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
+        let (rx, ry, rw, rh) = self.rect;
+        let canvas_width = pixmap.width() as f32;
+        let canvas_height = pixmap.height() as f32;
+        let left = (rx + offset_x).max(0.0).floor() as usize;
+        let top = (ry + offset_y).max(0.0).floor() as usize;
+        let right =
+            ((rx + rw + offset_x).min(canvas_width).ceil() as usize).min(pixmap.width() as usize);
+        let bottom =
+            ((ry + rh + offset_y).min(canvas_height).ceil() as usize).min(pixmap.height() as usize);
+        let width = right.saturating_sub(left);
+        let height = bottom.saturating_sub(top);
+        if width == 0 || height == 0 {
+            return;
+        }
+
+        let Some(mut effect_pixmap) = Pixmap::new(width as u32, height as u32) else {
+            return;
+        };
+        let source_stride = pixmap.width() as usize * 4;
+        let target_stride = width * 4;
+        let source_data = pixmap.data_mut();
+        let target_data = effect_pixmap.data_mut();
+        for row in 0..height {
+            let source_start = (top + row) * source_stride + left * 4;
+            let target_start = row * target_stride;
+            target_data[target_start..target_start + target_stride]
+                .copy_from_slice(&source_data[source_start..source_start + target_stride]);
+        }
+
+        BLUR_SCRATCH.with(|cell| {
+            let mut scratch = cell.borrow_mut();
+            let BlurScratch {
+                region,
+                blurred,
+                current,
+                scratch: work,
+            } = &mut *scratch;
+            region.clear();
+            region.extend_from_slice(target_data);
+            blurred.clear();
+            blurred.resize(region.len(), 0);
+            box_blur_rgba_with_scratch(
+                region,
+                blurred,
+                width,
+                height,
+                self.radius.clamp(1, 50) as usize,
+                current,
+                work,
+            );
+            target_data.copy_from_slice(blurred);
+        });
+
+        let Some(mask) = self.build_brush_mask(pixmap.width(), pixmap.height(), offset_x, offset_y)
+        else {
+            return;
+        };
+        pixmap.draw_pixmap(
+            left as i32,
+            top as i32,
+            effect_pixmap.as_ref(),
+            &PixmapPaint::default(),
+            Transform::identity(),
+            Some(&mask),
+        );
+    }
+
+    fn build_brush_mask(
+        &self,
+        width: u32,
+        height: u32,
+        offset_x: f32,
+        offset_y: f32,
+    ) -> Option<Mask> {
+        let mut mask_pixmap = Pixmap::new(width, height)?;
+        let mut paint = Paint::default();
+        paint.set_color(tiny_skia::Color::WHITE);
+        if self.points.len() == 1 {
+            let point = self.points[0];
+            let radius = self.brush_width.max(1.0) / 2.0;
+            let rect = tiny_skia::Rect::from_xywh(
+                point.0 + offset_x - radius,
+                point.1 + offset_y - radius,
+                radius * 2.0,
+                radius * 2.0,
+            )?;
+            mask_pixmap.fill_rect(rect, &paint, Transform::identity(), None);
+        } else {
+            let mut builder = PathBuilder::new();
+            builder.move_to(self.points[0].0 + offset_x, self.points[0].1 + offset_y);
+            for point in &self.points[1..] {
+                builder.line_to(point.0 + offset_x, point.1 + offset_y);
+            }
+            let path = builder.finish()?;
+            let stroke = Stroke {
+                width: self.brush_width.max(1.0),
+                line_cap: LineCap::Round,
+                line_join: LineJoin::Round,
+                ..Default::default()
+            };
+            mask_pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+        }
+        Some(Mask::from_pixmap(mask_pixmap.as_ref(), MaskType::Alpha))
+    }
+
     pub(crate) fn adjust_size(&mut self, param: SizeParam) {
         if let SizeParam::Stroke(width) = param {
             self.radius = (width * 2.0).clamp(4.0, 50.0) as u32;
+            self.brush_width = width.max(1.0);
         }
     }
 
@@ -96,10 +216,17 @@ impl BlurAction {
     pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
         self.rect.0 += dx;
         self.rect.1 += dy;
+        for point in &mut self.points {
+            point.0 += dx;
+            point.1 += dy;
+        }
     }
 
     pub(crate) fn resize_from_bounds(&mut self, from: Rect, to: Rect) {
         self.rect = tuple_from_rect(resize_rect(from, to, rect_from_tuple(self.rect)));
+        for point in &mut self.points {
+            *point = super::map_point(from, to, *point);
+        }
     }
 }
 

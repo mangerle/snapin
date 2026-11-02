@@ -61,6 +61,11 @@ pub fn dispatch_toolbar_action(
             state.outcome = Some(SnipperOutcome::Cancelled);
             true
         }
+        ToolbarAction::ClearAnnotations => {
+            state.annotations.clear();
+            state.selected_annotation = None;
+            true
+        }
     }
 }
 
@@ -76,8 +81,10 @@ pub fn handle_text_tool_click(state: &mut SnipperState, cx: f32, cy: f32) -> boo
                 (c.blue() * 255.0).round() as u8,
                 (c.alpha() * 255.0).round() as u8,
             );
-            let font_sz = state.toolbar.sub_options.font_size;
-            state.active_text_input = Some(TextInputSession::new((cx, cy), rgba, font_sz));
+            let mut session =
+                TextInputSession::new((cx, cy), rgba, state.toolbar.sub_options.font_size);
+            session.apply_toolbar_options(&state.toolbar.sub_options);
+            state.active_text_input = Some(session);
             return true;
         }
     }

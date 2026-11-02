@@ -9,7 +9,7 @@ use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::window::annotation_builder::{render_draft_preview, AnnotationDraftParams};
 use crate::snipper::window::ocr_panel::OcrPanelState;
-use crate::snipper::window::redaction::RedactionPreview;
+use crate::snipper::window::redaction::{is_redaction_applied, RedactionPreview};
 use crate::status_badge;
 use image::RgbaImage;
 use snapin_core::annotation::AnnotationHistory;
@@ -50,7 +50,7 @@ pub struct SnipperCanvas<'a> {
     pub status_message: Option<&'a str>,
     /// 当前选中的已提交标注编辑框
     pub selected_annotation: Option<SelectedAnnotation>,
-    /// 智能打码待确认区域
+    /// 智能打码可点击文字区域
     pub redaction_preview: Option<&'a RedactionPreview>,
     /// 最近一次二维码识别结果的包围盒
     pub qr_codes: Option<&'a [QrCodeItem]>,
@@ -103,6 +103,8 @@ impl<'a> SnipperCanvas<'a> {
                 }
 
                 self.render_detection_previews(pixmap);
+
+                self.render_active_brush_cursor(pixmap, &r);
 
                 self.render_selection_borders_and_handles(pixmap, &r);
 
@@ -253,16 +255,14 @@ impl<'a> SnipperCanvas<'a> {
         });
     }
 
-    /// 绘制智能打码与二维码识别预览框。
+    /// 绘制智能打码区域边界与二维码识别预览框。
     ///
-    /// 预览不写入标注历史，只有智能打码确认后才生成真实遮挡图元；二维码框仅用于
-    /// 告诉用户系统发现了哪些区域，不改变最终截图内容。
+    /// 智能打码在 OCR 完成时已经把真实马赛克写入标注历史，这里只绘制可点击区域边界，
+    /// 不再叠加半透明色块，确保用户看到的就是最终马赛克效果；二维码框仅用于提示区域。
     fn render_detection_previews(&self, pixmap: &mut PixmapMut) {
         let s = self.ui_scale;
         if let Some(preview) = self.redaction_preview {
             let (r, g, b) = self.accent_color;
-            let mut fill = Paint::default();
-            fill.set_color_rgba8(r, g, b, 36);
             let mut stroke_paint = Paint::default();
             stroke_paint.set_color_rgba8(r, g, b, 255);
             let stroke = Stroke {
@@ -270,18 +270,31 @@ impl<'a> SnipperCanvas<'a> {
                 dash: StrokeDash::new(vec![6.0 * s, 4.0 * s], 0.0),
                 ..Default::default()
             };
+            let mut excluded_stroke_paint = Paint::default();
+            excluded_stroke_paint.set_color_rgba8(148, 163, 184, 230);
+            let excluded_stroke = Stroke {
+                width: (1.2 * s).max(1.0),
+                dash: StrokeDash::new(vec![3.0 * s, 3.0 * s], 0.0),
+                ..Default::default()
+            };
             for rect in &preview.regions {
                 if let Some(skia_rect) =
                     SkiaRect::from_xywh(rect.x, rect.y, rect.width, rect.height)
                 {
-                    pixmap.fill_rect(skia_rect, &fill, Transform::identity(), None);
+                    let applied = self
+                        .annotations
+                        .is_some_and(|annotations| is_redaction_applied(annotations, *rect));
                     let mut pb = PathBuilder::new();
                     pb.push_rect(skia_rect);
                     if let Some(path) = pb.finish() {
                         pixmap.stroke_path(
                             &path,
-                            &stroke_paint,
-                            &stroke,
+                            if applied {
+                                &stroke_paint
+                            } else {
+                                &excluded_stroke_paint
+                            },
+                            if applied { &stroke } else { &excluded_stroke },
                             Transform::identity(),
                             None,
                         );
@@ -310,6 +323,58 @@ impl<'a> SnipperCanvas<'a> {
                 }
             }
         }
+    }
+
+    /// 马赛克或橡皮擦画笔模式在光标位置绘制实际大小的圆形笔刷轮廓。
+    fn render_active_brush_cursor(&self, pixmap: &mut PixmapMut, selection: &Rect) {
+        let Some(toolbar) = self.toolbar else {
+            return;
+        };
+        let cursor = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
+        if !self.cursor_ready
+            || !selection.contains(cursor.0, cursor.1)
+            || toolbar.contains_point(cursor.0, cursor.1)
+        {
+            return;
+        }
+        let is_brush = match toolbar.active_tool {
+            Some(Tool::Mosaic) => toolbar.sub_options.mosaic_brush_mode,
+            Some(Tool::Eraser) => !toolbar.sub_options.eraser_rectangle_mode,
+            _ => false,
+        };
+        if !is_brush {
+            return;
+        }
+        let radius = (toolbar.sub_options.custom_stroke_width * 0.5 * self.ui_scale).max(2.0);
+        let mut builder = PathBuilder::new();
+        builder.push_circle(cursor.0, cursor.1, radius);
+        let Some(path) = builder.finish() else {
+            return;
+        };
+        let mut outline = Paint::default();
+        outline.set_color_rgba8(15, 23, 42, 220);
+        pixmap.stroke_path(
+            &path,
+            &outline,
+            &Stroke {
+                width: 3.0 * self.ui_scale,
+                ..Default::default()
+            },
+            Transform::identity(),
+            None,
+        );
+        let mut inner = Paint::default();
+        inner.set_color_rgba8(255, 255, 255, 240);
+        pixmap.stroke_path(
+            &path,
+            &inner,
+            &Stroke {
+                width: 1.4 * self.ui_scale,
+                ..Default::default()
+            },
+            Transform::identity(),
+            None,
+        );
     }
 
     /// 绘制空闲态的光标覆盖层：悬停窗口高亮与像素放大镜。

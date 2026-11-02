@@ -4,8 +4,10 @@
 //! 各子模块只读取 [`Toolbar`] 的布局结果，不修改状态。
 
 mod dropdown;
+mod magnifier_controls;
 mod main_bar;
 mod sub_bar;
+mod sub_bar_helpers;
 mod tooltip;
 mod widgets;
 

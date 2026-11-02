@@ -8,4 +8,7 @@ pub mod text;
 
 pub use beautify::{render_beautified, BeautifyBackground, BeautifyOptions, SocialSize};
 pub use layout::CenteredTextOptions;
-pub use text::{with_thread_local_text_renderer, TextBoxOptions, TextRenderer};
+pub use text::{
+    with_thread_local_text_renderer, StyledTextDrawOptions, TextBoxOptions, TextRenderer,
+    TextStyleOptions,
+};

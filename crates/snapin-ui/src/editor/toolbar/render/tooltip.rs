@@ -4,6 +4,7 @@
 //! 靠近画布底部时自动翻转到按钮上方，水平方向夹取在画布内，保证始终完整可见。
 
 use super::super::items::ToolbarItem;
+use super::super::layout::SubControl;
 use super::super::Toolbar;
 use crate::drawing::add_round_rect;
 use crate::geometry::Rect;
@@ -46,23 +47,92 @@ pub(super) struct TooltipLayout {
 
 /// 绘制悬浮提示；未悬停任何按钮时不做任何事。
 pub(super) fn render_hover_tooltip(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
-    let Some(hovered) = toolbar.hovered_item else {
+    let Some((message, button_rect)) = tooltip_target(toolbar) else {
         return;
     };
-    let Some(button_rect) = button_rect(toolbar, hovered) else {
-        return;
-    };
-    let message = compose_message(toolbar.displayed_item(hovered), toolbar.show_shortcut_hints);
+    let prefer_above = toolbar
+        .sub_rect
+        .is_some_and(|sub_rect| sub_rect.y < toolbar.main_rect.y);
     let Some(layout) = layout(
         &message,
         &button_rect,
         toolbar.ui_scale,
         pixmap.width() as f32,
         pixmap.height() as f32,
+        prefer_above,
     ) else {
         return;
     };
     draw(pixmap, &message, &layout);
+}
+
+/// 解析当前悬浮目标及其提示文本；主栏优先，其次为二级属性控件。
+fn tooltip_target(toolbar: &Toolbar) -> Option<(String, Rect)> {
+    if let Some(hovered) = toolbar.hovered_item {
+        let rect = button_rect(toolbar, hovered)?;
+        let message = compose_message(toolbar.displayed_item(hovered), toolbar.show_shortcut_hints);
+        return Some((message, rect));
+    }
+    let control = toolbar.hovered_sub_control?;
+    let rect = sub_control_rect(toolbar, control)?;
+    Some((sub_control_message(toolbar, control), rect))
+}
+
+/// 组合二级控件提示；数值和箭头控件附带当前选择值。
+fn sub_control_message(toolbar: &Toolbar, control: SubControl) -> String {
+    let label = snapin_core::i18n::tr(control.label_for_tool(toolbar.active_tool));
+    match control {
+        SubControl::Size => format!("{label}：{:.0}", toolbar.sub_options.custom_stroke_width),
+        SubControl::EffectStrength => format!("{label}：{}", toolbar.sub_options.effect_strength),
+        SubControl::CornerRadius => {
+            format!("{label}：{:.0}", toolbar.sub_options.corner_radius)
+        }
+        SubControl::FontSize => format!("{label}：{:.0}", toolbar.sub_options.font_size),
+        SubControl::TextBackgroundOpacity => {
+            format!("{label}：{}%", toolbar.sub_options.text_background_opacity)
+        }
+        SubControl::TextBackgroundPadding => {
+            format!(
+                "{label}：{:.0}",
+                toolbar.sub_options.text_background_padding
+            )
+        }
+        SubControl::TextBackgroundCornerRadius => format!(
+            "{label}：{:.0}",
+            toolbar.sub_options.text_background_corner_radius
+        ),
+        SubControl::SpotlightOpacity => format!(
+            "{label}：{}%",
+            (u16::from(toolbar.sub_options.spotlight_intensity) * 100 / 255) as u8
+        ),
+        SubControl::MagnifierScale => {
+            format!("{label}：{:.1}x", toolbar.sub_options.magnifier_scale)
+        }
+        SubControl::StartArrow => format!(
+            "{label}：{}",
+            snapin_core::i18n::tr(toolbar.sub_options.start_arrow_head.label())
+        ),
+        SubControl::EndArrow => format!(
+            "{label}：{}",
+            snapin_core::i18n::tr(toolbar.sub_options.end_arrow_head.label())
+        ),
+        SubControl::BadgeSequence => {
+            format!("{label}：{}", toolbar.sub_options.badge_sequence.label(1))
+        }
+        SubControl::MarkerShape => format!(
+            "{label}：{}",
+            snapin_core::i18n::tr(toolbar.sub_options.marker_shape.label())
+        ),
+        SubControl::MarkerBlendMode => format!(
+            "{label}：{}",
+            snapin_core::i18n::tr(toolbar.sub_options.marker_blend_mode.label())
+        ),
+        SubControl::MosaicMode => format!(
+            "{label}：{}",
+            snapin_core::i18n::tr(toolbar.sub_options.mosaic_mode.label())
+        ),
+        _ => label.to_string(),
+    }
 }
 
 /// 查找悬浮按钮在主栏中的矩形。
@@ -74,6 +144,11 @@ fn button_rect(toolbar: &Toolbar, hovered: ToolbarItem) -> Option<Rect> {
     )
     .into_iter()
     .find_map(|(item, rect)| (item == hovered).then_some(rect))
+}
+
+/// 查找悬浮二级控件的热区。
+fn sub_control_rect(toolbar: &Toolbar, control: SubControl) -> Option<Rect> {
+    toolbar.sub_layout()?.rect_of(control)
 }
 
 /// 组合提示文本：名称 +（可选的）快捷键。
@@ -92,6 +167,7 @@ fn layout(
     ui_scale: f32,
     screen_w: f32,
     screen_h: f32,
+    prefer_above: bool,
 ) -> Option<TooltipLayout> {
     let scale = ui_scale.max(0.1);
     let font_size = (FONT_SIZE * scale).max(9.0);
@@ -121,7 +197,11 @@ fn layout(
 
     let below = button_rect.y + button_rect.height + gap;
     let above = button_rect.y - height - gap;
-    let y = if below + height <= screen_h - margin {
+    let can_show_above = above >= margin;
+    let can_show_below = below + height <= screen_h - margin;
+    let y = if prefer_above && can_show_above {
+        above
+    } else if can_show_below {
         below
     } else {
         above.max(margin)
@@ -198,7 +278,7 @@ mod tests {
     #[test]
     fn test_layout_places_tooltip_below_button() {
         let layout =
-            layout("撤销  Ctrl+Z", &button(), 1.0, 800.0, 600.0).expect("提示文本应可测量");
+            layout("撤销  Ctrl+Z", &button(), 1.0, 800.0, 600.0, false).expect("提示文本应可测量");
         assert!(layout.y > button().y + button().height);
         let button_center = button().x + button().width / 2.0;
         let tooltip_center = layout.x + layout.width / 2.0;
@@ -214,7 +294,8 @@ mod tests {
             width: 32.0,
             height: 32.0,
         };
-        let layout = layout("保存  Ctrl+S", &low, 1.0, 800.0, 600.0).expect("提示文本应可测量");
+        let layout =
+            layout("保存  Ctrl+S", &low, 1.0, 800.0, 600.0, false).expect("提示文本应可测量");
         assert!(layout.y + layout.height <= low.y);
     }
 
@@ -257,5 +338,45 @@ mod tests {
         let has_pixel_below = (54..200)
             .any(|y| (0..400).any(|x| pixmap.pixel(x, y).is_some_and(|pixel| pixel.alpha() > 0)));
         assert!(has_pixel_below, "按钮下方应绘制悬浮提示");
+    }
+
+    /// 矩形与序号二级栏控件都必须解析出各自的悬浮提示文本。
+    #[test]
+    fn test_sub_controls_resolve_tooltips_for_rect_and_badge() {
+        let selection = Rect {
+            x: 100.0,
+            y: 100.0,
+            width: 500.0,
+            height: 300.0,
+        };
+        let mut rect_toolbar = Toolbar {
+            active_tool: Some(super::super::super::items::Tool::Rect),
+            ..Toolbar::default()
+        };
+        rect_toolbar.update_layout(&selection, 1920.0, 1080.0);
+        let size = rect_toolbar
+            .sub_layout()
+            .and_then(|layout| layout.rect_of(SubControl::Size))
+            .expect("矩形二级栏应包含尺寸控件");
+        rect_toolbar.handle_mouse_move(size.x + 2.0, size.y + 2.0);
+        assert_eq!(
+            tooltip_target(&rect_toolbar).map(|(message, _)| message),
+            Some("粗细：4".to_string())
+        );
+
+        let mut badge_toolbar = Toolbar {
+            active_tool: Some(super::super::super::items::Tool::Badge),
+            ..Toolbar::default()
+        };
+        badge_toolbar.update_layout(&selection, 1920.0, 1080.0);
+        let badge_size = badge_toolbar
+            .sub_layout()
+            .and_then(|layout| layout.rect_of(SubControl::Size))
+            .expect("序号二级栏应包含大小控件");
+        badge_toolbar.handle_mouse_move(badge_size.x + 2.0, badge_size.y + 2.0);
+        assert_eq!(
+            tooltip_target(&badge_toolbar).map(|(message, _)| message),
+            Some("序号大小：4".to_string())
+        );
     }
 }

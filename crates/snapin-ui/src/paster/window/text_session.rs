@@ -34,9 +34,10 @@ impl PasterWindowState {
 
         self.commit_text_session();
         let color = color_to_rgba(self.interaction.toolbar.sub_options.color);
-        let font_size = self.interaction.toolbar.sub_options.font_size;
         let pos = self.image_point(screen_pos);
-        self.interaction.active_text_input = Some(TextInputSession::new(pos, color, font_size));
+        let mut session = TextInputSession::new(pos, color, 16.0);
+        session.apply_toolbar_options(&self.interaction.toolbar.sub_options);
+        self.interaction.active_text_input = Some(session);
         true
     }
 
@@ -221,6 +222,15 @@ mod tests {
             original.as_slice(),
             "撤销后必须精确恢复底图"
         );
+    }
+
+    /// 序号工具不进入文字输入会话，应由普通笔触路径直接放置序号图元。
+    #[test]
+    fn 序号工具不开启文字输入会话() {
+        let mut state = text_state(200, 100);
+        state.interaction.toolbar.active_tool = Some(Tool::Badge);
+        assert!(!state.begin_text_session((20.0, 30.0)));
+        assert!(state.interaction.active_text_input.is_none());
     }
 
     /// 取消会话不写入图像、不产生历史

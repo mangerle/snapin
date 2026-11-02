@@ -1,8 +1,34 @@
 //! 工具栏整体状态、默认值与截图主栏按钮序列。
 
 use super::items::{tool_descriptor, SubToolOptions, Tool, ToolbarAction, ToolbarItem};
-use super::layout::{SubDropdown, SubLayout};
+use super::layout::{SubControl, SubDropdown, SubLayout};
 use crate::geometry::Rect;
+use std::sync::Mutex;
+
+/// 连续截图之间复用的标注工具栏选项；仅在用户开启记忆开关时写入。
+static REMEMBERED_SUB_OPTIONS: Mutex<Option<SubToolOptions>> = Mutex::new(None);
+
+/// 读取上次截图的工具栏选项。
+pub(crate) fn remembered_sub_options() -> Option<SubToolOptions> {
+    REMEMBERED_SUB_OPTIONS
+        .lock()
+        .ok()
+        .and_then(|options| *options)
+}
+
+/// 保存当前工具栏选项，供下一次截图恢复。
+pub(crate) fn store_remembered_sub_options(options: SubToolOptions) {
+    if let Ok(mut remembered) = REMEMBERED_SUB_OPTIONS.lock() {
+        *remembered = Some(options);
+    }
+}
+
+/// 清除跨截图工具栏选项。
+pub(crate) fn clear_remembered_sub_options() {
+    if let Ok(mut remembered) = REMEMBERED_SUB_OPTIONS.lock() {
+        *remembered = None;
+    }
+}
 
 /// 工具栏整体状态与布局管理器
 #[derive(Debug, Clone)]
@@ -19,6 +45,8 @@ pub struct Toolbar {
     pub active_tool: Option<Tool>,
     /// 当前鼠标悬停的项目
     pub hovered_item: Option<ToolbarItem>,
+    /// 当前鼠标悬停的二级栏控件
+    pub(crate) hovered_sub_control: Option<SubControl>,
     /// 二级属性
     pub sub_options: SubToolOptions,
     /// 主工具栏当前在屏幕上的包围盒
@@ -29,6 +57,8 @@ pub struct Toolbar {
     pub(super) sub_layout: Option<SubLayout>,
     /// 当前展开的下拉菜单
     pub(crate) open_dropdown: Option<SubDropdown>,
+    /// 最近点击的二级栏控件；用于点击后继续用滚轮调节数值
+    pub(super) focused_sub_control: Option<SubControl>,
     /// 下拉菜单当前悬停行
     pub(crate) dropdown_hover: Option<usize>,
     /// 屏幕物理尺寸，用于下拉菜单避让
@@ -47,6 +77,8 @@ pub struct Toolbar {
     /// 截图侧已实现 Ctrl+Z/Ctrl+C 等键位；贴图窗口的键盘绑定不同且更少，
     /// 打开该开关会展示并不存在的快捷键，因此在贴图工具栏中关闭。
     pub show_shortcut_hints: bool,
+    /// 是否将当前标注工具栏选项复用到下一次截图。
+    pub(crate) remember_sub_options: bool,
 }
 
 impl Default for Toolbar {
@@ -56,6 +88,7 @@ impl Default for Toolbar {
             main_items: Self::MAIN_ITEMS,
             active_tool: None,
             hovered_item: None,
+            hovered_sub_control: None,
             sub_options: SubToolOptions::default(),
             main_rect: Rect {
                 x: 0.0,
@@ -66,12 +99,14 @@ impl Default for Toolbar {
             sub_rect: None,
             sub_layout: None,
             open_dropdown: None,
+            focused_sub_control: None,
             dropdown_hover: None,
             screen_size: (0.0, 0.0),
             draggable: false,
             manual_pos: None,
             drag_offset: None,
             show_shortcut_hints: true,
+            remember_sub_options: false,
         }
     }
 }
@@ -83,10 +118,12 @@ impl Toolbar {
         ToolbarItem::Tool(Tool::Badge),
         ToolbarItem::Tool(Tool::Arrow),
         ToolbarItem::Tool(Tool::Pen),
+        ToolbarItem::Tool(Tool::Line),
         ToolbarItem::Tool(Tool::Marker),
         ToolbarItem::Tool(Tool::Mosaic),
-        ToolbarItem::Tool(Tool::Blur),
+        ToolbarItem::Tool(Tool::Magnifier),
         ToolbarItem::Tool(Tool::Spotlight),
+        ToolbarItem::Tool(Tool::Eraser),
         ToolbarItem::Tool(Tool::Text),
         ToolbarItem::Action(ToolbarAction::Qr),
         ToolbarItem::Action(ToolbarAction::Undo),

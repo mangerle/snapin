@@ -6,6 +6,7 @@ export component SnipTab inherits VerticalLayout {
     padding-right: 8px;
 
     in-out property <bool> remember_last_selection: true;
+    in-out property <bool> remember_toolbar_settings: false;
 
     in-out property <int> default_color_index: 0;  // 0: 赤红, 1: 湛蓝, 2: 翠绿, 3: 明黄, 4: 纯白, 5: 墨黑
     in-out property <float> default_stroke_width: 3; // 1 ~ 20 px
@@ -19,6 +20,17 @@ export component SnipTab inherits VerticalLayout {
             title: @tr("记忆并恢复上次截图选区");
             subtitle: @tr("仅在自定义截屏时恢复上次选区；常规截图始终从空白选区开始");
             checked <=> root.remember_last_selection;
+        }
+    }
+
+    SettingCard {
+        title: @tr("工具栏设置记忆");
+        subtitle: @tr("控制本次截图调整的标注工具设置是否沿用到下一次截图");
+
+        AppSwitch {
+            title: @tr("沿用上次标注工具设置");
+            subtitle: @tr("关闭时，每次新截图恢复默认标注设置；默认关闭");
+            checked <=> root.remember_toolbar_settings;
         }
     }
 

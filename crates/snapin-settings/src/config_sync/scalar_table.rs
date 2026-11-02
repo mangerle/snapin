@@ -51,6 +51,7 @@ bool_table! {
     interface.show_grid_lines => set_show_grid_lines / get_show_grid_lines,
     interface.capture_mouse_cursor => set_capture_mouse_cursor / get_capture_mouse_cursor,
     snip.remember_last_selection => set_remember_last_selection / get_remember_last_selection,
+    snip.remember_toolbar_settings => set_remember_toolbar_settings / get_remember_toolbar_settings,
     output.notify_on_copy => set_notify_on_copy / get_notify_on_copy,
     output.notify_on_save => set_notify_on_save / get_notify_on_save,
     output.prompt_save_path => set_prompt_save_path / get_prompt_save_path,

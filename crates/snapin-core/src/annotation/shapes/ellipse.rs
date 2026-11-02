@@ -36,10 +36,9 @@ impl EllipseAction {
                         Transform::identity(),
                         None,
                     );
-                } else {
-                    self.line_style
-                        .stroke_path(pixmap, &path, &paint, self.stroke_width);
                 }
+                self.line_style
+                    .stroke_path(pixmap, &path, &paint, self.stroke_width);
             }
         }
     }

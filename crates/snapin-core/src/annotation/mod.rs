@@ -11,7 +11,9 @@ pub use action::AnnotationShape;
 pub use document::AnnotationDocument;
 pub use history::AnnotationHistory;
 pub use shapes::{
-    ArrowAction, BadgeAction, BlurAction, EllipseAction, MarkerAction, MosaicAction, PenAction,
-    RectAction, SpotlightAction, TextAction, TranslationAction, TranslationShapeItem,
+    ArrowAction, BadgeAction, BlurAction, EllipseAction, MagnifierAction, MagnifierConnector,
+    MagnifierShape, MarkerAction, MarkerBlendMode, MarkerShape, MosaicAction, PenAction,
+    PolylineAction, RectAction, SpotlightAction, SpotlightShape, TextAction, TranslationAction,
+    TranslationShapeItem,
 };
-pub use style::{ArrowStyle, BadgeStyle, ColorRgba, LineStyle};
+pub use style::{ArrowHeadStyle, ArrowStyle, BadgeSequence, BadgeStyle, ColorRgba, LineStyle};

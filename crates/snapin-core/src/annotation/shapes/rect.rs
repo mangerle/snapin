@@ -44,10 +44,9 @@ impl RectAction {
                 Transform::identity(),
                 None,
             );
-        } else {
-            self.line_style
-                .stroke_path(pixmap, &path, &paint, self.stroke_width);
         }
+        self.line_style
+            .stroke_path(pixmap, &path, &paint, self.stroke_width);
     }
 
     pub(crate) fn adjust_size(&mut self, param: SizeParam) {
@@ -57,7 +56,7 @@ impl RectAction {
     }
 
     pub(crate) fn adjust_corner_radius(&mut self, radius: f32) {
-        self.corner_radius = radius.clamp(0.0, 30.0);
+        self.corner_radius = radius.clamp(0.0, 90.0);
     }
 
     pub(crate) fn bounds(&self) -> Option<Rect> {
@@ -78,7 +77,7 @@ impl RectAction {
 ///
 /// tiny-skia 0.11 未提供圆角矩形图元，这里用四段二次贝塞尔手工拼装；
 /// 半径自动收敛到短边一半，半径过大时不会产生自交路径。
-fn rounded_rect_path(x: f32, y: f32, w: f32, h: f32, radius: f32) -> Option<Path> {
+pub(crate) fn rounded_rect_path(x: f32, y: f32, w: f32, h: f32, radius: f32) -> Option<Path> {
     let r = radius.clamp(0.0, (w.min(h) / 2.0).max(0.0));
     let mut pb = PathBuilder::new();
 
@@ -163,5 +162,20 @@ mod tests {
         );
         // 圆角弧线中段仍应着色，确认不是整段描边丢失
         assert!(alpha_at(&rounded, 20, 40) > 0, "圆角左侧弧线应正常描边");
+    }
+
+    /// 参考工具栏提供 90 像素档位，矩形圆角不能再被旧的 30 像素上限截断。
+    #[test]
+    fn test_rect_corner_radius_supports_ninety_pixels() {
+        let mut action = RectAction {
+            rect: (0.0, 0.0, 200.0, 120.0),
+            color: (255, 0, 0, 255).into(),
+            stroke_width: 2.0,
+            is_filled: false,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
+        };
+        action.adjust_corner_radius(90.0);
+        assert_eq!(action.corner_radius, 90.0);
     }
 }

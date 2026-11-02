@@ -24,8 +24,9 @@ pub const PASTER_MAIN_ITEMS: &[ToolbarItem] = &[
     ToolbarItem::Tool(Tool::Pen),
     ToolbarItem::Tool(Tool::Marker),
     ToolbarItem::Tool(Tool::Mosaic),
-    ToolbarItem::Tool(Tool::Blur),
+    ToolbarItem::Tool(Tool::Magnifier),
     ToolbarItem::Tool(Tool::Spotlight),
+    ToolbarItem::Tool(Tool::Eraser),
     ToolbarItem::Tool(Tool::Text),
     ToolbarItem::Action(ToolbarAction::Undo),
     ToolbarItem::Action(ToolbarAction::Redo),
@@ -41,7 +42,7 @@ pub const PASTER_MAIN_ITEMS: &[ToolbarItem] = &[
 ///
 /// 窗口扩容时按此宽度为二级属性栏留出横向空间；主栏按钮更多时实际窗口宽度
 /// 仍由主栏决定。抽成常量是为了以后增删属性控件时只需调整一处。
-const SUB_BAR_MAX_WIDTH: f32 = 400.0;
+const SUB_BAR_MAX_WIDTH: f32 = 1260.0;
 
 /// 二级属性栏在工具条上方占用的高度（面板 36 + 与主栏间距 4，界面像素）。
 ///
@@ -181,6 +182,9 @@ pub(crate) fn handle_toolbar_click(
             }
             ToolbarAction::Save => save_paster_to_disk(state),
             ToolbarAction::Close => state.should_close = true,
+            ToolbarAction::ClearAnnotations => {
+                state.clear_annotations();
+            }
             ToolbarAction::Pin => {}
         }
     }
@@ -429,8 +433,9 @@ mod tests {
             ToolbarItem::Tool(Tool::Pen),
             ToolbarItem::Tool(Tool::Marker),
             ToolbarItem::Tool(Tool::Mosaic),
-            ToolbarItem::Tool(Tool::Blur),
+            ToolbarItem::Tool(Tool::Magnifier),
             ToolbarItem::Tool(Tool::Spotlight),
+            ToolbarItem::Tool(Tool::Eraser),
             ToolbarItem::Tool(Tool::Text),
             ToolbarItem::Action(ToolbarAction::Undo),
             ToolbarItem::Action(ToolbarAction::Redo),
@@ -445,7 +450,7 @@ mod tests {
         assert!(
             PASTER_MAIN_ITEMS.windows(2).any(|pair| {
                 pair == [
-                    ToolbarItem::Tool(Tool::Spotlight),
+                    ToolbarItem::Tool(Tool::Eraser),
                     ToolbarItem::Tool(Tool::Text),
                 ]
             }),
@@ -599,7 +604,7 @@ mod tests {
         }
 
         // 主栏较窄时窗口宽度由属性栏预留宽度兜底
-        assert_eq!(toolbar_required_extent(1.0, 100.0, 40.0), (416.0, 96.0));
+        assert_eq!(toolbar_required_extent(1.0, 100.0, 40.0), (1276.0, 96.0));
     }
 
     /// 小贴图上工具条紧贴图像下方（仅 8 像素间距），属性栏浮在主栏上方

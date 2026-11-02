@@ -2,7 +2,9 @@
 
 use super::super::icons::{add_round_rect, make_paint};
 use crate::geometry::Rect;
-use snapin_core::annotation::{ArrowStyle, BadgeStyle, LineStyle};
+use snapin_core::annotation::{
+    ArrowHeadStyle, ArrowStyle, BadgeStyle, LineStyle, MagnifierConnector,
+};
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 绘制通用浅米白微圆角容器背景与微阴影 (参考官方经典现代浅色设计)
@@ -175,7 +177,7 @@ pub(super) fn render_corner_radius_icon(
     corner_radius: f32,
 ) {
     let half = 7.0 * s;
-    let visual_radius = (1.0 + corner_radius / 30.0 * 5.0) * s;
+    let visual_radius = (1.0 + corner_radius / 90.0 * 5.0) * s;
     let mut pb = PathBuilder::new();
     add_round_rect(
         &mut pb,
@@ -288,5 +290,200 @@ pub(super) fn render_arrow_preview(
             Transform::identity(),
             None,
         );
+    }
+}
+
+/// 箭头端点预览参数；集中几何与样式，避免调用点出现过长参数列表。
+pub(super) struct ArrowHeadPreviewSpec {
+    pub x0: f32,
+    pub x1: f32,
+    pub cy: f32,
+    pub scale: f32,
+    pub style: ArrowHeadStyle,
+    pub color: Color,
+    pub at_start: bool,
+}
+
+/// 绘制箭头端点图案；`at_start` 为真时箭头位于线段左端。
+pub(super) fn render_arrow_head_preview(pixmap: &mut PixmapMut, preview: ArrowHeadPreviewSpec) {
+    let ArrowHeadPreviewSpec {
+        x0,
+        x1,
+        cy,
+        scale: s,
+        style,
+        color,
+        at_start,
+    } = preview;
+    let mut shaft = PathBuilder::new();
+    shaft.move_to(x0, cy);
+    shaft.line_to(x1, cy);
+    if let Some(path) = shaft.finish() {
+        pixmap.stroke_path(
+            &path,
+            &make_paint(color),
+            &Stroke {
+                width: 1.8 * s,
+                line_cap: tiny_skia::LineCap::Round,
+                ..Default::default()
+            },
+            Transform::identity(),
+            None,
+        );
+    }
+    if style == ArrowHeadStyle::None {
+        return;
+    }
+    let tip_x = if at_start { x0 } else { x1 };
+    let direction = if at_start { 1.0 } else { -1.0 };
+    let base_x = tip_x + direction * 8.0 * s;
+    let half = 4.0 * s;
+    let mut head = PathBuilder::new();
+    match style {
+        ArrowHeadStyle::Triangle | ArrowHeadStyle::Outline => {
+            head.move_to(tip_x, cy);
+            head.line_to(base_x, cy - half);
+            head.line_to(base_x, cy + half);
+            head.close();
+            if let Some(path) = head.finish() {
+                if style == ArrowHeadStyle::Triangle {
+                    pixmap.fill_path(
+                        &path,
+                        &make_paint(color),
+                        tiny_skia::FillRule::Winding,
+                        Transform::identity(),
+                        None,
+                    );
+                } else {
+                    pixmap.stroke_path(
+                        &path,
+                        &make_paint(color),
+                        &Stroke {
+                            width: 1.5 * s,
+                            ..Default::default()
+                        },
+                        Transform::identity(),
+                        None,
+                    );
+                }
+            }
+        }
+        ArrowHeadStyle::Bar => {
+            head.move_to(tip_x, cy - half);
+            head.line_to(tip_x, cy + half);
+            if let Some(path) = head.finish() {
+                pixmap.stroke_path(
+                    &path,
+                    &make_paint(color),
+                    &Stroke {
+                        width: 2.0 * s,
+                        line_cap: tiny_skia::LineCap::Round,
+                        ..Default::default()
+                    },
+                    Transform::identity(),
+                    None,
+                );
+            }
+        }
+        ArrowHeadStyle::Circle => {
+            head.push_circle(tip_x, cy, half * 0.75);
+            if let Some(path) = head.finish() {
+                pixmap.fill_path(
+                    &path,
+                    &make_paint(color),
+                    tiny_skia::FillRule::Winding,
+                    Transform::identity(),
+                    None,
+                );
+            }
+        }
+        ArrowHeadStyle::None => {}
+    }
+}
+
+/// 绘制放大镜连接线图示：用两个小框表示源区域与放大图像，并展示当前连接方式。
+pub(super) fn render_magnifier_connector_preview(
+    pixmap: &mut PixmapMut,
+    x0: f32,
+    x1: f32,
+    cy: f32,
+    s: f32,
+    connector: MagnifierConnector,
+    color: Color,
+) {
+    let box_size = 7.0 * s;
+    let left = x0;
+    let right = x1 - box_size;
+    let top = cy - box_size / 2.0;
+    let paint = make_paint(color);
+    let box_stroke = Stroke {
+        width: 1.2 * s,
+        ..Default::default()
+    };
+    for x in [left, right] {
+        let Some(rect) = tiny_skia::Rect::from_xywh(x, top, box_size, box_size) else {
+            continue;
+        };
+        let mut builder = PathBuilder::new();
+        builder.push_rect(rect);
+        if let Some(path) = builder.finish() {
+            pixmap.stroke_path(&path, &paint, &box_stroke, Transform::identity(), None);
+        }
+    }
+
+    let line_start = left + box_size;
+    let line_end = right;
+    let mut line = PathBuilder::new();
+    line.move_to(line_start, cy);
+    line.line_to(line_end, cy);
+    if let Some(path) = line.finish() {
+        match connector {
+            MagnifierConnector::Solid => {
+                LineStyle::Solid.stroke_path(pixmap, &path, &paint, 1.4 * s);
+            }
+            MagnifierConnector::Dotted => {
+                LineStyle::Dotted.stroke_path(pixmap, &path, &paint, 1.4 * s);
+            }
+            MagnifierConnector::Frame => {
+                LineStyle::Solid.stroke_path(pixmap, &path, &paint, 1.4 * s);
+                let mut caps = PathBuilder::new();
+                for x in [line_start, line_end] {
+                    caps.move_to(x, cy - 3.0 * s);
+                    caps.line_to(x, cy + 3.0 * s);
+                }
+                if let Some(caps) = caps.finish() {
+                    pixmap.stroke_path(
+                        &caps,
+                        &paint,
+                        &Stroke {
+                            width: 1.2 * s,
+                            ..Default::default()
+                        },
+                        Transform::identity(),
+                        None,
+                    );
+                }
+            }
+            MagnifierConnector::None => {
+                let center_x = (line_start + line_end) / 2.0;
+                let mut cross = PathBuilder::new();
+                cross.move_to(center_x - 2.5 * s, cy - 2.5 * s);
+                cross.line_to(center_x + 2.5 * s, cy + 2.5 * s);
+                cross.move_to(center_x + 2.5 * s, cy - 2.5 * s);
+                cross.line_to(center_x - 2.5 * s, cy + 2.5 * s);
+                if let Some(cross) = cross.finish() {
+                    pixmap.stroke_path(
+                        &cross,
+                        &paint,
+                        &Stroke {
+                            width: 1.2 * s,
+                            ..Default::default()
+                        },
+                        Transform::identity(),
+                        None,
+                    );
+                }
+            }
+        }
     }
 }

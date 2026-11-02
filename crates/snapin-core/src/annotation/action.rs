@@ -4,8 +4,9 @@
 //! 采用命令模式维护 Undo/Redo 历史栈。
 
 use crate::annotation::shapes::{
-    ArrowAction, BadgeAction, BlurAction, EllipseAction, MarkerAction, MosaicAction, PenAction,
-    RectAction, SizeParam, SpotlightAction, TextAction, TranslationAction,
+    ArrowAction, BadgeAction, BlurAction, EllipseAction, MagnifierAction, MarkerAction,
+    MosaicAction, PenAction, PolylineAction, RectAction, SizeParam, SpotlightAction, TextAction,
+    TranslationAction,
 };
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
@@ -18,10 +19,12 @@ pub enum AnnotationShape {
     Ellipse(EllipseAction),
     Arrow(ArrowAction),
     Pen(PenAction),
+    Polyline(PolylineAction),
     Marker(MarkerAction),
     Mosaic(MosaicAction),
     Blur(BlurAction),
     Spotlight(SpotlightAction),
+    Magnifier(MagnifierAction),
     Badge(BadgeAction),
     Text(TextAction),
     Translation(TranslationAction),
@@ -35,10 +38,12 @@ impl AnnotationShape {
             Self::Ellipse(a) => a.draw_offset(pixmap, offset_x, offset_y),
             Self::Arrow(a) => a.draw_offset(pixmap, offset_x, offset_y),
             Self::Pen(a) => a.draw_offset(pixmap, offset_x, offset_y),
+            Self::Polyline(a) => a.draw_offset(pixmap, offset_x, offset_y),
             Self::Marker(a) => a.draw_offset(pixmap, offset_x, offset_y),
             Self::Mosaic(a) => a.draw_offset(pixmap, offset_x, offset_y),
             Self::Blur(a) => a.draw_offset(pixmap, offset_x, offset_y),
             Self::Spotlight(a) => a.draw_offset(pixmap, offset_x, offset_y),
+            Self::Magnifier(a) => a.draw_offset(pixmap, offset_x, offset_y),
             Self::Badge(a) => a.draw_offset(pixmap, offset_x, offset_y),
             Self::Text(a) => a.draw_offset(pixmap, offset_x, offset_y),
             Self::Translation(a) => a.draw_offset(pixmap, offset_x, offset_y),
@@ -65,10 +70,12 @@ impl AnnotationShape {
             Self::Ellipse(a) => a.adjust_size(param),
             Self::Arrow(a) => a.adjust_size(param),
             Self::Pen(a) => a.adjust_size(param),
+            Self::Polyline(a) => a.adjust_size(param),
             Self::Marker(a) => a.adjust_size(param),
             Self::Mosaic(a) => a.adjust_size(param),
             Self::Blur(a) => a.adjust_size(param),
             Self::Spotlight(a) => a.adjust_size(param),
+            Self::Magnifier(a) => a.adjust_size(param),
             Self::Badge(a) => a.adjust_size(param),
             Self::Text(a) => a.adjust_size(param),
             Self::Translation(a) => a.adjust_size(param),
@@ -82,10 +89,12 @@ impl AnnotationShape {
             Self::Ellipse(a) => a.bounds(),
             Self::Arrow(a) => a.bounds(),
             Self::Pen(a) => a.bounds(),
+            Self::Polyline(a) => a.bounds(),
             Self::Marker(a) => a.bounds(),
             Self::Mosaic(a) => a.bounds(),
             Self::Blur(a) => a.bounds(),
             Self::Spotlight(a) => a.bounds(),
+            Self::Magnifier(a) => a.bounds(),
             Self::Badge(a) => a.bounds(),
             Self::Text(a) => a.bounds(),
             Self::Translation(a) => a.bounds(),
@@ -99,10 +108,12 @@ impl AnnotationShape {
             Self::Ellipse(a) => a.translate(dx, dy),
             Self::Arrow(a) => a.translate(dx, dy),
             Self::Pen(a) => a.translate(dx, dy),
+            Self::Polyline(a) => a.translate(dx, dy),
             Self::Marker(a) => a.translate(dx, dy),
             Self::Mosaic(a) => a.translate(dx, dy),
             Self::Blur(a) => a.translate(dx, dy),
             Self::Spotlight(a) => a.translate(dx, dy),
+            Self::Magnifier(a) => a.translate(dx, dy),
             Self::Badge(a) => a.translate(dx, dy),
             Self::Text(a) => a.translate(dx, dy),
             Self::Translation(a) => a.translate(dx, dy),
@@ -116,10 +127,12 @@ impl AnnotationShape {
             Self::Ellipse(a) => a.resize_from_bounds(from, to),
             Self::Arrow(a) => a.resize_from_bounds(from, to),
             Self::Pen(a) => a.resize_from_bounds(from, to),
+            Self::Polyline(a) => a.resize_from_bounds(from, to),
             Self::Marker(a) => a.resize_from_bounds(from, to),
             Self::Mosaic(a) => a.resize_from_bounds(from, to),
             Self::Blur(a) => a.resize_from_bounds(from, to),
             Self::Spotlight(a) => a.resize_from_bounds(from, to),
+            Self::Magnifier(a) => a.resize_from_bounds(from, to),
             Self::Badge(a) => a.resize_from_bounds(from, to),
             Self::Text(a) => a.resize_from_bounds(from, to),
             Self::Translation(a) => a.resize_from_bounds(from, to),
@@ -144,7 +157,7 @@ impl From<TranslationAction> for AnnotationShape {
 mod tests {
     use super::*;
     use crate::annotation::history::AnnotationHistory;
-    use crate::annotation::style::{BadgeStyle, LineStyle};
+    use crate::annotation::style::{BadgeSequence, BadgeStyle, LineStyle};
 
     /// 构造测试用共享矩形，避免测试中反复书写结构体字段。
     fn rect_bounds(x: f32, y: f32, width: f32, height: f32) -> Rect {
@@ -197,6 +210,8 @@ mod tests {
             number: 1,
             color: (255, 0, 0, 255).into(),
             style: BadgeStyle::Filled,
+            sequence: BadgeSequence::Number,
+            ..BadgeAction::default()
         }));
         history.push(AnnotationShape::Badge(BadgeAction {
             center: (30.0, 10.0),
@@ -204,15 +219,17 @@ mod tests {
             number: 2,
             color: (255, 0, 0, 255).into(),
             style: BadgeStyle::Filled,
+            sequence: BadgeSequence::Number,
+            ..BadgeAction::default()
         }));
         assert_eq!(history.next_badge_number(), 3);
 
-        history.push(AnnotationShape::Text(TextAction {
-            pos: (0.0, 0.0),
-            text: "说明".to_string(),
-            color: (0, 0, 0, 255).into(),
-            font_size: 16.0,
-        }));
+        history.push(AnnotationShape::Text(TextAction::plain(
+            (0.0, 0.0),
+            "说明".to_string(),
+            (0, 0, 0, 255).into(),
+            16.0,
+        )));
         history.undo();
         assert_eq!(history.next_badge_number(), 3);
         history.undo();
@@ -230,16 +247,17 @@ mod tests {
             points: vec![(0.0, 0.0), (10.0, 10.0)],
             color: (255, 0, 0, 255).into(),
             stroke_width: 2.0,
+            line_style: LineStyle::Solid,
         }));
         assert!(history.adjust_last_stroke_width(8.0));
         assert!(!history.adjust_last_font_size(30.0));
 
-        history.push(AnnotationShape::Text(TextAction {
-            pos: (0.0, 0.0),
-            text: "说明".to_string(),
-            color: (0, 0, 0, 255).into(),
-            font_size: 16.0,
-        }));
+        history.push(AnnotationShape::Text(TextAction::plain(
+            (0.0, 0.0),
+            "说明".to_string(),
+            (0, 0, 0, 255).into(),
+            16.0,
+        )));
         assert!(!history.adjust_last_stroke_width(12.0));
         assert!(history.adjust_last_font_size(30.0));
     }
@@ -253,11 +271,120 @@ mod tests {
         history.push(AnnotationShape::Mosaic(MosaicAction {
             rect: (0.0, 0.0, 20.0, 20.0),
             cell_size: 4,
+            points: Vec::new(),
+            brush_width: 0.0,
         }));
         assert!(history.adjust_last_stroke_width(10.0));
         match history.shape_at(0) {
             Some(AnnotationShape::Mosaic(action)) => assert_eq!(action.cell_size, 20),
             other => panic!("应为马赛克图元，实际: {other:?}"),
+        }
+    }
+
+    /// 序号注释的右对应文字字号，滚轮调字号必须能命中 Badge 图元。
+    #[test]
+    fn test_adjust_last_font_size_covers_badge_text() {
+        use crate::annotation::shapes::BadgeAction;
+
+        let mut history = AnnotationHistory::default();
+        history.push(AnnotationShape::Badge(BadgeAction {
+            font_size: 12.0,
+            ..BadgeAction::default()
+        }));
+        assert!(history.adjust_last_font_size(30.0));
+        match history.shape_at(0) {
+            Some(AnnotationShape::Badge(action)) => assert_eq!(action.font_size, 30.0),
+            other => panic!("应为序号图元，实际: {other:?}"),
+        }
+    }
+
+    /// 所有带线型控件的工具都必须让实线与虚线产生不同像素结果。
+    #[test]
+    fn test_line_styles_affect_all_stroke_tools() {
+        use crate::annotation::shapes::{
+            ArrowAction, EllipseAction, PenAction, PolylineAction, SpotlightAction,
+        };
+        use crate::annotation::{ArrowHeadStyle, ArrowStyle, SpotlightShape};
+        use tiny_skia::{Color, Pixmap};
+
+        fn render(shape: &AnnotationShape) -> Vec<u8> {
+            let mut pixmap = Pixmap::new(140, 100).expect("创建测试位图失败");
+            pixmap.fill(Color::TRANSPARENT);
+            shape.draw(&mut pixmap.as_mut());
+            pixmap.data().to_vec()
+        }
+
+        let ellipse = |style| {
+            AnnotationShape::Ellipse(EllipseAction {
+                rect: (10.0, 10.0, 120.0, 80.0),
+                color: (255, 0, 0, 255).into(),
+                stroke_width: 4.0,
+                is_filled: false,
+                line_style: style,
+            })
+        };
+        let pen = |style| {
+            AnnotationShape::Pen(PenAction {
+                points: vec![(10.0, 20.0), (130.0, 20.0)],
+                color: (255, 0, 0, 255).into(),
+                stroke_width: 4.0,
+                line_style: style,
+            })
+        };
+        let polyline = |style| {
+            AnnotationShape::Polyline(PolylineAction {
+                points: vec![(10.0, 20.0), (130.0, 20.0)],
+                color: (255, 0, 0, 255).into(),
+                stroke_width: 4.0,
+                line_style: style,
+                start_head: ArrowHeadStyle::None,
+                end_head: ArrowHeadStyle::None,
+            })
+        };
+        let arrow = |style| {
+            AnnotationShape::Arrow(ArrowAction {
+                start: (10.0, 50.0),
+                end: (130.0, 50.0),
+                color: (255, 0, 0, 255).into(),
+                stroke_width: 4.0,
+                style: ArrowStyle::Solid,
+                line_style: style,
+                start_head: ArrowHeadStyle::None,
+                end_head: ArrowHeadStyle::Triangle,
+            })
+        };
+        let spotlight = |style| {
+            AnnotationShape::Spotlight(SpotlightAction {
+                rect: (10.0, 10.0, 120.0, 80.0),
+                intensity: 160,
+                shape: SpotlightShape::Rectangle,
+                outline: true,
+                outline_width: 3.0,
+                outline_color: (255, 255, 255, 255).into(),
+                line_style: style,
+            })
+        };
+
+        for (name, solid, dashed) in [
+            (
+                "ellipse",
+                ellipse(LineStyle::Solid),
+                ellipse(LineStyle::Dashed),
+            ),
+            ("pen", pen(LineStyle::Solid), pen(LineStyle::Dashed)),
+            (
+                "polyline",
+                polyline(LineStyle::Solid),
+                polyline(LineStyle::Dashed),
+            ),
+            ("arrow", arrow(LineStyle::Solid), arrow(LineStyle::Dashed)),
+            (
+                "spotlight",
+                spotlight(LineStyle::Solid),
+                spotlight(LineStyle::Dashed),
+            ),
+        ] {
+            assert_ne!(render(&solid), render(&dashed), "{name} 的线型未生效");
         }
     }
 
@@ -284,6 +411,8 @@ mod tests {
             number: 1,
             color: (0, 128, 255, 255).into(),
             style: BadgeStyle::Filled,
+            sequence: BadgeSequence::Number,
+            ..BadgeAction::default()
         };
         badge.draw(&mut mut_pix);
 
@@ -407,6 +536,9 @@ mod tests {
             color: (255, 0, 0, 255).into(),
             stroke_width: 2.0,
             style: ArrowStyle::Solid,
+            line_style: crate::annotation::style::LineStyle::Solid,
+            start_head: crate::annotation::style::ArrowHeadStyle::None,
+            end_head: crate::annotation::style::ArrowHeadStyle::Triangle,
         });
         arrow.resize_from_bounds(
             rect_bounds(0.0, 0.0, 100.0, 50.0),
@@ -425,6 +557,7 @@ mod tests {
             points: vec![(0.0, 0.0), (10.0, 10.0)],
             color: (255, 0, 0, 255).into(),
             stroke_width: 2.0,
+            line_style: LineStyle::Solid,
         });
         pen.translate(5.0, 5.0);
         match pen {
@@ -439,6 +572,8 @@ mod tests {
             color: (0, 128, 255, 255).into(),
             radius: 10.0,
             style: BadgeStyle::Filled,
+            sequence: BadgeSequence::Number,
+            ..BadgeAction::default()
         });
         badge.resize_from_bounds(
             rect_bounds(40.0, 40.0, 20.0, 20.0),
@@ -453,20 +588,20 @@ mod tests {
         }
 
         // 文本按高度比例缩放字号
-        let mut text = AnnotationShape::Text(TextAction {
-            pos: (10.0, 20.0),
-            text: "说明".to_string(),
-            color: (0, 0, 0, 255).into(),
-            font_size: 16.0,
-        });
-        assert_eq!(text.bounds(), Some(rect_bounds(10.0, 20.0, 32.0, 20.0)));
+        let mut text = AnnotationShape::Text(TextAction::plain(
+            (10.0, 20.0),
+            "说明".to_string(),
+            (0, 0, 0, 255).into(),
+            16.0,
+        ));
+        assert_eq!(text.bounds(), Some(rect_bounds(6.0, 16.0, 40.0, 28.0)));
         text.resize_from_bounds(
-            rect_bounds(10.0, 20.0, 32.0, 20.0),
-            rect_bounds(0.0, 0.0, 64.0, 40.0),
+            rect_bounds(6.0, 16.0, 40.0, 28.0),
+            rect_bounds(0.0, 0.0, 80.0, 56.0),
         );
         match text {
             AnnotationShape::Text(t) => {
-                assert_eq!(t.pos, (0.0, 0.0));
+                assert_eq!(t.pos, (8.0, 8.0));
                 assert_eq!(t.font_size, 32.0);
             }
             _ => panic!("预期文本图元"),

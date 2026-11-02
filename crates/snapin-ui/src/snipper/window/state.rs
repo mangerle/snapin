@@ -7,7 +7,7 @@ use super::redaction::RedactionPreview;
 use super::types::{SnipMode, SnipperOutcome};
 use crate::editor::stroke_session::StrokeSession;
 use crate::editor::text_input::TextInputSession;
-use crate::editor::toolbar::Toolbar;
+use crate::editor::toolbar::{clear_remembered_sub_options, remembered_sub_options, Toolbar};
 use crate::model::ShapeId;
 use crate::ports::{DesktopPort, JobCancel, JobId, NoopDesktop, QrCodeItem};
 use crate::snipper::magnifier::Magnifier;
@@ -59,7 +59,7 @@ pub struct SnipperState {
     pub pending_job_id: Option<JobId>,
     /// 当前后台任务的取消闭包
     pub pending_job_cancel: Option<JobCancel>,
-    /// 智能打码待确认区域；存在时 Enter 提交，Esc 取消，M/B 切换样式
+    /// 智能打码可点击文字区域；马赛克已实时写入标注历史，点击区域切换遮挡
     pub redaction_preview: Option<RedactionPreview>,
     /// 最近一次二维码识别结果；存在时 Ctrl+Enter 可打开首个安全链接
     pub qr_result: Option<Vec<QrCodeItem>>,
@@ -178,9 +178,18 @@ fn apply_interface_config(state: &mut SnipperState, iface: &InterfaceConfig) {
 
 /// 注入截图流程、默认标注工具与选区记忆设置
 fn apply_snip_config(state: &mut SnipperState, snip: &SnipConfig, mode: SnipMode) {
+    state.toolbar.sub_options = crate::editor::toolbar::SubToolOptions::default();
     state.toolbar.sub_options.custom_stroke_width = snip.default_stroke_width;
     state.toolbar.sub_options.font_size = snip.default_font_size;
     state.toolbar.sub_options.color = snip.default_color.to_tiny_skia_color();
+    state.toolbar.remember_sub_options = snip.remember_toolbar_settings;
+    if snip.remember_toolbar_settings {
+        if let Some(options) = remembered_sub_options() {
+            state.toolbar.sub_options = options;
+        }
+    } else {
+        clear_remembered_sub_options();
+    }
     // 初始进入截图时，未完成选区前不激活标注工具，确保左键优先用于选区拉框
     state.toolbar.active_tool = None;
 
@@ -255,6 +264,9 @@ pub fn commit_active_text_input(state: &mut SnipperState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static TOOLBAR_MEMORY_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     /// 仅自定义截图恢复历史选区，常规截图始终从空白起步
     #[test]
@@ -271,6 +283,68 @@ mod tests {
     #[test]
     fn test_cursor_not_ready_until_first_move() {
         assert!(!SnipperState::new().cursor_ready);
+    }
+
+    /// 默认关闭记忆时，新建截图应恢复配置默认值而不是沿用上次改动。
+    #[test]
+    fn test_toolbar_options_reset_between_captures_by_default() {
+        let _guard = TOOLBAR_MEMORY_TEST_LOCK
+            .lock()
+            .expect("工具栏记忆测试锁不得中毒");
+        clear_remembered_sub_options();
+        let config = Config::default();
+        let desktop: Arc<dyn DesktopPort> = Arc::new(NoopDesktop);
+        let mut first =
+            SnipperState::from_config(config.clone(), SnipMode::Normal, desktop.clone());
+        first.toolbar.sub_options.color = tiny_skia::Color::from_rgba8(0, 0, 255, 255);
+        first.toolbar.update_layout(
+            &Rect {
+                x: 10.0,
+                y: 10.0,
+                width: 100.0,
+                height: 100.0,
+            },
+            800.0,
+            600.0,
+        );
+
+        let second = SnipperState::from_config(config, SnipMode::Normal, desktop);
+        assert_eq!(
+            second.toolbar.sub_options.color,
+            tiny_skia::Color::from_rgba8(239, 68, 68, 255)
+        );
+    }
+
+    /// 开启记忆后，下一次截图应继承上一张截图最后调整的工具栏选项。
+    #[test]
+    fn test_toolbar_options_can_be_remembered_between_captures() {
+        let _guard = TOOLBAR_MEMORY_TEST_LOCK
+            .lock()
+            .expect("工具栏记忆测试锁不得中毒");
+        clear_remembered_sub_options();
+        let mut config = Config::default();
+        config.snip.remember_toolbar_settings = true;
+        let desktop: Arc<dyn DesktopPort> = Arc::new(NoopDesktop);
+        let mut first =
+            SnipperState::from_config(config.clone(), SnipMode::Normal, desktop.clone());
+        first.toolbar.sub_options.color = tiny_skia::Color::from_rgba8(0, 0, 255, 255);
+        first.toolbar.update_layout(
+            &Rect {
+                x: 10.0,
+                y: 10.0,
+                width: 100.0,
+                height: 100.0,
+            },
+            800.0,
+            600.0,
+        );
+
+        let second = SnipperState::from_config(config, SnipMode::Normal, desktop);
+        assert_eq!(
+            second.toolbar.sub_options.color,
+            tiny_skia::Color::from_rgba8(0, 0, 255, 255)
+        );
+        clear_remembered_sub_options();
     }
 
     /// 窗口矩形应夹取到截图范围，完全越界的窗口被丢弃

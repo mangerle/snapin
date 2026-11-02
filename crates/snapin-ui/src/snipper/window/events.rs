@@ -25,8 +25,8 @@ pub fn handle_key_input(
         return handle_text_key_input(state, key);
     }
 
-    if state.redaction_preview.is_some() {
-        return handle_redaction_preview_key(state, key);
+    if state.redaction_preview.is_some() && handle_redaction_preview_key(state, key) {
+        return true;
     }
 
     if state.ocr_panel.is_some() {
@@ -69,6 +69,12 @@ pub fn handle_key_input(
         }
         Key::Named(NamedKey::Enter) if state.modifiers.control_key() => handle_qr_open_link(state),
         Key::Named(NamedKey::Enter) | Key::Named(NamedKey::F3) => {
+            if state.toolbar.active_tool == Some(crate::editor::toolbar::Tool::Line)
+                && state.stroke.points.len() >= 2
+            {
+                super::annotation_builder::commit_annotation(state);
+                return true;
+            }
             handle_action_pin(state, original_rgba);
             true
         }
@@ -296,45 +302,15 @@ fn begin_ocr_row_edit(state: &mut SnipperState, screen_width: f32, screen_height
     state.set_status_message(snapin_core::i18n::tr("编辑 OCR 文本；Enter 确认，Esc 取消"));
 }
 
-/// 处理智能打码预览阶段的键盘操作。
+/// 处理智能打码交互阶段的退出键；其余快捷键继续交给全局处理。
 fn handle_redaction_preview_key(state: &mut SnipperState, key: &Key) -> bool {
     match key {
-        Key::Named(NamedKey::Escape) => {
+        Key::Named(NamedKey::Escape | NamedKey::Enter) => {
             state.redaction_preview = None;
-            state.set_status_message(snapin_core::i18n::tr("已取消智能打码"));
+            state.clear_status_message();
             true
         }
-        Key::Named(NamedKey::Enter) => {
-            let count = super::redaction::commit_redaction(state);
-            state.set_status_message(format!("已应用 {count} 处智能打码"));
-            true
-        }
-        Key::Character(c) if c.eq_ignore_ascii_case("m") => {
-            if let Some(preview) = state.redaction_preview.as_mut() {
-                if preview.style != super::redaction::RedactionStyle::Mosaic {
-                    preview.style = preview.style.toggle();
-                }
-            }
-            state.set_status_message(snapin_core::i18n::tr(
-                "已选择马赛克；Enter 应用，B 切换模糊，Esc 取消",
-            ));
-            true
-        }
-        Key::Character(c) if c.eq_ignore_ascii_case("b") => {
-            if let Some(preview) = state.redaction_preview.as_mut() {
-                if preview.style != super::redaction::RedactionStyle::Blur {
-                    preview.style = preview.style.toggle();
-                }
-            }
-            let style = state
-                .redaction_preview
-                .as_ref()
-                .map(|preview| preview.style.label())
-                .unwrap_or("模糊");
-            state.set_status_message(format!("已选择{style}；Enter 应用，M 切换马赛克，Esc 取消"));
-            true
-        }
-        _ => true,
+        _ => false,
     }
 }
 
@@ -393,8 +369,9 @@ pub fn handle_escape(state: &mut SnipperState) -> bool {
         state.set_status_message(snapin_core::i18n::tr("已关闭 OCR 结果面板"));
         true
     } else if state.redaction_preview.is_some() {
+        // 马赛克在识别完成时已经写入标注历史，退出交互模式不得撤销用户当前选择。
         state.redaction_preview = None;
-        state.set_status_message(snapin_core::i18n::tr("已取消智能打码"));
+        state.clear_status_message();
         true
     } else if state.active_text_input.is_some() {
         // Esc 统一取消当前输入，与贴图侧保持一致。

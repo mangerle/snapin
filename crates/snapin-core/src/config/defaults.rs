@@ -24,7 +24,7 @@ pub(crate) const DEFAULT_MAGNIFIER_SCALE: u32 = 8;
 pub(crate) const DEFAULT_TOOLBAR_SCALE: f32 = 1.0;
 
 /// 默认标注色
-pub(crate) const DEFAULT_SNIP_COLOR: HexColor = HexColor::new(255, 59, 48, 255);
+pub(crate) const DEFAULT_SNIP_COLOR: HexColor = HexColor::new(239, 68, 68, 255);
 
 /// 默认描边粗细
 pub(crate) const DEFAULT_STROKE_WIDTH: f32 = 4.0;

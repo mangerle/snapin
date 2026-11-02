@@ -4,103 +4,20 @@
 //! 控件坐标只在此处计算一次，渲染与命中测试共用同一份结果，避免两处各写一套坐标而漂移。
 
 use crate::editor::toolbar::items::{
-    preset_colors, tool_descriptor, StrokeWidthLevel, Tool, CORNER_RADIUS_PRESETS,
+    preset_colors, tool_descriptor, MosaicMode, Tool, FONT_FAMILY_PRESETS,
 };
 use crate::editor::toolbar::metrics::{button_size, padding};
 use crate::geometry::Rect;
 
-/// 二级栏下拉菜单种类
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SubDropdown {
-    /// 描边线型（实线/虚线/点线）
-    Line,
-    /// 序号底板样式（实心/空心）
-    Badge,
-    /// 箭头形态样式（实线/虚线/锥形）
-    Arrow,
-    /// 圆角半径预设
-    Corner,
-    /// 文字字号预设
-    FontSize,
-}
+mod types;
 
-/// 二级栏可交互控件
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SubControl {
-    ShapeRect,
-    ShapeEllipse,
-    Stroke(StrokeWidthLevel),
-    LineStyle,
-    FillToggle,
-    CornerRadius,
-    BadgeStyle,
-    ArrowStyle,
-    /// 预设颜色，参数为调色板下标
-    Color(usize),
-    /// 手动马赛克模式
-    MosaicManual,
-    /// 智能打码入口
-    SmartRedact,
-    /// 文字字号
-    FontSize,
-    /// 聚光灯强度
-    SpotlightIntensity(u8),
-}
+pub(crate) use types::{DropdownLayout, SubControl, SubDropdown, SubEntry, SubLayout};
 
-/// 二级栏中的一个布局槽位（控件或纯视觉分隔线）
+/// 影响二级栏控件集合的运行时选项。
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct SubEntry {
-    /// `None` 表示分隔线等不可交互的占位
-    pub control: Option<SubControl>,
-    pub rect: Rect,
-}
-
-/// 下拉菜单布局
-#[derive(Debug, Clone)]
-pub(crate) struct DropdownLayout {
-    pub kind: SubDropdown,
-    pub rect: Rect,
-    /// 每一行选项的热区，顺序与渲染顺序一致
-    pub rows: Vec<Rect>,
-}
-
-/// 二级栏完整布局：面板、控件序列与可选的下拉菜单
-#[derive(Debug, Clone)]
-pub(crate) struct SubLayout {
-    pub rect: Rect,
-    pub entries: Vec<SubEntry>,
-    pub dropdown: Option<DropdownLayout>,
-}
-
-impl SubLayout {
-    /// 命中某个可交互控件
-    pub fn hit(&self, px: f32, py: f32) -> Option<SubControl> {
-        self.entries
-            .iter()
-            .find(|entry| entry.rect.contains(px, py))
-            .and_then(|entry| entry.control)
-    }
-
-    /// 获取指定控件的热区
-    pub fn rect_of(&self, control: SubControl) -> Option<Rect> {
-        self.entries
-            .iter()
-            .find(|entry| entry.control == Some(control))
-            .map(|entry| entry.rect)
-    }
-
-    /// 下拉菜单是否包含该坐标（含面板与行）
-    pub fn dropdown_contains(&self, px: f32, py: f32) -> bool {
-        self.dropdown
-            .as_ref()
-            .is_some_and(|dropdown| dropdown.rect.contains(px, py))
-    }
-
-    /// 命中下拉菜单中的第几行
-    pub fn dropdown_row_hit(&self, px: f32, py: f32) -> Option<usize> {
-        let dropdown = self.dropdown.as_ref()?;
-        dropdown.rows.iter().position(|row| row.contains(px, py))
-    }
+pub(crate) struct SubLayoutOptions {
+    /// 当前马赛克工具模式；智能马赛克会隐藏绘制模式和强度控件。
+    pub mosaic_mode: MosaicMode,
 }
 
 /// 根据选区与屏幕宽高重新计算主工具栏在屏幕上的自适应摆放位置。
@@ -173,6 +90,7 @@ impl EntryCursor<'_> {
 /// 序号提供底板样式；其余画笔类工具只保留线宽与颜色。
 fn build_entries(
     active_tool: Tool,
+    mosaic_mode: MosaicMode,
     origin_x: f32,
     center_y: f32,
     s: f32,
@@ -187,60 +105,112 @@ fn build_entries(
 
     let descriptor = tool_descriptor(active_tool);
     if descriptor.shape_controls {
-        cursor.push(Some(SubControl::ShapeRect), 26.0 * s);
-        cursor.push(Some(SubControl::ShapeEllipse), 26.0 * s);
-        cursor.push(None, 16.0 * s);
+        cursor.push(Some(SubControl::ShapeRect), 30.0 * s);
+        cursor.push(Some(SubControl::ShapeEllipse), 30.0 * s);
+        cursor.push(None, 14.0 * s);
     }
 
-    if descriptor.smart_redact {
-        cursor.push(Some(SubControl::MosaicManual), 52.0 * s);
-        cursor.push(Some(SubControl::SmartRedact), 64.0 * s);
-        cursor.push(None, 16.0 * s);
+    if descriptor.line_mode {
+        cursor.push(Some(SubControl::LineMode), 54.0 * s);
+        cursor.push(None, 14.0 * s);
     }
 
-    if descriptor.stroke_width {
-        for level in [
-            StrokeWidthLevel::Thin,
-            StrokeWidthLevel::Medium,
-            StrokeWidthLevel::Thick,
-        ] {
-            cursor.push(Some(SubControl::Stroke(level)), 24.0 * s);
+    if descriptor.mosaic_mode {
+        if mosaic_mode != MosaicMode::SmartRedact {
+            cursor.push(Some(SubControl::Size), 50.0 * s);
         }
-    }
-
-    if descriptor.font_size {
-        cursor.push(Some(SubControl::FontSize), 64.0 * s);
-    }
-
-    if descriptor.spotlight_intensity {
-        for intensity in [96, 160, 220] {
-            cursor.push(Some(SubControl::SpotlightIntensity(intensity)), 28.0 * s);
+        cursor.push(Some(SubControl::MosaicMode), 78.0 * s);
+        if mosaic_mode != MosaicMode::SmartRedact {
+            cursor.push(Some(SubControl::MosaicBrush), 48.0 * s);
+            cursor.push(Some(SubControl::MosaicRectangle), 48.0 * s);
+            cursor.push(Some(SubControl::EffectStrength), 92.0 * s);
         }
+        cursor.push(None, 14.0 * s);
+    }
+
+    if descriptor.marker_mode {
+        cursor.push(Some(SubControl::MarkerShape), 54.0 * s);
+        cursor.push(Some(SubControl::MarkerBlendMode), 62.0 * s);
+        cursor.push(None, 14.0 * s);
+    }
+
+    if descriptor.eraser_mode {
+        cursor.push(Some(SubControl::EraserMode), 54.0 * s);
+    }
+
+    if descriptor.spotlight_style {
+        cursor.push(Some(SubControl::SpotlightShapeRect), 30.0 * s);
+        cursor.push(Some(SubControl::SpotlightShapeEllipse), 30.0 * s);
+        cursor.push(None, 14.0 * s);
+        cursor.push(Some(SubControl::SpotlightOpacity), 64.0 * s);
+        cursor.push(Some(SubControl::SpotlightOutline), 50.0 * s);
+    }
+
+    if descriptor.magnifier_options {
+        cursor.push(Some(SubControl::MagnifierShapeRect), 30.0 * s);
+        cursor.push(Some(SubControl::MagnifierShapeEllipse), 30.0 * s);
+        cursor.push(None, 14.0 * s);
+        cursor.push(Some(SubControl::MagnifierScale), 104.0 * s);
+        cursor.push(Some(SubControl::MagnifierSmooth), 54.0 * s);
+        cursor.push(Some(SubControl::MagnifierConnector), 64.0 * s);
+        cursor.push(Some(SubControl::MagnifierShadow), 48.0 * s);
+        cursor.push(None, 14.0 * s);
+    }
+
+    if descriptor.fill_toggle {
+        cursor.push(Some(SubControl::FillToggle), 32.0 * s);
     }
 
     if descriptor.line_style {
-        cursor.push(None, 16.0 * s);
-        cursor.push(Some(SubControl::LineStyle), 52.0 * s);
+        cursor.push(Some(SubControl::LineStyle), 56.0 * s);
     }
-    if descriptor.fill_toggle {
-        cursor.push(Some(SubControl::FillToggle), 28.0 * s);
+
+    if descriptor.stroke_width && !descriptor.mosaic_mode {
+        cursor.push(Some(SubControl::Size), 50.0 * s);
     }
+
+    if descriptor.font_size {
+        cursor.push(Some(SubControl::FontSize), 66.0 * s);
+    }
+
+    if descriptor.text_style {
+        cursor.push(Some(SubControl::Bold), 28.0 * s);
+        cursor.push(Some(SubControl::Italic), 28.0 * s);
+        cursor.push(Some(SubControl::TextStroke), 42.0 * s);
+        cursor.push(Some(SubControl::TextBackground), 46.0 * s);
+        cursor.push(Some(SubControl::TextBackgroundOpacity), 58.0 * s);
+        cursor.push(Some(SubControl::TextBackgroundPadding), 64.0 * s);
+        cursor.push(Some(SubControl::TextBackgroundCornerRadius), 64.0 * s);
+        cursor.push(Some(SubControl::FontFamily), 92.0 * s);
+    }
+
     if descriptor.corner_radius {
-        cursor.push(Some(SubControl::CornerRadius), 44.0 * s);
+        cursor.push(Some(SubControl::CornerRadius), 54.0 * s);
     }
     if descriptor.badge_style {
-        cursor.push(None, 16.0 * s);
-        cursor.push(Some(SubControl::BadgeStyle), 44.0 * s);
+        cursor.push(Some(SubControl::BadgeStyle), 82.0 * s);
+    }
+    if descriptor.badge_sequence {
+        cursor.push(Some(SubControl::BadgeSequence), 68.0 * s);
     }
     if descriptor.arrow_style {
-        cursor.push(None, 16.0 * s);
-        cursor.push(Some(SubControl::ArrowStyle), 52.0 * s);
+        cursor.push(Some(SubControl::ArrowStyle), 58.0 * s);
+    }
+    if descriptor.arrow_toggle {
+        cursor.push(Some(SubControl::ArrowEnabled), 54.0 * s);
+    }
+    if descriptor.arrow_heads {
+        cursor.push(Some(SubControl::StartArrow), 52.0 * s);
+        cursor.push(Some(SubControl::EndArrow), 52.0 * s);
+    }
+    if descriptor.eraser_mode {
+        cursor.push(Some(SubControl::ClearAnnotations), 54.0 * s);
     }
 
     if descriptor.color_palette {
-        cursor.push(None, 16.0 * s);
+        cursor.push(None, 14.0 * s);
         for (index, _) in preset_colors().iter().enumerate() {
-            cursor.push(Some(SubControl::Color(index)), 26.0 * s);
+            cursor.push(Some(SubControl::Color(index)), 24.0 * s);
         }
     }
 
@@ -249,6 +219,7 @@ fn build_entries(
 }
 
 /// 计算二级属性栏及其下拉菜单布局
+#[cfg(test)]
 pub(crate) fn calculate_sub_layout(
     main_rect: &Rect,
     active_tool: Option<Tool>,
@@ -256,6 +227,29 @@ pub(crate) fn calculate_sub_layout(
     screen_w: f32,
     screen_h: f32,
     ui_scale: f32,
+) -> Option<SubLayout> {
+    calculate_sub_layout_with_options(
+        main_rect,
+        active_tool,
+        open_dropdown,
+        screen_w,
+        screen_h,
+        ui_scale,
+        SubLayoutOptions {
+            mosaic_mode: MosaicMode::Mosaic,
+        },
+    )
+}
+
+/// 计算带运行时工具状态的二级栏布局；当前主要用于按智能打码模式裁剪控件。
+pub(crate) fn calculate_sub_layout_with_options(
+    main_rect: &Rect,
+    active_tool: Option<Tool>,
+    open_dropdown: Option<SubDropdown>,
+    screen_w: f32,
+    screen_h: f32,
+    ui_scale: f32,
+    options: SubLayoutOptions,
 ) -> Option<SubLayout> {
     let active_tool = active_tool?;
     if main_rect.width <= 0.0 {
@@ -276,9 +270,16 @@ pub(crate) fn calculate_sub_layout(
     };
     let center_y = sub_y + sub_h / 2.0;
 
-    let mut entries = Vec::with_capacity(16);
+    let mut entries = Vec::with_capacity(32);
     let pad = 12.0 * s;
-    let end_x = build_entries(active_tool, sub_x + pad, center_y, s, &mut entries);
+    let end_x = build_entries(
+        active_tool,
+        options.mosaic_mode,
+        sub_x + pad,
+        center_y,
+        s,
+        &mut entries,
+    );
     let width = (end_x - sub_x).max(120.0 * s);
     let max_x = (screen_w - width - 8.0 * s).max(8.0 * s);
     let clamped_x = sub_x.min(max_x).max(8.0 * s);
@@ -300,8 +301,15 @@ pub(crate) fn calculate_sub_layout(
             SubDropdown::Line => SubControl::LineStyle,
             SubDropdown::Badge => SubControl::BadgeStyle,
             SubDropdown::Arrow => SubControl::ArrowStyle,
-            SubDropdown::Corner => SubControl::CornerRadius,
             SubDropdown::FontSize => SubControl::FontSize,
+            SubDropdown::StartArrow => SubControl::StartArrow,
+            SubDropdown::EndArrow => SubControl::EndArrow,
+            SubDropdown::BadgeSequence => SubControl::BadgeSequence,
+            SubDropdown::MosaicMode => SubControl::MosaicMode,
+            SubDropdown::FontFamily => SubControl::FontFamily,
+            SubDropdown::MagnifierConnector => SubControl::MagnifierConnector,
+            SubDropdown::MarkerShape => SubControl::MarkerShape,
+            SubDropdown::MarkerBlendMode => SubControl::MarkerBlendMode,
         };
         let anchor_rect = entries
             .iter()
@@ -309,11 +317,20 @@ pub(crate) fn calculate_sub_layout(
             .rect;
 
         let rows = match kind {
-            SubDropdown::Line => 3,
+            SubDropdown::Line => snapin_core::annotation::LineStyle::ALL.len(),
             SubDropdown::Badge => 2,
             SubDropdown::Arrow => 3,
-            SubDropdown::Corner => CORNER_RADIUS_PRESETS.len(),
             SubDropdown::FontSize => crate::editor::toolbar::items::FONT_SIZE_PRESETS.len(),
+            SubDropdown::StartArrow | SubDropdown::EndArrow => {
+                snapin_core::annotation::style::ArrowHeadStyle::ALL.len()
+            }
+            SubDropdown::BadgeSequence => snapin_core::annotation::BadgeSequence::ALL.len(),
+            SubDropdown::MosaicMode => 3,
+            SubDropdown::FontFamily => FONT_FAMILY_PRESETS.len(),
+            SubDropdown::MagnifierConnector => {
+                snapin_core::annotation::MagnifierConnector::ALL.len()
+            }
+            SubDropdown::MarkerShape | SubDropdown::MarkerBlendMode => 2,
         };
         let row_h = 28.0 * s;
         let panel_h = rows as f32 * row_h + 8.0 * s;
@@ -358,177 +375,4 @@ pub(crate) fn calculate_sub_layout(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn main_rect() -> Rect {
-        Rect {
-            x: 100.0,
-            y: 400.0,
-            width: 600.0,
-            height: 40.0,
-        }
-    }
-
-    /// 全屏选区的工具条必须回落到屏幕内，不能停到屏幕底边之外
-    #[test]
-    fn test_fullscreen_selection_toolbar_inside_screen() {
-        use crate::editor::toolbar::metrics::main_toolbar_width;
-        use crate::editor::toolbar::Toolbar;
-
-        let selection = Rect {
-            x: 0.0,
-            y: 0.0,
-            width: 1920.0,
-            height: 1080.0,
-        };
-        let width = main_toolbar_width(Toolbar::MAIN_ITEMS, 1.0);
-        let layout = calculate_main_layout(&selection, 1920.0, 1080.0, 1.0, width);
-
-        assert!(layout.x >= 8.0);
-        assert!(layout.y >= 8.0);
-        assert!(layout.x + layout.width <= 1920.0 - 8.0 + 0.01);
-        assert!(layout.y + layout.height <= 1080.0 - 8.0 + 0.01);
-    }
-
-    /// 每种工具只暴露相关控件：矩形有圆角、椭圆没有，序号有底板样式
-    #[test]
-    fn test_sub_controls_follow_active_tool() {
-        let main = main_rect();
-
-        let rect_layout = calculate_sub_layout(&main, Some(Tool::Rect), None, 1920.0, 1080.0, 1.0)
-            .expect("矩形工具应生成二级栏");
-        assert!(rect_layout
-            .entries
-            .iter()
-            .any(|e| e.control == Some(SubControl::CornerRadius)));
-        assert!(rect_layout
-            .entries
-            .iter()
-            .any(|e| e.control == Some(SubControl::FillToggle)));
-
-        let ellipse_layout =
-            calculate_sub_layout(&main, Some(Tool::Ellipse), None, 1920.0, 1080.0, 1.0)
-                .expect("椭圆工具应生成二级栏");
-        assert!(!ellipse_layout
-            .entries
-            .iter()
-            .any(|e| e.control == Some(SubControl::CornerRadius)));
-
-        let badge_layout =
-            calculate_sub_layout(&main, Some(Tool::Badge), None, 1920.0, 1080.0, 1.0)
-                .expect("序号工具应生成二级栏");
-        assert!(badge_layout
-            .entries
-            .iter()
-            .any(|e| e.control == Some(SubControl::BadgeStyle)));
-        assert!(!badge_layout
-            .entries
-            .iter()
-            .any(|e| e.control == Some(SubControl::LineStyle)));
-
-        let mosaic_layout =
-            calculate_sub_layout(&main, Some(Tool::Mosaic), None, 1920.0, 1080.0, 1.0)
-                .expect("马赛克工具应生成二级栏");
-        assert!(mosaic_layout
-            .entries
-            .iter()
-            .any(|e| e.control == Some(SubControl::SmartRedact)));
-        assert!(mosaic_layout
-            .entries
-            .iter()
-            .any(|e| matches!(e.control, Some(SubControl::Stroke(_)))));
-
-        let text_layout = calculate_sub_layout(&main, Some(Tool::Text), None, 1920.0, 1080.0, 1.0)
-            .expect("文字工具应生成二级栏");
-        assert!(text_layout
-            .entries
-            .iter()
-            .any(|e| e.control == Some(SubControl::FontSize)));
-
-        for tool in [Tool::Blur, Tool::Spotlight] {
-            assert!(
-                calculate_sub_layout(&main, Some(tool), None, 1920.0, 1080.0, 1.0).is_some(),
-                "{tool:?} 必须提供二级属性栏"
-            );
-        }
-    }
-
-    /// 屏幕边缘的矩形二级栏必须整体回收，圆角控件不能落到屏幕外。
-    #[test]
-    fn test_sub_bar_is_clamped_inside_screen() {
-        let main = Rect {
-            x: 1260.0,
-            y: 300.0,
-            width: 600.0,
-            height: 40.0,
-        };
-        let layout = calculate_sub_layout(&main, Some(Tool::Rect), None, 1366.0, 768.0, 1.0)
-            .expect("矩形二级栏应存在");
-        assert!(layout.rect.x >= 8.0);
-        assert!(layout.rect.x + layout.rect.width <= 1358.0 + 0.01);
-        assert!(layout.rect_of(SubControl::CornerRadius).is_some());
-    }
-
-    /// 控件热区必须落在面板内且互不重叠，面板宽度应覆盖到最后一个控件
-    #[test]
-    fn test_sub_layout_hit_areas_are_inside_panel_and_disjoint() {
-        let layout =
-            calculate_sub_layout(&main_rect(), Some(Tool::Rect), None, 1920.0, 1080.0, 1.0)
-                .expect("应生成二级栏");
-
-        let interactive: Vec<&Rect> = layout
-            .entries
-            .iter()
-            .filter(|e| e.control.is_some())
-            .map(|e| &e.rect)
-            .collect();
-        assert!(interactive.len() >= 9, "矩形工具应至少有 9 个可交互控件");
-
-        for rect in &interactive {
-            assert!(
-                rect.x >= layout.rect.x && rect.x + rect.width <= layout.rect.x + layout.rect.width,
-                "控件超出面板范围: {rect:?} 面板: {:?}",
-                layout.rect
-            );
-        }
-        for (i, a) in interactive.iter().enumerate() {
-            for b in interactive.iter().skip(i + 1) {
-                let overlap = a.x < b.x + b.width
-                    && b.x < a.x + a.width
-                    && a.y < b.y + b.height
-                    && b.y < a.y + a.height;
-                assert!(!overlap, "控件热区重叠: {a:?} 与 {b:?}");
-            }
-        }
-    }
-
-    /// 下拉菜单应锚定在对应控件附近，且行热区完全落在面板内
-    #[test]
-    fn test_dropdown_rows_stay_inside_panel() {
-        let layout = calculate_sub_layout(
-            &main_rect(),
-            Some(Tool::Rect),
-            Some(SubDropdown::Line),
-            1920.0,
-            1080.0,
-            1.0,
-        )
-        .expect("应生成二级栏");
-
-        let dropdown = layout.dropdown.as_ref().expect("应生成线型下拉菜单");
-        assert_eq!(dropdown.rows.len(), 3, "线型下拉应有实线/虚线/点线三行");
-        for row in &dropdown.rows {
-            assert!(
-                row.x >= dropdown.rect.x
-                    && row.x + row.width <= dropdown.rect.x + dropdown.rect.width
-                    && row.y >= dropdown.rect.y
-                    && row.y + row.height <= dropdown.rect.y + dropdown.rect.height,
-                "下拉行超出面板: {row:?}"
-            );
-        }
-        assert!(
-            layout.dropdown_row_hit(dropdown.rows[1].x + 2.0, dropdown.rows[1].y + 2.0) == Some(1)
-        );
-    }
-}
+mod tests;

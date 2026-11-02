@@ -1,7 +1,7 @@
 //! 平滑自由画笔标注图元实现。
 
 use super::{map_point, points_bounds, SizeParam};
-use crate::annotation::style::ColorRgba;
+use crate::annotation::style::{ColorRgba, LineStyle};
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{LineCap, LineJoin, Paint, PathBuilder, PixmapMut, Stroke, Transform};
@@ -12,6 +12,9 @@ pub struct PenAction {
     pub points: Vec<(f32, f32)>,
     pub color: ColorRgba,
     pub stroke_width: f32,
+    /// 画笔轨迹线型；历史数据缺失时按实线恢复。
+    #[serde(default)]
+    pub line_style: LineStyle,
 }
 
 impl PenAction {
@@ -20,6 +23,7 @@ impl PenAction {
         points: &[(f32, f32)],
         color: (u8, u8, u8, u8),
         stroke_width: f32,
+        line_style: LineStyle,
         pixmap: &mut PixmapMut,
         offset_x: f32,
         offset_y: f32,
@@ -31,13 +35,6 @@ impl PenAction {
         let mut paint = Paint::default();
         paint.set_color_rgba8(color.0, color.1, color.2, color.3);
 
-        let stroke = Stroke {
-            width: stroke_width,
-            line_cap: LineCap::Round,
-            line_join: LineJoin::Round,
-            ..Default::default()
-        };
-
         let mut pb = PathBuilder::new();
         pb.move_to(points[0].0 + offset_x, points[0].1 + offset_y);
         for pt in &points[1..] {
@@ -45,7 +42,17 @@ impl PenAction {
         }
 
         if let Some(path) = pb.finish() {
-            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+            if line_style == LineStyle::Solid {
+                let stroke = Stroke {
+                    width: stroke_width,
+                    line_cap: LineCap::Round,
+                    line_join: LineJoin::Round,
+                    ..Default::default()
+                };
+                pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+            } else {
+                line_style.stroke_path(pixmap, &path, &paint, stroke_width);
+            }
         }
     }
 }
@@ -56,6 +63,7 @@ impl PenAction {
             &self.points,
             self.color.to_tuple(),
             self.stroke_width,
+            self.line_style,
             pixmap,
             offset_x,
             offset_y,

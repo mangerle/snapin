@@ -120,6 +120,14 @@ pub fn handle_paster_scroll(
         MouseScrollDelta::PixelDelta(p) => p.y as f32 / 20.0,
     };
 
+    if state.interaction.toolbar.handle_sub_wheel(
+        state.viewport.cursor_pos.0,
+        state.viewport.cursor_pos.1,
+        delta_y,
+    ) {
+        return true;
+    }
+
     if delta_y.abs() > 0.01 {
         state.zoom(delta_y, window);
         true

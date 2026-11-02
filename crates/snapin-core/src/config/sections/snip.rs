@@ -13,6 +13,10 @@ pub struct SnipConfig {
     #[serde(default = "default_true")]
     pub remember_last_selection: bool,
 
+    /// 是否在连续截图之间保留上次标注工具栏设置；默认仅当前截图有效。
+    #[serde(default)]
+    pub remember_toolbar_settings: bool,
+
     /// 默认标注颜色（强类型 HEX）
     #[serde(default = "default_draw_color")]
     pub default_color: HexColor,
@@ -30,6 +34,7 @@ impl Default for SnipConfig {
     fn default() -> Self {
         Self {
             remember_last_selection: true,
+            remember_toolbar_settings: false,
             default_color: default_draw_color(),
             default_stroke_width: default_stroke_width(),
             default_font_size: default_font_size(),

@@ -121,6 +121,68 @@ pub fn render_icon_pen(
     }
 }
 
+/// 折线工具：单段直线与多段折线组合图形。
+pub fn render_icon_line(
+    pixmap: &mut PixmapMut,
+    cx: f32,
+    cy: f32,
+    s: f32,
+    paint: &Paint,
+    stroke: &Stroke,
+) {
+    let mut pb = PathBuilder::new();
+    pb.move_to(cx - 7.0 * s, cy + 5.0 * s);
+    pb.line_to(cx - 1.5 * s, cy - 4.0 * s);
+    pb.line_to(cx + 3.0 * s, cy + 2.0 * s);
+    pb.line_to(cx + 7.0 * s, cy - 5.0 * s);
+    if let Some(path) = pb.finish() {
+        pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
+    }
+}
+
+/// 橡皮擦图标。
+pub fn render_icon_eraser(
+    pixmap: &mut PixmapMut,
+    cx: f32,
+    cy: f32,
+    s: f32,
+    paint: &Paint,
+    stroke: &Stroke,
+) {
+    let mut pb = PathBuilder::new();
+    add_round_rect(
+        &mut pb,
+        cx - 7.0 * s,
+        cy - 3.0 * s,
+        14.0 * s,
+        8.0 * s,
+        1.5 * s,
+    );
+    pb.move_to(cx - 7.0 * s, cy + 5.0 * s);
+    pb.line_to(cx + 7.0 * s, cy + 5.0 * s);
+    if let Some(path) = pb.finish() {
+        pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
+    }
+}
+
+/// 放大镜图标：圆形镜片与向右下延伸的手柄。
+pub fn render_icon_magnifier(
+    pixmap: &mut PixmapMut,
+    cx: f32,
+    cy: f32,
+    s: f32,
+    paint: &Paint,
+    stroke: &Stroke,
+) {
+    let mut pb = PathBuilder::new();
+    pb.push_circle(cx - 1.5 * s, cy - 1.5 * s, 6.0 * s);
+    pb.move_to(cx + 3.0 * s, cy + 3.0 * s);
+    pb.line_to(cx + 8.0 * s, cy + 8.0 * s);
+    if let Some(path) = pb.finish() {
+        pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
+    }
+}
+
 /// 图标 4: 荧光记号笔 (倒梯形宽笔头 + 笔身)
 pub fn render_icon_marker(
     pixmap: &mut PixmapMut,

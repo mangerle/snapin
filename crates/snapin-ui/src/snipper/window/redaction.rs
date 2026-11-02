@@ -1,54 +1,26 @@
-//! 智能打码预览状态与提交逻辑。
+//! 智能打码状态与逐行切换逻辑。
 //!
-//! OCR 完成后只生成待确认区域，不立即修改标注历史。用户可在马赛克与局部模糊
-//! 之间切换，按 Enter 一次性提交，或按 Esc 放弃。这样把高风险隐私操作明确拆成
-//! “识别预览”和“用户确认”两个阶段。
+//! OCR 完成后立即把全部文字区域作为马赛克图元写入标注历史，因此画布直接显示最终
+//! 打码效果，不需要回车确认。`RedactionPreview` 只保留可点击文字区域，用户点击某行
+//! 时精确增删对应马赛克图元，复制、保存与撤销重做始终使用同一份标注历史。
 
 use super::state::SnipperState;
 use crate::ports::OcrTextItem;
 use crate::snipper::selection::Rect;
-use snapin_core::annotation::shapes::{BlurAction, MosaicAction};
-use snapin_core::annotation::AnnotationShape;
+use snapin_core::annotation::shapes::MosaicAction;
+use snapin_core::annotation::{AnnotationHistory, AnnotationShape};
 
-/// 智能打码使用的遮挡样式。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum RedactionStyle {
-    /// 像素网格马赛克
-    #[default]
-    Mosaic,
-    /// 局部模糊
-    Blur,
-}
+const REDACTION_CELL_SIZE: u32 = 12;
 
-impl RedactionStyle {
-    /// 在两种可用样式之间切换。
-    pub(crate) fn toggle(self) -> Self {
-        match self {
-            Self::Mosaic => Self::Blur,
-            Self::Blur => Self::Mosaic,
-        }
-    }
-
-    /// 状态栏展示名称。
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::Mosaic => "马赛克",
-            Self::Blur => "模糊",
-        }
-    }
-}
-
-/// 待用户确认的智能打码区域。
+/// 智能打码期间保留的文字区域；区域与实际马赛克图元一一对应。
 #[derive(Debug, Clone, PartialEq)]
 pub struct RedactionPreview {
-    /// 合并后的文本包围盒，全屏坐标系
+    /// OCR 文本行包围盒，全屏坐标系
     pub regions: Vec<Rect>,
-    /// 当前选择遮挡样式
-    pub style: RedactionStyle,
 }
 
 impl RedactionPreview {
-    /// 从 OCR 文本行构建预览，忽略零尺寸和无效包围盒。
+    /// 从 OCR 文本行构建区域列表，忽略零尺寸和无效包围盒。
     pub(crate) fn from_ocr_lines(lines: &[OcrTextItem]) -> Self {
         let mut regions = Vec::with_capacity(lines.len());
         for line in lines {
@@ -62,33 +34,78 @@ impl RedactionPreview {
                 });
             }
         }
-        Self {
-            regions,
-            style: RedactionStyle::Mosaic,
-        }
+        Self { regions }
+    }
+
+    /// 返回点击位置命中的文字区域；重叠时优先处理最后一条。
+    pub fn hit_at(&self, point: (f32, f32)) -> Option<Rect> {
+        self.regions
+            .iter()
+            .rev()
+            .find(|rect| rect.contains(point.0, point.1))
+            .copied()
+    }
+
+    /// 返回点击位置是否命中文字区域。
+    pub fn contains(&self, point: (f32, f32)) -> bool {
+        self.hit_at(point).is_some()
     }
 }
 
-/// 把当前预览中的全部区域提交到标注历史。
-pub(crate) fn commit_redaction(state: &mut SnipperState) -> usize {
-    let Some(preview) = state.redaction_preview.take() else {
-        return 0;
-    };
-    let count = preview.regions.len();
-    for rect in preview.regions {
-        let shape = match preview.style {
-            RedactionStyle::Mosaic => AnnotationShape::Mosaic(MosaicAction {
-                rect: (rect.x, rect.y, rect.width, rect.height),
-                cell_size: 12,
-            }),
-            RedactionStyle::Blur => AnnotationShape::Blur(BlurAction {
-                rect: (rect.x, rect.y, rect.width, rect.height),
-                radius: 12,
-            }),
-        };
-        state.annotations.push(shape);
+/// 立即为全部有效文字区域添加马赛克，返回新增图元数量。
+pub(crate) fn apply_redaction(state: &mut SnipperState, preview: &RedactionPreview) -> usize {
+    super::annotation_edit::clear(state);
+    let mut count = 0;
+    for rect in &preview.regions {
+        if !is_redaction_applied(&state.annotations, *rect) {
+            state.annotations.push(mosaic_shape(*rect));
+            count += 1;
+        }
     }
     count
+}
+
+/// 切换指定文字区域的马赛克状态；返回切换后是否已应用马赛克。
+pub(crate) fn toggle_redaction_region(state: &mut SnipperState, rect: Rect) -> bool {
+    if let Some(index) = redaction_mask_index(&state.annotations, rect) {
+        state.annotations.remove_at(index);
+        false
+    } else {
+        state.annotations.push(mosaic_shape(rect));
+        true
+    }
+}
+
+/// 判断指定文字区域当前是否已有对应马赛克图元。
+pub(crate) fn is_redaction_applied(annotations: &AnnotationHistory, rect: Rect) -> bool {
+    redaction_mask_index(annotations, rect).is_some()
+}
+
+fn redaction_mask_index(annotations: &AnnotationHistory, rect: Rect) -> Option<usize> {
+    annotations
+        .undo_stack()
+        .iter()
+        .rposition(|shape| matches_redaction_region(shape, rect))
+}
+
+fn matches_redaction_region(shape: &AnnotationShape, rect: Rect) -> bool {
+    let AnnotationShape::Mosaic(action) = shape else {
+        return false;
+    };
+    action.points.is_empty()
+        && action.rect.0 == rect.x
+        && action.rect.1 == rect.y
+        && action.rect.2 == rect.width
+        && action.rect.3 == rect.height
+}
+
+fn mosaic_shape(rect: Rect) -> AnnotationShape {
+    AnnotationShape::Mosaic(MosaicAction {
+        rect: (rect.x, rect.y, rect.width, rect.height),
+        cell_size: REDACTION_CELL_SIZE,
+        points: Vec::new(),
+        brush_width: 0.0,
+    })
 }
 
 #[cfg(test)]
@@ -102,7 +119,7 @@ mod tests {
         }
     }
 
-    /// 零尺寸 OCR 框不得进入预览，避免生成不可见历史项。
+    /// 零尺寸 OCR 框不得进入区域列表，避免生成不可见图元。
     #[test]
     fn test_preview_filters_invalid_boxes() {
         let preview = RedactionPreview::from_ocr_lines(&[
@@ -112,10 +129,27 @@ mod tests {
         assert_eq!(preview.regions.len(), 1);
     }
 
-    /// 切换样式只能得到另一个合法枚举值。
+    /// 所有文字应立即写入马赛克，点击同一区域可实时取消并恢复。
     #[test]
-    fn test_style_toggle() {
-        assert_eq!(RedactionStyle::Mosaic.toggle(), RedactionStyle::Blur);
-        assert_eq!(RedactionStyle::Blur.toggle(), RedactionStyle::Mosaic);
+    fn test_redaction_applies_immediately_and_toggles_region() {
+        let mut state = SnipperState::new();
+        let preview = RedactionPreview::from_ocr_lines(&[
+            line(10.0, 20.0, 80.0, 20.0),
+            line(10.0, 60.0, 80.0, 20.0),
+        ]);
+
+        assert_eq!(apply_redaction(&mut state, &preview), 2);
+        assert!(preview
+            .regions
+            .iter()
+            .all(|rect| is_redaction_applied(&state.annotations, *rect)));
+
+        let first = preview.regions[0];
+        assert!(!toggle_redaction_region(&mut state, first));
+        assert!(!is_redaction_applied(&state.annotations, first));
+        assert!(is_redaction_applied(&state.annotations, preview.regions[1]));
+
+        assert!(toggle_redaction_region(&mut state, first));
+        assert!(is_redaction_applied(&state.annotations, first));
     }
 }

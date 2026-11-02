@@ -4,9 +4,21 @@
 //! 重新绘制，不保存像素快照。
 
 use super::{rect_from_tuple, resize_rect, tuple_from_rect, valid_rect, SizeParam};
+use crate::annotation::style::{ColorRgba, LineStyle};
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
-use tiny_skia::{Paint, PixmapMut, Rect as SkiaRect, Transform};
+use tiny_skia::{FillRule, Paint, PathBuilder, PixmapMut, Rect as SkiaRect, Transform};
+
+/// 聚光灯聚焦区域形状。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SpotlightShape {
+    /// 矩形聚焦区域
+    #[default]
+    Rectangle,
+    /// 椭圆聚焦区域
+    Ellipse,
+}
 
 /// 聚光灯动作
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -15,10 +27,33 @@ pub struct SpotlightAction {
     /// 聚光灯外区域压暗强度（0 到 255）
     #[serde(default = "default_intensity")]
     pub intensity: u8,
+    /// 聚焦区域形状。
+    #[serde(default)]
+    pub shape: SpotlightShape,
+    /// 是否绘制聚焦区域描边。
+    #[serde(default)]
+    pub outline: bool,
+    /// 聚焦区域描边宽度。
+    #[serde(default = "default_outline_width")]
+    pub outline_width: f32,
+    /// 聚焦区域描边颜色。
+    #[serde(default = "default_outline_color")]
+    pub outline_color: ColorRgba,
+    /// 聚焦区域描边线型。
+    #[serde(default)]
+    pub line_style: LineStyle,
 }
 
 fn default_intensity() -> u8 {
     160
+}
+
+fn default_outline_width() -> f32 {
+    2.0
+}
+
+fn default_outline_color() -> ColorRgba {
+    ColorRgba::opaque(255, 255, 255)
 }
 
 impl SpotlightAction {
@@ -36,16 +71,50 @@ impl SpotlightAction {
 
         let mut paint = Paint::default();
         paint.set_color_rgba8(0, 0, 0, self.intensity);
-        let areas = [
-            (0.0, 0.0, width, top),
-            (0.0, bottom, width, height - bottom),
-            (0.0, top, left, bottom - top),
-            (right, top, width - right, bottom - top),
-        ];
-        for (x, y, w, h) in areas {
-            if let Some(rect) = SkiaRect::from_xywh(x, y, w, h) {
-                pixmap.fill_rect(rect, &paint, Transform::identity(), None);
+        let Some(canvas) = SkiaRect::from_xywh(0.0, 0.0, width, height) else {
+            return;
+        };
+        let Some(focus) = SkiaRect::from_xywh(left, top, right - left, bottom - top) else {
+            return;
+        };
+        let mut path_builder = PathBuilder::new();
+        path_builder.push_rect(canvas);
+        self.push_focus_path(&mut path_builder, focus);
+        if let Some(path) = path_builder.finish() {
+            pixmap.fill_path(
+                &path,
+                &paint,
+                FillRule::EvenOdd,
+                Transform::identity(),
+                None,
+            );
+        }
+
+        if self.outline {
+            let mut outline_builder = PathBuilder::new();
+            self.push_focus_path(&mut outline_builder, focus);
+            if let Some(path) = outline_builder.finish() {
+                let mut outline_paint = Paint::default();
+                outline_paint.set_color_rgba8(
+                    self.outline_color.0,
+                    self.outline_color.1,
+                    self.outline_color.2,
+                    self.outline_color.3,
+                );
+                self.line_style.stroke_path(
+                    pixmap,
+                    &path,
+                    &outline_paint,
+                    self.outline_width.max(1.0),
+                );
             }
+        }
+    }
+
+    fn push_focus_path(&self, builder: &mut PathBuilder, focus: SkiaRect) {
+        match self.shape {
+            SpotlightShape::Rectangle => builder.push_rect(focus),
+            SpotlightShape::Ellipse => builder.push_oval(focus),
         }
     }
 
@@ -84,6 +153,11 @@ mod tests {
         let action = SpotlightAction {
             rect: (3.0, 3.0, 3.0, 3.0),
             intensity: 160,
+            shape: SpotlightShape::Rectangle,
+            outline: false,
+            outline_width: 2.0,
+            outline_color: ColorRgba::opaque(255, 255, 255),
+            line_style: LineStyle::Solid,
         };
         action.draw(&mut pixmap.as_mut());
 

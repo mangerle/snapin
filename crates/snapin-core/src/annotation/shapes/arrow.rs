@@ -4,10 +4,10 @@
 //! 三者在同一份几何基础上绘制，只在箭杆渲染方式上分叉。
 
 use super::{map_point, SizeParam};
-use crate::annotation::style::{ArrowStyle, ColorRgba, LineStyle};
+use crate::annotation::style::{ArrowHeadStyle, ArrowStyle, ColorRgba, LineStyle};
 use crate::geometry::Rect;
 use serde::{Deserialize, Serialize};
-use tiny_skia::{Paint, PathBuilder, PixmapMut, Transform};
+use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 指引箭头绘制动作
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -19,6 +19,19 @@ pub struct ArrowAction {
     /// 箭头形态：实线 / 虚线 / 锥形
     #[serde(default)]
     pub style: ArrowStyle,
+    /// 线条样式
+    #[serde(default)]
+    pub line_style: LineStyle,
+    /// 起点端点样式
+    #[serde(default)]
+    pub start_head: ArrowHeadStyle,
+    /// 终点端点样式
+    #[serde(default = "default_end_head")]
+    pub end_head: ArrowHeadStyle,
+}
+
+fn default_end_head() -> ArrowHeadStyle {
+    ArrowHeadStyle::Triangle
 }
 
 /// 箭头共享几何：单位方向、法向、头部基线与翼展半宽
@@ -65,36 +78,81 @@ impl ArrowAction {
         })
     }
 
-    /// 绘制实心箭头头部
-    fn draw_head(&self, pixmap: &mut PixmapMut, geometry: &ArrowGeometry, paint: &Paint) {
-        let (vx, vy) = geometry.normal;
-        let (bx, by) = geometry.base;
-        let (x2, y2) = geometry.end;
-
-        let mut pb = PathBuilder::new();
-        pb.move_to(x2, y2);
-        pb.line_to(
-            bx + vx * geometry.head_half_w,
-            by + vy * geometry.head_half_w,
-        );
-        pb.line_to(
-            bx - vx * geometry.head_half_w,
-            by - vy * geometry.head_half_w,
-        );
-        pb.close();
-        if let Some(path) = pb.finish() {
-            pixmap.fill_path(
-                &path,
-                paint,
-                tiny_skia::FillRule::Winding,
-                Transform::identity(),
-                None,
-            );
+    fn draw_head_style(
+        &self,
+        pixmap: &mut PixmapMut,
+        tip: (f32, f32),
+        direction: (f32, f32),
+        paint: &Paint,
+        style: ArrowHeadStyle,
+    ) {
+        let (ux, uy) = direction;
+        let (vx, vy) = (-uy, ux);
+        let head_len = (self.stroke_width * 3.5).clamp(8.0, 48.0);
+        let half_w = (self.stroke_width * 2.2).max(4.0);
+        match style {
+            ArrowHeadStyle::None => {}
+            ArrowHeadStyle::Triangle | ArrowHeadStyle::Outline => {
+                let base = (tip.0 - ux * head_len, tip.1 - uy * head_len);
+                let mut pb = PathBuilder::new();
+                pb.move_to(tip.0, tip.1);
+                pb.line_to(base.0 + vx * half_w, base.1 + vy * half_w);
+                pb.line_to(base.0 - vx * half_w, base.1 - vy * half_w);
+                pb.close();
+                if let Some(path) = pb.finish() {
+                    if style == ArrowHeadStyle::Triangle {
+                        pixmap.fill_path(
+                            &path,
+                            paint,
+                            tiny_skia::FillRule::Winding,
+                            Transform::identity(),
+                            None,
+                        );
+                    } else {
+                        let stroke = Stroke {
+                            width: self.stroke_width.max(1.0),
+                            ..Default::default()
+                        };
+                        pixmap.stroke_path(&path, paint, &stroke, Transform::identity(), None);
+                    }
+                }
+            }
+            ArrowHeadStyle::Bar => {
+                let mut pb = PathBuilder::new();
+                pb.move_to(tip.0 + vx * half_w, tip.1 + vy * half_w);
+                pb.line_to(tip.0 - vx * half_w, tip.1 - vy * half_w);
+                if let Some(path) = pb.finish() {
+                    let stroke = Stroke {
+                        width: self.stroke_width.max(1.0),
+                        ..Default::default()
+                    };
+                    pixmap.stroke_path(&path, paint, &stroke, Transform::identity(), None);
+                }
+            }
+            ArrowHeadStyle::Circle => {
+                let mut pb = PathBuilder::new();
+                pb.push_circle(tip.0, tip.1, half_w * 0.65);
+                if let Some(path) = pb.finish() {
+                    pixmap.fill_path(
+                        &path,
+                        paint,
+                        tiny_skia::FillRule::Winding,
+                        Transform::identity(),
+                        None,
+                    );
+                }
+            }
         }
     }
 
     /// 锥形箭头：箭杆与头部合并为一体化填充多边形
-    fn draw_tapered(&self, pixmap: &mut PixmapMut, geometry: &ArrowGeometry, paint: &Paint) {
+    fn draw_tapered(
+        &self,
+        pixmap: &mut PixmapMut,
+        geometry: &ArrowGeometry,
+        paint: &Paint,
+        line_style: LineStyle,
+    ) {
         let (x1, y1) = geometry.start;
         let (vx, vy) = geometry.normal;
         let (bx, by) = geometry.base;
@@ -121,13 +179,17 @@ impl ArrowAction {
         pb.close();
 
         if let Some(path) = pb.finish() {
-            pixmap.fill_path(
-                &path,
-                paint,
-                tiny_skia::FillRule::Winding,
-                Transform::identity(),
-                None,
-            );
+            if line_style == LineStyle::Solid {
+                pixmap.fill_path(
+                    &path,
+                    paint,
+                    tiny_skia::FillRule::Winding,
+                    Transform::identity(),
+                    None,
+                );
+            } else {
+                line_style.stroke_path(pixmap, &path, paint, self.stroke_width.max(1.0));
+            }
         }
     }
 
@@ -148,8 +210,6 @@ impl ArrowAction {
         if let Some(path) = pb.finish() {
             line_style.stroke_path(pixmap, &path, paint, self.stroke_width);
         }
-
-        self.draw_head(pixmap, geometry, paint);
     }
 }
 
@@ -166,9 +226,22 @@ impl ArrowAction {
         paint.set_color_rgba8(self.color.0, self.color.1, self.color.2, self.color.3);
 
         match self.style.shaft_line_style() {
-            Some(line_style) => self.draw_stroked(pixmap, &geometry, &paint, line_style),
-            None => self.draw_tapered(pixmap, &geometry, &paint),
+            Some(_) => self.draw_stroked(pixmap, &geometry, &paint, self.line_style),
+            None => self.draw_tapered(pixmap, &geometry, &paint, self.line_style),
         }
+
+        let dx = geometry.end.0 - geometry.start.0;
+        let dy = geometry.end.1 - geometry.start.1;
+        let length = (dx * dx + dy * dy).sqrt().max(1.0);
+        let direction = (dx / length, dy / length);
+        self.draw_head_style(
+            pixmap,
+            geometry.start,
+            (-direction.0, -direction.1),
+            &paint,
+            self.start_head,
+        );
+        self.draw_head_style(pixmap, geometry.end, direction, &paint, self.end_head);
     }
 
     pub(crate) fn adjust_size(&mut self, param: SizeParam) {
@@ -226,6 +299,9 @@ mod tests {
             color: (255, 0, 0, 255).into(),
             stroke_width,
             style,
+            line_style: style.shaft_line_style().unwrap_or(LineStyle::Solid),
+            start_head: ArrowHeadStyle::None,
+            end_head: ArrowHeadStyle::Triangle,
         }
         .draw(&mut pixmap.as_mut());
         pixmap
@@ -285,6 +361,9 @@ mod tests {
             color: (255, 0, 0, 255).into(),
             stroke_width: 8.0,
             style: ArrowStyle::Tapered,
+            line_style: LineStyle::Solid,
+            start_head: ArrowHeadStyle::None,
+            end_head: ArrowHeadStyle::Triangle,
         };
 
         arrow.draw(&mut pixmap.as_mut());

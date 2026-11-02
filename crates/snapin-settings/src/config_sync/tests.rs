@@ -33,6 +33,7 @@ fn sample_config() -> Config {
     cfg.interface.toolbar_scale = 1.25;
 
     cfg.snip.remember_last_selection = false;
+    cfg.snip.remember_toolbar_settings = true;
     cfg.snip.default_color =
         HexColor::from_hex(DEFAULT_SNIP_COLORS[3]).expect("预设标注色必须可解析");
     cfg.snip.default_stroke_width = 3.5;

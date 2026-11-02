@@ -4,7 +4,10 @@
 //! 并提供线程局部缓存以避免在非主干上下文内重复扫描与初始化系统字体库。
 
 use super::raster::blend_glyph_rgba;
-use cosmic_text::{Attrs, Buffer, Color as CosmicColor, FontSystem, Metrics, Shaping, SwashCache};
+use cosmic_text::{
+    Attrs, Buffer, Color as CosmicColor, Family, FontSystem, Metrics, Shaping, Style, SwashCache,
+    Weight,
+};
 use std::cell::RefCell;
 use tiny_skia::{Color, PixmapMut};
 
@@ -42,6 +45,24 @@ pub struct TextBoxOptions {
     pub font_size: f32,
     /// 文本颜色 RGBA
     pub rgba: (u8, u8, u8, u8),
+}
+
+/// 单行文本附加排版样式。
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct TextStyleOptions<'a> {
+    pub bold: bool,
+    pub italic: bool,
+    pub font_family: Option<&'a str>,
+}
+
+/// 单行样式文字绘制参数。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StyledTextDrawOptions<'a> {
+    pub x: f32,
+    pub y: f32,
+    pub font_size: f32,
+    pub rgba: (u8, u8, u8, u8),
+    pub style: TextStyleOptions<'a>,
 }
 
 impl TextRenderer {
@@ -82,10 +103,37 @@ impl TextRenderer {
         font_size: f32,
         rgba: (u8, u8, u8, u8),
     ) {
+        self.draw_text_styled_rgba(
+            pixmap,
+            text,
+            StyledTextDrawOptions {
+                x,
+                y,
+                font_size,
+                rgba,
+                style: TextStyleOptions::default(),
+            },
+        );
+    }
+
+    /// 在指定坐标绘制带粗体、斜体和字体族样式的单行文字。
+    pub fn draw_text_styled_rgba(
+        &mut self,
+        pixmap: &mut PixmapMut,
+        text: &str,
+        options: StyledTextDrawOptions<'_>,
+    ) {
         if text.is_empty() {
             return;
         }
 
+        let StyledTextDrawOptions {
+            x,
+            y,
+            font_size,
+            rgba,
+            style,
+        } = options;
         let metrics = Metrics::new(font_size, font_size * 1.25);
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
         buffer.set_size(
@@ -93,7 +141,22 @@ impl TextRenderer {
             pixmap.width() as f32,
             pixmap.height() as f32,
         );
-        buffer.set_text(&mut self.font_system, text, Attrs::new(), Shaping::Advanced);
+        let mut attrs = Attrs::new();
+        if let Some(family) = style.font_family {
+            attrs = attrs.family(Family::Name(family));
+        }
+        attrs = attrs
+            .weight(if style.bold {
+                Weight::BOLD
+            } else {
+                Weight::NORMAL
+            })
+            .style(if style.italic {
+                Style::Italic
+            } else {
+                Style::Normal
+            });
+        buffer.set_text(&mut self.font_system, text, attrs, Shaping::Advanced);
         buffer.shape_until_scroll(&mut self.font_system, false);
 
         let c_color = CosmicColor::rgba(rgba.0, rgba.1, rgba.2, rgba.3);

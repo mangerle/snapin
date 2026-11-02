@@ -25,6 +25,16 @@ pub enum AnnotationDrag {
         original_bounds: Rect,
         original: AnnotationShape,
     },
+    /// 拖动放大镜原区域，同时移动原区域与放大图像
+    MagnifierSource {
+        origin: (f32, f32),
+        original: AnnotationShape,
+    },
+    /// 仅拖动放大镜图像
+    MagnifierImage {
+        origin: (f32, f32),
+        original: AnnotationShape,
+    },
 }
 
 /// 已选中标注的包围盒
@@ -119,6 +129,39 @@ pub fn handle_press(state: &mut SnipperState, cx: f32, cy: f32, allow_locked: bo
         }
     }
 
+    if let Some(index) = state.selected_annotation {
+        if let Some(original) = state.annotations.shape_at(index.get()).cloned() {
+            if let AnnotationShape::Magnifier(action) = &original {
+                let source = Rect {
+                    x: action.source.0,
+                    y: action.source.1,
+                    width: action.source.2,
+                    height: action.source.3,
+                };
+                let dest = Rect {
+                    x: action.dest.0,
+                    y: action.dest.1,
+                    width: action.dest.2,
+                    height: action.dest.3,
+                };
+                if source.contains(cx, cy) {
+                    state.annotation_drag = Some(AnnotationDrag::MagnifierSource {
+                        origin: (cx, cy),
+                        original,
+                    });
+                    return true;
+                }
+                if dest.contains(cx, cy) {
+                    state.annotation_drag = Some(AnnotationDrag::MagnifierImage {
+                        origin: (cx, cy),
+                        original,
+                    });
+                    return true;
+                }
+            }
+        }
+    }
+
     // 已选中的标注（可能是 Alt 解锁的旧图元）允许继续拖动，不再要求重复按住 Alt。
     if hit_test_selected_body(state, cx, cy) {
         if let Some(index) = state.selected_annotation {
@@ -174,6 +217,20 @@ pub fn handle_drag_move(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
             shape.resize_from_bounds(*original_bounds, new_bounds);
             shape
         }
+        AnnotationDrag::MagnifierSource { origin, original } => {
+            let mut shape = original.clone();
+            if let AnnotationShape::Magnifier(action) = &mut shape {
+                action.translate_source(cx - origin.0, cy - origin.1);
+            }
+            shape
+        }
+        AnnotationDrag::MagnifierImage { origin, original } => {
+            let mut shape = original.clone();
+            if let AnnotationShape::Magnifier(action) = &mut shape {
+                action.translate_dest(cx - origin.0, cy - origin.1);
+            }
+            shape
+        }
     };
 
     if state.annotations.replace(index.get(), updated) {
@@ -200,7 +257,10 @@ mod tests {
     use super::*;
     use crate::editor::toolbar::Tool;
     use crate::snipper::selection::SelectionState;
-    use snapin_core::annotation::shapes::RectAction;
+    use snapin_core::annotation::shapes::{
+        MagnifierAction, MagnifierConnector, MagnifierShape, RectAction,
+    };
+    use snapin_core::annotation::ColorRgba;
     use snapin_core::annotation::LineStyle;
 
     fn state_with_rect() -> SnipperState {
@@ -224,6 +284,71 @@ mod tests {
             line_style: LineStyle::Solid,
         }));
         state
+    }
+
+    fn state_with_magnifier() -> SnipperState {
+        let mut state = SnipperState::new();
+        state.selection = SelectionState::Locked {
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 300.0,
+                height: 300.0,
+            },
+            active_drag: None,
+        };
+        state
+            .annotations
+            .push(AnnotationShape::Magnifier(MagnifierAction {
+                source: (10.0, 10.0, 20.0, 20.0),
+                dest: (100.0, 100.0, 40.0, 40.0),
+                shape: MagnifierShape::Rectangle,
+                border_width: 2.0,
+                border_color: ColorRgba::opaque(255, 255, 255),
+                smooth: true,
+                shadow: true,
+                connector: MagnifierConnector::Solid,
+            }));
+        state.selected_annotation = Some(0.into());
+        state
+    }
+
+    /// 拖动原区域时，原区域和放大图像同步移动。
+    #[test]
+    fn test_magnifier_source_drag_moves_both_regions() {
+        let mut state = state_with_magnifier();
+        assert!(handle_press(&mut state, 20.0, 20.0, false));
+        assert!(matches!(
+            state.annotation_drag,
+            Some(AnnotationDrag::MagnifierSource { .. })
+        ));
+        assert!(handle_drag_move(&mut state, 30.0, 40.0));
+        match state.annotations.shape_at(0) {
+            Some(AnnotationShape::Magnifier(action)) => {
+                assert_eq!(action.source, (20.0, 30.0, 20.0, 20.0));
+                assert_eq!(action.dest, (110.0, 120.0, 40.0, 40.0));
+            }
+            other => panic!("应为放大镜图元，实际: {other:?}"),
+        }
+    }
+
+    /// 拖动放大图像区域时只移动图像，原区域保持不动。
+    #[test]
+    fn test_magnifier_image_drag_moves_only_output() {
+        let mut state = state_with_magnifier();
+        assert!(handle_press(&mut state, 110.0, 110.0, false));
+        assert!(matches!(
+            state.annotation_drag,
+            Some(AnnotationDrag::MagnifierImage { .. })
+        ));
+        assert!(handle_drag_move(&mut state, 115.0, 117.0));
+        match state.annotations.shape_at(0) {
+            Some(AnnotationShape::Magnifier(action)) => {
+                assert_eq!(action.source, (10.0, 10.0, 20.0, 20.0));
+                assert_eq!(action.dest, (105.0, 107.0, 40.0, 40.0));
+            }
+            other => panic!("应为放大镜图元，实际: {other:?}"),
+        }
     }
 
     /// 点击标注本体应立即选中并进入整体拖动，位移只取决于按下点到当前光标的总差

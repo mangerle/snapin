@@ -8,7 +8,8 @@ The screenshot overlay uses winit plus tiny-skia software rasterization. On Linu
 
 - Area, window, fullscreen, delayed, and color-picker capture
 - Fixed ratio and fixed-size selection, window cycling, and pixel nudging
-- Rectangle, ellipse, arrow, pen, highlighter, text, badge, mosaic, blur, and spotlight annotations
+- Rectangle, ellipse, line/polyline, arrow, pen, highlighter, eraser, text, badge, mosaic/blur/smart redaction, spotlight, and region magnifier annotations
+- A single size dot with a numeric value and wheel adjustment, line styles, fill, corners up to 90 px, start/end arrowheads, highlighter line/rectangle and blend-mode dropdowns, numbered-annotation text/font/stroke/guide-line/arrow controls, text-background opacity/radius/padding, mosaic/blur/smart-redaction modes, brush/rectangle drawing and an intensity slider, spotlight shape/opacity/outline, magnifier scale/smoothing/connector, and palettes
 - Editable latest annotation, undo/redo, selection history, and annotation toolbar tooltips
 - Local OCR with PP-OCRv6 and editable OCR result rows
 - Smart redaction preview for all recognized text, with mosaic or blur rendering

@@ -248,7 +248,7 @@ fn apply_clipboard_rows(window: &ClipboardPanel, entries: &[ClipboardEntry]) {
 
 /// 应用 Slint 打包翻译语言。
 fn apply_language(language: snapin_core::config::UiLanguage) {
-    if let Err(error) = slint::select_bundled_translation(language.code()) {
+    if let Err(error) = slint::select_bundled_translation(language.slint_translation_code()) {
         tracing::warn!("切换界面语言失败，语言: {}，原因: {error}", language.code());
     }
 }

@@ -1,5 +1,6 @@
 //! 文本标注实时输入会话管理与即时输入光标渲染。
 
+use crate::editor::toolbar::SubToolOptions;
 use snapin_core::annotation::action::AnnotationShape;
 use snapin_core::annotation::shapes::TextAction;
 use snapin_core::render::with_thread_local_text_renderer;
@@ -19,6 +20,15 @@ pub struct TextInputSession {
     pub color: (u8, u8, u8, u8),
     /// 字体字号大小 (受鼠标滚轮连续动态微调，范围 12.0 ~ 72.0)
     pub font_size: f32,
+    pub bold: bool,
+    pub italic: bool,
+    pub font_family: Option<String>,
+    pub stroke_width: f32,
+    pub stroke_color: (u8, u8, u8, u8),
+    pub background_color: Option<(u8, u8, u8, u8)>,
+    pub background_opacity: u8,
+    pub background_padding: f32,
+    pub background_corner_radius: f32,
 }
 
 impl TextInputSession {
@@ -30,6 +40,15 @@ impl TextInputSession {
             preedit: String::new(),
             color,
             font_size: font_size.clamp(12.0, 72.0),
+            bold: false,
+            italic: false,
+            font_family: None,
+            stroke_width: 0.0,
+            stroke_color: (255, 255, 255, 255),
+            background_color: None,
+            background_opacity: 0,
+            background_padding: 4.0,
+            background_corner_radius: 4.0,
         }
     }
 
@@ -68,6 +87,25 @@ impl TextInputSession {
         self.font_size = (self.font_size + delta).clamp(12.0, 72.0);
     }
 
+    /// 将工具栏当前文字样式应用到会话，保证输入预览与最终图元完全一致。
+    pub fn apply_toolbar_options(&mut self, options: &SubToolOptions) {
+        self.color = color_to_rgba(options.color);
+        self.font_size = options.font_size;
+        self.bold = options.text_bold;
+        self.italic = options.text_italic;
+        self.font_family = options.font_family.map(str::to_string);
+        self.stroke_width = options.text_stroke_width;
+        self.stroke_color = color_to_rgba(options.color);
+        self.background_color = options.text_background_enabled.then_some(self.color);
+        self.background_opacity = if options.text_background_enabled {
+            options.text_background_opacity
+        } else {
+            0
+        };
+        self.background_padding = options.text_background_padding;
+        self.background_corner_radius = options.text_background_corner_radius;
+    }
+
     /// 结束输入并返回已确认文本与未提交预编辑拼接后的完整内容。
     pub fn finish_text(mut self) -> String {
         if !self.preedit.is_empty() {
@@ -92,6 +130,15 @@ impl TextInputSession {
                 text: self.text,
                 color: self.color.into(),
                 font_size: self.font_size,
+                bold: self.bold,
+                italic: self.italic,
+                font_family: self.font_family,
+                stroke_width: self.stroke_width,
+                stroke_color: self.stroke_color.into(),
+                background_color: self.background_color.map(Into::into),
+                background_opacity: self.background_opacity,
+                padding: self.background_padding,
+                corner_radius: self.background_corner_radius,
             }))
         }
     }
@@ -336,6 +383,16 @@ pub enum TextSessionAction {
     Cancel,
     /// 与文本输入无关，交回调用方处理
     Ignored,
+}
+
+/// 将 tiny-skia 颜色转换为持久化图元使用的 RGBA 元组。
+fn color_to_rgba(color: tiny_skia::Color) -> (u8, u8, u8, u8) {
+    (
+        (color.red() * 255.0).round() as u8,
+        (color.green() * 255.0).round() as u8,
+        (color.blue() * 255.0).round() as u8,
+        (color.alpha() * 255.0).round() as u8,
+    )
 }
 
 /// 统一处理文本输入会话中的按键。

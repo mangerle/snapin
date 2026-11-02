@@ -125,10 +125,36 @@ impl AnnotationHistory {
         }
     }
 
+    /// 删除指定索引的图元；成功时清空 redo 栈并返回是否删除。
+    ///
+    /// 智能打码需要按文字区域增删单个马赛克图元，不能误删与其相交的其他标注，
+    /// 因此这里提供精确索引删除，而不是复用矩形相交擦除。
+    pub fn remove_at(&mut self, index: usize) -> bool {
+        if self.document.remove_at(index).is_some() {
+            self.redo_stack.clear();
+            true
+        } else {
+            false
+        }
+    }
+
     /// 清空所有标注历史。
     pub fn clear(&mut self) {
         self.document.clear();
         self.redo_stack.clear();
+    }
+
+    /// 擦除命中点最上层的图元。
+    pub fn erase_at(&mut self, point: (f32, f32)) -> bool {
+        let Some(index) = self.document.hit_test(point) else {
+            return false;
+        };
+        self.document.remove_at(index).is_some()
+    }
+
+    /// 擦除所有与矩形相交的图元。
+    pub fn erase_intersecting(&mut self, rect: crate::geometry::Rect) -> usize {
+        self.document.remove_intersecting(rect).len()
     }
 }
 
@@ -161,6 +187,21 @@ mod tests {
         assert!(history.replace(0, rect_at(5.0)));
         assert!(!history.can_redo());
         assert!(!history.redo());
+    }
+
+    /// 精确删除指定图元后必须使 redo 失效，且不能影响其他标注。
+    #[test]
+    fn test_remove_at_removes_only_target_and_invalidates_redo() {
+        let mut history = AnnotationHistory::default();
+        history.push(rect_at(0.0));
+        history.push(rect_at(20.0));
+        history.undo();
+        assert!(history.can_redo());
+
+        assert!(history.remove_at(0));
+        assert!(!history.can_redo());
+        assert_eq!(history.undo_stack().len(), 0);
+        assert!(!history.remove_at(0));
     }
 
     /// 旧版 `undo_stack` 字段仍可反序列化。

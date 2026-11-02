@@ -608,6 +608,18 @@ msgstr "Spanish (Español)"
 msgid "记忆并恢复上次截图选区"
 msgstr "Remember and restore the previous selection"
 
+msgid "工具栏设置记忆"
+msgstr "Toolbar Setting Memory"
+
+msgid "控制本次截图调整的标注工具设置是否沿用到下一次截图"
+msgstr "Controls whether annotation toolbar settings carry over to the next capture"
+
+msgid "沿用上次标注工具设置"
+msgstr "Reuse last annotation toolbar settings"
+
+msgid "关闭时，每次新截图恢复默认标注设置；默认关闭"
+msgstr "When off, each new capture starts with default annotation settings. Off by default."
+
 msgid "设置界面:"
 msgstr "Settings UI:"
 

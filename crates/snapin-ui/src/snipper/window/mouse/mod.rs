@@ -2,13 +2,17 @@
 
 pub mod toolbar_action;
 
+mod eraser;
+
 use super::annotation_builder::commit_annotation;
 use super::events::{commit_active_text_input, handle_escape, SnipperState};
 use super::state::window_at;
 use super::types::SnipMode;
-use crate::editor::toolbar::{StrokeWidthLevel, SubControl, Tool};
+use crate::editor::toolbar::{LineMode, StrokeWidthLevel, Tool};
+use crate::model::ShapeId;
 use crate::snipper::selection::{hit_test_handle, DragMode, Rect, SelectionState};
 use image::RgbaImage;
+use snapin_core::annotation::AnnotationShape;
 use toolbar_action::{dispatch_toolbar_action, handle_text_tool_click};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 
@@ -53,13 +57,34 @@ pub fn handle_cursor_move(
                 *active_drag = Some(d);
                 state.toolbar.update_layout(rect, screen_w, screen_h);
                 true
+            } else if state.toolbar.active_tool == Some(Tool::Eraser) {
+                let px = cx.clamp(rect.x, rect.x + rect.width);
+                let py = cy.clamp(rect.y, rect.y + rect.height);
+                eraser::handle_drag_move(state, (px, py));
+                true
             } else if state.toolbar.active_tool.is_some() && !state.stroke.points.is_empty() {
                 let px = cx.clamp(rect.x, rect.x + rect.width);
                 let py = cy.clamp(rect.y, rect.y + rect.height);
                 let tool = state.toolbar.active_tool;
                 match tool {
+                    Some(Tool::Pen) if state.modifiers.shift_key() => {
+                        let start = state.stroke.points[0];
+                        let endpoint = constrain_with_shift(Tool::Arrow, start, (px, py));
+                        state.stroke.points.truncate(1);
+                        state.stroke.points.push(endpoint);
+                    }
                     Some(Tool::Pen) | Some(Tool::Marker) => {
                         state.stroke.points.push((px, py));
+                    }
+                    Some(Tool::Mosaic) if state.toolbar.sub_options.mosaic_brush_mode => {
+                        if state.stroke.points.last() != Some(&(px, py)) {
+                            state.stroke.points.push((px, py));
+                        }
+                    }
+                    Some(Tool::Line)
+                        if state.toolbar.sub_options.line_mode == LineMode::Polyline =>
+                    {
+                        // 折线由连续单击追加节点，鼠标移动只刷新预览，不修改已提交节点。
                     }
                     _ => {
                         let endpoint = match (state.modifiers.shift_key(), tool) {
@@ -78,7 +103,8 @@ pub fn handle_cursor_move(
                 }
                 true
             } else {
-                state.toolbar.handle_mouse_move(cx, cy)
+                let hover_changed = state.toolbar.handle_mouse_move(cx, cy);
+                hover_changed || has_brush_cursor(state)
             }
         }
     }
@@ -94,7 +120,7 @@ fn constrain_with_shift(tool: Tool, start: (f32, f32), current: (f32, f32)) -> (
     let dy = y - y0;
 
     match tool {
-        Tool::Rect | Tool::Ellipse | Tool::Blur | Tool::Spotlight => {
+        Tool::Rect | Tool::Ellipse | Tool::Blur | Tool::Spotlight | Tool::Magnifier => {
             let side = dx.abs().max(dy.abs());
             x = x0 + side * dx.signum();
             y = y0 + side * dy.signum();
@@ -114,6 +140,15 @@ fn constrain_with_shift(tool: Tool, start: (f32, f32), current: (f32, f32)) -> (
     (x, y)
 }
 
+/// 当前工具是否需要持续跟随光标重绘圆形画笔轮廓。
+fn has_brush_cursor(state: &SnipperState) -> bool {
+    match state.toolbar.active_tool {
+        Some(Tool::Mosaic) => state.toolbar.sub_options.mosaic_brush_mode,
+        Some(Tool::Eraser) => !state.toolbar.sub_options.eraser_rectangle_mode,
+        _ => false,
+    }
+}
+
 /// 鼠标按键点击事件处理
 pub fn handle_mouse_button(
     state: &mut SnipperState,
@@ -123,7 +158,24 @@ pub fn handle_mouse_button(
 ) -> bool {
     let (cx, cy) = (state.cursor_pos.0 as f32, state.cursor_pos.1 as f32);
 
+    if button == MouseButton::Left {
+        let hit_region = state
+            .redaction_preview
+            .as_ref()
+            .and_then(|preview| preview.hit_at((cx, cy)));
+        if let Some(rect) = hit_region {
+            if button_state == ElementState::Pressed {
+                super::redaction::toggle_redaction_region(state, rect);
+            }
+            return true;
+        }
+    }
+
     if button == MouseButton::Right && button_state == ElementState::Pressed {
+        if state.toolbar.active_tool == Some(Tool::Line) && state.stroke.points.len() >= 2 {
+            commit_annotation(state);
+            return true;
+        }
         return handle_escape(state);
     }
 
@@ -246,6 +298,17 @@ fn handle_locked_press(
     }
 
     if rect.contains(cx, cy) {
+        if state.toolbar.active_tool == Some(Tool::Eraser) {
+            return eraser::handle_press(state, cx, cy);
+        }
+        if state.toolbar.active_tool == Some(Tool::Line)
+            && state.toolbar.sub_options.line_mode == LineMode::Polyline
+        {
+            super::annotation_edit::clear(state);
+            state.stroke.points.push((cx, cy));
+            state.stroke.is_drawing = true;
+            return true;
+        }
         if state.toolbar.active_tool.is_some() {
             super::annotation_edit::clear(state);
             state.stroke.points.clear();
@@ -358,6 +421,13 @@ fn handle_left_release(
                 state.history.push(*rect);
                 state.toolbar.update_layout(rect, screen_w, screen_h);
                 true
+            } else if state.toolbar.active_tool == Some(Tool::Eraser) {
+                eraser::handle_release(state, cx, cy)
+            } else if state.toolbar.active_tool == Some(Tool::Line)
+                && state.toolbar.sub_options.line_mode == LineMode::Polyline
+            {
+                // 折线在右键或 Enter 时提交，单击释放只追加节点。
+                true
             } else if state.toolbar.active_tool.is_some() && !state.stroke.points.is_empty() {
                 state.stroke.points.push((cx, cy));
                 commit_annotation(state);
@@ -409,20 +479,26 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
         return false;
     }
 
-    // 矩形工具下，光标悬停在圆角控件上时，滚轮改为连续调节圆角半径
-    let over_corner_radius = state.toolbar.active_tool == Some(Tool::Rect)
-        && state
+    if state.toolbar.active_tool == Some(Tool::Magnifier)
+        && !state
             .toolbar
-            .sub_layout()
-            .and_then(|layout| layout.rect_of(SubControl::CornerRadius))
-            .is_some_and(|rect| {
-                rect.contains(state.cursor_pos.0 as f32, state.cursor_pos.1 as f32)
-            });
-    if over_corner_radius {
-        let step = if delta_y > 0.0 { 2.0 } else { -2.0 };
-        let new_radius = (state.toolbar.sub_options.corner_radius + step).clamp(0.0, 30.0);
-        state.toolbar.sub_options.corner_radius = new_radius;
-        state.annotations.adjust_last_corner_radius(new_radius);
+            .contains_point(state.cursor_pos.0 as f32, state.cursor_pos.1 as f32)
+        && adjust_magnifier_wheel(state, delta_y)
+    {
+        return true;
+    }
+
+    if state.toolbar.handle_sub_wheel(
+        state.cursor_pos.0 as f32,
+        state.cursor_pos.1 as f32,
+        delta_y,
+    ) {
+        if let Some(session) = &mut state.active_text_input {
+            session.font_size = state.toolbar.sub_options.font_size;
+        }
+        if state.toolbar.active_tool == Some(Tool::Magnifier) {
+            sync_selected_magnifier_scale(state);
+        }
         return true;
     }
 
@@ -456,6 +532,76 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
         state.annotations.adjust_last_stroke_width(new_stroke_w);
         true
     }
+}
+
+/// 根据光标是否位于放大原区域或放大图像内，调整倍率或边框粗细。
+fn adjust_magnifier_wheel(state: &mut SnipperState, delta_y: f32) -> bool {
+    let index = state
+        .selected_annotation
+        .map(ShapeId::get)
+        .or_else(|| state.annotations.undo_stack().len().checked_sub(1));
+    let point = (state.cursor_pos.0 as f32, state.cursor_pos.1 as f32);
+    let mut over_magnifier = false;
+    if let Some(index) = index {
+        if let Some(AnnotationShape::Magnifier(action)) = state.annotations.shape_at(index) {
+            let source = Rect {
+                x: action.source.0,
+                y: action.source.1,
+                width: action.source.2,
+                height: action.source.3,
+            };
+            let dest = Rect {
+                x: action.dest.0,
+                y: action.dest.1,
+                width: action.dest.2,
+                height: action.dest.3,
+            };
+            over_magnifier = source.contains(point.0, point.1) || dest.contains(point.0, point.1);
+        }
+    }
+
+    if over_magnifier {
+        let step = if delta_y > 0.0 { 0.25 } else { -0.25 };
+        state.toolbar.sub_options.magnifier_scale =
+            (state.toolbar.sub_options.magnifier_scale + step).clamp(1.0, 8.0);
+        sync_selected_magnifier_scale(state);
+    } else {
+        let step = if delta_y > 0.0 { 1.0 } else { -1.0 };
+        state.toolbar.sub_options.custom_stroke_width =
+            (state.toolbar.sub_options.custom_stroke_width + step).clamp(1.0, 48.0);
+        if let Some(index) = index {
+            if let Some(mut shape) = state.annotations.shape_at(index).cloned() {
+                shape.adjust_size(snapin_core::annotation::shapes::SizeParam::Stroke(
+                    state.toolbar.sub_options.custom_stroke_width,
+                ));
+                state.annotations.replace(index, shape);
+            }
+        }
+    }
+    true
+}
+
+/// 将工具栏倍率同步到当前选中的放大镜图元。
+fn sync_selected_magnifier_scale(state: &mut SnipperState) {
+    let Some(index) = state
+        .selected_annotation
+        .map(ShapeId::get)
+        .or_else(|| state.annotations.undo_stack().len().checked_sub(1))
+    else {
+        return;
+    };
+    let Some(mut shape) = state.annotations.shape_at(index).cloned() else {
+        return;
+    };
+    let AnnotationShape::Magnifier(action) = &mut shape else {
+        return;
+    };
+    let center = (
+        action.dest.0 + action.dest.2 / 2.0,
+        action.dest.1 + action.dest.3 / 2.0,
+    );
+    action.adjust_scale(state.toolbar.sub_options.magnifier_scale, Some(center));
+    state.annotations.replace(index, shape);
 }
 
 #[cfg(test)]

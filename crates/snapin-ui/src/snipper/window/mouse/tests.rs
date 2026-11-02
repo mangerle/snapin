@@ -2,8 +2,13 @@
 
 use super::super::types::SnipMode;
 use super::*;
+use crate::ports::OcrTextItem;
+use crate::snipper::window::redaction::{apply_redaction, is_redaction_applied, RedactionPreview};
 use snapin_core::annotation::action::AnnotationShape;
-use snapin_core::annotation::shapes::RectAction;
+use snapin_core::annotation::shapes::{
+    MagnifierAction, MagnifierConnector, MagnifierShape, RectAction,
+};
+use snapin_core::annotation::ColorRgba;
 use snapin_core::annotation::LineStyle;
 
 /// 空闲态鼠标移动必须触发重绘，保证放大镜实时跟随光标
@@ -86,6 +91,86 @@ fn test_mouse_wheel_text_mode_font_size_adjust() {
     assert_eq!(state.toolbar.sub_options.font_size, initial_sz + 2.0);
 }
 
+fn state_with_magnifier_wheel_target() -> SnipperState {
+    let mut state = SnipperState::new();
+    state.toolbar.active_tool = Some(Tool::Magnifier);
+    state.selection = SelectionState::Locked {
+        rect: Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 500.0,
+            height: 400.0,
+        },
+        active_drag: None,
+    };
+    state.toolbar.update_layout(
+        &Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 500.0,
+            height: 400.0,
+        },
+        1000.0,
+        800.0,
+    );
+    state
+        .annotations
+        .push(AnnotationShape::Magnifier(MagnifierAction {
+            source: (10.0, 10.0, 40.0, 40.0),
+            dest: (100.0, 100.0, 80.0, 80.0),
+            shape: MagnifierShape::Rectangle,
+            border_width: 2.0,
+            border_color: ColorRgba::opaque(255, 255, 255),
+            smooth: true,
+            shadow: true,
+            connector: MagnifierConnector::Solid,
+        }));
+    state.selected_annotation = Some(0.into());
+    state
+}
+
+/// 在放大图范围内滚动滚轮只调整倍率，并保持目标区域中心不变。
+#[test]
+fn test_magnifier_wheel_over_image_adjusts_scale() {
+    let mut state = state_with_magnifier_wheel_target();
+    state.cursor_pos = (140.0, 140.0);
+
+    assert!(handle_mouse_wheel(
+        &mut state,
+        MouseScrollDelta::LineDelta(0.0, 1.0)
+    ));
+
+    assert_eq!(state.toolbar.sub_options.magnifier_scale, 2.25);
+    match state.annotations.shape_at(0) {
+        Some(AnnotationShape::Magnifier(action)) => {
+            assert_eq!(action.source, (10.0, 10.0, 40.0, 40.0));
+            assert_eq!(action.dest, (95.0, 95.0, 90.0, 90.0));
+        }
+        other => panic!("应为放大镜图元，实际: {other:?}"),
+    }
+}
+
+/// 在源区域和放大图之外滚动滚轮只调整边框粗细。
+#[test]
+fn test_magnifier_wheel_outside_image_adjusts_border_width() {
+    let mut state = state_with_magnifier_wheel_target();
+    state.cursor_pos = (400.0, 350.0);
+
+    assert!(handle_mouse_wheel(
+        &mut state,
+        MouseScrollDelta::LineDelta(0.0, 1.0)
+    ));
+
+    assert_eq!(state.toolbar.sub_options.custom_stroke_width, 5.0);
+    match state.annotations.shape_at(0) {
+        Some(AnnotationShape::Magnifier(action)) => {
+            assert_eq!(action.border_width, 5.0);
+            assert_eq!(action.dest, (100.0, 100.0, 80.0, 80.0));
+        }
+        other => panic!("应为放大镜图元，实际: {other:?}"),
+    }
+}
+
 #[test]
 fn test_toolbar_click_does_not_create_annotation() {
     let mut state = SnipperState::new();
@@ -129,6 +214,72 @@ fn test_toolbar_click_does_not_create_annotation() {
         1,
         "序号印章不应被误创建"
     );
+}
+
+/// 序号工具单击画布直接放置序号图元，不得误开文字输入会话。
+#[test]
+fn test_badge_click_places_shape_without_text_session() {
+    let mut state = SnipperState::new();
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 400.0,
+        height: 300.0,
+    };
+    state.selection = SelectionState::Locked {
+        rect: selection,
+        active_drag: None,
+    };
+    state.toolbar.active_tool = Some(Tool::Badge);
+    state.toolbar.update_layout(&selection, 800.0, 600.0);
+    let original = RgbaImage::new(800, 600);
+
+    assert!(handle_left_press(&mut state, 220.0, 200.0, &original));
+    assert!(state.active_text_input.is_none(), "序号不得开启文字输入");
+    assert!(handle_left_release(&mut state, 220.0, 200.0, &original));
+
+    assert!(matches!(
+        state.annotations.undo_stack().last(),
+        Some(AnnotationShape::Badge(_))
+    ));
+    assert_eq!(state.annotations.next_badge_number(), 2);
+}
+
+/// 智能打码完成后点击文字区域应实时增删对应马赛克，无需回车确认。
+#[test]
+fn test_redaction_region_click_toggles_mosaic_immediately() {
+    let mut state = SnipperState::new();
+    let preview = RedactionPreview::from_ocr_lines(&[OcrTextItem {
+        text: "敏感文字".to_string(),
+        bounds: (10.0, 20.0, 80.0, 24.0),
+    }]);
+    apply_redaction(&mut state, &preview);
+    let rect = preview.regions[0];
+    state.redaction_preview = Some(preview);
+    state.cursor_pos = (20.0, 25.0);
+    let original = RgbaImage::new(800, 600);
+
+    assert!(handle_mouse_button(
+        &mut state,
+        MouseButton::Left,
+        ElementState::Pressed,
+        &original
+    ));
+    assert!(!is_redaction_applied(&state.annotations, rect));
+    assert!(handle_mouse_button(
+        &mut state,
+        MouseButton::Left,
+        ElementState::Released,
+        &original
+    ));
+
+    assert!(handle_mouse_button(
+        &mut state,
+        MouseButton::Left,
+        ElementState::Pressed,
+        &original
+    ));
+    assert!(is_redaction_applied(&state.annotations, rect));
 }
 
 #[test]
