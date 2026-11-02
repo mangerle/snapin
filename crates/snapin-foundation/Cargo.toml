@@ -2,6 +2,7 @@
 name = "snapin-foundation"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Snapin 基础契约：错误、路径、几何、国际化与截图触发模型"

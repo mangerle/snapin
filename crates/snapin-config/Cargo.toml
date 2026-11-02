@@ -2,6 +2,7 @@
 name = "snapin-config"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Snapin 强类型配置模型、迁移、校验与安全持久化"

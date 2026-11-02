@@ -2,6 +2,7 @@
 name = "snapin-annotation"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Snapin 标注图元模型、撤销重做历史与 Tiny-Skia 绘制实现"

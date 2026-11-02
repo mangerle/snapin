@@ -2,6 +2,7 @@
 name = "snapin-settings"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Snapin 基于 Slint 的现代化偏好设置中心图形界面与快捷键配置"

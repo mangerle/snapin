@@ -2,6 +2,7 @@
 name = "snapin-storage"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Snapin 图像编码保存、文件名模板、选区缓存与原生像素载荷校验"

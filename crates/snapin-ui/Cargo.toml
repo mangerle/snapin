@@ -2,6 +2,7 @@
 name = "snapin-ui"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Snapin 基于 Winit 与 Tiny-Skia 的全屏软光栅化截图选区与桌面贴图交互窗口"

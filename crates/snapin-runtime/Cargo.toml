@@ -2,6 +2,7 @@
 name = "snapin-runtime"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Snapin 统一后台任务运行时：有界准入、任务追踪与取消令牌"
