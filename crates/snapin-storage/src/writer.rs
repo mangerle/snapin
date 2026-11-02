@@ -5,7 +5,7 @@ use crate::error::StorageError;
 use chrono::Local;
 use image::RgbaImage;
 use snapin_config::config::{normalize_file_name_template, ImageFormat, OutputConfig};
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
@@ -126,28 +126,33 @@ pub fn save_text_with_config(
             message: "OCR 文本仅支持 .md 或 .json 扩展名".to_string(),
         });
     }
-
     let base_dir = expand_home_dir(&cfg.quick_save_dir);
     std::fs::create_dir_all(&base_dir).map_err(|error| StorageError::Io {
         path: base_dir.display().to_string(),
         source: error,
     })?;
-    let file_name = format!("{}_ocr", rendered_file_name(cfg));
+    create_unique_text_file(
+        &base_dir,
+        &format!("{}_ocr", rendered_file_name(cfg)),
+        content,
+        &extension,
+    )
+}
 
+/// 在目标目录内使用 `create_new` 创建唯一文本文件并写入内容。
+fn create_unique_text_file(
+    base_dir: &Path,
+    file_name: &str,
+    content: &str,
+    extension: &str,
+) -> Result<PathBuf, StorageError> {
     for counter in 0usize.. {
         let candidate = if counter == 0 {
             base_dir.join(format!("{file_name}.{extension}"))
         } else {
             base_dir.join(format!("{file_name}_{counter}.{extension}"))
         };
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        match options.open(&candidate) {
+        match open_new_private_file(&candidate) {
             Ok(mut file) => {
                 if let Err(error) = std::io::Write::write_all(&mut file, content.as_bytes()) {
                     let _ = std::fs::remove_file(&candidate);
@@ -167,11 +172,22 @@ pub fn save_text_with_config(
             }
         }
     }
-
     Err(StorageError::Io {
         path: base_dir.display().to_string(),
         source: std::io::Error::other("无法找到可用的 OCR 导出文件名"),
     })
+}
+
+/// 以仅创建模式打开文件，并在 Unix 上限制为仅当前用户可读写。
+fn open_new_private_file(path: &Path) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
 }
 
 /// 原子预占一个不存在的输出路径，返回可写入的目标路径。
