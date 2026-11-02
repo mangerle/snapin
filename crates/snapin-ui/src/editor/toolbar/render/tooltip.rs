@@ -179,6 +179,7 @@ fn compose_message(item: ToolbarItem, show_shortcut: bool) -> String {
 }
 
 /// 提示胶囊布局请求。
+#[derive(Clone, Copy)]
 struct TooltipLayoutRequest<'a> {
     message: &'a str,
     button_rect: &'a Rect,
@@ -226,17 +227,14 @@ fn layout(request: TooltipLayoutRequest<'_>) -> Option<TooltipLayout> {
     let max_x = (screen_w - width - margin).max(margin);
     let x = (button_rect.x + (button_rect.width - width) / 2.0).clamp(margin, max_x);
 
-    let below = button_rect.y + button_rect.height + gap;
-    let above = button_rect.y - height - gap;
-    let can_show_above = above >= margin;
-    let can_show_below = below + height <= screen_h - margin;
-    let y = if prefer_above && can_show_above {
-        above
-    } else if can_show_below {
-        below
-    } else {
-        above.max(margin)
-    };
+    let y = tooltip_vertical_position(TooltipPlacement {
+        button_rect,
+        screen_height: screen_h,
+        preferred_above: prefer_above,
+        margin,
+        gap,
+        height,
+    });
 
     Some(TooltipLayout {
         x,
@@ -246,6 +244,32 @@ fn layout(request: TooltipLayoutRequest<'_>) -> Option<TooltipLayout> {
         font_size,
         scale,
     })
+}
+
+/// 提示胶囊垂直定位所需的按钮、屏幕边界与间距。
+#[derive(Clone, Copy)]
+struct TooltipPlacement<'a> {
+    button_rect: &'a Rect,
+    screen_height: f32,
+    preferred_above: bool,
+    margin: f32,
+    gap: f32,
+    height: f32,
+}
+
+/// 优先使用调用方指定的方向，越界时翻转并夹取到安全边距内。
+fn tooltip_vertical_position(placement: TooltipPlacement<'_>) -> f32 {
+    let below = placement.button_rect.y + placement.button_rect.height + placement.gap;
+    let above = placement.button_rect.y - placement.height - placement.gap;
+    let can_show_above = above >= placement.margin;
+    let can_show_below = below + placement.height <= placement.screen_height - placement.margin;
+    if placement.preferred_above && can_show_above {
+        above
+    } else if can_show_below {
+        below
+    } else {
+        above.max(placement.margin)
+    }
 }
 
 /// 绘制胶囊背景、描边与文字。
