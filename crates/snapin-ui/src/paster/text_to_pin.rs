@@ -58,21 +58,21 @@ pub fn render_simple_text_card(lines: &[&str]) -> Option<Pixmap> {
         return None;
     }
 
-    let padding_x = 24.0f32;
-    let padding_y = 20.0f32;
-    let line_height = 28.0f32;
-    let font_size = 17.0f32;
-    let (card_w, card_h) = text_card_size(lines, padding_x, padding_y, line_height);
+    let layout = TextCardLayout {
+        padding_x: 24.0,
+        padding_y: 20.0,
+        line_height: 28.0,
+        font_size: 17.0,
+    };
+    let (card_w, card_h) = text_card_size(
+        lines,
+        layout.padding_x,
+        layout.padding_y,
+        layout.line_height,
+    );
     let mut pixmap = Pixmap::new(card_w as u32, card_h as u32)?;
     draw_text_card_background(&mut pixmap, card_w, card_h)?;
-    draw_text_lines(
-        &mut pixmap,
-        lines,
-        padding_x,
-        padding_y,
-        line_height,
-        font_size,
-    );
+    draw_text_lines(&mut pixmap, lines, layout);
     Some(pixmap)
 }
 
@@ -116,28 +116,35 @@ fn draw_text_card_background(pixmap: &mut Pixmap, card_w: f32, card_h: f32) -> O
     Some(())
 }
 
-/// 逐行渲染便签文本。
-fn draw_text_lines(
-    pixmap: &mut Pixmap,
-    lines: &[&str],
+/// 文本便签的内边距、行高与字号。
+#[derive(Clone, Copy)]
+struct TextCardLayout {
     padding_x: f32,
     padding_y: f32,
     line_height: f32,
     font_size: f32,
-) {
+}
+
+/// 逐行渲染便签文本。
+fn draw_text_lines(pixmap: &mut Pixmap, lines: &[&str], layout: TextCardLayout) {
     let text_color = tiny_skia::Color::from_rgba8(15, 23, 42, 255);
     with_thread_local_text_renderer(|text_renderer| {
-        let mut cur_y = padding_y + 4.0;
+        let mut cur_y = layout.padding_y + 4.0;
         for line in lines {
             if !line.is_empty() {
                 text_renderer.draw_text(
                     &mut pixmap.as_mut(),
                     line,
-                    TextDrawOptions::new(padding_x, cur_y, font_size, (15, 23, 42, 255)),
+                    TextDrawOptions::new(
+                        layout.padding_x,
+                        cur_y,
+                        layout.font_size,
+                        (15, 23, 42, 255),
+                    ),
                     text_color,
                 );
             }
-            cur_y += line_height;
+            cur_y += layout.line_height;
         }
     });
 }
