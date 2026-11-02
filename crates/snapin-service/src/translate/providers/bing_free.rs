@@ -165,80 +165,97 @@ impl BingFreeTranslator {
                 ),
             });
         }
-
-        let url = format!(
-            "{}?isVertical=1&IG={}&IID={BING_IID}",
-            session.endpoint, session.ig
-        );
-
-        let mut form: Vec<(&str, &str)> = vec![("to", to_lang), ("text", trimmed)];
-        if let Some(from_lang) = from_lang {
-            form.push(("fromLang", from_lang));
-        }
-        form.push(("token", session.token.as_str()));
-        form.push(("key", session.key.as_str()));
-
-        let response = session
-            .client
-            .post(url)
-            .header(reqwest::header::USER_AGENT, BING_USER_AGENT)
-            .header(reqwest::header::REFERER, session.referer.as_str())
-            .form(&form)
-            .send()
-            .await
-            .map_err(|error| network_error("bing_free", error))?;
-
-        check_status("bing_free", &response)?;
-        let body = read_limited_body("bing_free", response).await?;
-        let json: Value = serde_json::from_slice(&body).map_err(|_| ServiceError::ApiError {
-            provider: "bing_free".to_string(),
-            code: "NON_JSON_RESPONSE".to_string(),
-            message: "必应翻译接口返回了非 JSON 响应（常见于浏览器风控页），当前网络无法使用必应免费通道，建议改用谷歌免费通道".to_string(),
-        })?;
-
-        if let Some(status) = json.get("statusCode").and_then(Value::as_i64) {
-            return Err(ServiceError::ApiError {
-                provider: "bing_free".to_string(),
-                code: status.to_string(),
-                message: format!(
-                    "必应翻译接口拒绝了本次请求（HTTP {status}），会话令牌失效或非浏览器客户端被风控，建议改用谷歌免费通道"
-                ),
-            });
-        }
-        if json
-            .get("ShowCaptcha")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            return Err(ServiceError::ApiError {
-                provider: "bing_free".to_string(),
-                code: "SHOW_CAPTCHA".to_string(),
-                message: "必应接口触发人机校验：当前出口 IP 被风控，建议改用谷歌免费通道"
-                    .to_string(),
-            });
-        }
-
-        let translated = json
-            .as_array()
-            .and_then(|array| array.first())
-            .and_then(|item| item.get("translations"))
-            .and_then(Value::as_array)
-            .and_then(|translations| translations.first())
-            .and_then(|first| first.get("text"))
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-
-        if translated.is_empty() {
-            return Err(ServiceError::ApiError {
-                provider: "bing_free".to_string(),
-                code: "EMPTY_RESULT".to_string(),
-                message: "必应翻译接口未返回译文".to_string(),
-            });
-        }
-
-        Ok(translated)
+        let response = request_translation(session, trimmed, from_lang, to_lang).await?;
+        decode_translation_response(&response)
     }
+}
+
+/// 发送单条必应翻译请求并读取有界响应体。
+async fn request_translation(
+    session: &BingSession,
+    text: &str,
+    from_lang: Option<&str>,
+    to_lang: &str,
+) -> Result<Vec<u8>, ServiceError> {
+    let url = format!(
+        "{}?isVertical=1&IG={}&IID={BING_IID}",
+        session.endpoint, session.ig
+    );
+    let mut form: Vec<(&str, &str)> = vec![("to", to_lang), ("text", text)];
+    if let Some(from_lang) = from_lang {
+        form.push(("fromLang", from_lang));
+    }
+    form.push(("token", session.token.as_str()));
+    form.push(("key", session.key.as_str()));
+
+    let response = session
+        .client
+        .post(url)
+        .header(reqwest::header::USER_AGENT, BING_USER_AGENT)
+        .header(reqwest::header::REFERER, session.referer.as_str())
+        .form(&form)
+        .send()
+        .await
+        .map_err(|error| network_error("bing_free", error))?;
+    check_status("bing_free", &response)?;
+    read_limited_body("bing_free", response).await
+}
+
+/// 解析必应响应并提取首条译文。
+fn decode_translation_response(body: &[u8]) -> Result<String, ServiceError> {
+    let json: Value = serde_json::from_slice(body).map_err(|_| ServiceError::ApiError {
+        provider: "bing_free".to_string(),
+        code: "NON_JSON_RESPONSE".to_string(),
+        message: "必应翻译接口返回了非 JSON 响应（常见于浏览器风控页），当前网络无法使用必应免费通道，建议改用谷歌免费通道".to_string(),
+    })?;
+    reject_api_failures(&json)?;
+    extract_translation(&json)
+}
+
+/// 将必应状态码与人机校验统一转换为业务错误。
+fn reject_api_failures(json: &Value) -> Result<(), ServiceError> {
+    if let Some(status) = json.get("statusCode").and_then(Value::as_i64) {
+        return Err(ServiceError::ApiError {
+            provider: "bing_free".to_string(),
+            code: status.to_string(),
+            message: format!(
+                "必应翻译接口拒绝了本次请求（HTTP {status}），会话令牌失效或非浏览器客户端被风控，建议改用谷歌免费通道"
+            ),
+        });
+    }
+    if json
+        .get("ShowCaptcha")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Err(ServiceError::ApiError {
+            provider: "bing_free".to_string(),
+            code: "SHOW_CAPTCHA".to_string(),
+            message: "必应接口触发人机校验：当前出口 IP 被风控，建议改用谷歌免费通道".to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// 从必应数组响应中提取第一条译文。
+fn extract_translation(json: &Value) -> Result<String, ServiceError> {
+    let translated = json
+        .as_array()
+        .and_then(|array| array.first())
+        .and_then(|item| item.get("translations"))
+        .and_then(Value::as_array)
+        .and_then(|translations| translations.first())
+        .and_then(|first| first.get("text"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if translated.is_empty() {
+        return Err(ServiceError::ApiError {
+            provider: "bing_free".to_string(),
+            code: "EMPTY_RESULT".to_string(),
+            message: "必应翻译接口未返回译文".to_string(),
+        });
+    }
+    Ok(translated.to_string())
 }
 
 /// 将翻译端点切换到页面最终落地的区域域名，保留协议、端口与路径。
