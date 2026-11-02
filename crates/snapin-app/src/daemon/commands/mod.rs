@@ -10,7 +10,7 @@ mod status;
 use crate::paste::paste_clipboard_to_workspace;
 use crate::services::AppServices;
 use paster::CreatePasterRequest;
-use snapin_daemon::{DaemonRequest, DaemonResponse};
+use snapin_daemon::{DaemonErrorCode, DaemonRequest, DaemonResponse};
 use snapin_ui::paster::PasterWorkspaceProxy;
 use std::sync::Arc;
 
@@ -59,12 +59,14 @@ pub async fn handle_command(
         }
         DaemonRequest::TogglePasters => status::toggle(workspace),
         DaemonRequest::SwitchGroup(target_id) => status::switch_group(workspace, target_id).await,
-        DaemonRequest::OpenWorkspace => {
-            DaemonResponse::Error("贴图工作区面板尚未接入当前界面".to_string())
-        }
-        DaemonRequest::OpenClipboardHistory => {
-            DaemonResponse::Error("剪贴板历史面板尚未接入当前界面".to_string())
-        }
+        DaemonRequest::OpenWorkspace => DaemonResponse::error(
+            DaemonErrorCode::Unsupported,
+            "贴图工作区面板尚未接入当前界面",
+        ),
+        DaemonRequest::OpenClipboardHistory => DaemonResponse::error(
+            DaemonErrorCode::Unsupported,
+            "剪贴板历史面板尚未接入当前界面",
+        ),
         DaemonRequest::ClearHistory => clear_history().await,
         DaemonRequest::Shutdown => DaemonResponse::Ok,
         DaemonRequest::Ping => DaemonResponse::Pong,
@@ -86,7 +88,7 @@ fn start_snip(
         Ok(_) => DaemonResponse::Ok,
         Err(error) => {
             tracing::warn!("提交截图覆盖层任务失败: {error}");
-            DaemonResponse::Error(format!("提交截图任务失败: {error}"))
+            DaemonResponse::error(DaemonErrorCode::Busy, format!("提交截图任务失败: {error}"))
         }
     }
 }
@@ -97,7 +99,7 @@ async fn clear_history() -> DaemonResponse {
         Ok(_) => DaemonResponse::Ok,
         Err(error) => {
             tracing::warn!("清理截屏历史失败: {error:#}");
-            DaemonResponse::Error(format!("清理截屏历史失败: {error}"))
+            DaemonResponse::error(DaemonErrorCode::Io, format!("清理截屏历史失败: {error}"))
         }
     }
 }
@@ -106,7 +108,10 @@ async fn clear_history() -> DaemonResponse {
 async fn paste_clipboard(workspace: &PasterWorkspaceProxy) -> DaemonResponse {
     if let Err(error) = paste_clipboard_to_workspace(workspace).await {
         tracing::error!("守护服务执行剪贴板贴图失败: {error}");
-        DaemonResponse::Error(format!("剪贴板贴图失败: {error}"))
+        DaemonResponse::error(
+            DaemonErrorCode::Unavailable,
+            format!("剪贴板贴图失败: {error}"),
+        )
     } else {
         DaemonResponse::Ok
     }

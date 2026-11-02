@@ -126,7 +126,10 @@ pub async fn send_command_to_daemon(command: &DaemonRequest) -> Result<bool, Dae
         Some(DaemonResponse::Ok)
         | Some(DaemonResponse::Pong)
         | Some(DaemonResponse::Status { .. }) => Ok(true),
-        Some(DaemonResponse::Error(msg)) => Err(DaemonError::Business(msg)),
+        Some(DaemonResponse::Error(failure)) => Err(DaemonError::Business {
+            code: failure.code,
+            message: failure.message,
+        }),
         None => Ok(false),
     }
 }

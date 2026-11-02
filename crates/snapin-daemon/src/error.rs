@@ -2,6 +2,7 @@
 //!
 //! 封装 Unix Domain Socket 套接字创建、监听、连接超时与强类型分帧编解码异常。
 
+use crate::protocol::DaemonErrorCode;
 use thiserror::Error;
 
 /// 守护进程与 IPC 领域错误枚举
@@ -41,6 +42,11 @@ pub enum DaemonError {
     },
 
     /// 守护进程业务处理返回失败
-    #[error("守护进程处理指令失败: {0}")]
-    Business(String),
+    #[error("守护进程处理指令失败，类别: {code:?}，原因: {message}")]
+    Business {
+        /// 强类型业务失败类别
+        code: DaemonErrorCode,
+        /// 中文失败原因
+        message: String,
+    },
 }

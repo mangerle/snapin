@@ -2,7 +2,7 @@
 
 use crate::services::AppServices;
 use snapin_config::config;
-use snapin_daemon::DaemonResponse;
+use snapin_daemon::{DaemonErrorCode, DaemonResponse};
 use snapin_ui::paster::PasterWorkspaceProxy;
 
 pub(super) async fn reload_config(
@@ -15,11 +15,17 @@ pub(super) async fn reload_config(
         Ok(Ok(config)) => config,
         Ok(Err(error)) => {
             tracing::error!("重新加载配置文件失败: {error}");
-            return DaemonResponse::Error(format!("重新加载配置文件失败: {error}"));
+            return DaemonResponse::error(
+                DaemonErrorCode::InvalidInput,
+                format!("重新加载配置文件失败: {error}"),
+            );
         }
         Err(error) => {
             tracing::error!("配置加载任务异常: {error}");
-            return DaemonResponse::Error(format!("配置加载任务异常: {error}"));
+            return DaemonResponse::error(
+                DaemonErrorCode::Internal,
+                format!("配置加载任务异常: {error}"),
+            );
         }
     };
 
@@ -40,7 +46,10 @@ pub(super) async fn reload_config(
         }
         Err(error) => {
             tracing::warn!("热重载配置时同步贴图工作区失败: {error}");
-            DaemonResponse::Error(format!("同步贴图工作区失败: {error}"))
+            DaemonResponse::error(
+                DaemonErrorCode::Unavailable,
+                format!("同步贴图工作区失败: {error}"),
+            )
         }
     }
 }

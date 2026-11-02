@@ -13,7 +13,8 @@ pub use client::{
 pub use codec::{read_framed_message, write_framed_message};
 pub use error::DaemonError;
 pub use protocol::{
-    get_socket_path, DaemonRequest, DaemonResponse, IpcInvocation, MAX_IPC_FRAME_SIZE,
+    get_socket_path, DaemonErrorCode, DaemonFailure, DaemonRequest, DaemonResponse, IpcInvocation,
+    MAX_IPC_FRAME_SIZE,
 };
 pub use server::IpcListener;
 
@@ -171,10 +172,11 @@ mod tests {
             .await
             .expect("Ping 通信链路成功");
         match response {
-            Some(DaemonResponse::Error(message)) => {
+            Some(DaemonResponse::Error(failure)) => {
                 assert!(
-                    message.contains("主循环已关闭"),
-                    "错误响应应说明分发通道已关闭，实际: {message}"
+                    failure.message.contains("主循环已关闭"),
+                    "错误响应应说明分发通道已关闭，实际: {}",
+                    failure.message
                 );
             }
             other => panic!("分发通道关闭后应返回错误响应，实际: {other:?}"),
@@ -210,7 +212,10 @@ mod tests {
             while let Some(inv) = rx.recv().await {
                 let response = match inv.request {
                     DaemonRequest::Ping => DaemonResponse::Pong,
-                    other => DaemonResponse::Error(format!("测试实例不处理 {other:?}")),
+                    other => DaemonResponse::error(
+                        DaemonErrorCode::Unsupported,
+                        format!("测试实例不处理 {other:?}"),
+                    ),
                 };
                 let _ = inv.responder.send(response);
             }

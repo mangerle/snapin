@@ -5,7 +5,7 @@
 
 use super::MAX_CONCURRENT_CONNECTIONS;
 use crate::codec::{read_framed_message, write_framed_message};
-use crate::protocol::{DaemonRequest, DaemonResponse, IpcInvocation, IPC_TIMEOUT};
+use crate::protocol::{DaemonErrorCode, DaemonRequest, DaemonResponse, IpcInvocation, IPC_TIMEOUT};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
@@ -45,12 +45,14 @@ pub(super) async fn spawn_connection_handler<S>(
                 if sender.send(invocation).await.is_ok() {
                     let response = match timeout(IPC_TIMEOUT, resp_rx).await {
                         Ok(Ok(resp)) => resp,
-                        Ok(Err(_)) => DaemonResponse::Error("业务执行器已关闭".to_string()),
+                        Ok(Err(_)) => {
+                            DaemonResponse::error(DaemonErrorCode::Unavailable, "业务执行器已关闭")
+                        }
                         Err(_) => {
                             // 客户端已经超时：通知业务执行方在下一个阶段边界停止，
                             // 避免“客户端收到失败、服务端仍完成副作用”的幽灵执行。
                             cancelled.cancel();
-                            DaemonResponse::Error("业务处理超时".to_string())
+                            DaemonResponse::error(DaemonErrorCode::Timeout, "业务处理超时")
                         }
                     };
                     let _ =
@@ -60,7 +62,10 @@ pub(super) async fn spawn_connection_handler<S>(
                         IPC_TIMEOUT,
                         write_framed_message(
                             &mut stream,
-                            &DaemonResponse::Error("守护进程主循环已关闭".to_string()),
+                            &DaemonResponse::error(
+                                DaemonErrorCode::Unavailable,
+                                "守护进程主循环已关闭",
+                            ),
                         ),
                     )
                     .await;

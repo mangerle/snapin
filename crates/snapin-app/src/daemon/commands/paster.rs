@@ -2,6 +2,7 @@
 
 use crate::daemon::commands::DaemonResponse;
 use crate::placement::{confirm_paster_placement, register_paster_placement};
+use snapin_daemon::DaemonErrorCode;
 use snapin_foundation::AppPaths;
 use snapin_ui::paster::{PasterItem, PasterWorkspaceProxy};
 use std::path::{Path, PathBuf};
@@ -31,7 +32,7 @@ pub(super) async fn create(
         raw_path,
     } = request;
     let Some(expected_len) = snapin_storage::checked_rgba_byte_len(width, height) else {
-        return DaemonResponse::Error("贴图像素尺寸非法或超过上限".to_string());
+        return DaemonResponse::error(DaemonErrorCode::InvalidInput, "贴图像素尺寸非法或超过上限");
     };
     let file_path = PathBuf::from(&raw_path);
 
@@ -48,7 +49,10 @@ pub(super) async fn create(
     let item = PasterItem::new(uid, title.clone(), pixmap, (x, y));
     if let Err(error) = workspace.open_paster(item) {
         tracing::error!("在集中工作区中打开贴图失败: {error}");
-        return DaemonResponse::Error(format!("打开贴图失败: {error}"));
+        return DaemonResponse::error(
+            DaemonErrorCode::Unavailable,
+            format!("打开贴图失败: {error}"),
+        );
     }
     // 窗口已投递到工作区线程，此时再轮询确认放置，顺序不能提前
     confirm_paster_placement(&title, x, y).await;
@@ -74,7 +78,10 @@ async fn verify_runtime_file(file_path: &Path) -> Result<(), DaemonResponse> {
         Ok(())
     } else {
         tracing::warn!("拒绝接收不受信任目录下的贴图临时文件: {:?}", file_path);
-        Err(DaemonResponse::Error("非法贴图临时物理路径".to_string()))
+        Err(DaemonResponse::error(
+            DaemonErrorCode::InvalidInput,
+            "非法贴图临时物理路径",
+        ))
     }
 }
 
@@ -90,13 +97,17 @@ async fn read_pixel_pixmap(
         .map(|metadata| metadata.len() == expected_len as u64)
         .unwrap_or(false);
     if !metadata_matches {
-        return Err(DaemonResponse::Error(
-            "像素数据长度与图像分辨率不匹配".to_string(),
+        return Err(DaemonResponse::error(
+            DaemonErrorCode::InvalidInput,
+            "像素数据长度与图像分辨率不匹配",
         ));
     }
 
     let Some(mut pixmap) = Pixmap::new(width, height) else {
-        return Err(DaemonResponse::Error("分配像素缓冲区失败".to_string()));
+        return Err(DaemonResponse::error(
+            DaemonErrorCode::Internal,
+            "分配像素缓冲区失败",
+        ));
     };
     let read_result = async {
         let mut file = tokio::fs::File::open(file_path)
@@ -111,7 +122,7 @@ async fn read_pixel_pixmap(
     let _ = tokio::fs::remove_file(file_path).await;
     match read_result {
         Ok(()) => Ok(pixmap),
-        Err(message) => Err(DaemonResponse::Error(message)),
+        Err(message) => Err(DaemonResponse::error(DaemonErrorCode::Io, message)),
     }
 }
 

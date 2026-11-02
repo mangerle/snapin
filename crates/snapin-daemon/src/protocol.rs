@@ -71,7 +71,53 @@ pub enum DaemonResponse {
         paster_count: usize,
     },
     /// 操作执行异常反馈
-    Error(String),
+    Error(DaemonFailure),
+}
+
+/// IPC 业务失败类别。
+///
+/// 客户端可能据此决定重试、提示用户修正输入或直接降级；`message` 只承担展示
+/// 与排障职责，不再承担程序化分支语义。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum DaemonErrorCode {
+    /// 未分类的服务端异常
+    Internal,
+    /// 工作区或执行器暂时不可用
+    Unavailable,
+    /// 操作等待超时
+    Timeout,
+    /// 请求参数或状态非法
+    InvalidInput,
+    /// 当前版本尚未支持的能力
+    Unsupported,
+    /// 本地持久化或文件操作失败
+    Io,
+    /// 并发资源已满
+    Busy,
+    /// 旧版客户端收到无法识别的新错误类别
+    #[serde(other)]
+    Unknown,
+}
+
+/// IPC 业务失败载荷。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DaemonFailure {
+    /// 强类型错误类别
+    pub code: DaemonErrorCode,
+    /// 可直接展示的中文错误描述
+    pub message: String,
+}
+
+impl DaemonResponse {
+    /// 构造带明确类别的业务失败响应。
+    pub fn error(code: DaemonErrorCode, message: impl Into<String>) -> Self {
+        Self::Error(DaemonFailure {
+            code,
+            message: message.into(),
+        })
+    }
 }
 
 /// IPC 调度通道载荷：包含请求、响应回执与客户端超时取消信号。
@@ -88,4 +134,26 @@ pub struct IpcInvocation {
 /// 获取本用户的默认 IPC Socket 路径（由 AppPaths 统一纳管）
 pub fn get_socket_path() -> PathBuf {
     snapin_foundation::AppPaths::default_socket_path()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 错误类别必须独立于展示文案完成序列化往返。
+    #[test]
+    fn test_daemon_error_roundtrip_preserves_machine_code() {
+        let response = DaemonResponse::error(DaemonErrorCode::Timeout, "业务处理超时");
+        let encoded = serde_json::to_string(&response).expect("错误响应应可序列化");
+        let decoded: DaemonResponse = serde_json::from_str(&encoded).expect("错误响应应可反序列化");
+        assert_eq!(decoded, response);
+    }
+
+    /// 新版本新增错误类别时，旧客户端必须落为 Unknown 而不是整帧反序列化失败。
+    #[test]
+    fn test_unknown_error_code_falls_back_to_unknown() {
+        let code: DaemonErrorCode =
+            serde_json::from_str("\"future_error\"").expect("未知类别应可兜底");
+        assert_eq!(code, DaemonErrorCode::Unknown);
+    }
 }
