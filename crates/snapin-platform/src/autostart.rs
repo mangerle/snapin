@@ -153,12 +153,29 @@ X-GNOME-Autostart-enabled=true
                 path: autostart_dir.to_string_lossy().to_string(),
                 source: error,
             })?;
-            std::fs::write(&desktop_file, DESKTOP_ENTRY_CONTENT).map_err(|error| {
-                PlatformError::Io {
+            let temp_path = autostart_dir.join(format!(
+                ".snapin.{}.tmp",
+                snapin_foundation::AppPaths::generate_unique_id()
+            ));
+            if let Err(error) = snapin_foundation::AppPaths::write_secure_file(
+                &temp_path,
+                DESKTOP_ENTRY_CONTENT.as_bytes(),
+            ) {
+                let _ = std::fs::remove_file(&temp_path);
+                return Err(PlatformError::Io {
+                    path: temp_path.to_string_lossy().to_string(),
+                    source: error,
+                });
+            }
+            if let Err(error) =
+                snapin_foundation::AppPaths::replace_file_atomically(&temp_path, &desktop_file)
+            {
+                let _ = std::fs::remove_file(&temp_path);
+                return Err(PlatformError::Io {
                     path: desktop_file.to_string_lossy().to_string(),
                     source: error,
-                }
-            })?;
+                });
+            }
         } else {
             remove_desktop_file()?;
         }
