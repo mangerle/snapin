@@ -4,8 +4,8 @@ use super::events::SnipperState;
 use super::jobs::SnipperJobKind;
 use super::types::SnipperOutcome;
 use crate::model::PasterItem;
-use crate::ports::MediaJob;
-use crate::snipper::selection::SelectionState;
+use crate::ports::{MediaJob, OcrExportFormat};
+use crate::snipper::selection::{Rect, SelectionState};
 use image::{GenericImageView, RgbaImage};
 
 /// 裁剪当前选区图像并合成已绘制的矢量标注
@@ -47,6 +47,13 @@ pub fn crop_selection_image(
 pub fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
+        let cropped = match apply_configured_beautify(state, cropped) {
+            Ok(image) => image,
+            Err(message) => {
+                state.set_status_message(message);
+                return;
+            }
+        };
         if let SelectionState::Locked { rect, .. } = &state.selection {
             state.remember_selection(*rect);
         }
@@ -72,10 +79,43 @@ pub fn handle_action_save(state: &mut SnipperState, original_rgba: &RgbaImage) {
         if let SelectionState::Locked { rect, .. } = &state.selection {
             state.remember_selection(*rect);
         }
+        if state.config.beautify.enabled {
+            dispatch_job(
+                state,
+                SnipperJobKind::Beautify,
+                MediaJob::SaveBeautified {
+                    image: cropped,
+                    options: (&state.config.beautify).into(),
+                },
+            );
+        } else {
+            dispatch_job(
+                state,
+                SnipperJobKind::Save,
+                MediaJob::SaveScreenshot { image: cropped },
+            );
+        }
+    }
+}
+
+/// 按当前美化设置直接保存截图，供全局美化热键使用。
+pub fn handle_action_save_beautified(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    state.clear_status_message();
+    if state.pending_job.is_some() {
+        state.set_status_message("请等待当前任务完成");
+        return;
+    }
+    if let Some(cropped) = crop_selection_image(state, original_rgba) {
+        if let SelectionState::Locked { rect, .. } = &state.selection {
+            state.remember_selection(*rect);
+        }
         dispatch_job(
             state,
-            SnipperJobKind::Save,
-            MediaJob::SaveScreenshot { image: cropped },
+            SnipperJobKind::Beautify,
+            MediaJob::SaveBeautified {
+                image: cropped,
+                options: (&state.config.beautify).into(),
+            },
         );
     }
 }
@@ -89,6 +129,13 @@ pub fn handle_action_pin(state: &mut SnipperState, original_rgba: &RgbaImage) {
     };
 
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
+        let cropped = match apply_configured_beautify(state, cropped) {
+            Ok(image) => image,
+            Err(message) => {
+                state.set_status_message(message);
+                return;
+            }
+        };
         match tiny_skia::Pixmap::new(cropped.width(), cropped.height()) {
             Some(mut pixmap) => {
                 pixmap.data_mut().copy_from_slice(cropped.as_raw());
@@ -106,6 +153,20 @@ pub fn handle_action_pin(state: &mut SnipperState, original_rgba: &RgbaImage) {
             }
         }
     }
+}
+
+/// 按配置把最终输出图像转换为美化版本；关闭美化时原样返回。
+fn apply_configured_beautify(state: &SnipperState, image: RgbaImage) -> Result<RgbaImage, String> {
+    if !state.config.beautify.enabled {
+        return Ok(image);
+    }
+    let mut input = tiny_skia::Pixmap::new(image.width(), image.height())
+        .ok_or_else(|| "分配美化输出输入缓冲区失败".to_string())?;
+    input.data_mut().copy_from_slice(image.as_raw());
+    let output =
+        snapin_core::render::render_beautified(input.as_ref(), &(&state.config.beautify).into())?;
+    RgbaImage::from_raw(output.width(), output.height(), output.take())
+        .ok_or_else(|| "转换美化输出图像失败".to_string())
 }
 
 /// 取色器单击：读取光标处像素，按用户设置的格式复制颜色并退出。
@@ -141,12 +202,109 @@ pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
         return;
     }
 
+    let origin = locked_selection_origin(state, original_rgba);
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
-        if let SelectionState::Locked { rect, .. } = &state.selection {
-            state.remember_selection(*rect);
+        if let Some(origin) = origin {
+            state.remember_selection(Rect {
+                x: origin.0 as f32,
+                y: origin.1 as f32,
+                width: cropped.width() as f32,
+                height: cropped.height() as f32,
+            });
+            dispatch_job(
+                state,
+                SnipperJobKind::Ocr,
+                MediaJob::Ocr {
+                    image: cropped,
+                    origin,
+                },
+            );
         }
-        dispatch_job(state, SnipperJobKind::Ocr, MediaJob::Ocr { image: cropped });
     }
+}
+
+/// 执行智能打码 OCR，完成后先进入遮挡样式预览。
+pub fn handle_action_redact(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    state.clear_status_message();
+    if state.pending_job.is_some() {
+        state.set_status_message("请等待当前任务完成");
+        return;
+    }
+    let Some(origin) = locked_selection_origin(state, original_rgba) else {
+        return;
+    };
+    if let Some(cropped) = crop_selection_image(state, original_rgba) {
+        dispatch_job(
+            state,
+            SnipperJobKind::Redact,
+            MediaJob::Ocr {
+                image: cropped,
+                origin,
+            },
+        );
+    }
+}
+
+/// 识别选区中的全部二维码，并将首个结果复制到剪贴板。
+pub fn handle_action_qr(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    state.clear_status_message();
+    if state.pending_job.is_some() {
+        state.set_status_message("请等待当前任务完成");
+        return;
+    }
+    let Some(origin) = locked_selection_origin(state, original_rgba) else {
+        return;
+    };
+    if let Some(cropped) = crop_selection_image(state, original_rgba) {
+        dispatch_job(
+            state,
+            SnipperJobKind::Qr,
+            MediaJob::DecodeQr {
+                image: cropped,
+                origin,
+            },
+        );
+    }
+}
+
+/// 重新打开最近一次 OCR 结果面板；没有结果时立即执行一次 OCR。
+pub fn handle_action_ocr_panel(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    if state.ocr_panel.is_some() {
+        state.set_status_message("OCR 结果面板已打开；Esc 关闭");
+    } else {
+        handle_action_ocr(state, original_rgba);
+    }
+}
+
+/// 导出 OCR 面板当前选中的文本行。
+pub fn handle_action_export_ocr(state: &mut SnipperState, format: OcrExportFormat) {
+    if state.pending_job.is_some() {
+        state.set_status_message("请等待当前任务完成");
+        return;
+    }
+    let Some(panel) = state.ocr_panel.as_ref() else {
+        state.set_status_message("没有可导出的 OCR 结果");
+        return;
+    };
+    let lines = panel.selected_lines();
+    if lines.is_empty() {
+        state.set_status_message("请至少选择一行 OCR 结果");
+        return;
+    }
+    dispatch_job(
+        state,
+        SnipperJobKind::Export,
+        MediaJob::SaveOcrText { lines, format },
+    );
+}
+
+/// 返回当前锁定选区在原始截图中的像素原点。
+fn locked_selection_origin(state: &SnipperState, original_rgba: &RgbaImage) -> Option<(u32, u32)> {
+    let SelectionState::Locked { rect, .. } = &state.selection else {
+        return None;
+    };
+    let (x, y, width, height) = rect.to_pixel_bounds(original_rgba.width(), original_rgba.height());
+    (width > 0 && height > 0).then_some((x, y))
 }
 
 /// 将任务提交到应用层媒体执行器并更新等待状态。
@@ -382,5 +540,16 @@ mod tests {
         };
         handle_action_translate(&mut state, &original);
         assert!(!state.annotations.can_undo());
+    }
+
+    /// 美化开启后，最终输出图像必须采用设置中的尺寸和留白。
+    #[test]
+    fn test_configured_beautify_changes_final_output() {
+        let mut state = SnipperState::new();
+        state.config.beautify.enabled = true;
+        state.config.beautify.social_size = snapin_core::render::SocialSize::Square;
+        let image = RgbaImage::from_pixel(100, 50, Rgba([255, 0, 0, 255]));
+        let output = apply_configured_beautify(&state, image).expect("美化输出应成功");
+        assert_eq!(output.dimensions(), (1080, 1080));
     }
 }

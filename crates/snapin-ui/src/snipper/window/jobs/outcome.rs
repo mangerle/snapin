@@ -2,6 +2,8 @@
 
 use super::SnipperJobKind;
 use crate::ports::{JobId, MediaJobOutcome};
+use crate::snipper::window::ocr_panel::OcrPanelState;
+use crate::snipper::window::redaction::RedactionPreview;
 use crate::snipper::window::state::SnipperState;
 use crate::snipper::window::types::SnipperOutcome;
 use snapin_core::annotation::action::AnnotationShape;
@@ -23,7 +25,20 @@ pub fn handle_job_outcome(
     state.pending_job_cancel = None;
 
     match outcome {
-        MediaJobOutcome::Ocr { text } => {
+        MediaJobOutcome::Ocr { text, lines } => {
+            if kind == SnipperJobKind::Redact {
+                if lines.is_empty() {
+                    state.set_status_message("未识别到文字，无法生成打码区域");
+                    return;
+                }
+                let count = lines.len();
+                state.redaction_preview = Some(RedactionPreview::from_ocr_lines(&lines));
+                state.set_status_message(format!(
+                    "识别到 {count} 行文字；Enter 应用马赛克，M 马赛克，B 模糊，Esc 取消"
+                ));
+                return;
+            }
+            state.ocr_panel = Some(OcrPanelState::from_ocr_lines(&lines));
             let text = text.trim();
             if text.is_empty() {
                 state.set_status_message("未识别到文字");
@@ -44,6 +59,30 @@ pub fn handle_job_outcome(
                 }
             }
         }
+        MediaJobOutcome::QrCodes { codes } => {
+            if codes.is_empty() {
+                state.qr_result = None;
+                state.set_status_message("未识别到二维码");
+                return;
+            }
+            let count = codes.len();
+            let first = codes[0].text.clone();
+            state.qr_result = Some(codes);
+            match state.desktop.write_text_clipboard(&first) {
+                Ok(()) => {
+                    let suffix = if first.starts_with("http://") || first.starts_with("https://") {
+                        "；Ctrl+Enter 打开链接"
+                    } else {
+                        ""
+                    };
+                    state.set_status_message(format!("已复制二维码内容（共 {count} 个）{suffix}"));
+                }
+                Err(error) => {
+                    tracing::warn!("复制二维码文本至系统剪贴板失败: {error}");
+                    state.set_status_message(format!("复制二维码内容失败: {error}"));
+                }
+            }
+        }
         MediaJobOutcome::Translated { items } => {
             if items.is_empty() {
                 state.set_status_message("未获得有效翻译结果");
@@ -58,7 +97,11 @@ pub fn handle_job_outcome(
             tracing::info!("原位翻译完成，已成功压入标注动作栈");
         }
         MediaJobOutcome::Saved { path } => {
-            state.outcome = Some(SnipperOutcome::Saved(path));
+            if kind == SnipperJobKind::Export {
+                state.set_status_message(format!("OCR 结果已导出至: {}", path.display()));
+            } else {
+                state.outcome = Some(SnipperOutcome::Saved(path));
+            }
         }
         MediaJobOutcome::SaveCancelled => {
             state.set_status_message("已取消保存");
@@ -108,6 +151,7 @@ mod tests {
             SnipperJobKind::Ocr,
             MediaJobOutcome::Ocr {
                 text: String::new(),
+                lines: Vec::new(),
             },
         );
         assert!(state.outcome.is_none());
@@ -191,6 +235,7 @@ mod tests {
             SnipperJobKind::Ocr,
             MediaJobOutcome::Ocr {
                 text: "识别出来的一段文字".to_string(),
+                lines: Vec::new(),
             },
         );
 
@@ -202,11 +247,61 @@ mod tests {
         );
     }
 
+    /// 智能打码结果只生成预览，用户确认前不得改写标注历史。
+    #[test]
+    fn test_redact_outcome_waits_for_confirmation() {
+        let mut state = SnipperState::new();
+        let job_id = accept_job(&mut state);
+        handle_job_outcome(
+            &mut state,
+            job_id,
+            SnipperJobKind::Redact,
+            MediaJobOutcome::Ocr {
+                text: "敏感文字".to_string(),
+                lines: vec![crate::ports::OcrTextItem {
+                    text: "敏感文字".to_string(),
+                    bounds: (10.0, 20.0, 80.0, 24.0),
+                }],
+            },
+        );
+        assert!(state.redaction_preview.is_some());
+        assert!(!state.annotations.can_undo());
+    }
+
+    /// 二维码结果应保留在状态中供后续打开链接。
+    #[test]
+    fn test_qr_outcome_keeps_result_for_link_action() {
+        let mut state = SnipperState::new();
+        let job_id = accept_job(&mut state);
+        handle_job_outcome(
+            &mut state,
+            job_id,
+            SnipperJobKind::Qr,
+            MediaJobOutcome::QrCodes {
+                codes: vec![crate::ports::QrCodeItem {
+                    text: "https://example.com".to_string(),
+                    bounds: (1, 2, 30, 30),
+                }],
+            },
+        );
+        assert_eq!(
+            state
+                .qr_result
+                .as_ref()
+                .and_then(|codes| codes.first())
+                .map(|code| code.text.as_str()),
+            Some("https://example.com")
+        );
+    }
+
     /// 测试用图像必须与真实任务使用相同的 RGBA 布局
     #[test]
     fn test_media_job_accepts_rgba_image() {
         let image = image::RgbaImage::from_pixel(2, 2, Rgba([255, 0, 0, 255]));
-        let job = MediaJob::Ocr { image };
+        let job = MediaJob::Ocr {
+            image,
+            origin: (0, 0),
+        };
         assert!(matches!(job, MediaJob::Ocr { .. }));
     }
 }

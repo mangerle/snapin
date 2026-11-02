@@ -3,7 +3,9 @@
 use super::actions::{handle_action_copy, handle_action_pin, handle_action_save};
 pub use super::state::{commit_active_text_input, SnipperState};
 use super::types::SnipperOutcome;
-use crate::snipper::selection::SelectionState;
+use crate::editor::text_input::TextInputSession;
+use crate::ports::OcrExportFormat;
+use crate::snipper::selection::{SelectionConstraint, SelectionState};
 use image::RgbaImage;
 use winit::event::ElementState;
 use winit::keyboard::{Key, NamedKey};
@@ -23,8 +25,21 @@ pub fn handle_key_input(
         return handle_text_key_input(state, key);
     }
 
+    if state.redaction_preview.is_some() {
+        return handle_redaction_preview_key(state, key);
+    }
+
+    if state.ocr_panel.is_some() {
+        return handle_ocr_panel_key(state, key, original_rgba);
+    }
+
     match key {
         Key::Named(NamedKey::Escape) => handle_escape(state),
+        Key::Named(NamedKey::Tab) => cycle_window(state, !state.modifiers.shift_key()),
+        Key::Named(NamedKey::ArrowLeft) => nudge_locked_selection(state, -1, 0, original_rgba),
+        Key::Named(NamedKey::ArrowRight) => nudge_locked_selection(state, 1, 0, original_rgba),
+        Key::Named(NamedKey::ArrowUp) => nudge_locked_selection(state, 0, -1, original_rgba),
+        Key::Named(NamedKey::ArrowDown) => nudge_locked_selection(state, 0, 1, original_rgba),
         Key::Named(NamedKey::Shift) => {
             state.magnifier.format = state.magnifier.format.next();
             true
@@ -52,9 +67,18 @@ pub fn handle_key_input(
             handle_action_save(state, original_rgba);
             true
         }
+        Key::Named(NamedKey::Enter) if state.modifiers.control_key() => handle_qr_open_link(state),
         Key::Named(NamedKey::Enter) | Key::Named(NamedKey::F3) => {
             handle_action_pin(state, original_rgba);
             true
+        }
+        Key::Character(c) if c.eq_ignore_ascii_case("o") && state.modifiers.shift_key() => {
+            if matches!(state.selection, SelectionState::Locked { .. }) {
+                super::actions::handle_action_ocr_panel(state, original_rgba);
+                true
+            } else {
+                false
+            }
         }
         Key::Character(c) if c.eq_ignore_ascii_case("o") && !state.modifiers.control_key() => {
             if matches!(state.selection, SelectionState::Locked { .. }) {
@@ -72,10 +96,265 @@ pub fn handle_key_input(
                 false
             }
         }
+        Key::Character(c) if c.eq_ignore_ascii_case("r") && !state.modifiers.control_key() => {
+            if matches!(state.selection, SelectionState::Locked { .. }) {
+                super::actions::handle_action_redact(state, original_rgba);
+                true
+            } else {
+                false
+            }
+        }
+        Key::Character(c) if c.eq_ignore_ascii_case("q") && !state.modifiers.control_key() => {
+            if matches!(state.selection, SelectionState::Locked { .. }) {
+                super::actions::handle_action_qr(state, original_rgba);
+                true
+            } else {
+                false
+            }
+        }
         Key::Character(c) if c == "," => handle_history_back(state, original_rgba),
         Key::Character(c) if c == "." => handle_history_forward(state, original_rgba),
+        Key::Character(c) if c == "1" => set_selection_constraint(state, SelectionConstraint::Free),
+        Key::Character(c) if c == "2" => set_selection_constraint(
+            state,
+            SelectionConstraint::Ratio {
+                width: 1,
+                height: 1,
+            },
+        ),
+        Key::Character(c) if c == "3" => set_selection_constraint(
+            state,
+            SelectionConstraint::Ratio {
+                width: 4,
+                height: 3,
+            },
+        ),
+        Key::Character(c) if c == "4" => set_selection_constraint(
+            state,
+            SelectionConstraint::Ratio {
+                width: 16,
+                height: 9,
+            },
+        ),
+        Key::Character(c) if c == "5" => set_selection_constraint(
+            state,
+            SelectionConstraint::Fixed {
+                width: 800,
+                height: 600,
+            },
+        ),
+        Key::Character(c) if c == "6" => set_selection_constraint(
+            state,
+            SelectionConstraint::Fixed {
+                width: 1280,
+                height: 720,
+            },
+        ),
         _ => false,
     }
+}
+
+/// 在窗口候选之间循环，Tab 向前、Shift+Tab 向后。
+fn cycle_window(state: &mut SnipperState, forward: bool) -> bool {
+    if !matches!(state.selection, SelectionState::Idle) || state.window_rects.is_empty() {
+        return false;
+    }
+    let len = state.window_rects.len();
+    let current = state
+        .window_cycle
+        .unwrap_or(if forward { len.saturating_sub(1) } else { 0 });
+    let next = if forward {
+        current.saturating_add(1) % len
+    } else {
+        current.saturating_add(len).saturating_sub(1) % len
+    };
+    state.window_cycle = Some(next);
+    state.hovered_window = state.window_rects.get(next).copied();
+    state.set_status_message(format!("窗口循环: {}/{}，短按左键吸附", next + 1, len));
+    true
+}
+
+/// 设置选区尺寸约束；正在拖拽时立即按新约束刷新终点。
+fn set_selection_constraint(state: &mut SnipperState, constraint: SelectionConstraint) -> bool {
+    state.selection_constraint = constraint;
+    if let SelectionState::Creating { start, current } = &mut state.selection {
+        *current = constraint.constrain(*start, *current);
+    }
+    state.set_status_message(format!(
+        "选区约束: {}；1 自由，2 1:1，3 4:3，4 16:9，5 800x600，6 1280x720",
+        constraint.label()
+    ));
+    true
+}
+
+/// 锁定选区后使用方向键微调位置，Shift 加速为 10 像素。
+fn nudge_locked_selection(
+    state: &mut SnipperState,
+    dx: i32,
+    dy: i32,
+    original_rgba: &RgbaImage,
+) -> bool {
+    let step = if state.modifiers.shift_key() { 10 } else { 1 };
+    let SelectionState::Locked { rect, active_drag } = &mut state.selection else {
+        return false;
+    };
+    if active_drag.is_some() {
+        return false;
+    }
+    let max_x = (original_rgba.width() as f32 - rect.width).max(0.0);
+    let max_y = (original_rgba.height() as f32 - rect.height).max(0.0);
+    rect.x = (rect.x + (dx * step) as f32).clamp(0.0, max_x);
+    rect.y = (rect.y + (dy * step) as f32).clamp(0.0, max_y);
+    state.toolbar.update_layout(
+        rect,
+        original_rgba.width() as f32,
+        original_rgba.height() as f32,
+    );
+    let position = (rect.x as i32, rect.y as i32);
+    state.set_status_message(format!("选区位置: ({}, {})", position.0, position.1));
+    true
+}
+
+/// 处理 OCR 结果面板键盘操作。
+fn handle_ocr_panel_key(state: &mut SnipperState, key: &Key, original_rgba: &RgbaImage) -> bool {
+    let scale = state.toolbar.ui_scale;
+    let screen_width = original_rgba.width() as f32;
+    let screen_height = original_rgba.height() as f32;
+    match key {
+        Key::Named(NamedKey::Escape) => {
+            state.ocr_panel = None;
+            state.ocr_edit_row = None;
+            state.active_text_input = None;
+            state.set_status_message("已关闭 OCR 结果面板");
+            true
+        }
+        Key::Named(NamedKey::ArrowUp) => {
+            let visible = state
+                .ocr_panel
+                .as_ref()
+                .map(|panel| panel.visible_rows(screen_height, scale))
+                .unwrap_or(1);
+            if let Some(panel) = state.ocr_panel.as_mut() {
+                panel.move_cursor(-1, visible);
+            }
+            true
+        }
+        Key::Named(NamedKey::ArrowDown) => {
+            let visible = state
+                .ocr_panel
+                .as_ref()
+                .map(|panel| panel.visible_rows(screen_height, scale))
+                .unwrap_or(1);
+            if let Some(panel) = state.ocr_panel.as_mut() {
+                panel.move_cursor(1, visible);
+            }
+            true
+        }
+        Key::Named(NamedKey::Space) => {
+            if let Some(panel) = state.ocr_panel.as_mut() {
+                panel.toggle_cursor();
+            }
+            true
+        }
+        Key::Character(c) if c.eq_ignore_ascii_case("a") => {
+            if let Some(panel) = state.ocr_panel.as_mut() {
+                panel.toggle_all();
+            }
+            true
+        }
+        Key::Named(NamedKey::Enter) => {
+            begin_ocr_row_edit(state, screen_width, screen_height, scale);
+            true
+        }
+        Key::Character(c) if c.eq_ignore_ascii_case("m") => {
+            super::actions::handle_action_export_ocr(state, OcrExportFormat::Markdown);
+            true
+        }
+        Key::Character(c) if c.eq_ignore_ascii_case("j") => {
+            super::actions::handle_action_export_ocr(state, OcrExportFormat::Json);
+            true
+        }
+        _ => true,
+    }
+}
+
+/// 为当前 OCR 行创建文本编辑会话，提交时回写该行。
+fn begin_ocr_row_edit(state: &mut SnipperState, screen_width: f32, screen_height: f32, scale: f32) {
+    let Some(panel) = state.ocr_panel.as_ref() else {
+        return;
+    };
+    let Some(line) = panel.lines.get(panel.cursor) else {
+        return;
+    };
+    let Some(pos) = panel.editor_pos(screen_width, screen_height, scale) else {
+        return;
+    };
+    let mut session = TextInputSession::new(pos, (255, 255, 255, 255), 14.0);
+    session.text = line.text.clone();
+    state.ocr_edit_row = Some(panel.cursor);
+    state.active_text_input = Some(session);
+    state.set_status_message("编辑 OCR 文本；Enter 确认，Esc 取消");
+}
+
+/// 处理智能打码预览阶段的键盘操作。
+fn handle_redaction_preview_key(state: &mut SnipperState, key: &Key) -> bool {
+    match key {
+        Key::Named(NamedKey::Escape) => {
+            state.redaction_preview = None;
+            state.set_status_message("已取消智能打码");
+            true
+        }
+        Key::Named(NamedKey::Enter) => {
+            let count = super::redaction::commit_redaction(state);
+            state.set_status_message(format!("已应用 {count} 处智能打码"));
+            true
+        }
+        Key::Character(c) if c.eq_ignore_ascii_case("m") => {
+            if let Some(preview) = state.redaction_preview.as_mut() {
+                if preview.style != super::redaction::RedactionStyle::Mosaic {
+                    preview.style = preview.style.toggle();
+                }
+            }
+            state.set_status_message("已选择马赛克；Enter 应用，B 切换模糊，Esc 取消");
+            true
+        }
+        Key::Character(c) if c.eq_ignore_ascii_case("b") => {
+            if let Some(preview) = state.redaction_preview.as_mut() {
+                if preview.style != super::redaction::RedactionStyle::Blur {
+                    preview.style = preview.style.toggle();
+                }
+            }
+            let style = state
+                .redaction_preview
+                .as_ref()
+                .map(|preview| preview.style.label())
+                .unwrap_or("模糊");
+            state.set_status_message(format!("已选择{style}；Enter 应用，M 切换马赛克，Esc 取消"));
+            true
+        }
+        _ => true,
+    }
+}
+
+/// 打开最近二维码结果中的首个网页链接。
+fn handle_qr_open_link(state: &mut SnipperState) -> bool {
+    let Some(url) = state
+        .qr_result
+        .as_ref()
+        .and_then(|codes| codes.first())
+        .map(|code| code.text.clone())
+    else {
+        state.set_status_message("请先识别二维码");
+        return true;
+    };
+    match state.desktop.open_url(&url) {
+        Ok(()) => state.set_status_message("已请求系统浏览器打开二维码链接"),
+        Err(error) => {
+            tracing::warn!("打开二维码链接失败: {error}");
+            state.set_status_message(format!("打开二维码链接失败: {error}"));
+        }
+    }
+    true
 }
 
 /// 处理处于文本编辑中的按键交互。
@@ -96,6 +375,7 @@ fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
         }
         crate::editor::text_input::TextSessionAction::Cancel => {
             state.active_text_input = None;
+            state.ocr_edit_row = None;
             true
         }
         crate::editor::text_input::TextSessionAction::Ignored => false,
@@ -104,7 +384,17 @@ fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
 
 /// 逐级退出处理 (先提交文本 -> 再收起二级栏/工具 -> 再取消标注选中 -> 再取消选区 -> 再退出窗口)
 pub fn handle_escape(state: &mut SnipperState) -> bool {
-    if state.active_text_input.is_some() {
+    if state.ocr_panel.is_some() {
+        state.ocr_panel = None;
+        state.ocr_edit_row = None;
+        state.active_text_input = None;
+        state.set_status_message("已关闭 OCR 结果面板");
+        true
+    } else if state.redaction_preview.is_some() {
+        state.redaction_preview = None;
+        state.set_status_message("已取消智能打码");
+        true
+    } else if state.active_text_input.is_some() {
         // Esc 统一取消当前输入，与贴图侧保持一致。
         state.active_text_input = None;
         true

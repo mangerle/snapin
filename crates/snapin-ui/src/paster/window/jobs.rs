@@ -70,10 +70,13 @@ impl PasterJobRuntime {
     ) -> Result<(JobId, JobCancel), PortError> {
         let proxy = self.proxy.clone();
         self.runner.submit(
-            MediaJob::Ocr { image },
+            MediaJob::Ocr {
+                image,
+                origin: (0, 0),
+            },
             Box::new(move |job_id, outcome| {
                 let result = match outcome {
-                    MediaJobOutcome::Ocr { text } => Ok(text),
+                    MediaJobOutcome::Ocr { text, .. } => Ok(text),
                     MediaJobOutcome::Failed { message } => Err(message),
                     _ => Err("文字识别返回了不匹配的结果类型".to_string()),
                 };

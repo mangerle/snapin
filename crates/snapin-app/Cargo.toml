@@ -22,6 +22,7 @@ tracing.workspace = true
 image.workspace = true
 tiny-skia.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 toml.workspace = true
 
 [dev-dependencies]

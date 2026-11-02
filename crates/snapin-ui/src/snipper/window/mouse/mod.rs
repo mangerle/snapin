@@ -36,11 +36,14 @@ pub fn handle_cursor_move(
             let hovered = window_at((cx, cy), &state.window_rects);
             let changed = hovered != state.hovered_window;
             state.hovered_window = hovered;
+            if changed {
+                state.window_cycle = None;
+            }
             // 放大镜必须逐帧跟随光标；禁用放大镜时仍只在高亮窗口切换时重绘
             changed || state.magnifier.enabled
         }
-        SelectionState::Creating { current, .. } => {
-            *current = (cx, cy);
+        SelectionState::Creating { start, current } => {
+            *current = state.selection_constraint.constrain(*start, (cx, cy));
             true
         }
         SelectionState::Locked { rect, active_drag } => {
@@ -149,6 +152,23 @@ fn handle_left_press(
     cy: f32,
     original_rgba: &RgbaImage,
 ) -> bool {
+    if state.ocr_panel.is_some() {
+        let scale = state.toolbar.ui_scale;
+        let handled = state.ocr_panel.as_mut().is_some_and(|panel| {
+            panel.handle_click(
+                cx,
+                cy,
+                original_rgba.width() as f32,
+                original_rgba.height() as f32,
+                scale,
+            )
+        });
+        if handled {
+            commit_active_text_input(state);
+            return true;
+        }
+    }
+
     if let SelectionState::Locked { rect, .. } = state.selection {
         return handle_locked_press(state, rect, cx, cy, original_rgba);
     }
@@ -353,7 +373,22 @@ fn handle_left_release(
 /// 自动翻译只对本次热键触发的首次框选生效：先复位模式，避免用户之后重新框选时
 /// 再次触发整图翻译；翻译完成后保留工具栏继续交互。
 fn apply_auto_mode(state: &mut SnipperState, original_rgba: &RgbaImage) {
-    if state.mode == SnipMode::AutoCopy {
+    if let Some(action) = state.post_action.take() {
+        match action {
+            snapin_core::PostCaptureAction::SmartRedact => {
+                super::actions::handle_action_redact(state, original_rgba);
+            }
+            snapin_core::PostCaptureAction::Qr => {
+                super::actions::handle_action_qr(state, original_rgba);
+            }
+            snapin_core::PostCaptureAction::Beautify => {
+                super::actions::handle_action_save_beautified(state, original_rgba);
+            }
+            snapin_core::PostCaptureAction::OcrPanel => {
+                super::actions::handle_action_ocr(state, original_rgba);
+            }
+        }
+    } else if state.mode == SnipMode::AutoCopy {
         super::actions::handle_action_copy(state, original_rgba);
     } else if state.mode == SnipMode::Translate {
         state.mode = SnipMode::Normal;

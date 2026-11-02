@@ -34,6 +34,18 @@ pub enum Commands {
         /// 进入会话即锁定整屏选区，可直接标注或复制/保存/贴图
         #[arg(long, conflicts_with_all = ["auto_copy", "custom", "translate"])]
         fullscreen: bool,
+        /// 框选后识别全部文字并进入智能打码预览
+        #[arg(long, conflicts_with_all = ["auto_copy", "custom", "translate", "fullscreen", "qr", "beautify", "ocr_panel"])]
+        redact: bool,
+        /// 框选后自动识别二维码
+        #[arg(long, conflicts_with_all = ["auto_copy", "custom", "translate", "fullscreen", "redact", "beautify", "ocr_panel"])]
+        qr: bool,
+        /// 框选后进入美化导出
+        #[arg(long, conflicts_with_all = ["auto_copy", "custom", "translate", "fullscreen", "redact", "qr", "ocr_panel"])]
+        beautify: bool,
+        /// 框选后自动 OCR 并打开结果面板
+        #[arg(long, conflicts_with_all = ["auto_copy", "custom", "translate", "fullscreen", "redact", "qr", "beautify"])]
+        ocr_panel: bool,
         /// 截图前等待的秒数（0 表示立即截图，最大 60 秒）
         #[arg(long, value_name = "SECONDS", default_value_t = 0, value_parser = parse_delay_seconds)]
         delay: u32,
@@ -49,6 +61,10 @@ pub enum Commands {
         /// 目标分组 ID（省略时循环切换；越界 ID 会被拒绝）
         id: Option<usize>,
     },
+    /// 打开贴图工作区面板
+    Workspace,
+    /// 打开或关闭剪贴板历史面板
+    ClipboardHistory,
     /// 清空截屏与临时缓存历史
     ClearHistory,
     /// 完全退出 Snapin（停止守护服务、关闭贴图并收起托盘图标）
@@ -122,6 +138,8 @@ impl Commands {
             | Self::Paste
             | Self::Toggle
             | Self::SwitchGroup { .. }
+            | Self::Workspace
+            | Self::ClipboardHistory
             | Self::ClearHistory
             | Self::Exit
             | Self::PinFile { .. }
@@ -164,12 +182,18 @@ mod tests {
                 custom: false,
                 translate: false,
                 fullscreen: false,
+                redact: false,
+                qr: false,
+                beautify: false,
+                ocr_panel: false,
                 delay: 0,
             },
             Commands::PickColor,
             Commands::Paste,
             Commands::Toggle,
             Commands::SwitchGroup { id: None },
+            Commands::Workspace,
+            Commands::ClipboardHistory,
             Commands::ClearHistory,
             Commands::Exit,
             Commands::Prefs,
@@ -214,9 +238,18 @@ mod tests {
                 custom: true,
                 translate: false,
                 fullscreen: false,
+                redact: false,
+                qr: false,
+                beautify: false,
+                ocr_panel: false,
                 delay: 0,
             })
         ));
+
+        for flag in ["--redact", "--qr", "--beautify", "--ocr-panel"] {
+            let cli = Cli::try_parse_from(["snapin", "snip", flag]).expect("后处理参数应可解析");
+            assert!(matches!(cli.command, Some(Commands::Snip { .. })));
+        }
 
         let cli = Cli::try_parse_from(["snapin", "snip", "--translate"]).unwrap();
         assert!(matches!(

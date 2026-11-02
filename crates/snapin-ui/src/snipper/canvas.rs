@@ -4,12 +4,16 @@
 
 use crate::editor::text_input::TextInputSession;
 use crate::editor::toolbar::{Tool, Toolbar};
+use crate::ports::QrCodeItem;
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::window::annotation_builder::{render_draft_preview, AnnotationDraftParams};
+use crate::snipper::window::ocr_panel::OcrPanelState;
+use crate::snipper::window::redaction::RedactionPreview;
 use crate::status_badge;
 use image::RgbaImage;
 use snapin_core::annotation::AnnotationHistory;
+use snapin_core::render::{with_thread_local_text_renderer, TextBoxOptions};
 use tiny_skia::{
     Paint, PathBuilder, Pixmap, PixmapMut, Rect as SkiaRect, Stroke, StrokeDash, Transform,
 };
@@ -46,6 +50,12 @@ pub struct SnipperCanvas<'a> {
     pub status_message: Option<&'a str>,
     /// 当前选中的已提交标注编辑框
     pub selected_annotation: Option<SelectedAnnotation>,
+    /// 智能打码待确认区域
+    pub redaction_preview: Option<&'a RedactionPreview>,
+    /// 最近一次二维码识别结果的包围盒
+    pub qr_codes: Option<&'a [QrCodeItem]>,
+    /// OCR 结果面板
+    pub ocr_panel: Option<&'a OcrPanelState>,
 }
 
 impl<'a> SnipperCanvas<'a> {
@@ -76,6 +86,10 @@ impl<'a> SnipperCanvas<'a> {
                     history.replay_all(pixmap);
                 }
 
+                if let Some(panel) = self.ocr_panel {
+                    self.render_ocr_panel(pixmap, panel);
+                }
+
                 // 实时渲染当前活跃编辑中的文本会话
                 if let Some(text_session) = self.active_text_input {
                     text_session.render(pixmap);
@@ -87,6 +101,8 @@ impl<'a> SnipperCanvas<'a> {
                 {
                     self.render_pending_preview(pixmap, tb, tool, pts, badge_num);
                 }
+
+                self.render_detection_previews(pixmap);
 
                 self.render_selection_borders_and_handles(pixmap, &r);
 
@@ -106,6 +122,191 @@ impl<'a> SnipperCanvas<'a> {
         }
 
         self.render_status_message(pixmap);
+    }
+
+    /// 绘制 OCR 结果面板与可见文本行。
+    fn render_ocr_panel(&self, pixmap: &mut PixmapMut, panel: &OcrPanelState) {
+        let s = self.ui_scale;
+        let layout = panel.layout(pixmap.width() as f32, pixmap.height() as f32, s);
+        let mut background = Paint::default();
+        background.set_color_rgba8(15, 23, 42, 242);
+        if let Some(rect) = SkiaRect::from_xywh(
+            layout.panel.x,
+            layout.panel.y,
+            layout.panel.width,
+            layout.panel.height,
+        ) {
+            pixmap.fill_rect(rect, &background, Transform::identity(), None);
+        }
+
+        let mut border = Paint::default();
+        border.set_color_rgba8(71, 85, 105, 255);
+        let border_stroke = Stroke {
+            width: s,
+            ..Default::default()
+        };
+        let mut panel_pb = PathBuilder::new();
+        if let Some(rect) = SkiaRect::from_xywh(
+            layout.panel.x,
+            layout.panel.y,
+            layout.panel.width,
+            layout.panel.height,
+        ) {
+            panel_pb.push_rect(rect);
+            if let Some(path) = panel_pb.finish() {
+                pixmap.stroke_path(&path, &border, &border_stroke, Transform::identity(), None);
+            }
+        }
+
+        with_thread_local_text_renderer(|renderer| {
+            renderer.draw_text_rgba(
+                pixmap,
+                &format!(
+                    "OCR 结果  已选择 {}/{}",
+                    panel.lines.iter().filter(|line| line.selected).count(),
+                    panel.lines.len()
+                ),
+                layout.panel.x + 14.0 * s,
+                layout.panel.y + 12.0 * s,
+                16.0 * s,
+                (241, 245, 249, 255),
+            );
+
+            for (line_index, row) in &layout.rows {
+                if Some(*line_index) == Some(panel.cursor) {
+                    let mut focus = Paint::default();
+                    focus.set_color_rgba8(37, 99, 235, 96);
+                    if let Some(rect) = SkiaRect::from_xywh(
+                        row.x,
+                        row.y,
+                        row.width,
+                        (row.height - 2.0 * s).max(1.0),
+                    ) {
+                        pixmap.fill_rect(rect, &focus, Transform::identity(), None);
+                    }
+                }
+                let Some(line) = panel.lines.get(*line_index) else {
+                    continue;
+                };
+                let box_size = 12.0 * s;
+                let box_x = row.x + 7.0 * s;
+                let box_y = row.y + (row.height - box_size) / 2.0;
+                let mut box_paint = Paint::default();
+                box_paint.set_color_rgba8(241, 245, 249, 255);
+                if let Some(rect) = SkiaRect::from_xywh(box_x, box_y, box_size, box_size) {
+                    pixmap.fill_rect(rect, &box_paint, Transform::identity(), None);
+                    if line.selected {
+                        let mut check = PathBuilder::new();
+                        check.move_to(box_x + 2.5 * s, box_y + 6.0 * s);
+                        check.line_to(box_x + 5.0 * s, box_y + 9.0 * s);
+                        check.line_to(box_x + 10.0 * s, box_y + 3.0 * s);
+                        if let Some(path) = check.finish() {
+                            let mut check_paint = Paint::default();
+                            check_paint.set_color_rgba8(37, 99, 235, 255);
+                            let check_stroke = Stroke {
+                                width: 2.0 * s,
+                                ..Default::default()
+                            };
+                            pixmap.stroke_path(
+                                &path,
+                                &check_paint,
+                                &check_stroke,
+                                Transform::identity(),
+                                None,
+                            );
+                        }
+                    }
+                }
+                renderer.draw_text_box_rgba(
+                    pixmap,
+                    &line.text,
+                    TextBoxOptions {
+                        rect: (
+                            row.x + 26.0 * s,
+                            row.y + 2.0 * s,
+                            (row.width - 32.0 * s).max(1.0),
+                            (row.height - 3.0 * s).max(1.0),
+                        ),
+                        font_size: 13.0 * s,
+                        rgba: (226, 232, 240, 255),
+                    },
+                );
+            }
+
+            renderer.draw_text_box_rgba(
+                pixmap,
+                "Space 选择  Enter 编辑  A 全选  M 导出 Markdown  J 导出 JSON  Esc 关闭",
+                TextBoxOptions {
+                    rect: (
+                        layout.panel.x + 14.0 * s,
+                        layout.panel.y + layout.panel.height - 38.0 * s,
+                        (layout.panel.width - 28.0 * s).max(1.0),
+                        28.0 * s,
+                    ),
+                    font_size: 11.0 * s,
+                    rgba: (148, 163, 184, 255),
+                },
+            );
+        });
+    }
+
+    /// 绘制智能打码与二维码识别预览框。
+    ///
+    /// 预览不写入标注历史，只有智能打码确认后才生成真实遮挡图元；二维码框仅用于
+    /// 告诉用户系统发现了哪些区域，不改变最终截图内容。
+    fn render_detection_previews(&self, pixmap: &mut PixmapMut) {
+        let s = self.ui_scale;
+        if let Some(preview) = self.redaction_preview {
+            let (r, g, b) = self.accent_color;
+            let mut fill = Paint::default();
+            fill.set_color_rgba8(r, g, b, 36);
+            let mut stroke_paint = Paint::default();
+            stroke_paint.set_color_rgba8(r, g, b, 255);
+            let stroke = Stroke {
+                width: (1.5 * s).max(1.0),
+                dash: StrokeDash::new(vec![6.0 * s, 4.0 * s], 0.0),
+                ..Default::default()
+            };
+            for rect in &preview.regions {
+                if let Some(skia_rect) =
+                    SkiaRect::from_xywh(rect.x, rect.y, rect.width, rect.height)
+                {
+                    pixmap.fill_rect(skia_rect, &fill, Transform::identity(), None);
+                    let mut pb = PathBuilder::new();
+                    pb.push_rect(skia_rect);
+                    if let Some(path) = pb.finish() {
+                        pixmap.stroke_path(
+                            &path,
+                            &stroke_paint,
+                            &stroke,
+                            Transform::identity(),
+                            None,
+                        );
+                    }
+                }
+            }
+        }
+
+        if let Some(codes) = self.qr_codes {
+            let mut paint = Paint::default();
+            paint.set_color_rgba8(20, 184, 166, 255);
+            let stroke = Stroke {
+                width: (1.8 * s).max(1.0),
+                ..Default::default()
+            };
+            for code in codes {
+                let (x, y, width, height) = code.bounds;
+                if let Some(rect) =
+                    SkiaRect::from_xywh(x as f32, y as f32, width as f32, height as f32)
+                {
+                    let mut pb = PathBuilder::new();
+                    pb.push_rect(rect);
+                    if let Some(path) = pb.finish() {
+                        pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+                    }
+                }
+            }
+        }
     }
 
     /// 绘制空闲态的光标覆盖层：悬停窗口高亮与像素放大镜。

@@ -9,9 +9,12 @@ use super::save::{execute_save_paster, execute_save_screenshot, SavePasterReques
 use super::translate::{build_translation_items, to_service_provider, TranslationPlacement};
 use super::OcrCache;
 use snapin_core::config::Config;
-use snapin_service::ocr::{LocalPpOcrEngine, OcrEngine};
+use snapin_platform::pick_save_path;
+use snapin_service::ocr::{LocalPpOcrEngine, OcrEngine, OcrTextBlock};
+use snapin_service::qr::decode_qr_codes;
 use snapin_service::{create_translator, Translator, TranslatorOptions};
-use snapin_ui::{MediaJob, MediaJobOutcome};
+use snapin_storage::{resolve_save_path, save_image_to_path, save_image_with_config};
+use snapin_ui::{MediaJob, MediaJobOutcome, OcrExportFormat, OcrTextItem, QrCodeItem};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -27,7 +30,10 @@ pub(super) async fn execute_job(
         return cancelled();
     }
     match job {
-        MediaJob::Ocr { image } => execute_ocr(&cache, image, &config, &cancel).await,
+        MediaJob::Ocr { image, origin } => {
+            execute_ocr(&cache, image, origin, &config, &cancel).await
+        }
+        MediaJob::DecodeQr { image, origin } => execute_qr(image, origin, &cancel).await,
         MediaJob::Translate {
             image,
             origin,
@@ -60,6 +66,102 @@ pub(super) async fn execute_job(
             )
             .await
         }
+        MediaJob::SaveOcrText { lines, format } => {
+            execute_save_ocr_text(lines, format, &config).await
+        }
+        MediaJob::SaveBeautified { image, options } => {
+            execute_save_beautified(image, options, &config).await
+        }
+    }
+}
+
+/// 渲染美化截图并保存为当前默认输出格式。
+async fn execute_save_beautified(
+    image: image::RgbaImage,
+    options: snapin_core::render::BeautifyOptions,
+    config: &Config,
+) -> MediaJobOutcome {
+    let output = config.output.clone();
+    let chosen_path = if output.prompt_save_path {
+        let suggested = resolve_save_path(&output);
+        let suggested_name = suggested
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("snapin.png")
+            .to_string();
+        match pick_save_path(&suggested_name, suggested.parent()).await {
+            Ok(Some(path)) => Some(path),
+            Ok(None) => return MediaJobOutcome::SaveCancelled,
+            Err(error) => {
+                return MediaJobOutcome::Failed {
+                    message: format!("打开美化截图保存对话框失败: {error}"),
+                }
+            }
+        }
+    } else {
+        None
+    };
+    let task = tokio::task::spawn_blocking(move || {
+        let mut input = tiny_skia::Pixmap::new(image.width(), image.height())
+            .ok_or_else(|| "分配美化输入缓冲区失败".to_string())?;
+        input.data_mut().copy_from_slice(image.as_raw());
+        let beautified = snapin_core::render::render_beautified(input.as_ref(), &options)?;
+        let rgba =
+            image::RgbaImage::from_raw(beautified.width(), beautified.height(), beautified.take())
+                .ok_or_else(|| "转换美化输出图像失败".to_string())?;
+        match chosen_path {
+            Some(path) => save_image_to_path(&rgba, &path, &output),
+            None => save_image_with_config(&rgba, &output),
+        }
+        .map_err(|error| format!("保存美化图像失败: {error}"))
+    })
+    .await;
+    match task {
+        Ok(Ok(path)) => MediaJobOutcome::Saved { path },
+        Ok(Err(message)) => MediaJobOutcome::Failed { message },
+        Err(error) => MediaJobOutcome::Failed {
+            message: format!("美化渲染任务异常: {error}"),
+        },
+    }
+}
+
+/// 按用户选择的格式导出 OCR 文本。
+async fn execute_save_ocr_text(
+    lines: Vec<String>,
+    format: OcrExportFormat,
+    config: &Config,
+) -> MediaJobOutcome {
+    let output = config.output.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let (content, extension) = match format {
+            OcrExportFormat::Markdown => (
+                format!(
+                    "# OCR 识别结果\n\n{}\n",
+                    lines
+                        .iter()
+                        .map(|line| format!("- {line}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                ),
+                "md",
+            ),
+            OcrExportFormat::Json => (
+                serde_json::to_string_pretty(&lines).unwrap_or_else(|_| "[]".to_string()),
+                "json",
+            ),
+        };
+        snapin_storage::save_text_with_config(&content, extension, &output)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(path)) => MediaJobOutcome::Saved { path },
+        Ok(Err(error)) => MediaJobOutcome::Failed {
+            message: format!("导出 OCR 文本失败: {error}"),
+        },
+        Err(error) => MediaJobOutcome::Failed {
+            message: format!("OCR 文本导出任务异常: {error}"),
+        },
     }
 }
 
@@ -112,6 +214,7 @@ async fn get_ocr_engine(
 async fn execute_ocr(
     cache: &Arc<Mutex<OcrCache>>,
     image: image::RgbaImage,
+    origin: (u32, u32),
     config: &Config,
     cancel: &Arc<AtomicBool>,
 ) -> MediaJobOutcome {
@@ -130,14 +233,67 @@ async fn execute_ocr(
         return cancelled();
     }
     match outcome {
-        Ok(Ok(result)) => MediaJobOutcome::Ocr {
-            text: result.full_text,
-        },
+        Ok(Ok(result)) => {
+            let lines = map_ocr_lines(result.blocks, origin);
+            MediaJobOutcome::Ocr {
+                text: result.full_text,
+                lines,
+            }
+        }
         Ok(Err(error)) => MediaJobOutcome::Failed {
             message: error.to_string(),
         },
         Err(error) => MediaJobOutcome::Failed {
             message: format!("OCR 推理任务异常: {error}"),
+        },
+    }
+}
+
+/// 将服务层 OCR 文本块转换为 UI 可消费的强类型行数据。
+fn map_ocr_lines(blocks: Vec<OcrTextBlock>, origin: (u32, u32)) -> Vec<OcrTextItem> {
+    let mut lines = Vec::with_capacity(blocks.len());
+    for block in blocks {
+        let (x, y, width, height) = block.bbox;
+        lines.push(OcrTextItem {
+            text: block.text,
+            bounds: (origin.0 as f32 + x, origin.1 as f32 + y, width, height),
+        });
+    }
+    lines
+}
+
+/// 在阻塞线程池执行二维码检测，并统一映射为 UI 数据契约。
+async fn execute_qr(
+    image: image::RgbaImage,
+    origin: (u32, u32),
+    cancel: &Arc<AtomicBool>,
+) -> MediaJobOutcome {
+    if cancel.load(Ordering::Acquire) {
+        return cancelled();
+    }
+    let task = tokio::task::spawn_blocking(move || decode_qr_codes(&image)).await;
+    if cancel.load(Ordering::Acquire) {
+        return cancelled();
+    }
+    match task {
+        Ok(results) => {
+            let mut codes = Vec::with_capacity(results.len());
+            for result in results {
+                let (x, y, width, height) = result.bounds;
+                codes.push(QrCodeItem {
+                    text: result.text,
+                    bounds: (
+                        origin.0.saturating_add(x),
+                        origin.1.saturating_add(y),
+                        width,
+                        height,
+                    ),
+                });
+            }
+            MediaJobOutcome::QrCodes { codes }
+        }
+        Err(error) => MediaJobOutcome::Failed {
+            message: format!("二维码检测任务异常: {error}"),
         },
     }
 }

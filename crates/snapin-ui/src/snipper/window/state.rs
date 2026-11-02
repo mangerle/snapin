@@ -2,14 +2,16 @@
 
 use super::annotation_edit::AnnotationDrag;
 use super::jobs::{SnipperJobKind, SnipperJobRuntime};
+use super::ocr_panel::OcrPanelState;
+use super::redaction::RedactionPreview;
 use super::types::{SnipMode, SnipperOutcome};
 use crate::editor::stroke_session::StrokeSession;
 use crate::editor::text_input::TextInputSession;
 use crate::editor::toolbar::Toolbar;
 use crate::model::ShapeId;
-use crate::ports::{DesktopPort, JobCancel, JobId, NoopDesktop};
+use crate::ports::{DesktopPort, JobCancel, JobId, NoopDesktop, QrCodeItem};
 use crate::snipper::magnifier::Magnifier;
-use crate::snipper::selection::{Rect, SelectionHistory, SelectionState};
+use crate::snipper::selection::{Rect, SelectionConstraint, SelectionHistory, SelectionState};
 use crate::snipper::window_rect::WindowRect;
 use snapin_core::annotation::AnnotationHistory;
 use snapin_core::config::{Config, InterfaceConfig, SnipConfig};
@@ -27,6 +29,10 @@ pub struct SnipperState {
     pub hovered_window: Option<Rect>,
     /// 本次按下时悬停的窗口；短按未拖动时吸附到该窗口
     pub press_window: Option<Rect>,
+    /// 键盘窗口循环当前索引；鼠标重新悬停后清空
+    pub window_cycle: Option<usize>,
+    /// 当前选区尺寸约束
+    pub selection_constraint: SelectionConstraint,
     pub magnifier: Magnifier,
     pub toolbar: Toolbar,
     pub annotations: AnnotationHistory,
@@ -53,10 +59,20 @@ pub struct SnipperState {
     pub pending_job_id: Option<JobId>,
     /// 当前后台任务的取消闭包
     pub pending_job_cancel: Option<JobCancel>,
+    /// 智能打码待确认区域；存在时 Enter 提交，Esc 取消，M/B 切换样式
+    pub redaction_preview: Option<RedactionPreview>,
+    /// 最近一次二维码识别结果；存在时 Ctrl+Enter 可打开首个安全链接
+    pub qr_result: Option<Vec<QrCodeItem>>,
+    /// OCR 结果面板；存在时按 Shift+O 可重新打开
+    pub ocr_panel: Option<OcrPanelState>,
+    /// 当前正在编辑的 OCR 面板行
+    pub ocr_edit_row: Option<usize>,
     /// 桌面副作用端口：选区缓存、剪贴板等系统交互经此委托给应用层
     pub desktop: Arc<dyn DesktopPort>,
     pub config: Config,
     pub mode: SnipMode,
+    /// 首次锁定选区后自动执行的动作；触发后立即清空
+    pub post_action: Option<snapin_core::PostCaptureAction>,
 }
 
 impl SnipperState {
@@ -78,6 +94,8 @@ impl SnipperState {
             window_rects: Vec::new(),
             hovered_window: None,
             press_window: None,
+            window_cycle: None,
+            selection_constraint: SelectionConstraint::Free,
             magnifier: Magnifier::default(),
             toolbar,
             annotations: AnnotationHistory::default(),
@@ -95,9 +113,14 @@ impl SnipperState {
             pending_job: None,
             pending_job_id: None,
             pending_job_cancel: None,
+            redaction_preview: None,
+            qr_result: None,
+            ocr_panel: None,
+            ocr_edit_row: None,
             desktop,
             config: Config::default(),
             mode: SnipMode::default(),
+            post_action: None,
         }
     }
 
@@ -212,6 +235,15 @@ pub(crate) fn window_at(pos: (f32, f32), windows: &[Rect]) -> Option<Rect> {
 /// 文本图元同样遵守"最新一条可编辑"的约定：提交后立即把选中切到它，
 /// 使刚输入的文字可以马上拖动或用滚轮调字号。
 pub fn commit_active_text_input(state: &mut SnipperState) {
+    if let Some(row) = state.ocr_edit_row.take() {
+        if let Some(session) = state.active_text_input.take() {
+            let text = session.finish_text();
+            if let Some(panel) = state.ocr_panel.as_mut() {
+                panel.replace_line(row, text);
+            }
+        }
+        return;
+    }
     if let Some(session) = state.active_text_input.take() {
         if let Some(action) = session.commit() {
             state.annotations.push(action);

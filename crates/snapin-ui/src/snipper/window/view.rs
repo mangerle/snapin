@@ -102,6 +102,7 @@ fn build_initial_state(
     job_sink: SnipperJobSink,
 ) -> SnipperState {
     let mut state = SnipperState::from_config(runtime.config, mode, runtime.desktop);
+    state.post_action = runtime.post_action;
     state.window_rects = windows
         .iter()
         .filter_map(|window| clamp_window_rect(*window, screen_w as f32, screen_h as f32))

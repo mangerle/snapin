@@ -3,6 +3,7 @@
 use crate::model::PasterItem;
 use crate::ports::{DesktopPort, MediaJobRunner};
 use snapin_core::config::Config;
+use snapin_core::PostCaptureAction;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -15,6 +16,8 @@ pub struct SnipperRuntime {
     pub config: Config,
     /// 截图触发模式
     pub mode: SnipMode,
+    /// 首次锁定选区后自动执行的动作
+    pub post_action: Option<PostCaptureAction>,
     /// 桌面副作用端口
     pub desktop: Arc<dyn DesktopPort>,
     /// 媒体任务执行端口

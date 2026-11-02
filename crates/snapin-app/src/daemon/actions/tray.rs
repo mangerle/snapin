@@ -2,7 +2,8 @@
 
 use super::{spawn_preferences_subprocess, spawn_snipper, spawn_workspace_command};
 use crate::services::AppServices;
-use snapin_core::SnipMode;
+use crate::snip::SnipStartRequest;
+use snapin_core::{PostCaptureAction, SnipMode};
 use snapin_daemon::DaemonRequest;
 use snapin_platform::TrayAction;
 use snapin_ui::paster::PasterWorkspaceProxy;
@@ -15,16 +16,97 @@ pub(crate) fn handle_tray_action(
     workspace: &PasterWorkspaceProxy,
 ) -> bool {
     match action {
-        TrayAction::Snip => spawn_snipper(services, workspace, SnipMode::Normal, 0),
-        TrayAction::Fullscreen => spawn_snipper(services, workspace, SnipMode::Fullscreen, 0),
+        TrayAction::Snip => spawn_snipper(
+            services,
+            workspace,
+            SnipStartRequest {
+                mode: SnipMode::Normal,
+                delay_seconds: 0,
+                post_action: None,
+            },
+        ),
+        TrayAction::Fullscreen => spawn_snipper(
+            services,
+            workspace,
+            SnipStartRequest {
+                mode: SnipMode::Fullscreen,
+                delay_seconds: 0,
+                post_action: None,
+            },
+        ),
         TrayAction::DelaySnip(seconds) => {
-            spawn_snipper(services, workspace, SnipMode::Normal, seconds);
+            spawn_snipper(
+                services,
+                workspace,
+                SnipStartRequest {
+                    mode: SnipMode::Normal,
+                    delay_seconds: seconds,
+                    post_action: None,
+                },
+            );
         }
-        TrayAction::PickColor => spawn_snipper(services, workspace, SnipMode::PickColor, 0),
-        TrayAction::AutoCopy => spawn_snipper(services, workspace, SnipMode::AutoCopy, 0),
-        TrayAction::CustomSnip => spawn_snipper(services, workspace, SnipMode::Custom, 0),
+        TrayAction::PickColor => spawn_snipper(
+            services,
+            workspace,
+            SnipStartRequest {
+                mode: SnipMode::PickColor,
+                delay_seconds: 0,
+                post_action: None,
+            },
+        ),
+        TrayAction::AutoCopy => spawn_snipper(
+            services,
+            workspace,
+            SnipStartRequest {
+                mode: SnipMode::AutoCopy,
+                delay_seconds: 0,
+                post_action: None,
+            },
+        ),
+        TrayAction::CustomSnip => spawn_snipper(
+            services,
+            workspace,
+            SnipStartRequest {
+                mode: SnipMode::Custom,
+                delay_seconds: 0,
+                post_action: None,
+            },
+        ),
         TrayAction::Paste => {
             spawn_workspace_command(services, workspace, DaemonRequest::Paste);
+        }
+        TrayAction::SmartRedact => spawn_snipper(
+            services,
+            workspace,
+            SnipStartRequest {
+                mode: SnipMode::Normal,
+                delay_seconds: 0,
+                post_action: Some(PostCaptureAction::SmartRedact),
+            },
+        ),
+        TrayAction::Qr => spawn_snipper(
+            services,
+            workspace,
+            SnipStartRequest {
+                mode: SnipMode::Normal,
+                delay_seconds: 0,
+                post_action: Some(PostCaptureAction::Qr),
+            },
+        ),
+        TrayAction::Beautify => spawn_snipper(
+            services,
+            workspace,
+            SnipStartRequest {
+                mode: SnipMode::Normal,
+                delay_seconds: 0,
+                post_action: Some(PostCaptureAction::Beautify),
+            },
+        ),
+        TrayAction::Workspace => {
+            spawn_workspace_command(services, workspace, DaemonRequest::OpenWorkspace);
+        }
+        TrayAction::ClipboardHistory => {
+            spawn_workspace_command(services, workspace, DaemonRequest::OpenClipboardHistory);
         }
         TrayAction::TogglePasters => {
             spawn_workspace_command(services, workspace, DaemonRequest::TogglePasters);

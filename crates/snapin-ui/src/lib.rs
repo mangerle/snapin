@@ -15,6 +15,6 @@ pub(crate) mod surface;
 
 pub use error::UiError;
 pub use ports::{
-    DesktopPort, JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, PortError,
-    PortErrorKind, WorkspaceState, WorkspaceStateStore,
+    DesktopPort, JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, OcrExportFormat,
+    OcrTextItem, PortError, PortErrorKind, QrCodeItem, WorkspaceState, WorkspaceStateStore,
 };

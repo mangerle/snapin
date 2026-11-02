@@ -4,6 +4,7 @@
 
 pub mod error;
 pub mod ocr;
+pub mod qr;
 pub mod translate;
 
 pub use error::ServiceError;

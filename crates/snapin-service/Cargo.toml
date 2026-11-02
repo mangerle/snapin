@@ -8,6 +8,7 @@ description = "Snapin 离线 OCR 文字识别与多引擎翻译服务层"
 
 [dependencies]
 image = { workspace = true }
+rqrr = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
@@ -29,4 +30,5 @@ chrono = { workspace = true }
 snapin-core = { workspace = true }
 tempfile = { workspace = true }
 tiny-skia = { workspace = true }
+qrcode = { version = "0.14", default-features = false }
 

@@ -14,7 +14,7 @@
 
 use crate::config::{config_snapshot, SharedConfig};
 use snapin_platform::{
-    open_path_in_file_manager, read_clipboard_image, read_clipboard_text,
+    open_path_in_file_manager, open_url, read_clipboard_image, read_clipboard_text,
     send_desktop_notification, write_image_to_clipboard, write_text_to_clipboard,
 };
 use snapin_runtime::{TaskPool, TaskRuntime};
@@ -92,6 +92,16 @@ impl DesktopPort for AppDesktop {
 
     fn open_in_file_manager(&self, path: PathBuf) {
         open_path_in_file_manager(path);
+    }
+
+    fn open_url(&self, url: &str) -> Result<(), PortError> {
+        open_url(url).map_err(|error| {
+            PortError::with_kind(
+                PortErrorKind::InvalidInput,
+                "打开网页链接",
+                error.to_string(),
+            )
+        })
     }
 
     fn notify_copy(&self, body: &str) {

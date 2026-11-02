@@ -17,8 +17,12 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnipperJobKind {
     Ocr,
+    Redact,
+    Qr,
     Translate,
     Save,
+    Export,
+    Beautify,
 }
 
 impl SnipperJobKind {
@@ -26,8 +30,12 @@ impl SnipperJobKind {
     pub fn label(self) -> &'static str {
         match self {
             Self::Ocr => "文字识别",
+            Self::Redact => "智能打码",
+            Self::Qr => "二维码识别",
             Self::Translate => "原位翻译",
             Self::Save => "保存截图",
+            Self::Export => "导出 OCR 结果",
+            Self::Beautify => "美化导出",
         }
     }
 }

@@ -10,7 +10,6 @@ mod status;
 use crate::paste::paste_clipboard_to_workspace;
 use crate::services::AppServices;
 use paster::CreatePasterRequest;
-use snapin_core::SnipMode;
 use snapin_daemon::{DaemonRequest, DaemonResponse};
 use snapin_ui::paster::PasterWorkspaceProxy;
 use std::sync::Arc;
@@ -26,7 +25,16 @@ pub async fn handle_command(
         DaemonRequest::StartSnip {
             mode,
             delay_seconds,
-        } => start_snip(services, workspace, mode, delay_seconds),
+            post_action,
+        } => start_snip(
+            services,
+            workspace,
+            crate::snip::SnipStartRequest {
+                mode,
+                delay_seconds,
+                post_action,
+            },
+        ),
         DaemonRequest::Paste => paste_clipboard(workspace).await,
         DaemonRequest::CreatePaster {
             width,
@@ -51,6 +59,12 @@ pub async fn handle_command(
         }
         DaemonRequest::TogglePasters => status::toggle(workspace),
         DaemonRequest::SwitchGroup(target_id) => status::switch_group(workspace, target_id).await,
+        DaemonRequest::OpenWorkspace => {
+            DaemonResponse::Error("贴图工作区面板尚未接入当前界面".to_string())
+        }
+        DaemonRequest::OpenClipboardHistory => {
+            DaemonResponse::Error("剪贴板历史面板尚未接入当前界面".to_string())
+        }
         DaemonRequest::ClearHistory => clear_history().await,
         DaemonRequest::Shutdown => DaemonResponse::Ok,
         DaemonRequest::Ping => DaemonResponse::Pong,
@@ -62,13 +76,12 @@ pub async fn handle_command(
 fn start_snip(
     services: &Arc<AppServices>,
     workspace: &PasterWorkspaceProxy,
-    mode: SnipMode,
-    delay_seconds: u32,
+    request: crate::snip::SnipStartRequest,
 ) -> DaemonResponse {
     let services = Arc::clone(services);
     let workspace = workspace.clone();
     match services.runtime().spawn(async move {
-        crate::snip::start_snipper_task(services, workspace, mode, delay_seconds).await;
+        crate::snip::start_snipper_task(services, workspace, request).await;
     }) {
         Ok(_) => DaemonResponse::Ok,
         Err(error) => {

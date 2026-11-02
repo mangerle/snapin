@@ -2,7 +2,8 @@
 
 use super::{spawn_snipper, spawn_workspace_command};
 use crate::services::AppServices;
-use snapin_core::SnipMode;
+use crate::snip::SnipStartRequest;
+use snapin_core::{PostCaptureAction, SnipMode};
 use snapin_daemon::DaemonRequest;
 use snapin_ui::paster::PasterWorkspaceProxy;
 use std::sync::Arc;
@@ -14,12 +15,24 @@ pub(crate) fn handle_hotkey_action(
     workspace: &PasterWorkspaceProxy,
 ) -> bool {
     match action {
-        snapin_platform::HotkeyAction::Snip => {
-            spawn_snipper(services, workspace, SnipMode::Normal, 0)
-        }
-        snapin_platform::HotkeyAction::Translate => {
-            spawn_snipper(services, workspace, SnipMode::Translate, 0)
-        }
+        snapin_platform::HotkeyAction::Snip => spawn_snipper(
+            services,
+            workspace,
+            SnipStartRequest {
+                mode: SnipMode::Normal,
+                delay_seconds: 0,
+                post_action: None,
+            },
+        ),
+        snapin_platform::HotkeyAction::Translate => spawn_snipper(
+            services,
+            workspace,
+            SnipStartRequest {
+                mode: SnipMode::Translate,
+                delay_seconds: 0,
+                post_action: None,
+            },
+        ),
         snapin_platform::HotkeyAction::Paste => {
             spawn_workspace_command(services, workspace, DaemonRequest::Paste);
         }
@@ -28,6 +41,39 @@ pub(crate) fn handle_hotkey_action(
         }
         snapin_platform::HotkeyAction::SwitchGroup => {
             spawn_workspace_command(services, workspace, DaemonRequest::SwitchGroup(None));
+        }
+        snapin_platform::HotkeyAction::SmartRedact => spawn_snipper(
+            services,
+            workspace,
+            SnipStartRequest {
+                mode: SnipMode::Normal,
+                delay_seconds: 0,
+                post_action: Some(PostCaptureAction::SmartRedact),
+            },
+        ),
+        snapin_platform::HotkeyAction::Qr => spawn_snipper(
+            services,
+            workspace,
+            SnipStartRequest {
+                mode: SnipMode::Normal,
+                delay_seconds: 0,
+                post_action: Some(PostCaptureAction::Qr),
+            },
+        ),
+        snapin_platform::HotkeyAction::Beautify => spawn_snipper(
+            services,
+            workspace,
+            SnipStartRequest {
+                mode: SnipMode::Normal,
+                delay_seconds: 0,
+                post_action: Some(PostCaptureAction::Beautify),
+            },
+        ),
+        snapin_platform::HotkeyAction::Workspace => {
+            spawn_workspace_command(services, workspace, DaemonRequest::OpenWorkspace);
+        }
+        snapin_platform::HotkeyAction::ClipboardHistory => {
+            spawn_workspace_command(services, workspace, DaemonRequest::OpenClipboardHistory);
         }
     }
     true

@@ -8,8 +8,7 @@ pub(super) use tray::handle_tray_action;
 
 use super::commands::handle_command;
 use crate::services::AppServices;
-use crate::snip::{handle_snipper_outcome, start_snipper_task};
-use snapin_core::SnipMode;
+use crate::snip::{handle_snipper_outcome, start_snipper_task, SnipStartRequest};
 use snapin_daemon::DaemonRequest;
 use snapin_platform::spawn_detached_system_command;
 use snapin_runtime::TaskRuntime;
@@ -67,13 +66,12 @@ pub(super) fn handle_ipc_request(
 pub(super) fn spawn_snipper(
     services: &Arc<AppServices>,
     workspace: &PasterWorkspaceProxy,
-    mode: SnipMode,
-    delay_seconds: u32,
+    request: SnipStartRequest,
 ) {
     let services = Arc::clone(services);
     let workspace = workspace.clone();
     if let Err(error) = services.runtime().spawn(async move {
-        start_snipper_task(services, workspace, mode, delay_seconds).await;
+        start_snipper_task(services, workspace, request).await;
     }) {
         tracing::warn!("提交常驻截图任务失败: {error}");
     }

@@ -97,6 +97,75 @@ pub fn save_image_to_path(
     Ok(out_path)
 }
 
+/// 将文本导出到快捷保存目录，并生成不覆盖已有文件的唯一路径。
+///
+/// OCR 导出的内容可能包含用户截图中的敏感文字，因此文件使用 `create_new` 防止
+/// 静默覆盖，并在 Unix 上以 0600 权限创建。写入失败会删除半成品文件。
+///
+/// # Errors
+///
+/// 扩展名不是 `md`/`json`、目录创建失败、文件已存在或写入失败时返回
+/// [`StorageError`]。
+pub fn save_text_with_config(
+    content: &str,
+    extension: &str,
+    cfg: &OutputConfig,
+) -> Result<PathBuf, StorageError> {
+    let extension = extension.to_ascii_lowercase();
+    if !matches!(extension.as_str(), "md" | "json") {
+        return Err(StorageError::InvalidSavePath {
+            path: extension,
+            message: "OCR 文本仅支持 .md 或 .json 扩展名".to_string(),
+        });
+    }
+
+    let base_dir = expand_home_dir(&cfg.quick_save_dir);
+    std::fs::create_dir_all(&base_dir).map_err(|error| StorageError::Io {
+        path: base_dir.display().to_string(),
+        source: error,
+    })?;
+    let file_name = format!("{}_ocr", rendered_file_name(cfg));
+
+    for counter in 0usize.. {
+        let candidate = if counter == 0 {
+            base_dir.join(format!("{file_name}.{extension}"))
+        } else {
+            base_dir.join(format!("{file_name}_{counter}.{extension}"))
+        };
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(&candidate) {
+            Ok(mut file) => {
+                if let Err(error) = std::io::Write::write_all(&mut file, content.as_bytes()) {
+                    let _ = std::fs::remove_file(&candidate);
+                    return Err(StorageError::Io {
+                        path: candidate.display().to_string(),
+                        source: error,
+                    });
+                }
+                return Ok(candidate);
+            }
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(StorageError::Io {
+                    path: candidate.display().to_string(),
+                    source: error,
+                });
+            }
+        }
+    }
+
+    Err(StorageError::Io {
+        path: base_dir.display().to_string(),
+        source: std::io::Error::other("无法找到可用的 OCR 导出文件名"),
+    })
+}
+
 /// 原子预占一个不存在的输出路径，返回可写入的目标路径。
 fn reserve_output_path(cfg: &OutputConfig) -> Result<PathBuf, StorageError> {
     let base_dir = expand_home_dir(&cfg.quick_save_dir);
@@ -437,6 +506,28 @@ mod template_extension_tests {
         assert_eq!(
             path.file_name().and_then(|name| name.to_str()),
             Some("shot.webp")
+        );
+    }
+
+    /// OCR 文本导出必须自动避让同名文件，并使用目标扩展名。
+    #[test]
+    fn test_save_text_with_config_avoids_overwrite() {
+        let dir = tempdir().expect("应可创建临时目录");
+        let cfg = OutputConfig {
+            quick_save_dir: dir.path().to_string_lossy().to_string(),
+            file_name_template: "ocr-fixed".to_string(),
+            ..OutputConfig::default()
+        };
+        let first = save_text_with_config("第一份", "md", &cfg).expect("首次导出成功");
+        let second = save_text_with_config("第二份", "md", &cfg).expect("二次导出成功");
+        assert_ne!(first, second);
+        assert_eq!(
+            second.extension().and_then(|value| value.to_str()),
+            Some("md")
+        );
+        assert_eq!(
+            std::fs::read_to_string(&second).expect("读取导出文件失败"),
+            "第二份"
         );
     }
 

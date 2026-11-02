@@ -17,7 +17,7 @@ use snapin_app::{
     run_cli_update, run_daemon_process, run_pin_file,
 };
 use snapin_core::config::{self, Config};
-use snapin_core::SnipMode;
+use snapin_core::{PostCaptureAction, SnipMode};
 use snapin_daemon::{send_command_to_daemon, DaemonRequest};
 use snapin_platform::{init_platform_capabilities, sync_hotkeys_to_gnome};
 use snapin_settings::run_settings_gui;
@@ -90,6 +90,10 @@ fn run_async_command(
                 custom,
                 translate,
                 fullscreen,
+                redact,
+                qr,
+                beautify,
+                ocr_panel,
                 delay,
             } => {
                 tracing::info!("正在请求常驻守护服务启动截图覆盖层...");
@@ -104,10 +108,22 @@ fn run_async_command(
                 } else {
                     SnipMode::Normal
                 };
+                let post_action = if redact {
+                    Some(PostCaptureAction::SmartRedact)
+                } else if qr {
+                    Some(PostCaptureAction::Qr)
+                } else if beautify {
+                    Some(PostCaptureAction::Beautify)
+                } else if ocr_panel {
+                    Some(PostCaptureAction::OcrPanel)
+                } else {
+                    None
+                };
                 ensure_daemon_running().await?;
                 send_or_fail(DaemonRequest::StartSnip {
                     mode,
                     delay_seconds: delay,
+                    post_action,
                 })
                 .await
             }
@@ -117,6 +133,7 @@ fn run_async_command(
                 send_or_fail(DaemonRequest::StartSnip {
                     mode: SnipMode::PickColor,
                     delay_seconds: 0,
+                    post_action: None,
                 })
                 .await
             }
@@ -146,6 +163,14 @@ fn run_async_command(
                     tracing::info!("未检测到常驻守护服务，无活动贴图分组需要切换");
                 }
                 Ok(())
+            }
+            Commands::Workspace => {
+                ensure_daemon_running().await?;
+                send_or_fail(DaemonRequest::OpenWorkspace).await
+            }
+            Commands::ClipboardHistory => {
+                ensure_daemon_running().await?;
+                send_or_fail(DaemonRequest::OpenClipboardHistory).await
             }
             Commands::ClearHistory => {
                 if !send_or_absent(DaemonRequest::ClearHistory).await? {

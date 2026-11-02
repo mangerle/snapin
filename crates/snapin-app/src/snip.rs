@@ -7,7 +7,7 @@ use crate::placement::{confirm_paster_placement, register_paster_placement};
 use crate::services::AppServices;
 use anyhow::{Context, Result};
 use snapin_core::config::Config;
-use snapin_core::SnipMode;
+use snapin_core::{PostCaptureAction, SnipMode};
 use snapin_platform::{
     capture_fullscreen_snapshot, enumerate_visible_windows, send_desktop_notification,
     WindowRect as PlatformWindowRect,
@@ -20,17 +20,31 @@ use std::time::{Duration, Instant};
 /// 全屏快照捕获的端到端上限
 const SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// 一次截图启动请求。
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SnipStartRequest {
+    /// 屏幕捕获与选区模式
+    pub(crate) mode: SnipMode,
+    /// 截图前延时秒数
+    pub(crate) delay_seconds: u32,
+    /// 首次选区锁定后自动执行的动作
+    pub(crate) post_action: Option<PostCaptureAction>,
+}
+
 /// 获取全屏快照（跨平台调度：Linux 优先扩展零白闪/Portal 降级，Windows/macOS 走原生捕获）。
 ///
 /// # Errors
 ///
 /// 平台截屏通道不可用、超时或图像解码失败时返回错误。
-pub async fn acquire_screen_snapshot() -> Result<image::RgbaImage> {
+pub async fn acquire_screen_snapshot(include_cursor: bool) -> Result<image::RgbaImage> {
     let t_start = Instant::now();
-    let rgba = tokio::time::timeout(SCREENSHOT_TIMEOUT, capture_fullscreen_snapshot())
-        .await
-        .context("屏幕快照捕获超时")?
-        .context("屏幕快照捕获失败")?;
+    let rgba = tokio::time::timeout(
+        SCREENSHOT_TIMEOUT,
+        capture_fullscreen_snapshot(include_cursor),
+    )
+    .await
+    .context("屏幕快照捕获超时")?
+    .context("屏幕快照捕获失败")?;
 
     tracing::info!(
         "全屏快照捕获成功，图像尺寸: {}x{}，耗时: {:.2}ms",
@@ -54,13 +68,13 @@ pub async fn acquire_screen_snapshot() -> Result<image::RgbaImage> {
 /// 延时期间被取消、屏幕捕获失败或应用服务不可用时返回错误。
 pub(crate) async fn prepare_snipper_launch(
     services: &Arc<AppServices>,
-    mode: SnipMode,
-    delay_seconds: u32,
+    request: SnipStartRequest,
 ) -> Result<SnipperLaunch> {
-    wait_snipper_delay(services, delay_seconds).await?;
+    wait_snipper_delay(services, request.delay_seconds).await?;
 
     let t0 = Instant::now();
-    let bg_image = acquire_screen_snapshot().await?;
+    let config = services.config();
+    let bg_image = acquire_screen_snapshot(config.interface.capture_mouse_cursor).await?;
     tracing::info!(
         "快照准备就绪: {}x{}，耗时: {:.2}ms，正在呈现交互覆盖层...",
         bg_image.width(),
@@ -69,7 +83,7 @@ pub(crate) async fn prepare_snipper_launch(
     );
 
     let windows = if matches!(
-        mode,
+        request.mode,
         SnipMode::Normal | SnipMode::AutoCopy | SnipMode::Translate
     ) {
         match tokio::time::timeout(Duration::from_millis(500), enumerate_visible_windows()).await {
@@ -94,8 +108,9 @@ pub(crate) async fn prepare_snipper_launch(
         bg_image,
         windows,
         runtime: SnipperRuntime {
-            config: (*services.config()).clone(),
-            mode,
+            config: (*config).clone(),
+            mode: request.mode,
+            post_action: request.post_action,
             desktop: services.desktop(),
             media: services.media(),
         },
@@ -126,10 +141,9 @@ async fn wait_snipper_delay(services: &Arc<AppServices>, delay_seconds: u32) -> 
 pub(crate) async fn start_snipper_task(
     services: Arc<AppServices>,
     workspace: PasterWorkspaceProxy,
-    mode: SnipMode,
-    delay_seconds: u32,
+    request: SnipStartRequest,
 ) {
-    match prepare_snipper_launch(&services, mode, delay_seconds).await {
+    match prepare_snipper_launch(&services, request).await {
         Ok(launch) => {
             if let Err(error) = workspace.open_snipper(launch) {
                 tracing::error!("向常驻工作区投递截图覆盖层失败: {error}");

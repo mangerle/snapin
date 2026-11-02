@@ -358,6 +358,9 @@ impl SnipperPresenter {
             active_text_input: state.active_text_input.as_ref(),
             status_message: state.status_message.as_deref(),
             selected_annotation: selected_annotation_view(state),
+            redaction_preview: state.redaction_preview.as_ref(),
+            qr_codes: state.qr_result.as_deref(),
+            ocr_panel: state.ocr_panel.as_ref(),
         }
     }
 

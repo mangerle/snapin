@@ -21,8 +21,36 @@ use crate::snipper::selection::Rect;
 use image::RgbaImage;
 use snapin_core::annotation::shapes::TranslationShapeItem;
 use snapin_core::config::CoverMode;
+use snapin_core::render::BeautifyOptions;
 use std::fmt;
 use std::path::PathBuf;
+
+/// OCR 识别出的单个文本行，供结果面板和智能打码等表现层功能使用。
+#[derive(Debug, Clone, PartialEq)]
+pub struct OcrTextItem {
+    /// 识别出的文本内容
+    pub text: String,
+    /// 文本行在截图选区坐标系中的包围盒 `[x, y, width, height]`
+    pub bounds: (f32, f32, f32, f32),
+}
+
+/// 二维码解码结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QrCodeItem {
+    /// 二维码内容
+    pub text: String,
+    /// 二维码在截图选区坐标系中的包围盒 `[x, y, width, height]`
+    pub bounds: (u32, u32, u32, u32),
+}
+
+/// OCR 文本导出格式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OcrExportFormat {
+    /// Markdown 文本
+    Markdown,
+    /// JSON 字符串数组
+    Json,
+}
 
 /// UI 端口错误类别。
 ///
@@ -124,6 +152,13 @@ pub trait DesktopPort: Send + Sync {
     /// 在系统文件管理器中打开指定路径。
     fn open_in_file_manager(&self, path: PathBuf);
 
+    /// 使用系统默认浏览器打开经过协议白名单校验的网页链接。
+    ///
+    /// # Errors
+    ///
+    /// 链接协议不受支持、内容非法或系统无法启动浏览器时返回 [`PortError`]。
+    fn open_url(&self, url: &str) -> Result<(), PortError>;
+
     /// 按用户配置决定是否发送“已复制”桌面通知。
     ///
     /// UI 只描述发生了复制动作，通知开关与发送通道由应用层实现决定；
@@ -183,6 +218,15 @@ pub enum MediaJob {
     Ocr {
         /// 已完成标注合成的选区图像
         image: RgbaImage,
+        /// 选区图像左上角在全屏坐标系中的像素原点
+        origin: (u32, u32),
+    },
+    /// 检测并解码图像中的全部二维码。
+    DecodeQr {
+        /// 已完成标注合成的选区图像
+        image: RgbaImage,
+        /// 选区图像左上角在全屏坐标系中的像素原点
+        origin: (u32, u32),
     },
     /// 对图像执行 OCR 与逐段翻译，返回可直接注入标注历史的结果。
     Translate {
@@ -207,6 +251,20 @@ pub enum MediaJob {
         /// 保存成功后是否在文件管理器中打开所在目录
         open_folder_after: bool,
     },
+    /// 将用户确认后的 OCR 文本导出为 Markdown 或 JSON。
+    SaveOcrText {
+        /// 按面板顺序排列的文本行
+        lines: Vec<String>,
+        /// 目标文本格式
+        format: OcrExportFormat,
+    },
+    /// 渲染美化截图并保存到当前输出目录。
+    SaveBeautified {
+        /// 已完成标注合成的选区图像
+        image: RgbaImage,
+        /// 美化参数
+        options: BeautifyOptions,
+    },
 }
 
 /// 媒体任务执行结果。
@@ -216,6 +274,13 @@ pub enum MediaJobOutcome {
     Ocr {
         /// 识别出的完整文本
         text: String,
+        /// 按自然阅读顺序排列的文本行
+        lines: Vec<OcrTextItem>,
+    },
+    /// 二维码检测完成，可能返回空集合
+    QrCodes {
+        /// 检测到的全部二维码
+        codes: Vec<QrCodeItem>,
     },
     /// 翻译成功，返回待注入标注历史的翻译图元
     Translated {
@@ -296,6 +361,10 @@ impl DesktopPort for NoopDesktop {
     }
 
     fn open_in_file_manager(&self, _path: PathBuf) {}
+
+    fn open_url(&self, _url: &str) -> Result<(), PortError> {
+        Ok(())
+    }
 
     fn notify_copy(&self, _body: &str) {}
 }
