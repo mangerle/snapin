@@ -78,7 +78,7 @@ pub fn handle_paster_cursor_move(
 ) -> bool {
     state.viewport.cursor_pos = (pos.0 as f32, pos.1 as f32);
 
-    if state.interaction.stroke.is_drawing {
+    if state.interaction.annotation.stroke.is_drawing {
         return state.update_stroke(state.viewport.cursor_pos);
     }
 
@@ -86,6 +86,7 @@ pub fn handle_paster_cursor_move(
         refresh_toolbar_layout(state, window_size.0, window_size.1);
         state
             .interaction
+            .annotation
             .toolbar
             .handle_mouse_move(state.viewport.cursor_pos.0, state.viewport.cursor_pos.1)
     } else {
@@ -123,7 +124,7 @@ pub fn handle_paster_scroll(
         MouseScrollDelta::PixelDelta(p) => p.y as f32 / 20.0,
     };
 
-    if state.interaction.toolbar.handle_sub_wheel(
+    if state.interaction.annotation.toolbar.handle_sub_wheel(
         state.viewport.cursor_pos.0,
         state.viewport.cursor_pos.1,
         delta_y,
@@ -153,8 +154,8 @@ pub fn handle_paster_mouse_button(
     let handled = match (button, button_state) {
         (MouseButton::Right, ElementState::Pressed) => {
             // 右键打开菜单前取消未完成的一笔，避免拖拽预览残留在图像上
-            state.interaction.stroke.points.clear();
-            state.interaction.stroke.is_drawing = false;
+            state.interaction.annotation.stroke.points.clear();
+            state.interaction.annotation.stroke.is_drawing = false;
 
             state
                 .interaction
@@ -200,7 +201,7 @@ fn handle_left_press(state: &mut PasterWindowState, window: &Window) -> bool {
     ) {
         return true;
     }
-    state.interaction.toolbar.clear_sub_focus();
+    state.interaction.annotation.toolbar.clear_sub_focus();
     if handle_image_press(state) {
         return true;
     }
@@ -231,10 +232,10 @@ fn handle_image_press(state: &mut PasterWindowState) -> bool {
     if !state.screen_point_inside_image(state.viewport.cursor_pos) {
         return false;
     }
-    if state.interaction.toolbar.active_tool == Some(Tool::Text) {
+    if state.interaction.annotation.toolbar.active_tool == Some(Tool::Text) {
         return state.begin_text_session(state.viewport.cursor_pos);
     }
-    if state.interaction.toolbar.active_tool.is_some() {
+    if state.interaction.annotation.toolbar.active_tool.is_some() {
         state.begin_stroke(state.viewport.cursor_pos);
         return true;
     }
@@ -271,7 +272,7 @@ fn apply_double_click_action(state: &mut PasterWindowState) {
 
 /// 左键松开：把当前笔迹提交进图像与标注历史，并清空预览状态。
 fn handle_left_release(state: &mut PasterWindowState) -> bool {
-    if !state.interaction.stroke.is_drawing {
+    if !state.interaction.annotation.stroke.is_drawing {
         return false;
     }
     state.update_stroke(state.viewport.cursor_pos);

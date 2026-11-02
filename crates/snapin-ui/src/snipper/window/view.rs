@@ -149,12 +149,13 @@ fn apply_ui_scale(window: &Window, state: &mut SnipperState, screen_w: u32, scre
     } else {
         1.0
     } * state.session.config.interface.toolbar_scale;
-    state.editor.toolbar.ui_scale = auto_scale;
+    state.editor.annotation.toolbar.ui_scale = auto_scale;
     state.viewport.magnifier.ui_scale = auto_scale;
 
     if let SelectionState::Locked { rect, .. } = &state.viewport.selection {
         state
             .editor
+            .annotation
             .toolbar
             .update_layout(rect, screen_w as f32, screen_h as f32);
     }

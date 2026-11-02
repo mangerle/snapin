@@ -145,9 +145,9 @@ pub(crate) fn input_layout_from_state(
     let scale = state.document.item.transform.scale().max(f32::EPSILON);
     let (toolbar_main, toolbar_sub, toolbar_dropdown) = if state.chrome.show_toolbar {
         (
-            Some(state.interaction.toolbar.main_rect),
-            state.interaction.toolbar.sub_rect,
-            state.interaction.toolbar.dropdown_rect(),
+            Some(state.interaction.annotation.toolbar.main_rect),
+            state.interaction.annotation.toolbar.sub_rect,
+            state.interaction.annotation.toolbar.dropdown_rect(),
         )
     } else {
         (None, None, None)

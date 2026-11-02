@@ -48,7 +48,15 @@ fn test_idle_cursor_move_skips_redraw_without_magnifier() {
 fn test_mouse_wheel_continuous_stroke_width_and_retroactive_adjust() {
     let mut state = SnipperState::new();
     // 初始粗细为 4.0
-    assert_eq!(state.editor.toolbar.sub_options.custom_stroke_width, 4.0);
+    assert_eq!(
+        state
+            .editor
+            .annotation
+            .toolbar
+            .sub_options
+            .custom_stroke_width,
+        4.0
+    );
 
     // 模拟已绘制一个矩形标注
     state
@@ -67,14 +75,30 @@ fn test_mouse_wheel_continuous_stroke_width_and_retroactive_adjust() {
     let delta = MouseScrollDelta::LineDelta(0.0, 1.0);
     let changed = handle_mouse_wheel(&mut state, delta);
     assert!(changed);
-    assert_eq!(state.editor.toolbar.sub_options.custom_stroke_width, 5.0);
+    assert_eq!(
+        state
+            .editor
+            .annotation
+            .toolbar
+            .sub_options
+            .custom_stroke_width,
+        5.0
+    );
 
     // 再次向上：5.0 -> 6.0，档位变为 Thick
     let changed = handle_mouse_wheel(&mut state, delta);
     assert!(changed);
-    assert_eq!(state.editor.toolbar.sub_options.custom_stroke_width, 6.0);
     assert_eq!(
-        state.editor.toolbar.sub_options.stroke_width,
+        state
+            .editor
+            .annotation
+            .toolbar
+            .sub_options
+            .custom_stroke_width,
+        6.0
+    );
+    assert_eq!(
+        state.editor.annotation.toolbar.sub_options.stroke_width,
         StrokeWidthLevel::Thick
     );
 }
@@ -82,19 +106,22 @@ fn test_mouse_wheel_continuous_stroke_width_and_retroactive_adjust() {
 #[test]
 fn test_mouse_wheel_text_mode_font_size_adjust() {
     let mut state = SnipperState::new();
-    state.editor.toolbar.active_tool = Some(Tool::Text);
-    let initial_sz = state.editor.toolbar.sub_options.font_size;
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Text);
+    let initial_sz = state.editor.annotation.toolbar.sub_options.font_size;
 
     // 处于文字模式，向上滚字号增大 2.0
     let delta = MouseScrollDelta::LineDelta(0.0, 1.0);
     let changed = handle_mouse_wheel(&mut state, delta);
     assert!(changed);
-    assert_eq!(state.editor.toolbar.sub_options.font_size, initial_sz + 2.0);
+    assert_eq!(
+        state.editor.annotation.toolbar.sub_options.font_size,
+        initial_sz + 2.0
+    );
 }
 
 fn state_with_magnifier_wheel_target() -> SnipperState {
     let mut state = SnipperState::new();
-    state.editor.toolbar.active_tool = Some(Tool::Magnifier);
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Magnifier);
     state.viewport.selection = SelectionState::Locked {
         rect: Rect {
             x: 0.0,
@@ -104,7 +131,7 @@ fn state_with_magnifier_wheel_target() -> SnipperState {
         },
         active_drag: None,
     };
-    state.editor.toolbar.update_layout(
+    state.editor.annotation.toolbar.update_layout(
         &Rect {
             x: 0.0,
             y: 0.0,
@@ -142,7 +169,10 @@ fn test_magnifier_wheel_over_image_adjusts_scale() {
         MouseScrollDelta::LineDelta(0.0, 1.0)
     ));
 
-    assert_eq!(state.editor.toolbar.sub_options.magnifier_scale, 2.25);
+    assert_eq!(
+        state.editor.annotation.toolbar.sub_options.magnifier_scale,
+        2.25
+    );
     match state.editor.annotations.shape_at(0) {
         Some(AnnotationShape::Magnifier(action)) => {
             assert_eq!(action.source, (10.0, 10.0, 40.0, 40.0));
@@ -163,7 +193,15 @@ fn test_magnifier_wheel_outside_image_adjusts_border_width() {
         MouseScrollDelta::LineDelta(0.0, 1.0)
     ));
 
-    assert_eq!(state.editor.toolbar.sub_options.custom_stroke_width, 5.0);
+    assert_eq!(
+        state
+            .editor
+            .annotation
+            .toolbar
+            .sub_options
+            .custom_stroke_width,
+        5.0
+    );
     match state.editor.annotations.shape_at(0) {
         Some(AnnotationShape::Magnifier(action)) => {
             assert_eq!(action.border_width, 5.0);
@@ -187,9 +225,10 @@ fn test_toolbar_click_does_not_create_annotation() {
         active_drag: None,
     };
     // 激活序号印章工具
-    state.editor.toolbar.active_tool = Some(Tool::Badge);
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Badge);
     state
         .editor
+        .annotation
         .toolbar
         .update_layout(&selection, 1920.0, 1080.0);
 
@@ -198,17 +237,25 @@ fn test_toolbar_click_does_not_create_annotation() {
     // 模拟点击二级属性栏中的颜色位置（位于 sub_rect 内）
     let sub_rect = state
         .editor
+        .annotation
         .toolbar
         .sub_rect
         .expect("序号印章应具备二级属性栏");
     let click_x = sub_rect.x + 10.0;
     let click_y = sub_rect.y + 10.0;
 
-    assert!(state.editor.toolbar.contains_point(click_x, click_y));
+    assert!(state
+        .editor
+        .annotation
+        .toolbar
+        .contains_point(click_x, click_y));
 
     let pressed = handle_left_press(&mut state, click_x, click_y, &original);
     assert!(pressed, "工具栏点击应被有效拦截消费");
-    assert!(state.editor.stroke.points.is_empty(), "不应产生待定笔触点");
+    assert!(
+        state.editor.annotation.stroke.points.is_empty(),
+        "不应产生待定笔触点"
+    );
 
     let released = handle_left_release(&mut state, click_x, click_y, &original);
     assert!(released, "释放事件应被安全消费");
@@ -239,13 +286,17 @@ fn test_badge_click_places_shape_without_text_session() {
         rect: selection,
         active_drag: None,
     };
-    state.editor.toolbar.active_tool = Some(Tool::Badge);
-    state.editor.toolbar.update_layout(&selection, 800.0, 600.0);
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Badge);
+    state
+        .editor
+        .annotation
+        .toolbar
+        .update_layout(&selection, 800.0, 600.0);
     let original = RgbaImage::new(800, 600);
 
     assert!(handle_left_press(&mut state, 220.0, 200.0, &original));
     assert!(
-        state.editor.active_text_input.is_none(),
+        state.editor.annotation.active_text_input.is_none(),
         "序号不得开启文字输入"
     );
     assert!(handle_left_release(&mut state, 220.0, 200.0, &original));
@@ -308,7 +359,7 @@ fn test_hit_test_resize_handle_starts_resizing() {
         active_drag: None,
     };
     // 确保未激活特定标注工具
-    state.editor.toolbar.active_tool = None;
+    state.editor.annotation.toolbar.active_tool = None;
 
     let original = RgbaImage::new(1920, 1080);
 
@@ -440,7 +491,7 @@ fn test_new_annotation_is_selected_and_old_ones_lock() {
     use super::super::annotation_edit::{clear, AnnotationDrag};
 
     let mut state = SnipperState::new();
-    state.editor.toolbar.ui_scale = 1.0;
+    state.editor.annotation.toolbar.ui_scale = 1.0;
     state.viewport.selection = SelectionState::Locked {
         rect: Rect {
             x: 0.0,
@@ -450,7 +501,7 @@ fn test_new_annotation_is_selected_and_old_ones_lock() {
         },
         active_drag: None,
     };
-    state.editor.toolbar.active_tool = Some(Tool::Rect);
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Rect);
     let original = RgbaImage::new(800, 600);
 
     // 画第一个矩形：松手后应立刻选中，可直接进入拖动
@@ -483,10 +534,10 @@ fn test_new_annotation_is_selected_and_old_ones_lock() {
     assert!(handle_left_press(&mut state, 150.0, 140.0, &original));
     assert!(state.editor.selected_annotation.is_none(), "旧标注默认锁定");
     assert!(state.editor.annotation_drag.is_none());
-    state.editor.stroke.points.clear();
+    state.editor.annotation.stroke.points.clear();
 
     // 未激活绘制工具时点击旧标注只给出解锁提示，不误拖动选区
-    state.editor.toolbar.active_tool = None;
+    state.editor.annotation.toolbar.active_tool = None;
     assert!(handle_left_press(&mut state, 150.0, 140.0, &original));
     assert!(state.editor.selected_annotation.is_none());
     assert!(state

@@ -74,17 +74,20 @@ pub fn handle_text_tool_click(state: &mut SnipperState, cx: f32, cy: f32) -> boo
     if let SelectionState::Locked { rect, .. } = &state.viewport.selection {
         if rect.contains(cx, cy) {
             commit_active_text_input(state);
-            let c = state.editor.toolbar.sub_options.color;
+            let c = state.editor.annotation.toolbar.sub_options.color;
             let rgba = (
                 (c.red() * 255.0).round() as u8,
                 (c.green() * 255.0).round() as u8,
                 (c.blue() * 255.0).round() as u8,
                 (c.alpha() * 255.0).round() as u8,
             );
-            let mut session =
-                TextInputSession::new((cx, cy), rgba, state.editor.toolbar.sub_options.font_size);
-            session.apply_toolbar_options(&state.editor.toolbar.sub_options);
-            state.editor.active_text_input = Some(session);
+            let mut session = TextInputSession::new(
+                (cx, cy),
+                rgba,
+                state.editor.annotation.toolbar.sub_options.font_size,
+            );
+            session.apply_toolbar_options(&state.editor.annotation.toolbar.sub_options);
+            state.editor.annotation.active_text_input = Some(session);
             return true;
         }
     }

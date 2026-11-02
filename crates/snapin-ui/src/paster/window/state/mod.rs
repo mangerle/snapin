@@ -278,9 +278,9 @@ impl PasterWindowState {
         self.chrome.show_toolbar = visible;
         if !visible {
             self.commit_text_session();
-            self.interaction.toolbar.active_tool = None;
-            self.interaction.stroke.points.clear();
-            self.interaction.stroke.is_drawing = false;
+            self.interaction.annotation.toolbar.active_tool = None;
+            self.interaction.annotation.stroke.points.clear();
+            self.interaction.annotation.stroke.is_drawing = false;
         }
         apply_window_scale_resize(self, window);
     }
@@ -305,8 +305,8 @@ impl PasterWindowState {
             }
             self.cancel_text_session();
             window.set_ime_allowed(false);
-            self.interaction.stroke.points.clear();
-            self.interaction.stroke.is_drawing = false;
+            self.interaction.annotation.stroke.points.clear();
+            self.interaction.annotation.stroke.is_drawing = false;
             self.interaction.context_menu.close();
             self.set_status_message(snapin_foundation::i18n::tr(
                 "鼠标穿透已开启，点击工具条上的穿透按钮恢复",
@@ -364,8 +364,8 @@ impl PasterWindowState {
     pub(crate) fn clear_annotations(&mut self) {
         self.ensure_base_pixmap();
         self.document.annotations.clear();
-        self.interaction.stroke.clear();
-        self.interaction.active_text_input = None;
+        self.interaction.annotation.stroke.clear();
+        self.interaction.annotation.active_text_input = None;
         self.rebuild_item_pixmap();
     }
 
@@ -376,10 +376,10 @@ impl PasterWindowState {
     fn reset_annotation_baseline(&mut self) {
         self.document.base_pixmap = None;
         self.document.annotations.clear();
-        self.interaction.stroke.points.clear();
-        self.interaction.stroke.is_drawing = false;
+        self.interaction.annotation.stroke.points.clear();
+        self.interaction.annotation.stroke.is_drawing = false;
         // 坐标系已失效，进行中的文字会话不能再落到新底图上
-        self.interaction.active_text_input = None;
+        self.interaction.annotation.active_text_input = None;
     }
 }
 
@@ -398,11 +398,11 @@ pub(crate) fn apply_window_scale_resize(state: &mut PasterWindowState, window: &
     if state.chrome.show_toolbar {
         // 工具条度量以 state.viewport.ui_scale 为准：首次在 HiDPI 屏上打开工具条时，
         // toolbar.ui_scale 可能仍是初始的 1.0，先同步避免按过期倍率扩容不足。
-        state.interaction.toolbar.ui_scale = state.viewport.ui_scale.max(0.1);
+        state.interaction.annotation.toolbar.ui_scale = state.viewport.ui_scale.max(0.1);
         let (req_w, req_h) = toolbar_required_extent(
             state.viewport.ui_scale,
-            state.interaction.toolbar.main_width(),
-            state.interaction.toolbar.main_height(),
+            state.interaction.annotation.toolbar.main_width(),
+            state.interaction.annotation.toolbar.main_height(),
         );
         new_w = new_w.max(req_w);
         new_h += req_h;

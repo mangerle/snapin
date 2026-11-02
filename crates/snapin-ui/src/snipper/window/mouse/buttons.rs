@@ -29,8 +29,8 @@ pub fn handle_mouse_button(
     }
 
     if button == MouseButton::Right && button_state == ElementState::Pressed {
-        if state.editor.toolbar.active_tool == Some(Tool::Line)
-            && state.editor.stroke.points.len() >= 2
+        if state.editor.annotation.toolbar.active_tool == Some(Tool::Line)
+            && state.editor.annotation.stroke.points.len() >= 2
         {
             commit_annotation(state);
             return true;
@@ -64,7 +64,7 @@ pub(super) fn handle_left_press(
     original_rgba: &RgbaImage,
 ) -> bool {
     if state.ocr.panel.is_some() {
-        let scale = state.editor.toolbar.ui_scale;
+        let scale = state.editor.annotation.toolbar.ui_scale;
         let handled = state.ocr.panel.as_mut().is_some_and(|panel| {
             panel.handle_click(
                 cx,
@@ -87,7 +87,7 @@ pub(super) fn handle_left_press(
     if matches!(state.viewport.selection, SelectionState::Idle) {
         state.viewport.press_window = state.viewport.hovered_window;
         crate::snipper::window::annotation_edit::clear(state);
-        state.editor.toolbar.reset_manual_position();
+        state.editor.annotation.toolbar.reset_manual_position();
         state.viewport.selection = SelectionState::Creating {
             start: (cx, cy),
             current: (cx, cy),
@@ -107,20 +107,20 @@ fn handle_locked_press(
     original_rgba: &RgbaImage,
 ) -> bool {
     // 优先检测是否点击在工具栏范围内，坚决拦截阻止事件穿透到画布
-    if state.editor.toolbar.contains_point(cx, cy) {
+    if state.editor.annotation.toolbar.contains_point(cx, cy) {
         commit_active_text_input(state);
         crate::snipper::window::annotation_edit::clear(state);
-        if state.editor.toolbar.begin_drag(cx, cy) {
+        if state.editor.annotation.toolbar.begin_drag(cx, cy) {
             return true;
         }
-        if let Some(item) = state.editor.toolbar.handle_click(cx, cy) {
+        if let Some(item) = state.editor.annotation.toolbar.handle_click(cx, cy) {
             dispatch_toolbar_action(state, item, original_rgba);
         }
         return true;
     }
 
     // 点击画布表示离开二级栏数值控件；后续滚轮恢复默认粗细调节。
-    state.editor.toolbar.clear_sub_focus();
+    state.editor.annotation.toolbar.clear_sub_focus();
 
     commit_active_text_input(state);
 
@@ -133,7 +133,7 @@ fn handle_locked_press(
     }
 
     // 未激活绘制工具时点击旧标注：不应误拖动整个选区，改为提示 Alt 解锁方式。
-    if state.editor.toolbar.active_tool.is_none()
+    if state.editor.annotation.toolbar.active_tool.is_none()
         && crate::snipper::window::annotation_edit::hit_test_locked(state, (cx, cy))
     {
         state.set_status_message(snapin_foundation::i18n::tr(
@@ -142,12 +142,12 @@ fn handle_locked_press(
         return true;
     }
 
-    if state.editor.toolbar.active_tool == Some(Tool::Text) {
+    if state.editor.annotation.toolbar.active_tool == Some(Tool::Text) {
         return handle_text_tool_click(state, cx, cy);
     }
 
     // 选区控制手柄优先于继续绘制：工具激活时也允许随时调整选区大小
-    let handle_tolerance = 8.0 * state.editor.toolbar.ui_scale;
+    let handle_tolerance = 8.0 * state.editor.annotation.toolbar.ui_scale;
     if let Some(handle) = hit_test_handle(&rect, cx, cy, handle_tolerance) {
         crate::snipper::window::annotation_edit::clear(state);
         if let SelectionState::Locked {
@@ -161,21 +161,21 @@ fn handle_locked_press(
     }
 
     if rect.contains(cx, cy) {
-        if state.editor.toolbar.active_tool == Some(Tool::Eraser) {
+        if state.editor.annotation.toolbar.active_tool == Some(Tool::Eraser) {
             return eraser::handle_press(state, cx, cy);
         }
-        if state.editor.toolbar.active_tool == Some(Tool::Line)
-            && state.editor.toolbar.sub_options.line_mode == LineMode::Polyline
+        if state.editor.annotation.toolbar.active_tool == Some(Tool::Line)
+            && state.editor.annotation.toolbar.sub_options.line_mode == LineMode::Polyline
         {
             crate::snipper::window::annotation_edit::clear(state);
-            state.editor.stroke.points.push((cx, cy));
-            state.editor.stroke.is_drawing = true;
+            state.editor.annotation.stroke.points.push((cx, cy));
+            state.editor.annotation.stroke.is_drawing = true;
             return true;
         }
-        if state.editor.toolbar.active_tool.is_some() {
+        if state.editor.annotation.toolbar.active_tool.is_some() {
             crate::snipper::window::annotation_edit::clear(state);
-            state.editor.stroke.points.clear();
-            state.editor.stroke.points.push((cx, cy));
+            state.editor.annotation.stroke.points.clear();
+            state.editor.annotation.stroke.points.push((cx, cy));
             return true;
         }
         crate::snipper::window::annotation_edit::clear(state);
@@ -193,9 +193,9 @@ fn handle_locked_press(
     }
 
     // 点击在已有选区外部：清除当前选区，允许重新框选；工具栏随新选区重新自适应摆放
-    state.editor.toolbar.active_tool = None;
-    state.editor.toolbar.reset_manual_position();
-    state.editor.stroke.points.clear();
+    state.editor.annotation.toolbar.active_tool = None;
+    state.editor.annotation.toolbar.reset_manual_position();
+    state.editor.annotation.stroke.points.clear();
     crate::snipper::window::annotation_edit::clear(state);
     state.viewport.selection = SelectionState::Creating {
         start: (cx, cy),
@@ -222,7 +222,7 @@ pub(super) fn handle_left_release(
         return true;
     }
     // 工具栏拖动结束：位置已在移动中实时更新，直接消费本次释放
-    if state.editor.toolbar.end_drag() {
+    if state.editor.annotation.toolbar.end_drag() {
         return true;
     }
 
@@ -238,10 +238,11 @@ pub(super) fn handle_left_release(
                             desktop.save_last_selection(window_rect);
                         }
                         state.viewport.history.push(window_rect);
-                        state
-                            .editor
-                            .toolbar
-                            .update_layout(&window_rect, screen_w, screen_h);
+                        state.editor.annotation.toolbar.update_layout(
+                            &window_rect,
+                            screen_w,
+                            screen_h,
+                        );
                         state.viewport.selection = SelectionState::Locked {
                             rect: window_rect,
                             active_drag: None,
@@ -261,6 +262,7 @@ pub(super) fn handle_left_release(
                 state.viewport.history.push(rect);
                 state
                     .editor
+                    .annotation
                     .toolbar
                     .update_layout(&rect, screen_w, screen_h);
                 state.viewport.selection = SelectionState::Locked {
@@ -275,8 +277,8 @@ pub(super) fn handle_left_release(
         }
         SelectionState::Locked { rect, active_drag } => {
             // 若释放位置在工具栏区域内，清理暂存点并直接拦截，避免误提交标注
-            if state.editor.toolbar.contains_point(cx, cy) {
-                state.editor.stroke.points.clear();
+            if state.editor.annotation.toolbar.contains_point(cx, cy) {
+                state.editor.annotation.stroke.points.clear();
                 return true;
             }
 
@@ -286,18 +288,23 @@ pub(super) fn handle_left_release(
                     desktop.save_last_selection(*rect);
                 }
                 state.viewport.history.push(*rect);
-                state.editor.toolbar.update_layout(rect, screen_w, screen_h);
+                state
+                    .editor
+                    .annotation
+                    .toolbar
+                    .update_layout(rect, screen_w, screen_h);
                 true
-            } else if state.editor.toolbar.active_tool == Some(Tool::Eraser) {
+            } else if state.editor.annotation.toolbar.active_tool == Some(Tool::Eraser) {
                 eraser::handle_release(state, cx, cy)
-            } else if state.editor.toolbar.active_tool == Some(Tool::Line)
-                && state.editor.toolbar.sub_options.line_mode == LineMode::Polyline
+            } else if state.editor.annotation.toolbar.active_tool == Some(Tool::Line)
+                && state.editor.annotation.toolbar.sub_options.line_mode == LineMode::Polyline
             {
                 // 折线在右键或 Enter 时提交，单击释放只追加节点。
                 true
-            } else if state.editor.toolbar.active_tool.is_some() && !state.editor.stroke.is_empty()
+            } else if state.editor.annotation.toolbar.active_tool.is_some()
+                && !state.editor.annotation.stroke.is_empty()
             {
-                state.editor.stroke.points.push((cx, cy));
+                state.editor.annotation.stroke.points.push((cx, cy));
                 commit_annotation(state);
                 true
             } else {

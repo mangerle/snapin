@@ -139,30 +139,35 @@ fn apply_interface_config(state: &mut SnipperState, iface: &InterfaceConfig) {
     state.viewport.magnifier.scale = iface.magnifier_scale;
     state.viewport.magnifier.show_grid = iface.show_grid_lines;
     state.viewport.magnifier.format = iface.color_format;
-    state.editor.toolbar.ui_scale = iface.toolbar_scale;
+    state.editor.annotation.toolbar.ui_scale = iface.toolbar_scale;
 }
 
 /// 注入截图流程、默认标注工具与选区记忆设置
 fn apply_snip_config(state: &mut SnipperState, snip: &SnipConfig, mode: SnipMode) {
-    state.editor.toolbar.sub_options = crate::editor::toolbar::SubToolOptions::default();
-    state.editor.toolbar.sub_options.custom_stroke_width = snip.default_stroke_width;
-    state.editor.toolbar.sub_options.font_size = snip.default_font_size;
-    state.editor.toolbar.sub_options.color = tiny_skia::Color::from_rgba8(
+    state.editor.annotation.toolbar.sub_options = crate::editor::toolbar::SubToolOptions::default();
+    state
+        .editor
+        .annotation
+        .toolbar
+        .sub_options
+        .custom_stroke_width = snip.default_stroke_width;
+    state.editor.annotation.toolbar.sub_options.font_size = snip.default_font_size;
+    state.editor.annotation.toolbar.sub_options.color = tiny_skia::Color::from_rgba8(
         snip.default_color.r,
         snip.default_color.g,
         snip.default_color.b,
         snip.default_color.a,
     );
-    state.editor.toolbar.remember_sub_options = snip.remember_toolbar_settings;
+    state.editor.annotation.toolbar.remember_sub_options = snip.remember_toolbar_settings;
     if snip.remember_toolbar_settings {
         if let Some(options) = remembered_sub_options() {
-            state.editor.toolbar.sub_options = options;
+            state.editor.annotation.toolbar.sub_options = options;
         }
     } else {
         clear_remembered_sub_options();
     }
     // 初始进入截图时，未完成选区前不激活标注工具，确保左键优先用于选区拉框
-    state.editor.toolbar.active_tool = None;
+    state.editor.annotation.toolbar.active_tool = None;
 
     // 仅“自定义截屏”复用上次选区；常规截图始终从空白选区开始，
     // 避免启动时自动锁定旧尺寸、妨碍用户重新拉框。
@@ -216,7 +221,7 @@ pub(crate) fn window_at(pos: (f32, f32), windows: &[Rect]) -> Option<Rect> {
 /// 使刚输入的文字可以马上拖动或用滚轮调字号。
 pub fn commit_active_text_input(state: &mut SnipperState) {
     if let Some(row) = state.ocr.edit_row.take() {
-        if let Some(session) = state.editor.active_text_input.take() {
+        if let Some(session) = state.editor.annotation.active_text_input.take() {
             let text = session.finish_text();
             if let Some(panel) = state.ocr.panel.as_mut() {
                 panel.replace_line(row, text);
@@ -224,7 +229,7 @@ pub fn commit_active_text_input(state: &mut SnipperState) {
         }
         return;
     }
-    if let Some(session) = state.editor.active_text_input.take() {
+    if let Some(session) = state.editor.annotation.active_text_input.take() {
         if let Some(action) = session.commit() {
             state.editor.annotations.push(action);
             super::annotation_edit::select_latest(state);
@@ -289,8 +294,9 @@ mod tests {
         let desktop: Arc<dyn DesktopPort> = Arc::new(NoopDesktop);
         let mut first =
             SnipperState::from_config(config.clone(), SnipMode::Normal, desktop.clone());
-        first.editor.toolbar.sub_options.color = tiny_skia::Color::from_rgba8(0, 0, 255, 255);
-        first.editor.toolbar.update_layout(
+        first.editor.annotation.toolbar.sub_options.color =
+            tiny_skia::Color::from_rgba8(0, 0, 255, 255);
+        first.editor.annotation.toolbar.update_layout(
             &Rect {
                 x: 10.0,
                 y: 10.0,
@@ -303,7 +309,7 @@ mod tests {
 
         let second = SnipperState::from_config(config, SnipMode::Normal, desktop);
         assert_eq!(
-            second.editor.toolbar.sub_options.color,
+            second.editor.annotation.toolbar.sub_options.color,
             tiny_skia::Color::from_rgba8(239, 68, 68, 255)
         );
     }
@@ -320,8 +326,9 @@ mod tests {
         let desktop: Arc<dyn DesktopPort> = Arc::new(NoopDesktop);
         let mut first =
             SnipperState::from_config(config.clone(), SnipMode::Normal, desktop.clone());
-        first.editor.toolbar.sub_options.color = tiny_skia::Color::from_rgba8(0, 0, 255, 255);
-        first.editor.toolbar.update_layout(
+        first.editor.annotation.toolbar.sub_options.color =
+            tiny_skia::Color::from_rgba8(0, 0, 255, 255);
+        first.editor.annotation.toolbar.update_layout(
             &Rect {
                 x: 10.0,
                 y: 10.0,
@@ -334,7 +341,7 @@ mod tests {
 
         let second = SnipperState::from_config(config, SnipMode::Normal, desktop);
         assert_eq!(
-            second.editor.toolbar.sub_options.color,
+            second.editor.annotation.toolbar.sub_options.color,
             tiny_skia::Color::from_rgba8(0, 0, 255, 255)
         );
         clear_remembered_sub_options();

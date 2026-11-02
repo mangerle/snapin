@@ -59,14 +59,15 @@ fn active_drag_cursor(state: &SnipperState, active_drag: &Option<DragMode>) -> O
 
 /// 工具栏拖动、拖动把手与面板区域的光标。
 fn toolbar_cursor(state: &SnipperState, cx: f32, cy: f32) -> Option<CursorIcon> {
-    if state.editor.toolbar.is_dragging() {
+    if state.editor.annotation.toolbar.is_dragging() {
         return Some(CursorIcon::Grabbing);
     }
-    if state.editor.toolbar.hit_test_drag_handle(cx, cy) {
+    if state.editor.annotation.toolbar.hit_test_drag_handle(cx, cy) {
         return Some(CursorIcon::Grab);
     }
     state
         .editor
+        .annotation
         .toolbar
         .contains_point(cx, cy)
         .then_some(CursorIcon::Default)
@@ -83,19 +84,19 @@ fn annotation_cursor(state: &SnipperState, cx: f32, cy: f32) -> Option<CursorIco
     {
         return Some(CursorIcon::Move);
     }
-    (state.editor.toolbar.active_tool.is_none()
+    (state.editor.annotation.toolbar.active_tool.is_none()
         && annotation_edit::hit_test_locked(state, (cx, cy)))
     .then_some(CursorIcon::Default)
 }
 
 /// 根据选区手柄、绘制工具与选区内部决定最终光标。
 fn selection_cursor(state: &SnipperState, rect: &Rect, cx: f32, cy: f32) -> CursorIcon {
-    let tolerance = 8.0 * state.editor.toolbar.ui_scale;
+    let tolerance = 8.0 * state.editor.annotation.toolbar.ui_scale;
     if let Some(handle) = hit_test_handle(rect, cx, cy, tolerance) {
         return resize_cursor(handle);
     }
 
-    if state.editor.toolbar.active_tool.is_some() {
+    if state.editor.annotation.toolbar.active_tool.is_some() {
         return if rect.contains(cx, cy) {
             CursorIcon::Crosshair
         } else {
@@ -128,7 +129,7 @@ mod tests {
     #[test]
     fn test_cursor_icon_by_selection_region() {
         let mut state = SnipperState::new();
-        state.editor.toolbar.ui_scale = 1.0;
+        state.editor.annotation.toolbar.ui_scale = 1.0;
         state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 100.0,
@@ -156,7 +157,7 @@ mod tests {
     #[test]
     fn test_cursor_icon_during_drag_and_with_active_tool() {
         let mut state = SnipperState::new();
-        state.editor.toolbar.ui_scale = 1.0;
+        state.editor.annotation.toolbar.ui_scale = 1.0;
         state.viewport.cursor_pos = (200.0, 175.0);
         state.viewport.selection = SelectionState::Locked {
             rect: Rect {
@@ -192,7 +193,7 @@ mod tests {
             },
             active_drag: None,
         };
-        state.editor.toolbar.active_tool = Some(crate::editor::toolbar::Tool::Rect);
+        state.editor.annotation.toolbar.active_tool = Some(crate::editor::toolbar::Tool::Rect);
         assert_eq!(desired_cursor_icon(&state), CursorIcon::Crosshair);
     }
 
@@ -203,7 +204,7 @@ mod tests {
         use snapin_annotation::{AnnotationShape, LineStyle};
 
         let mut state = SnipperState::new();
-        state.editor.toolbar.ui_scale = 1.0;
+        state.editor.annotation.toolbar.ui_scale = 1.0;
         state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 0.0,

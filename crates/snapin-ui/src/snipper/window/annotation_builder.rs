@@ -11,10 +11,10 @@ pub use crate::editor::annotation_builder::{build_shape, render_draft_preview};
 impl<'a> AnnotationDraftParams<'a> {
     /// 从当前截图会话状态中提取草稿参数。
     pub fn from_state(state: &'a SnipperState) -> Option<Self> {
-        let tool = state.editor.toolbar.active_tool?;
-        let points = &state.editor.stroke.points;
+        let tool = state.editor.annotation.toolbar.active_tool?;
+        let points = &state.editor.annotation.stroke.points;
         Self::from_toolbar_and_points(
-            &state.editor.toolbar,
+            &state.editor.annotation.toolbar,
             tool,
             points,
             state.editor.annotations.next_badge_number(),
@@ -33,5 +33,5 @@ pub fn commit_annotation(state: &mut SnipperState) {
             super::annotation_edit::select_latest(state);
         }
     }
-    state.editor.stroke.points.clear();
+    state.editor.annotation.stroke.points.clear();
 }

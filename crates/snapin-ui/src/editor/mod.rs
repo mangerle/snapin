@@ -5,6 +5,7 @@
 //! 文本输入状态机。
 
 pub(crate) mod annotation_builder;
+pub(crate) mod annotation_session;
 pub(crate) mod stroke_session;
 pub(crate) mod text_input;
 pub(crate) mod toolbar;

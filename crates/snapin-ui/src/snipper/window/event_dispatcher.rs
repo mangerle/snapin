@@ -33,7 +33,7 @@ impl SnipperEventDispatcher {
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 let s = scale_factor as f32;
-                state.editor.toolbar.ui_scale = s;
+                state.editor.annotation.toolbar.ui_scale = s;
                 state.viewport.magnifier.ui_scale = s;
                 window.request_redraw();
             }
@@ -75,7 +75,7 @@ impl SnipperEventDispatcher {
             WindowEvent::Ime(ime_event) => {
                 let need_redraw = match ime_event {
                     Ime::Commit(text) => {
-                        if let Some(session) = &mut state.editor.active_text_input {
+                        if let Some(session) = &mut state.editor.annotation.active_text_input {
                             session.push_commit(&text);
                             true
                         } else {
@@ -83,7 +83,7 @@ impl SnipperEventDispatcher {
                         }
                     }
                     Ime::Preedit(text, _cursor) => {
-                        if let Some(session) = &mut state.editor.active_text_input {
+                        if let Some(session) = &mut state.editor.annotation.active_text_input {
                             session.set_preedit(&text);
                             true
                         } else {
@@ -93,7 +93,7 @@ impl SnipperEventDispatcher {
                     _ => false,
                 };
                 if need_redraw {
-                    if let Some(session) = &state.editor.active_text_input {
+                    if let Some(session) = &state.editor.annotation.active_text_input {
                         window.set_ime_cursor_area(
                             winit::dpi::PhysicalPosition::new(
                                 session.pos.0 as i32,

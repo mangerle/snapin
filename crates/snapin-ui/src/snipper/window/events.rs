@@ -22,7 +22,7 @@ pub fn handle_key_input(
         return false;
     }
 
-    if state.editor.active_text_input.is_some() {
+    if state.editor.annotation.active_text_input.is_some() {
         return handle_text_key_input(state, key);
     }
 
@@ -82,8 +82,9 @@ pub fn handle_key_input(
             handle_qr_open_link(state)
         }
         Key::Named(NamedKey::Enter) | Key::Named(NamedKey::F3) => {
-            if state.editor.toolbar.active_tool == Some(crate::editor::toolbar::Tool::Line)
-                && state.editor.stroke.points.len() >= 2
+            if state.editor.annotation.toolbar.active_tool
+                == Some(crate::editor::toolbar::Tool::Line)
+                && state.editor.annotation.stroke.points.len() >= 2
             {
                 super::annotation_builder::commit_annotation(state);
                 return true;
@@ -242,7 +243,7 @@ fn nudge_locked_selection(
     let max_y = (original_rgba.height() as f32 - rect.height).max(0.0);
     rect.x = (rect.x + (dx * step) as f32).clamp(0.0, max_x);
     rect.y = (rect.y + (dy * step) as f32).clamp(0.0, max_y);
-    state.editor.toolbar.update_layout(
+    state.editor.annotation.toolbar.update_layout(
         rect,
         original_rgba.width() as f32,
         original_rgba.height() as f32,
@@ -254,14 +255,14 @@ fn nudge_locked_selection(
 
 /// 处理 OCR 结果面板键盘操作。
 fn handle_ocr_panel_key(state: &mut SnipperState, key: &Key, original_rgba: &RgbaImage) -> bool {
-    let scale = state.editor.toolbar.ui_scale;
+    let scale = state.editor.annotation.toolbar.ui_scale;
     let screen_width = original_rgba.width() as f32;
     let screen_height = original_rgba.height() as f32;
     match key {
         Key::Named(NamedKey::Escape) => {
             state.ocr.panel = None;
             state.ocr.edit_row = None;
-            state.editor.active_text_input = None;
+            state.editor.annotation.active_text_input = None;
             state.set_status_message(snapin_foundation::i18n::tr("已关闭 OCR 结果面板"));
             true
         }
@@ -323,7 +324,7 @@ fn begin_ocr_row_edit(state: &mut SnipperState, screen_width: f32, screen_height
     let mut session = TextInputSession::new(pos, (255, 255, 255, 255), 14.0);
     session.text = line.text.clone();
     state.ocr.edit_row = Some(panel.cursor);
-    state.editor.active_text_input = Some(session);
+    state.editor.annotation.active_text_input = Some(session);
     state.set_status_message(snapin_foundation::i18n::tr(
         "编辑 OCR 文本；Enter 确认，Esc 取消",
     ));
@@ -371,7 +372,7 @@ fn handle_qr_open_link(state: &mut SnipperState) -> bool {
 /// 截图侧只负责把动作落到标注历史。
 fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
     let ctrl_pressed = state.viewport.modifiers.control_key();
-    let action = match state.editor.active_text_input.as_mut() {
+    let action = match state.editor.annotation.active_text_input.as_mut() {
         Some(session) => crate::editor::text_input::handle_session_key(session, key, ctrl_pressed),
         None => return false,
     };
@@ -382,7 +383,7 @@ fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
             true
         }
         crate::editor::text_input::TextSessionAction::Cancel => {
-            state.editor.active_text_input = None;
+            state.editor.annotation.active_text_input = None;
             state.ocr.edit_row = None;
             true
         }
@@ -395,7 +396,7 @@ pub fn handle_escape(state: &mut SnipperState) -> bool {
     if state.ocr.panel.is_some() {
         state.ocr.panel = None;
         state.ocr.edit_row = None;
-        state.editor.active_text_input = None;
+        state.editor.annotation.active_text_input = None;
         state.set_status_message(snapin_foundation::i18n::tr("已关闭 OCR 结果面板"));
         true
     } else if state.ocr.redaction_preview.is_some() {
@@ -403,13 +404,13 @@ pub fn handle_escape(state: &mut SnipperState) -> bool {
         state.ocr.redaction_preview = None;
         state.clear_status_message();
         true
-    } else if state.editor.active_text_input.is_some() {
+    } else if state.editor.annotation.active_text_input.is_some() {
         // Esc 统一取消当前输入，与贴图侧保持一致。
-        state.editor.active_text_input = None;
+        state.editor.annotation.active_text_input = None;
         true
-    } else if state.editor.toolbar.active_tool.is_some() {
-        state.editor.toolbar.active_tool = None;
-        state.editor.toolbar.sub_rect = None;
+    } else if state.editor.annotation.toolbar.active_tool.is_some() {
+        state.editor.annotation.toolbar.active_tool = None;
+        state.editor.annotation.toolbar.sub_rect = None;
         super::annotation_edit::clear(state);
         true
     } else if state.editor.selected_annotation.is_some() {
@@ -452,6 +453,7 @@ fn handle_history_back(state: &mut SnipperState, img: &RgbaImage) -> bool {
         };
         state
             .editor
+            .annotation
             .toolbar
             .update_layout(&r, img.width() as f32, img.height() as f32);
         true
@@ -470,6 +472,7 @@ fn handle_history_forward(state: &mut SnipperState, img: &RgbaImage) -> bool {
         };
         state
             .editor
+            .annotation
             .toolbar
             .update_layout(&r, img.width() as f32, img.height() as f32);
         true

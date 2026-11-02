@@ -58,7 +58,12 @@ pub fn hit_test_selected_handle(state: &SnipperState, cx: f32, cy: f32) -> Optio
         return None;
     }
     let rect = selected_bounds(state)?;
-    hit_test_handle(&rect, cx, cy, 8.0 * state.editor.toolbar.ui_scale)
+    hit_test_handle(
+        &rect,
+        cx,
+        cy,
+        8.0 * state.editor.annotation.toolbar.ui_scale,
+    )
 }
 
 /// 命中当前允许编辑的标注：默认只允许最新一条，`allow_locked`（按住 Alt）时允许任意一条。
@@ -291,7 +296,7 @@ mod tests {
 
     fn state_with_rect() -> SnipperState {
         let mut state = SnipperState::new();
-        state.editor.toolbar.ui_scale = 1.0;
+        state.editor.annotation.toolbar.ui_scale = 1.0;
         state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 0.0,
@@ -445,7 +450,7 @@ mod tests {
     #[test]
     fn test_active_tool_still_allows_annotation_editing() {
         let mut state = state_with_rect();
-        state.editor.toolbar.active_tool = Some(Tool::Pen);
+        state.editor.annotation.toolbar.active_tool = Some(Tool::Pen);
         assert!(handle_press(&mut state, 150.0, 150.0, false));
         assert_eq!(state.editor.selected_annotation, Some(0.into()));
         assert!(matches!(

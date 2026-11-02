@@ -219,7 +219,7 @@ impl SnipperPresenter {
             return false;
         };
         matches!(state.viewport.selection, SelectionState::Idle)
-            && state.editor.active_text_input.is_none()
+            && state.editor.annotation.active_text_input.is_none()
             && prev.hovered_window == state.viewport.hovered_window
             && prev.magnifier_signature == magnifier_signature(&state.viewport.magnifier)
     }
@@ -286,7 +286,7 @@ impl SnipperPresenter {
         let status_rect = SnipperCanvas::status_message_bounds(
             state.session.status_message.as_deref(),
             width,
-            state.editor.toolbar.ui_scale,
+            state.editor.annotation.toolbar.ui_scale,
         );
         OverlaySnapshot {
             hovered_window: state.viewport.hovered_window,
@@ -371,17 +371,23 @@ impl SnipperPresenter {
         state: &'a SnipperState,
         bg_image: &'a RgbaImage,
     ) -> SnipperCanvas<'a> {
-        let pending_stroke = state.editor.toolbar.active_tool.as_ref().and_then(|tool| {
-            if !state.editor.stroke.is_empty() {
-                Some((
-                    tool,
-                    state.editor.stroke.points.as_slice(),
-                    state.editor.annotations.next_badge_number(),
-                ))
-            } else {
-                None
-            }
-        });
+        let pending_stroke = state
+            .editor
+            .annotation
+            .toolbar
+            .active_tool
+            .as_ref()
+            .and_then(|tool| {
+                if !state.editor.annotation.stroke.is_empty() {
+                    Some((
+                        tool,
+                        state.editor.annotation.stroke.points.as_slice(),
+                        state.editor.annotations.next_badge_number(),
+                    ))
+                } else {
+                    None
+                }
+            });
 
         SnipperCanvas {
             base_bg,
@@ -391,12 +397,12 @@ impl SnipperPresenter {
             cursor_ready: state.viewport.cursor_ready,
             hovered_window: state.viewport.hovered_window,
             magnifier: &state.viewport.magnifier,
-            toolbar: Some(&state.editor.toolbar),
+            toolbar: Some(&state.editor.annotation.toolbar),
             annotations: Some(&state.editor.annotations),
-            ui_scale: state.editor.toolbar.ui_scale,
+            ui_scale: state.editor.annotation.toolbar.ui_scale,
             accent_color: state.session.config.interface.accent_color.to_rgb(),
             pending_stroke,
-            active_text_input: state.editor.active_text_input.as_ref(),
+            active_text_input: state.editor.annotation.active_text_input.as_ref(),
             status_message: state.session.status_message.as_deref(),
             selected_annotation: selected_annotation_view(state),
             redaction_preview: state.ocr.redaction_preview.as_ref(),
@@ -426,7 +432,7 @@ impl SnipperPresenter {
             status_rect: SnipperCanvas::status_message_bounds(
                 state.session.status_message.as_deref(),
                 width,
-                state.editor.toolbar.ui_scale,
+                state.editor.annotation.toolbar.ui_scale,
             ),
             magnifier_signature: magnifier_signature(&state.viewport.magnifier),
         })

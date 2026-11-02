@@ -93,8 +93,8 @@ pub fn handle_job_outcome(
                 .editor
                 .annotations
                 .push(AnnotationShape::Translation(TranslationAction::new(items)));
-            state.editor.toolbar.active_tool = None;
-            state.editor.toolbar.sub_rect = None;
+            state.editor.annotation.toolbar.active_tool = None;
+            state.editor.annotation.toolbar.sub_rect = None;
             state.clear_status_message();
             tracing::info!("原位翻译完成，已成功压入标注动作栈");
         }
