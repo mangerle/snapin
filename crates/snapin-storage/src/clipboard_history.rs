@@ -124,6 +124,12 @@ fn load_clipboard_image_from(
             message: "图像历史缺少文件名".to_string(),
         })?;
     let path = validated_image_path(dir, file_name)?;
+    if !is_safe_history_file(&path) {
+        return Err(StorageError::InvalidSavePath {
+            path: path.display().to_string(),
+            message: "剪贴板图像必须是历史目录内的普通文件，禁止符号链接和特殊文件".to_string(),
+        });
+    }
     let bytes = snapin_foundation::read_file_limited(&path, MAX_CLIPBOARD_IMAGE_FILE_BYTES)
         .map_err(|source| StorageError::Io {
             path: path.display().to_string(),
@@ -320,10 +326,16 @@ fn entry_payload_is_valid(entry: &ClipboardEntry, dir: &Path) -> bool {
         ClipboardEntryKind::Image => {
             entry.text.is_none()
                 && entry.image_file.as_deref().is_some_and(|file| {
-                    validated_image_path(dir, file).is_ok_and(|path| path.is_file())
+                    validated_image_path(dir, file).is_ok_and(|path| is_safe_history_file(&path))
                 })
         }
     }
+}
+
+fn is_safe_history_file(path: &Path) -> bool {
+    std::fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_file())
+        .unwrap_or(false)
 }
 
 /// 只接受历史目录下的单段 `.png` 文件名，彻底阻断损坏索引构造的路径穿越。
@@ -451,6 +463,25 @@ mod tests {
             kind: ClipboardEntryKind::Image,
             text: None,
             image_file: Some("huge.png".to_string()),
+            created_at: now_secs(),
+        };
+
+        assert!(load_clipboard_image_from(dir.path(), &entry).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_load_rejects_clipboard_image_symlink() {
+        let dir = tempfile::tempdir().expect("应可创建测试目录");
+        let outside = dir.path().join("outside.png");
+        std::fs::write(&outside, b"not a real image").expect("应可写入外部文件");
+        let link = dir.path().join("linked.png");
+        std::os::unix::fs::symlink(&outside, &link).expect("应可创建符号链接");
+        let entry = ClipboardEntry {
+            id: 1,
+            kind: ClipboardEntryKind::Image,
+            text: None,
+            image_file: Some("linked.png".to_string()),
             created_at: now_secs(),
         };
 
