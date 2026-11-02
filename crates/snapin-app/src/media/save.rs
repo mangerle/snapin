@@ -140,16 +140,16 @@ fn save_quick_with_fallback(
     image: &image::RgbaImage,
     output: &OutputConfig,
 ) -> Result<PathBuf, String> {
-    if let Ok(path) = save_image_with_config(image, output) {
-        return Ok(path);
-    }
+    let primary_error = match save_image_with_config(image, output) {
+        Ok(path) => return Ok(path),
+        Err(error) => error,
+    };
+    tracing::warn!("快捷保存失败，降级到 Pictures 目录: {primary_error}");
 
     let pictures_dir = AppPaths::pictures_dir();
     std::fs::create_dir_all(&pictures_dir)
         .map_err(|error| format!("创建 Pictures 目录失败: {error}"))?;
     let fallback_path = pictures_dir.join(format!("snapin_{}.png", AppPaths::generate_unique_id()));
-    image
-        .save(&fallback_path)
-        .map_err(|error| format!("降级保存图像失败: {error}"))?;
-    Ok(fallback_path)
+    save_image_to_path(image, &fallback_path, output)
+        .map_err(|error| format!("降级保存图像失败: {error}"))
 }
