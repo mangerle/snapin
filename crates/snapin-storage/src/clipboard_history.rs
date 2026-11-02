@@ -340,6 +340,31 @@ fn save_clipboard_image(dir: &Path, image: &RgbaImage) -> Result<(u64, String), 
         source,
     })?;
 
+    let target = prepared_image_target(dir)?;
+    if let Err(error) = encode_private_png(image, &target) {
+        let _ = std::fs::remove_file(&target.temp);
+        return Err(error);
+    }
+    if let Err(source) = AppPaths::replace_file_atomically(&target.temp, &target.path) {
+        let _ = std::fs::remove_file(&target.temp);
+        return Err(StorageError::Io {
+            path: target.path.display().to_string(),
+            source,
+        });
+    }
+    Ok((target.id, target.file_name))
+}
+
+/// 新剪贴板图像的目标文件、临时文件与稳定标识。
+struct PreparedImageTarget {
+    id: u64,
+    file_name: String,
+    path: PathBuf,
+    temp: PathBuf,
+}
+
+/// 在历史目录内生成可校验的唯一目标路径与临时文件路径。
+fn prepared_image_target(dir: &Path) -> Result<PreparedImageTarget, StorageError> {
     let id = AppPaths::generate_unique_id();
     let file_name = format!("{id}.png");
     let target = validated_image_path(dir, &file_name)?;
@@ -347,7 +372,16 @@ fn save_clipboard_image(dir: &Path, image: &RgbaImage) -> Result<(u64, String), 
         ".{file_name}.{}.tmp",
         AppPaths::generate_unique_id()
     ));
+    Ok(PreparedImageTarget {
+        id,
+        file_name,
+        path: target,
+        temp,
+    })
+}
 
+/// 以仅当前用户可读写的权限创建并同步编码临时 PNG。
+fn encode_private_png(image: &RgbaImage, target: &PreparedImageTarget) -> Result<(), StorageError> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -355,11 +389,11 @@ fn save_clipboard_image(dir: &Path, image: &RgbaImage) -> Result<(u64, String), 
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let file = match options.open(&temp) {
+    let file = match options.open(&target.temp) {
         Ok(file) => file,
         Err(source) => {
             return Err(StorageError::Io {
-                path: temp.display().to_string(),
+                path: target.temp.display().to_string(),
                 source,
             })
         }
@@ -368,12 +402,12 @@ fn save_clipboard_image(dir: &Path, image: &RgbaImage) -> Result<(u64, String), 
     let encoded = image
         .write_to(&mut writer, ImageFormat::Png)
         .map_err(|error| StorageError::Io {
-            path: temp.display().to_string(),
+            path: target.temp.display().to_string(),
             source: std::io::Error::other(format!("编码剪贴板图像失败: {error}")),
         })
         .and_then(|()| {
             writer.flush().map_err(|source| StorageError::Io {
-                path: temp.display().to_string(),
+                path: target.temp.display().to_string(),
                 source,
             })
         })
@@ -382,24 +416,12 @@ fn save_clipboard_image(dir: &Path, image: &RgbaImage) -> Result<(u64, String), 
                 .get_ref()
                 .sync_all()
                 .map_err(|source| StorageError::Io {
-                    path: temp.display().to_string(),
+                    path: target.temp.display().to_string(),
                     source,
                 })
         });
     drop(writer);
-    if let Err(error) = encoded {
-        let _ = std::fs::remove_file(&temp);
-        return Err(error);
-    }
-
-    if let Err(source) = AppPaths::replace_file_atomically(&temp, &target) {
-        let _ = std::fs::remove_file(&temp);
-        return Err(StorageError::Io {
-            path: target.display().to_string(),
-            source,
-        });
-    }
-    Ok((id, file_name))
+    encoded
 }
 
 /// 校验历史条目载荷与其类型一致，防止损坏索引把文本和图像字段同时带入业务层。
