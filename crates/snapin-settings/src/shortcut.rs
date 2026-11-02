@@ -3,20 +3,32 @@
 //! 支持单键 (F1~F12, PrintScreen) 与多键修饰组合 (Ctrl, Alt, Shift, Super)，
 //! 输出兼容 GNOME 与 XDG 标准的规范化热键字符串。
 
-/// 将 Slint 键盘事件参数格式化为规范的展示文本（如 "Ctrl+Alt+A"、"F1"、"Ctrl+F3"）
-///
-/// 若未按下有效主键或仅按下修饰键，则返回 `None`。
-pub fn format_key_combination(
+/// 一次键盘事件的修饰键状态。
+pub struct ModifierState {
     ctrl: bool,
     alt: bool,
     shift: bool,
     super_key: bool,
-    text: &str,
-) -> Option<String> {
+}
+
+impl ModifierState {
+    /// 构造修饰键状态。
+    pub const fn new(ctrl: bool, alt: bool, shift: bool, super_key: bool) -> Self {
+        Self {
+            ctrl,
+            alt,
+            shift,
+            super_key,
+        }
+    }
+}
+
+/// 将 Slint 键盘事件参数格式化为规范的展示文本（如 "Ctrl+Alt+A"、"F1"、"Ctrl+F3"）
+///
+/// 若未按下有效主键或仅按下修饰键，则返回 `None`。
+pub fn format_key_combination(modifiers: ModifierState, text: &str) -> Option<String> {
     let key_label = parse_key_label(text)?;
-    Some(format_with_modifiers(
-        ctrl, alt, shift, super_key, &key_label,
-    ))
+    Some(format_with_modifiers(modifiers, &key_label))
 }
 
 /// 解析按键原始输入并返回标准单键展示名称
@@ -98,18 +110,18 @@ fn parse_character_key(s: &str) -> Option<String> {
 }
 
 /// 组装修饰键与主键字符串
-fn format_with_modifiers(ctrl: bool, alt: bool, shift: bool, super_key: bool, key: &str) -> String {
+fn format_with_modifiers(modifiers: ModifierState, key: &str) -> String {
     let mut parts = Vec::with_capacity(5);
-    if ctrl {
+    if modifiers.ctrl {
         parts.push("Ctrl");
     }
-    if alt {
+    if modifiers.alt {
         parts.push("Alt");
     }
-    if shift {
+    if modifiers.shift {
         parts.push("Shift");
     }
-    if super_key {
+    if modifiers.super_key {
         parts.push("Super");
     }
     parts.push(key);
@@ -123,26 +135,32 @@ mod tests {
     #[test]
     fn test_format_key_combinations() {
         assert_eq!(
-            format_key_combination(false, false, false, false, "F1").as_deref(),
+            format_key_combination(ModifierState::new(false, false, false, false), "F1").as_deref(),
             Some("F1")
         );
         assert_eq!(
-            format_key_combination(true, false, false, false, "F3").as_deref(),
+            format_key_combination(ModifierState::new(true, false, false, false), "F3").as_deref(),
             Some("Ctrl+F3")
         );
         assert_eq!(
-            format_key_combination(true, true, false, false, "a").as_deref(),
+            format_key_combination(ModifierState::new(true, true, false, false), "a").as_deref(),
             Some("Ctrl+Alt+A")
         );
         assert_eq!(
-            format_key_combination(true, false, true, false, "s").as_deref(),
+            format_key_combination(ModifierState::new(true, false, true, false), "s").as_deref(),
             Some("Ctrl+Shift+S")
         );
         assert_eq!(
-            format_key_combination(false, false, false, false, "Print").as_deref(),
+            format_key_combination(ModifierState::new(false, false, false, false), "Print")
+                .as_deref(),
             Some("Print")
         );
-        assert!(format_key_combination(true, false, false, false, "").is_none());
-        assert!(format_key_combination(true, false, false, false, "\u{0001}").is_none());
+        assert!(
+            format_key_combination(ModifierState::new(true, false, false, false), "").is_none()
+        );
+        assert!(
+            format_key_combination(ModifierState::new(true, false, false, false), "\u{0001}")
+                .is_none()
+        );
     }
 }

@@ -120,9 +120,12 @@ fn register_shortcut_formatter(window: &SettingsWindow) {
     window
         .global::<ShortcutHelper>()
         .on_format_key(|ctrl, alt, shift, meta, text| {
-            shortcut::format_key_combination(ctrl, alt, shift, meta, text.as_str())
-                .map(SharedString::from)
-                .unwrap_or_default()
+            shortcut::format_key_combination(
+                shortcut::ModifierState::new(ctrl, alt, shift, meta),
+                text.as_str(),
+            )
+            .map(SharedString::from)
+            .unwrap_or_default()
         });
 }
 
