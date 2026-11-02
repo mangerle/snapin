@@ -158,21 +158,23 @@ async fn bind_unix_listener(socket_path: &std::path::Path) -> Result<UnixListene
         socket_path: socket_path.to_string_lossy().to_string(),
         message: format!("绑定 IPC 套接字失败: {error}"),
     })?;
-    restrict_unix_socket_permissions(socket_path);
+    restrict_unix_socket_permissions(socket_path)?;
     Ok(listener)
 }
 
 #[cfg(unix)]
-fn restrict_unix_socket_permissions(socket_path: &std::path::Path) {
+fn restrict_unix_socket_permissions(socket_path: &std::path::Path) -> Result<(), DaemonError> {
     use std::os::unix::fs::PermissionsExt;
     if let Err(error) =
         std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))
     {
-        tracing::warn!(
-            "收紧 IPC 套接字权限失败，路径: {:?}，原因: {error}",
-            socket_path
-        );
+        let _ = std::fs::remove_file(socket_path);
+        return Err(DaemonError::Socket {
+            socket_path: socket_path.to_string_lossy().to_string(),
+            message: format!("收紧 IPC 套接字权限失败，已拒绝启动不安全的监听服务: {error}"),
+        });
     }
+    Ok(())
 }
 
 #[cfg(windows)]
