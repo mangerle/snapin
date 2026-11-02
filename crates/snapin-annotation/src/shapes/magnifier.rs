@@ -96,6 +96,28 @@ fn default_shadow() -> bool {
     true
 }
 
+/// 放大镜连接线的端点、法向与端帽半长。
+struct ConnectorLine {
+    start: Point,
+    end: Point,
+    normal: (f32, f32),
+    half: f32,
+}
+
+impl ConnectorLine {
+    fn new(start: Point, end: Point, border_width: f32) -> Self {
+        let dx = end.x - start.x;
+        let dy = end.y - start.y;
+        let length = (dx * dx + dy * dy).sqrt().max(1.0);
+        Self {
+            start,
+            end,
+            normal: (-dy / length, dx / length),
+            half: (border_width * 4.0).clamp(4.0, 16.0),
+        }
+    }
+}
+
 impl MagnifierAction {
     pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         let source = offset_rect(self.source, offset_x, offset_y);
@@ -167,20 +189,25 @@ impl MagnifierAction {
             StrokePathSpec::new(&path, self.border_width.max(1.0)),
         );
         if self.connector == MagnifierConnector::Frame {
-            self.draw_connector_caps(pixmap, start, end, &paint);
+            self.draw_connector_caps(
+                pixmap,
+                ConnectorLine::new(start, end, self.border_width),
+                &paint,
+            );
         }
     }
 
-    fn draw_connector_caps(&self, pixmap: &mut PixmapMut, start: Point, end: Point, paint: &Paint) {
-        let dx = end.x - start.x;
-        let dy = end.y - start.y;
-        let length = (dx * dx + dy * dy).sqrt().max(1.0);
-        let normal = (-dy / length, dx / length);
-        let half = (self.border_width * 4.0).clamp(4.0, 16.0);
+    fn draw_connector_caps(&self, pixmap: &mut PixmapMut, line: ConnectorLine, paint: &Paint) {
         let mut builder = PathBuilder::new();
-        for point in [start, end] {
-            builder.move_to(point.x + normal.0 * half, point.y + normal.1 * half);
-            builder.line_to(point.x - normal.0 * half, point.y - normal.1 * half);
+        for point in [line.start, line.end] {
+            builder.move_to(
+                point.x + line.normal.0 * line.half,
+                point.y + line.normal.1 * line.half,
+            );
+            builder.line_to(
+                point.x - line.normal.0 * line.half,
+                point.y - line.normal.1 * line.half,
+            );
         }
         if let Some(path) = builder.finish() {
             pixmap.stroke_path(
