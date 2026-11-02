@@ -4,7 +4,7 @@
 //! 控件坐标只在此处计算一次，渲染与命中测试共用同一份结果，避免两处各写一套坐标而漂移。
 
 use crate::editor::toolbar::items::{
-    preset_colors, tool_descriptor, MosaicMode, Tool, FONT_FAMILY_PRESETS,
+    preset_colors, tool_descriptor, MosaicMode, Tool, ToolDescriptor, FONT_FAMILY_PRESETS,
 };
 use crate::editor::toolbar::metrics::{button_size, padding};
 use crate::geometry::Rect;
@@ -82,6 +82,16 @@ impl EntryCursor<'_> {
         });
         self.x += width;
     }
+
+    /// 按当前 UI 缩放追加控件。
+    fn push_scaled(&mut self, control: Option<SubControl>, width: f32) {
+        self.push(control, width * self.scale);
+    }
+
+    /// 追加一个与现有视觉节奏一致的控件间隔。
+    fn separator(&mut self) {
+        self.push_scaled(None, 14.0);
+    }
 }
 
 /// 按当前工具生成二级栏控件序列。
@@ -104,118 +114,154 @@ fn build_entries(
     };
 
     let descriptor = tool_descriptor(active_tool);
-    if descriptor.shape_controls {
-        cursor.push(Some(SubControl::ShapeRect), 30.0 * s);
-        cursor.push(Some(SubControl::ShapeEllipse), 30.0 * s);
-        cursor.push(None, 14.0 * s);
-    }
-
-    if descriptor.line_mode {
-        cursor.push(Some(SubControl::LineMode), 54.0 * s);
-        cursor.push(None, 14.0 * s);
-    }
-
-    if descriptor.mosaic_mode {
-        if mosaic_mode != MosaicMode::SmartRedact {
-            cursor.push(Some(SubControl::Size), 50.0 * s);
-        }
-        cursor.push(Some(SubControl::MosaicMode), 78.0 * s);
-        if mosaic_mode != MosaicMode::SmartRedact {
-            cursor.push(Some(SubControl::MosaicBrush), 48.0 * s);
-            cursor.push(Some(SubControl::MosaicRectangle), 48.0 * s);
-            cursor.push(Some(SubControl::EffectStrength), 92.0 * s);
-        }
-        cursor.push(None, 14.0 * s);
-    }
-
-    if descriptor.marker_mode {
-        cursor.push(Some(SubControl::MarkerShape), 54.0 * s);
-        cursor.push(Some(SubControl::MarkerBlendMode), 62.0 * s);
-        cursor.push(None, 14.0 * s);
-    }
-
-    if descriptor.eraser_mode {
-        cursor.push(Some(SubControl::EraserMode), 54.0 * s);
-    }
-
-    if descriptor.spotlight_style {
-        cursor.push(Some(SubControl::SpotlightShapeRect), 30.0 * s);
-        cursor.push(Some(SubControl::SpotlightShapeEllipse), 30.0 * s);
-        cursor.push(None, 14.0 * s);
-        cursor.push(Some(SubControl::SpotlightOpacity), 64.0 * s);
-        cursor.push(Some(SubControl::SpotlightOutline), 50.0 * s);
-    }
-
-    if descriptor.magnifier_options {
-        cursor.push(Some(SubControl::MagnifierShapeRect), 30.0 * s);
-        cursor.push(Some(SubControl::MagnifierShapeEllipse), 30.0 * s);
-        cursor.push(None, 14.0 * s);
-        cursor.push(Some(SubControl::MagnifierScale), 104.0 * s);
-        cursor.push(Some(SubControl::MagnifierSmooth), 54.0 * s);
-        cursor.push(Some(SubControl::MagnifierConnector), 64.0 * s);
-        cursor.push(Some(SubControl::MagnifierShadow), 48.0 * s);
-        cursor.push(None, 14.0 * s);
-    }
-
-    if descriptor.fill_toggle {
-        cursor.push(Some(SubControl::FillToggle), 32.0 * s);
-    }
-
-    if descriptor.line_style {
-        cursor.push(Some(SubControl::LineStyle), 56.0 * s);
-    }
-
-    if descriptor.stroke_width && !descriptor.mosaic_mode {
-        cursor.push(Some(SubControl::Size), 50.0 * s);
-    }
-
-    if descriptor.font_size {
-        cursor.push(Some(SubControl::FontSize), 66.0 * s);
-    }
-
-    if descriptor.text_style {
-        cursor.push(Some(SubControl::Bold), 28.0 * s);
-        cursor.push(Some(SubControl::Italic), 28.0 * s);
-        cursor.push(Some(SubControl::TextStroke), 42.0 * s);
-        cursor.push(Some(SubControl::TextBackground), 46.0 * s);
-        cursor.push(Some(SubControl::TextBackgroundOpacity), 58.0 * s);
-        cursor.push(Some(SubControl::TextBackgroundPadding), 64.0 * s);
-        cursor.push(Some(SubControl::TextBackgroundCornerRadius), 64.0 * s);
-        cursor.push(Some(SubControl::FontFamily), 92.0 * s);
-    }
-
-    if descriptor.corner_radius {
-        cursor.push(Some(SubControl::CornerRadius), 54.0 * s);
-    }
-    if descriptor.badge_style {
-        cursor.push(Some(SubControl::BadgeStyle), 82.0 * s);
-    }
-    if descriptor.badge_sequence {
-        cursor.push(Some(SubControl::BadgeSequence), 68.0 * s);
-    }
-    if descriptor.arrow_style {
-        cursor.push(Some(SubControl::ArrowStyle), 58.0 * s);
-    }
-    if descriptor.arrow_toggle {
-        cursor.push(Some(SubControl::ArrowEnabled), 54.0 * s);
-    }
-    if descriptor.arrow_heads {
-        cursor.push(Some(SubControl::StartArrow), 52.0 * s);
-        cursor.push(Some(SubControl::EndArrow), 52.0 * s);
-    }
-    if descriptor.eraser_mode {
-        cursor.push(Some(SubControl::ClearAnnotations), 54.0 * s);
-    }
-
-    if descriptor.color_palette {
-        cursor.push(None, 14.0 * s);
-        for (index, _) in preset_colors().iter().enumerate() {
-            cursor.push(Some(SubControl::Color(index)), 24.0 * s);
-        }
-    }
+    push_geometry_entries(&mut cursor, descriptor);
+    push_mosaic_entries(&mut cursor, descriptor, mosaic_mode);
+    push_marker_and_eraser_entries(&mut cursor, descriptor);
+    push_spotlight_entries(&mut cursor, descriptor);
+    push_magnifier_entries(&mut cursor, descriptor);
+    push_standard_entries(&mut cursor, descriptor);
+    push_color_palette(&mut cursor, descriptor);
 
     // 末尾留出与内边距等宽的余量，避免最后一个色块贴边
     cursor.x + 4.0 * s
+}
+
+/// 追加几何形状与直线模式控件。
+fn push_geometry_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescriptor) {
+    if descriptor.shape_controls {
+        cursor.push_scaled(Some(SubControl::ShapeRect), 30.0);
+        cursor.push_scaled(Some(SubControl::ShapeEllipse), 30.0);
+        cursor.separator();
+    }
+    if descriptor.line_mode {
+        cursor.push_scaled(Some(SubControl::LineMode), 54.0);
+        cursor.separator();
+    }
+}
+
+/// 追加马赛克模式及其依赖的尺寸控件。
+fn push_mosaic_entries(
+    cursor: &mut EntryCursor<'_>,
+    descriptor: &ToolDescriptor,
+    mosaic_mode: MosaicMode,
+) {
+    if !descriptor.mosaic_mode {
+        return;
+    }
+    let editable = mosaic_mode != MosaicMode::SmartRedact;
+    if editable {
+        cursor.push_scaled(Some(SubControl::Size), 50.0);
+    }
+    cursor.push_scaled(Some(SubControl::MosaicMode), 78.0);
+    if editable {
+        cursor.push_scaled(Some(SubControl::MosaicBrush), 48.0);
+        cursor.push_scaled(Some(SubControl::MosaicRectangle), 48.0);
+        cursor.push_scaled(Some(SubControl::EffectStrength), 92.0);
+    }
+    cursor.separator();
+}
+
+/// 追加荧光笔与橡皮擦专属控件。
+fn push_marker_and_eraser_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescriptor) {
+    if descriptor.marker_mode {
+        cursor.push_scaled(Some(SubControl::MarkerShape), 54.0);
+        cursor.push_scaled(Some(SubControl::MarkerBlendMode), 62.0);
+        cursor.separator();
+    }
+    if descriptor.eraser_mode {
+        cursor.push_scaled(Some(SubControl::EraserMode), 54.0);
+    }
+}
+
+/// 追加聚光灯形状、透明度与描边控件。
+fn push_spotlight_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescriptor) {
+    if !descriptor.spotlight_style {
+        return;
+    }
+    cursor.push_scaled(Some(SubControl::SpotlightShapeRect), 30.0);
+    cursor.push_scaled(Some(SubControl::SpotlightShapeEllipse), 30.0);
+    cursor.separator();
+    cursor.push_scaled(Some(SubControl::SpotlightOpacity), 64.0);
+    cursor.push_scaled(Some(SubControl::SpotlightOutline), 50.0);
+}
+
+/// 追加放大镜形状、倍率、平滑、连接与阴影控件。
+fn push_magnifier_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescriptor) {
+    if !descriptor.magnifier_options {
+        return;
+    }
+    cursor.push_scaled(Some(SubControl::MagnifierShapeRect), 30.0);
+    cursor.push_scaled(Some(SubControl::MagnifierShapeEllipse), 30.0);
+    cursor.separator();
+    cursor.push_scaled(Some(SubControl::MagnifierScale), 104.0);
+    cursor.push_scaled(Some(SubControl::MagnifierSmooth), 54.0);
+    cursor.push_scaled(Some(SubControl::MagnifierConnector), 64.0);
+    cursor.push_scaled(Some(SubControl::MagnifierShadow), 48.0);
+    cursor.separator();
+}
+
+/// 按描述元数据追加通用样式控件。
+fn push_standard_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescriptor) {
+    if descriptor.fill_toggle {
+        cursor.push_scaled(Some(SubControl::FillToggle), 32.0);
+    }
+    if descriptor.line_style {
+        cursor.push_scaled(Some(SubControl::LineStyle), 56.0);
+    }
+    if descriptor.stroke_width && !descriptor.mosaic_mode {
+        cursor.push_scaled(Some(SubControl::Size), 50.0);
+    }
+    if descriptor.font_size {
+        cursor.push_scaled(Some(SubControl::FontSize), 66.0);
+    }
+    if descriptor.text_style {
+        push_text_style_entries(cursor);
+    }
+    if descriptor.corner_radius {
+        cursor.push_scaled(Some(SubControl::CornerRadius), 54.0);
+    }
+    if descriptor.badge_style {
+        cursor.push_scaled(Some(SubControl::BadgeStyle), 82.0);
+    }
+    if descriptor.badge_sequence {
+        cursor.push_scaled(Some(SubControl::BadgeSequence), 68.0);
+    }
+    if descriptor.arrow_style {
+        cursor.push_scaled(Some(SubControl::ArrowStyle), 58.0);
+    }
+    if descriptor.arrow_toggle {
+        cursor.push_scaled(Some(SubControl::ArrowEnabled), 54.0);
+    }
+    if descriptor.arrow_heads {
+        cursor.push_scaled(Some(SubControl::StartArrow), 52.0);
+        cursor.push_scaled(Some(SubControl::EndArrow), 52.0);
+    }
+    if descriptor.eraser_mode {
+        cursor.push_scaled(Some(SubControl::ClearAnnotations), 54.0);
+    }
+}
+
+/// 追加文本样式控件。
+fn push_text_style_entries(cursor: &mut EntryCursor<'_>) {
+    cursor.push_scaled(Some(SubControl::Bold), 28.0);
+    cursor.push_scaled(Some(SubControl::Italic), 28.0);
+    cursor.push_scaled(Some(SubControl::TextStroke), 42.0);
+    cursor.push_scaled(Some(SubControl::TextBackground), 46.0);
+    cursor.push_scaled(Some(SubControl::TextBackgroundOpacity), 58.0);
+    cursor.push_scaled(Some(SubControl::TextBackgroundPadding), 64.0);
+    cursor.push_scaled(Some(SubControl::TextBackgroundCornerRadius), 64.0);
+    cursor.push_scaled(Some(SubControl::FontFamily), 92.0);
+}
+
+/// 追加预设颜色调色板。
+fn push_color_palette(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescriptor) {
+    if !descriptor.color_palette {
+        return;
+    }
+    cursor.separator();
+    for index in 0..preset_colors().len() {
+        cursor.push_scaled(Some(SubControl::Color(index)), 24.0);
+    }
 }
 
 /// 计算二级属性栏及其下拉菜单布局
