@@ -287,7 +287,7 @@ mod windows {
 #[cfg(target_os = "macos")]
 mod macos {
     use crate::error::PlatformError;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     const PLIST_LABEL: &str = "local.wangle.snapin";
 
@@ -295,16 +295,37 @@ mod macos {
         let Some(plist_path) = launch_agent_path() else {
             return Ok(());
         };
-
         if enabled {
-            let current_exe = std::env::current_exe().map_err(|e| PlatformError::Io {
-                path: "current_exe".to_string(),
-                source: e,
-            })?;
-            let exe_str = super::xml_escape(&current_exe.to_string_lossy());
+            write_launch_agent(&plist_path)
+        } else {
+            remove_launch_agent(&plist_path);
+            Ok(())
+        }
+    }
 
-            let plist_content = format!(
-                r#"<?xml version="1.0" encoding="UTF-8"?>
+    /// 生成并原子替换 LaunchAgent 清单。
+    fn write_launch_agent(plist_path: &Path) -> Result<(), PlatformError> {
+        let content = launch_agent_plist_content()?;
+        if let Some(parent) = plist_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| PlatformError::Io {
+                path: parent.to_string_lossy().to_string(),
+                source: error,
+            })?;
+        }
+        write_launch_agent_atomically(plist_path, content.as_bytes())?;
+        tracing::info!("已生成 macOS LaunchAgent 自启动清单: {:?}", plist_path);
+        Ok(())
+    }
+
+    /// 构造引用当前可执行文件的 LaunchAgent plist。
+    fn launch_agent_plist_content() -> Result<String, PlatformError> {
+        let current_exe = std::env::current_exe().map_err(|error| PlatformError::Io {
+            path: "current_exe".to_string(),
+            source: error,
+        })?;
+        let executable = super::xml_escape(&current_exe.to_string_lossy());
+        Ok(format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -312,7 +333,7 @@ mod macos {
     <string>{PLIST_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{exe_str}</string>
+        <string>{executable}</string>
         <string>daemon</string>
     </array>
     <key>RunAtLoad</key>
@@ -320,48 +341,54 @@ mod macos {
 </dict>
 </plist>
 "#
-            );
+        ))
+    }
 
-            if let Some(parent) = plist_path.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| PlatformError::Io {
-                    path: parent.to_string_lossy().to_string(),
-                    source: e,
-                })?;
-            }
-
-            let parent = plist_path
-                .parent()
-                .unwrap_or_else(|| std::path::Path::new("."));
-            let temp_path = parent.join(format!(
-                ".{}.{}.tmp",
-                PLIST_LABEL,
-                snapin_foundation::AppPaths::generate_unique_id()
-            ));
-            if let Err(source) =
-                snapin_foundation::AppPaths::write_secure_file(&temp_path, plist_content.as_bytes())
-            {
-                let _ = std::fs::remove_file(&temp_path);
-                return Err(PlatformError::Io {
-                    path: temp_path.to_string_lossy().to_string(),
-                    source,
-                });
-            }
-            if let Err(source) =
-                snapin_foundation::AppPaths::replace_file_atomically(&temp_path, &plist_path)
-            {
-                let _ = std::fs::remove_file(&temp_path);
-                return Err(PlatformError::Io {
-                    path: plist_path.to_string_lossy().to_string(),
-                    source,
-                });
-            }
-            tracing::info!("已生成 macOS LaunchAgent 自启动清单: {:?}", plist_path);
-        } else if plist_path.exists() {
-            let _ = std::fs::remove_file(&plist_path);
-            tracing::info!("已移除 macOS LaunchAgent 自启动清单: {:?}", plist_path);
+    /// 在目标目录创建临时文件并原子替换正式清单。
+    fn write_launch_agent_atomically(
+        plist_path: &Path,
+        content: &[u8],
+    ) -> Result<(), PlatformError> {
+        let parent = plist_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
+        let temp_path = parent.join(format!(
+            ".{}.{}.tmp",
+            PLIST_LABEL,
+            snapin_foundation::AppPaths::generate_unique_id()
+        ));
+        if let Err(source) = snapin_foundation::AppPaths::write_secure_file(&temp_path, content) {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(PlatformError::Io {
+                path: temp_path.to_string_lossy().to_string(),
+                source,
+            });
         }
-
+        if let Err(source) =
+            snapin_foundation::AppPaths::replace_file_atomically(&temp_path, plist_path)
+        {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(PlatformError::Io {
+                path: plist_path.to_string_lossy().to_string(),
+                source,
+            });
+        }
         Ok(())
+    }
+
+    /// 移除已有 LaunchAgent 清单。
+    fn remove_launch_agent(plist_path: &Path) {
+        if !plist_path.exists() {
+            return;
+        }
+        if let Err(error) = std::fs::remove_file(plist_path) {
+            tracing::warn!(
+                "移除 macOS LaunchAgent 自启动清单失败，路径: {:?}，原因: {error}",
+                plist_path
+            );
+            return;
+        }
+        tracing::info!("已移除 macOS LaunchAgent 自启动清单: {:?}", plist_path);
     }
 
     fn launch_agent_path() -> Option<PathBuf> {
