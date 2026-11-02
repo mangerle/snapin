@@ -41,7 +41,11 @@ icons = [
   "../../assets/icons/icon.ico",
 ]
 resources = [
-  { src = "../../assets/models/ppocrv6", target = "models/ppocrv6" }
+  { src = "../../assets/models/ppocrv6", target = "models/ppocrv6" },
+  { src = "../../LICENSE", target = "licenses/LICENSE" },
+  { src = "../../NOTICE", target = "licenses/NOTICE" },
+  { src = "../../THIRD_PARTY_NOTICES.md", target = "licenses/THIRD_PARTY_NOTICES.md" },
+  { src = "../../LICENSES/LicenseRef-Slint-Royalty-free-2.0.md", target = "licenses/LicenseRef-Slint-Royalty-free-2.0.md" }
 ]
 
 [package.metadata.packager.windows]
