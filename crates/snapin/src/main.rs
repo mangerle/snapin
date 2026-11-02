@@ -113,8 +113,12 @@ fn main() -> Result<()> {
             .map_or("info", |cfg| cfg.general.log_level.as_str()),
     );
     let config = config_for(&command, loaded_config)?;
+    dispatch_command(command, config)
+}
 
-    // 3. 自更新健康自检只在长驻守护进程入口执行。
+/// 按命令路由执行守护进程、设置中心或短生命周期 CLI 操作。
+fn dispatch_command(command: Commands, config: Option<Config>) -> Result<()> {
+    // 自更新健康自检只在长驻守护进程入口执行。
     //
     // `snapin snip/paste/pin-file` 是热键高频拉起的短命令，进程正常退出也不会确认
     // 升级成功；若在 CLI 入口累加未确认启动计数，更新后的正常使用会被误判为连续崩溃
