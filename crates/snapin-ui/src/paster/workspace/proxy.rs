@@ -3,7 +3,9 @@
 use crate::error::UiError;
 use crate::model::PasterItem;
 use crate::model::{GroupId, PasterId};
-use crate::ports::{JobId, MediaJobOutcome};
+use crate::ports::{
+    ClipboardJobId, ClipboardResult, ClipboardTarget, JobId, MediaJobOutcome, PortError,
+};
 use crate::snipper::window::jobs::SnipperJobKind;
 use crate::snipper::SnipperLaunch;
 use snapin_annotation::shapes::TranslationShapeItem;
@@ -60,6 +62,15 @@ pub enum PasterAppEvent {
         job_id: JobId,
         result: Result<Option<PathBuf>, String>,
     },
+    /// 剪贴板读写任务完成；按目标路由回截图覆盖层或指定贴图窗口。
+    ClipboardFinished {
+        /// 发起任务的 UI 所有者
+        target: ClipboardTarget,
+        /// 宿主分配的剪贴板任务标识
+        job_id: ClipboardJobId,
+        /// 真实系统剪贴板结果
+        result: Result<ClipboardResult, PortError>,
+    },
     /// 请求工作区平滑停机，并在事件循环即将退出时回传确认
     Shutdown(Option<oneshot::Sender<()>>),
 }
@@ -99,6 +110,28 @@ impl PasterWorkspaceProxy {
             .send_event(PasterAppEvent::OpenPaster(item))
             .map_err(|e| UiError::Window {
                 message: format!("向贴图工作区投递打开窗口指令失败: {e}"),
+            })
+    }
+
+    /// 回传剪贴板任务完成结果。
+    ///
+    /// # Errors
+    ///
+    /// 工作区事件循环已关闭或事件投递失败时返回 [`UiError`]。
+    pub(crate) fn clipboard_finished(
+        &self,
+        target: ClipboardTarget,
+        job_id: ClipboardJobId,
+        result: Result<ClipboardResult, PortError>,
+    ) -> Result<(), UiError> {
+        self.proxy
+            .send_event(PasterAppEvent::ClipboardFinished {
+                target,
+                job_id,
+                result,
+            })
+            .map_err(|error| UiError::Window {
+                message: format!("向贴图工作区投递剪贴板任务结果失败: {error}"),
             })
     }
 

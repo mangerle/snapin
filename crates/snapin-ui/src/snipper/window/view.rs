@@ -16,6 +16,7 @@ use super::presenter::SnipperPresenter;
 use super::state::clamp_window_rect;
 use super::types::{SnipMode, SnipperLaunch, SnipperOutcome, SnipperRuntime};
 use crate::error::UiError;
+use crate::ports::{ClipboardEventSink, ClipboardJobId, ClipboardResult, PortError};
 use crate::snipper::selection::{Rect, SelectionState};
 use image::RgbaImage;
 use std::sync::Arc;
@@ -42,6 +43,7 @@ impl SnipperView {
         window_target: &ActiveEventLoop,
         launch: SnipperLaunch,
         job_sink: SnipperJobSink,
+        clipboard_events: ClipboardEventSink,
     ) -> Result<Self, UiError> {
         let SnipperLaunch {
             bg_image,
@@ -59,7 +61,15 @@ impl SnipperView {
             &bg_image,
             mode != SnipMode::PickColor,
         )?;
-        let mut state = build_initial_state(runtime, windows, mode, screen_w, screen_h, job_sink);
+        let mut state = build_initial_state(
+            runtime,
+            windows,
+            mode,
+            screen_w,
+            screen_h,
+            job_sink,
+            clipboard_events,
+        );
         apply_ui_scale(&window, &mut state, screen_w, screen_h);
 
         window.request_redraw();
@@ -101,6 +111,7 @@ fn build_initial_state(
     screen_w: u32,
     screen_h: u32,
     job_sink: SnipperJobSink,
+    clipboard_events: ClipboardEventSink,
 ) -> SnipperState {
     let mut state = SnipperState::from_config(runtime.config, mode, runtime.desktop);
     state.post_action = runtime.post_action;
@@ -124,6 +135,7 @@ fn build_initial_state(
     }
 
     state.job_runtime = Some(Arc::new(SnipperJobRuntime::new(runtime.media, job_sink)));
+    state.clipboard_events = clipboard_events;
     state
 }
 
@@ -174,6 +186,18 @@ impl SnipperView {
         handle_job_outcome(&mut self.state, job_id, kind, outcome);
     }
 
+    /// 处理剪贴板写入完成事件。
+    ///
+    /// 只有真实写入成功后才设置最终结果并触发覆盖层关闭；失败时保持窗口打开并
+    /// 展示可操作的错误提示。
+    pub fn handle_clipboard_finished(
+        &mut self,
+        job_id: ClipboardJobId,
+        result: Result<ClipboardResult, PortError>,
+    ) {
+        self.state.handle_clipboard_finished(job_id, result);
+    }
+
     /// 取出会话结果；存在结果时会取消仍在执行的后台任务。
     pub fn take_outcome(&mut self) -> Option<SnipperOutcome> {
         let outcome = self.state.outcome.take();
@@ -191,6 +215,7 @@ impl SnipperView {
     /// 事件循环退出前取消后台任务并关闭 IME。
     pub fn cancel(&mut self) {
         self.state.cancel_pending_job();
+        self.state.pending_clipboard = None;
         self.window.set_ime_allowed(false);
     }
 }

@@ -1,5 +1,6 @@
 //! 截图结果输出动作处理 (复制到剪贴板、保存文件、转为贴图)。
 
+use super::clipboard::SnipperClipboardAction;
 use super::events::SnipperState;
 use super::jobs::SnipperJobKind;
 use super::types::SnipperOutcome;
@@ -57,13 +58,7 @@ pub fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
         if let SelectionState::Locked { rect, .. } = &state.selection {
             state.remember_selection(*rect);
         }
-        match state.desktop.write_image_clipboard(cropped) {
-            Ok(()) => state.outcome = Some(SnipperOutcome::CopiedImage),
-            Err(error) => {
-                tracing::warn!("复制选区图像到系统剪贴板失败: {error}");
-                state.set_status_message(format!("复制图像失败: {error}"));
-            }
-        }
+        state.submit_clipboard_image(cropped, SnipperClipboardAction::CopyImage);
     }
 }
 
@@ -173,14 +168,7 @@ fn apply_configured_beautify(state: &SnipperState, image: RgbaImage) -> Result<R
 pub fn handle_action_pick_color(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
     let text = color_text_at_cursor(state, original_rgba);
-
-    match state.desktop.write_text_clipboard(&text) {
-        Ok(()) => state.outcome = Some(SnipperOutcome::CopiedColor(text)),
-        Err(error) => {
-            tracing::warn!("取色器复制颜色值到剪贴板失败: {error}");
-            state.set_status_message(format!("复制颜色失败: {error}"));
-        }
-    }
+    state.submit_clipboard_text(text.clone(), SnipperClipboardAction::PickColor(text));
 }
 
 /// 读取光标位置颜色并按当前取色格式输出；坐标越界时夹取到屏幕边缘。

@@ -148,10 +148,8 @@ fn initialize_services(cfg: &Config, handle: &tokio::runtime::Handle) -> Result<
     let services = Arc::new(
         AppServices::with_runtime(cfg.clone(), task_runtime).context("创建桌面写操作队列失败")?,
     );
-    if let Err(error) = crate::clipboard_history::run_clipboard_history_monitor(
-        &services.runtime(),
-        services.clipboard_cache(),
-    ) {
+    if let Err(error) = crate::clipboard_history::run_clipboard_history_monitor(&services.runtime())
+    {
         tracing::warn!("启动剪贴板历史监控失败: {error:#}");
     }
     Ok(services)

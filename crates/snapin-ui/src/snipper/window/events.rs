@@ -1,6 +1,7 @@
 //! 截图会话键盘事件响应与选区历史回溯。
 
 use super::actions::{handle_action_copy, handle_action_pin, handle_action_save};
+use super::clipboard::SnipperClipboardAction;
 pub use super::state::{commit_active_text_input, SnipperState};
 use super::types::SnipperOutcome;
 use crate::editor::text_input::TextInputSession;
@@ -393,14 +394,18 @@ pub fn handle_escape(state: &mut SnipperState) -> bool {
 }
 
 /// 复制放大镜中心取色结果
-fn handle_copy_hex_color(state: &SnipperState, img: &RgbaImage) {
+fn handle_copy_hex_color(state: &mut SnipperState, img: &RgbaImage) {
     let px = (state.cursor_pos.0 as i32).clamp(0, img.width().saturating_sub(1) as i32) as u32;
     let py = (state.cursor_pos.1 as i32).clamp(0, img.height().saturating_sub(1) as i32) as u32;
     let pixel = img.get_pixel(px, py);
     let hex = format!("#{:02X}{:02X}{:02X}", pixel[0], pixel[1], pixel[2]);
-    if let Err(error) = state.desktop.write_text_clipboard(&hex) {
-        tracing::warn!("复制取色结果到系统剪贴板失败: {error}");
-    }
+    state.submit_clipboard_text(
+        hex.clone(),
+        SnipperClipboardAction::TransientStatus {
+            success_message: format!("已复制颜色值: {hex}"),
+            failure_label: "复制颜色值",
+        },
+    );
 }
 
 /// 历史选区回溯向后

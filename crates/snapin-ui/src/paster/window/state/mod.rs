@@ -10,6 +10,7 @@ use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 
 mod annotations;
 mod chrome;
+pub(crate) mod clipboard;
 mod document;
 mod frame_cache;
 pub(crate) mod interaction;
@@ -19,6 +20,7 @@ mod services;
 mod viewport;
 
 use chrome::PasterChrome;
+use clipboard::PendingClipboardJob;
 use document::PasterDocument;
 use frame_cache::FrameCache;
 use interaction::PasterInteraction;
@@ -55,6 +57,8 @@ pub struct PasterWindowState {
     pub(crate) viewport: PasterViewport,
     /// 后台媒体任务槽；窗口关闭时通过它取消在途任务
     pub(crate) job_slot: PasterJobSlot,
+    /// 当前在途剪贴板任务
+    pub(crate) pending_clipboard: Option<PendingClipboardJob>,
     /// 图像顶部状态提示及其产生时刻，超过 [`STATUS_MESSAGE_TTL`] 后自动失效
     pub(crate) status_message: Option<(String, Instant)>,
     /// 当前修饰键状态；文本输入据此忽略 Ctrl 组合字符
@@ -74,6 +78,7 @@ impl PasterWindowState {
             file_path: None,
             viewport: PasterViewport::default(),
             job_slot: PasterJobSlot::default(),
+            pending_clipboard: None,
             status_message: None,
             modifiers: ModifiersState::default(),
             frame_cache: FrameCache::default(),

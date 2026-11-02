@@ -5,7 +5,7 @@
 //! 依赖来源与生命周期由应用层掌握。
 
 use crate::paster::window::jobs::PasterJobRuntime;
-use crate::ports::DesktopPort;
+use crate::ports::{noop_clipboard_event_sink, ClipboardEventSink, DesktopPort};
 use snapin_config::config::Config;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -18,6 +18,8 @@ pub(crate) struct PasterServices {
     pub(crate) job_runtime: Option<Rc<PasterJobRuntime>>,
     /// 桌面副作用端口
     pub(crate) desktop: Arc<dyn DesktopPort>,
+    /// 剪贴板完成事件投递器
+    pub(crate) clipboard_events: ClipboardEventSink,
 }
 
 impl PasterServices {
@@ -27,6 +29,7 @@ impl PasterServices {
             config,
             job_runtime: None,
             desktop,
+            clipboard_events: noop_clipboard_event_sink(),
         }
     }
 }

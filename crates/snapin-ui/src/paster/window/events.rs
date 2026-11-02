@@ -3,7 +3,10 @@
 pub use super::state::PasterWindowState;
 
 use super::annotation::{handle_toolbar_click, refresh_toolbar_layout};
-use super::menu_actions::{copy_paster_to_clipboard, dispatch_menu_action, save_paster_to_disk};
+use super::menu_actions::{
+    copy_paster_and_close_to_clipboard, copy_paster_to_clipboard, dispatch_menu_action,
+    save_paster_to_disk,
+};
 use super::state::apply_window_scale_resize;
 use super::state::interaction::InteractionMode;
 use crate::editor::toolbar::Tool;
@@ -257,9 +260,7 @@ fn handle_window_press(state: &mut PasterWindowState, window: &Window) -> bool {
 fn apply_double_click_action(state: &mut PasterWindowState) {
     match state.services.config.paster.double_click_action {
         DoubleClickAction::CopyAndClose => {
-            if copy_paster_to_clipboard(state) {
-                state.should_close = true;
-            }
+            copy_paster_and_close_to_clipboard(state);
         }
         DoubleClickAction::Copy => {
             copy_paster_to_clipboard(state);

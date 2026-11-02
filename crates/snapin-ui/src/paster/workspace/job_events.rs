@@ -112,25 +112,13 @@ fn apply_ocr_result(state: &mut PasterWindowState, result: Result<String, String
                 state.set_status_message(snapin_foundation::i18n::tr("未识别到文字"));
                 return;
             }
-            match state.services.desktop.write_text_clipboard(text) {
-                Ok(()) => {
-                    let chars = text.chars().count();
-                    state.set_status_message(snapin_foundation::trf!(
-                        "已复制识别文字（{} 字符）",
-                        "Recognized text copied ({} characters)",
-                        chars
-                    ));
-                    tracing::info!("贴图整图文字识别完成，已复制 {chars} 个字符到剪贴板");
-                }
-                Err(error) => {
-                    tracing::warn!("复制贴图识别文字到系统剪贴板失败: {error}");
-                    state.set_status_message(snapin_foundation::trf!(
-                        "复制识别文字失败: {}",
-                        "Failed to copy recognized text: {}",
-                        error
-                    ));
-                }
-            }
+            let chars = text.chars().count();
+            let success_message = snapin_foundation::trf!(
+                "已复制识别文字（{} 字符）",
+                "Recognized text copied ({} characters)",
+                chars
+            );
+            state.copy_text_to_clipboard(text.to_string(), success_message, "复制识别文字");
         }
         Err(message) => {
             tracing::warn!("贴图整图文字识别失败: {message}");

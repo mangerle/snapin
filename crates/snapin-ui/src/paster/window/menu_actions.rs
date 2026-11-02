@@ -7,7 +7,6 @@ use super::jobs::pixmap_to_rgba_image;
 use super::state::PasterWindowState;
 use crate::paster::context_menu::MenuItemId;
 use image::RgbaImage;
-use tiny_skia::Pixmap;
 use winit::window::Window;
 
 /// 分发执行上下文菜单动作指令
@@ -41,7 +40,7 @@ pub fn dispatch_menu_action(state: &mut PasterWindowState, action: MenuItemId, w
         MenuItemId::FlipVertical => {
             state.flip_vertical();
         }
-        MenuItemId::PasteFromClipboard => paste_from_clipboard_to_paster(state, window),
+        MenuItemId::PasteFromClipboard => paste_from_clipboard_to_paster(state),
         MenuItemId::OpenInFolder => open_paster_in_folder(state),
         MenuItemId::Close => state.should_close = true,
     }
@@ -58,26 +57,16 @@ fn paster_image(state: &mut PasterWindowState, operation: &str) -> Option<RgbaIm
     }
 }
 
-/// 复制贴图图像至剪贴板。
+/// 提交贴图图像复制；返回任务是否成功进入宿主队列。
 ///
-/// 返回是否复制成功：双击“复制并关闭”等复合动作可据此决定是否继续关闭窗口，
-/// 避免复制失败后仍关闭窗口导致用户丢失图像。
+/// 最终成功状态由剪贴板完成事件驱动，不能把“已入队”当成“已复制”。
 pub fn copy_paster_to_clipboard(state: &mut PasterWindowState) -> bool {
-    let Some(image) = paster_image(state, "复制") else {
-        return false;
-    };
-    match state.services.desktop.write_image_clipboard(image) {
-        Ok(()) => {
-            state.set_status_message(snapin_foundation::i18n::tr("已复制图像到剪贴板"));
-            state.services.desktop.notify_copy("贴图图像已复制到剪贴板");
-            true
-        }
-        Err(error) => {
-            tracing::warn!("复制贴图图像到系统剪贴板失败: {error}");
-            state.set_status_message(format!("复制图像失败: {error}"));
-            false
-        }
-    }
+    state.copy_image_to_clipboard(false)
+}
+
+/// 提交“复制并关闭”动作；只有真实写入成功后才关闭窗口。
+pub fn copy_paster_and_close_to_clipboard(state: &mut PasterWindowState) -> bool {
+    state.copy_image_to_clipboard(true)
 }
 
 /// 保存贴图图像并遵循全局输出配置（格式、质量与命名模板）。
@@ -140,24 +129,7 @@ pub fn open_paster_in_folder(state: &mut PasterWindowState) {
     submit_paster_save(state, false, true);
 }
 
-/// 从剪贴板替换或更新当前贴图内容。
-pub fn paste_from_clipboard_to_paster(state: &mut PasterWindowState, window: &Window) {
-    if let Some(img) = state.services.desktop.read_clipboard_image() {
-        if let Some(mut pixmap) = Pixmap::new(img.width(), img.height()) {
-            pixmap.data_mut().copy_from_slice(img.as_raw());
-            state.replace_pixmap(pixmap, window);
-            return;
-        }
-    }
-
-    if let Some(text) = state.services.desktop.read_clipboard_text() {
-        let pixmap = if let Some((r, g, b)) = crate::paster::try_parse_hex_color(&text) {
-            crate::paster::render_color_swatch_card(r, g, b)
-        } else {
-            crate::paster::render_simple_text_card(&text.lines().collect::<Vec<_>>())
-        };
-        if let Some(pixmap) = pixmap {
-            state.replace_pixmap(pixmap, window);
-        }
-    }
+/// 请求从当前系统剪贴板替换贴图内容。
+pub fn paste_from_clipboard_to_paster(state: &mut PasterWindowState) {
+    state.request_clipboard_replace();
 }

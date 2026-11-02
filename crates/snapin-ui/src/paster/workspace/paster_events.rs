@@ -22,15 +22,19 @@ pub(crate) fn handle_paster_window_event(
         Some(inst) => handle_paster_event(inst, event),
         None => false,
     };
-    if !should_close {
-        return;
+    if should_close {
+        remove_paster_instance(runtime, window_id);
     }
+}
 
+/// 安全移除一个贴图窗口实例并释放其后台任务与输入法状态。
+pub(crate) fn remove_paster_instance(runtime: &mut WorkspaceRuntime, window_id: WindowId) {
     if let Some(mut removed) = runtime.instances.remove(&window_id) {
         // 关闭前取消后台 OCR/翻译/保存任务，并结束文字会话与 IME，
         // 避免窗口销毁后任务继续占用推理与网络资源。
         removed.state.cancel_pending_job();
         removed.state.cancel_text_session();
+        removed.state.cancel_pending_clipboard();
         removed.window.set_ime_allowed(false);
         runtime.manager.remove_paster(removed.item_id);
         tracing::info!(

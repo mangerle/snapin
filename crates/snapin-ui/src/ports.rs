@@ -17,6 +17,7 @@
 //! 端口层让 UI 可以脱离真实平台与网络独立测试，但引入了一次动态分发与一次回调装箱。
 //! 这些开销只发生在用户动作触发的低频路径上，相对于 OCR 推理与图像编码可以忽略。
 
+use crate::model::PasterId;
 use crate::snipper::selection::Rect;
 use image::RgbaImage;
 use snapin_annotation::shapes::TranslationShapeItem;
@@ -128,6 +129,75 @@ impl fmt::Display for PortError {
 
 impl std::error::Error for PortError {}
 
+/// 剪贴板后台任务标识。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ClipboardJobId(u64);
+
+impl ClipboardJobId {
+    /// 由宿主分配单调递增的任务标识。
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    /// 读取原始任务序号。
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
+/// 剪贴板任务对应的 UI 所有者。
+///
+/// 截图覆盖层同一时刻最多一个，使用无载荷变体即可精确定位；贴图窗口使用稳定
+/// [`PasterId`] 路由，避免窗口重建或窗口系统 ID 变化导致结果投递到错误窗口。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClipboardTarget {
+    /// 当前截图覆盖层。
+    Snipper,
+    /// 指定贴图窗口。
+    Paster(PasterId),
+}
+
+/// 待写入系统剪贴板的内容。
+#[derive(Debug)]
+pub enum ClipboardWrite {
+    /// 纯文本内容。
+    Text(String),
+    /// RGBA 图像内容。
+    Image(RgbaImage),
+}
+
+/// 后台读取到的当前剪贴板载荷。
+#[derive(Debug, Clone)]
+pub enum ClipboardPayload {
+    /// 当前剪贴板图像。
+    Image(Arc<RgbaImage>),
+    /// 当前剪贴板文本。
+    Text(String),
+    /// 当前剪贴板为空或不包含可处理内容。
+    Empty,
+}
+
+/// 剪贴板后台任务结果。
+#[derive(Debug, Clone)]
+pub enum ClipboardResult {
+    /// 写入操作已由系统剪贴板确认成功。
+    Written,
+    /// 读取操作返回的当前载荷快照。
+    Payload(ClipboardPayload),
+}
+
+/// 剪贴板任务完成回调；最多调用一次。
+pub type ClipboardSink = Box<dyn FnOnce(ClipboardJobId, Result<ClipboardResult, PortError>) + Send>;
+
+/// 将剪贴板完成结果安全投递回 GUI 事件循环的线程安全回调。
+pub type ClipboardEventSink =
+    Arc<dyn Fn(ClipboardTarget, ClipboardJobId, Result<ClipboardResult, PortError>) + Send + Sync>;
+
+/// 构造不执行任何动作的剪贴板事件投递器，供无宿主测试和纯渲染场景使用。
+pub(crate) fn noop_clipboard_event_sink() -> ClipboardEventSink {
+    Arc::new(|_, _, _| {})
+}
+
 /// 桌面副作用端口。
 ///
 /// 该特型只承载“用户动作产生的系统交互”，不包含业务决策。例如是否发送通知、
@@ -140,27 +210,24 @@ pub trait DesktopPort: Send + Sync {
     /// 更新内存中的本次截图选区，并异步提交持久化。
     fn save_last_selection(&self, rect: Rect);
 
-    /// 将文本写入系统剪贴板。
+    /// 提交剪贴板写入；真实写入结果通过 `sink` 异步回传。
     ///
     /// # Errors
     ///
-    /// 写入任务无法提交时返回 [`PortError`]；成功仅表示宿主已受理，实际写入结果
-    /// 由宿主记录。这样 GUI 线程不会等待系统剪贴板服务。
-    fn write_text_clipboard(&self, text: &str) -> Result<(), PortError>;
+    /// 写入任务无法提交时返回 [`PortError`]。返回成功只表示任务已被宿主接收，
+    /// 调用方必须等待回调后才能向用户报告“已复制”。
+    fn write_clipboard(
+        &self,
+        write: ClipboardWrite,
+        sink: ClipboardSink,
+    ) -> Result<ClipboardJobId, PortError>;
 
-    /// 将图像所有权交给宿主并提交系统剪贴板写入。
+    /// 提交一次当前系统剪贴板读取，结果通过 `sink` 异步回传。
     ///
     /// # Errors
     ///
-    /// 写入任务无法提交时返回 [`PortError`]；成功仅表示宿主已受理，实际写入结果
-    /// 由宿主记录。
-    fn write_image_clipboard(&self, image: RgbaImage) -> Result<(), PortError>;
-
-    /// 读取后台轮询发布的最近剪贴板图像快照；没有图像内容时返回 `None`。
-    fn read_clipboard_image(&self) -> Option<Arc<RgbaImage>>;
-
-    /// 读取后台轮询发布的最近剪贴板文本快照；没有文本内容时返回 `None`。
-    fn read_clipboard_text(&self) -> Option<String>;
+    /// 读取任务无法提交时返回 [`PortError`]。
+    fn read_clipboard(&self, sink: ClipboardSink) -> Result<ClipboardJobId, PortError>;
 
     /// 在系统文件管理器中打开指定路径。
     fn open_in_file_manager(&self, path: PathBuf);
@@ -360,20 +427,23 @@ impl DesktopPort for NoopDesktop {
 
     fn save_last_selection(&self, _rect: Rect) {}
 
-    fn write_text_clipboard(&self, _text: &str) -> Result<(), PortError> {
-        Ok(())
+    fn write_clipboard(
+        &self,
+        _write: ClipboardWrite,
+        sink: ClipboardSink,
+    ) -> Result<ClipboardJobId, PortError> {
+        let job_id = ClipboardJobId::new(0);
+        sink(job_id, Ok(ClipboardResult::Written));
+        Ok(job_id)
     }
 
-    fn write_image_clipboard(&self, _image: RgbaImage) -> Result<(), PortError> {
-        Ok(())
-    }
-
-    fn read_clipboard_image(&self) -> Option<Arc<RgbaImage>> {
-        None
-    }
-
-    fn read_clipboard_text(&self) -> Option<String> {
-        None
+    fn read_clipboard(&self, sink: ClipboardSink) -> Result<ClipboardJobId, PortError> {
+        let job_id = ClipboardJobId::new(0);
+        sink(
+            job_id,
+            Ok(ClipboardResult::Payload(ClipboardPayload::Empty)),
+        );
+        Ok(job_id)
     }
 
     fn open_in_file_manager(&self, _path: PathBuf) {}
@@ -396,9 +466,19 @@ mod tests {
     fn noop_desktop_is_safe() {
         let desktop = NoopDesktop;
         assert!(desktop.load_last_selection().is_none());
-        assert!(desktop.write_text_clipboard("hello").is_ok());
-        assert!(desktop.write_image_clipboard(RgbaImage::new(1, 1)).is_ok());
-        assert!(desktop.read_clipboard_text().is_none());
+        assert!(desktop
+            .write_clipboard(
+                ClipboardWrite::Text("hello".to_string()),
+                Box::new(|_, _| {})
+            )
+            .is_ok());
+        assert!(desktop
+            .write_clipboard(
+                ClipboardWrite::Image(RgbaImage::new(1, 1)),
+                Box::new(|_, _| {})
+            )
+            .is_ok());
+        assert!(desktop.read_clipboard(Box::new(|_, _| {})).is_ok());
     }
 
     /// 取消闭包应可被 UI 侧重复调用而不 panic

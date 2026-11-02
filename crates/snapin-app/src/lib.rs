@@ -10,7 +10,6 @@
 //! - 应用层不直接渲染任何像素，窗口呈现仍由 `snapin-ui` 负责。
 
 mod cleaner;
-mod clipboard_cache;
 mod clipboard_history;
 mod config;
 mod daemon;

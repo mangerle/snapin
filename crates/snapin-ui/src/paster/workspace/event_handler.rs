@@ -1,5 +1,6 @@
 //! 贴图集中工作区事件调度与窗口事件响应。
 
+use super::clipboard_events::handle_clipboard_finished;
 use super::job_events::{handle_ocr_finished, handle_save_finished, handle_translate_finished};
 use super::paster_events::handle_paster_window_event;
 use super::persistence::persist_active_group;
@@ -39,6 +40,11 @@ pub(crate) fn handle_workspace_user_event(
         PasterAppEvent::OpenSnipper(launch) => {
             open_snipper(*launch, runtime, elwt);
         }
+        PasterAppEvent::ClipboardFinished {
+            target,
+            job_id,
+            result,
+        } => handle_clipboard_finished(target, job_id, result, runtime),
         PasterAppEvent::SnipperJobFinished {
             job_id,
             kind,
@@ -190,7 +196,7 @@ fn open_snipper(
         });
     });
 
-    match SnipperView::new(elwt, launch, sink) {
+    match SnipperView::new(elwt, launch, sink, runtime.clipboard_events.clone()) {
         Ok(view) => {
             tracing::info!("截图覆盖层已挂载至常驻工作区事件循环");
             runtime.snipper = Some(view);
@@ -203,7 +209,7 @@ fn open_snipper(
 }
 
 /// 若截图覆盖层已产出结果，则销毁窗口并回传应用层。
-fn finish_snipper_if_ready(runtime: &mut WorkspaceRuntime) {
+pub(crate) fn finish_snipper_if_ready(runtime: &mut WorkspaceRuntime) {
     let Some(outcome) = runtime
         .snipper
         .as_mut()

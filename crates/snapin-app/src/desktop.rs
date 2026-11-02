@@ -3,54 +3,118 @@
 //! # 设计原理
 //!
 //! 表现层只通过 [`DesktopPort`] 发起用户动作，本模块把调用转交给
-//! `snapin-platform`，并把平台错误转换为统一的 [`PortError`]。桌面通知
-//! 统一提交到应用级 [`TaskRuntime`]，避免在 winit 事件循环中阻塞等待 D-Bus，
-//! 也不再为每条通知创建线程。
+//! `snapin-platform`，并把平台错误转换为统一的 [`PortError`]。剪贴板读写
+//! 必须经过有界后台队列并携带完成回调：GUI 线程既不等待系统剪贴板服务，
+//! 也不会在真实写入完成前错误地向用户报告成功。
+//!
+//! 桌面通知统一提交到应用级 [`TaskRuntime`]，避免在 winit 事件循环中阻塞等待
+//! D-Bus，也不再为每条通知创建线程。
 //!
 //! # 代价与权衡
 //!
-//! 通知任务与媒体任务共享同一运行时的并发名额；通知属于非关键提示，提交失败时
-//! 只记录警告，不会反向阻塞用户交互。
+//! 剪贴板任务串行执行，保证同一进程内的写入顺序稳定；桌面通知与媒体任务共享
+//! 同一运行时的并发名额，通知属于非关键提示，提交失败时只记录警告。
 
-use crate::clipboard_cache::{ClipboardCache, ClipboardContent};
 use crate::config::{config_snapshot, SharedConfig};
 use arc_swap::ArcSwap;
 use snapin_platform::{
-    open_path_in_file_manager, open_url, send_desktop_notification, write_image_to_clipboard,
-    write_text_to_clipboard,
+    open_path_in_file_manager, open_url, read_clipboard_image, read_clipboard_text,
+    send_desktop_notification, write_image_to_clipboard, write_text_to_clipboard,
 };
 use snapin_runtime::{TaskPool, TaskRuntime};
-use snapin_storage::ClipboardEntryKind;
 use snapin_storage::{load_last_selection, save_last_selection};
 use snapin_ui::snipper::Rect;
-use snapin_ui::{DesktopPort, PortError, PortErrorKind};
+use snapin_ui::{
+    ClipboardJobId, ClipboardPayload, ClipboardResult, ClipboardSink, ClipboardWrite, DesktopPort,
+    PortError, PortErrorKind,
+};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, error::TrySendError};
 
 /// 桌面写操作队列容量；按用户交互频率设置上限，满队列时快速失败。
 const DESKTOP_WRITE_QUEUE_CAPACITY: usize = 8;
 
-enum ClipboardWrite {
-    Text(String),
-    Image(Arc<image::RgbaImage>),
+/// 一次串行执行的剪贴板任务。
+struct ClipboardTask {
+    id: ClipboardJobId,
+    request: Option<ClipboardRequest>,
+    sink: Option<ClipboardSink>,
 }
 
-impl ClipboardWrite {
-    fn execute(self) {
-        match self {
-            Self::Text(text) => {
-                if let Err(error) = write_text_to_clipboard(&text) {
-                    tracing::warn!("写入系统剪贴板失败: {error}");
-                }
+/// 剪贴板后台请求。
+enum ClipboardRequest {
+    /// 将用户内容写入系统剪贴板。
+    Write(ClipboardWrite),
+    /// 按“图像优先、文本兜底”的顺序读取当前系统剪贴板。
+    Read,
+}
+
+impl ClipboardTask {
+    /// 在阻塞线程中执行请求，并向唯一等待方回传真实结果。
+    fn execute(mut self) {
+        let request = self.request.take().expect("剪贴板任务请求在执行前必须存在");
+        let result = match request {
+            ClipboardRequest::Write(ClipboardWrite::Text(text)) => write_text_to_clipboard(&text)
+                .map(|()| ClipboardResult::Written)
+                .map_err(|error| clipboard_error("写入系统剪贴板文本", error)),
+            ClipboardRequest::Write(ClipboardWrite::Image(image)) => {
+                write_image_to_clipboard(&image)
+                    .map(|()| ClipboardResult::Written)
+                    .map_err(|error| clipboard_error("写入系统剪贴板图像", error))
             }
-            Self::Image(image) => {
-                if let Err(error) = write_image_to_clipboard(&image) {
-                    tracing::warn!("写入剪贴板图像失败: {error}");
-                }
-            }
+            ClipboardRequest::Read => read_current_clipboard(),
+        };
+        self.complete(result);
+    }
+
+    /// 任务未被队列接收时解除析构兜底，避免宿主已拒绝提交却回传伪完成事件。
+    fn disarm(&mut self) {
+        self.request = None;
+        self.sink = None;
+    }
+
+    /// 一次性完成回调；重复调用和正常完成后析构均为无操作。
+    fn complete(&mut self, result: Result<ClipboardResult, PortError>) {
+        if let Some(sink) = self.sink.take() {
+            sink(self.id, result);
         }
     }
+}
+
+impl Drop for ClipboardTask {
+    fn drop(&mut self) {
+        self.complete(Err(PortError::with_kind(
+            PortErrorKind::Other,
+            "执行系统剪贴板任务",
+            "任务在返回结果前异常退出",
+        )));
+    }
+}
+
+/// 读取当前系统剪贴板，优先图像，其次文本。
+fn read_current_clipboard() -> Result<ClipboardResult, PortError> {
+    match read_clipboard_image() {
+        Ok(Some(image)) => {
+            return Ok(ClipboardResult::Payload(ClipboardPayload::Image(Arc::new(
+                image,
+            ))))
+        }
+        Ok(None) => {}
+        Err(error) => return Err(clipboard_error("读取系统剪贴板图像", error)),
+    }
+
+    match read_clipboard_text() {
+        Ok(Some(text)) => Ok(ClipboardResult::Payload(ClipboardPayload::Text(text))),
+        Ok(None) => Ok(ClipboardResult::Payload(ClipboardPayload::Empty)),
+        Err(error) => Err(clipboard_error("读取系统剪贴板文本", error)),
+    }
+}
+
+/// 将平台错误转换为稳定 UI 端口错误，避免泄漏具体平台错误类型。
+fn clipboard_error(operation: &str, error: impl std::fmt::Display) -> PortError {
+    PortError::with_kind(PortErrorKind::Unavailable, operation, error.to_string())
 }
 
 /// 桌面副作用端口实现。
@@ -58,18 +122,14 @@ pub(crate) struct AppDesktop {
     config: SharedConfig,
     runtime: TaskRuntime,
     last_selection: ArcSwap<Option<Rect>>,
-    clipboard_cache: Arc<ClipboardCache>,
-    clipboard_tx: mpsc::Sender<ClipboardWrite>,
+    clipboard_tx: mpsc::Sender<ClipboardTask>,
+    next_clipboard_job_id: AtomicU64,
     selection_tx: mpsc::Sender<Rect>,
 }
 
 impl AppDesktop {
     /// 构建桌面端口。
-    pub(crate) fn new(
-        config: SharedConfig,
-        runtime: TaskRuntime,
-        clipboard_cache: Arc<ClipboardCache>,
-    ) -> Result<Self, PortError> {
+    pub(crate) fn new(config: SharedConfig, runtime: TaskRuntime) -> Result<Self, PortError> {
         let last_selection = load_last_selection().map(|(x, y, width, height)| Rect {
             x,
             y,
@@ -82,9 +142,9 @@ impl AppDesktop {
         runtime
             .spawn_in(
                 TaskPool::Background,
-                run_clipboard_writer(clipboard_rx, cancel.clone()),
+                run_clipboard_worker(clipboard_rx, cancel.clone()),
             )
-            .map_err(|error| worker_start_error("启动系统剪贴板写入任务", error))?;
+            .map_err(|error| worker_start_error("启动系统剪贴板任务", error))?;
         runtime
             .spawn_in(
                 TaskPool::Background,
@@ -95,33 +155,75 @@ impl AppDesktop {
             config,
             runtime,
             last_selection: ArcSwap::from_pointee(last_selection),
-            clipboard_cache,
             clipboard_tx,
+            next_clipboard_job_id: AtomicU64::new(1),
             selection_tx,
         })
     }
+
+    /// 提交一个剪贴板任务并返回稳定任务标识。
+    fn submit_clipboard(
+        &self,
+        request: ClipboardRequest,
+        sink: ClipboardSink,
+    ) -> Result<ClipboardJobId, PortError> {
+        let id = ClipboardJobId::new(self.next_clipboard_job_id.fetch_add(1, Ordering::Relaxed));
+        let task = ClipboardTask {
+            id,
+            request: Some(request),
+            sink: Some(sink),
+        };
+        match self.clipboard_tx.try_send(task) {
+            Ok(()) => Ok(id),
+            Err(TrySendError::Full(mut task)) => {
+                task.disarm();
+                Err(PortError::with_kind(
+                    PortErrorKind::Busy,
+                    "提交系统剪贴板任务",
+                    "桌面任务队列已满",
+                ))
+            }
+            Err(TrySendError::Closed(mut task)) => {
+                task.disarm();
+                Err(PortError::with_kind(
+                    PortErrorKind::Unavailable,
+                    "提交系统剪贴板任务",
+                    "桌面任务已停止",
+                ))
+            }
+        }
+    }
 }
 
-async fn run_clipboard_writer(
-    mut receiver: mpsc::Receiver<ClipboardWrite>,
+/// 串行消费剪贴板任务；停机时排空队列后再退出。
+async fn run_clipboard_worker(
+    mut receiver: mpsc::Receiver<ClipboardTask>,
     cancel: snapin_runtime::CancellationToken,
 ) {
     loop {
-        let write = tokio::select! {
+        let task = tokio::select! {
             _ = cancel.cancelled() => None,
-            write = receiver.recv() => write,
+            task = receiver.recv() => task,
         };
-        if let Some(write) = write {
-            execute_clipboard_write(write).await;
+        if let Some(task) = task {
+            execute_clipboard_task(task).await;
             continue;
         }
-        while let Ok(write) = receiver.try_recv() {
-            execute_clipboard_write(write).await;
+        while let Ok(task) = receiver.try_recv() {
+            execute_clipboard_task(task).await;
         }
         break;
     }
 }
 
+/// 在阻塞线程池执行单个剪贴板任务。
+async fn execute_clipboard_task(task: ClipboardTask) {
+    if let Err(error) = tokio::task::spawn_blocking(move || task.execute()).await {
+        tracing::warn!("等待系统剪贴板任务失败: {error}");
+    }
+}
+
+/// 串行消费选区持久化任务；停机时只保留最后一项。
 async fn run_selection_writer(
     mut receiver: mpsc::Receiver<Rect>,
     cancel: snapin_runtime::CancellationToken,
@@ -147,12 +249,7 @@ async fn run_selection_writer(
     }
 }
 
-async fn execute_clipboard_write(write: ClipboardWrite) {
-    if let Err(error) = tokio::task::spawn_blocking(move || write.execute()).await {
-        tracing::warn!("等待系统剪贴板写入任务失败: {error}");
-    }
-}
-
+/// 在阻塞线程池提交历史选区持久化。
 async fn execute_selection_write(rect: Rect) {
     let result = tokio::task::spawn_blocking(move || {
         save_last_selection((rect.x, rect.y, rect.width, rect.height));
@@ -175,34 +272,16 @@ impl DesktopPort for AppDesktop {
         }
     }
 
-    fn write_text_clipboard(&self, text: &str) -> Result<(), PortError> {
-        let text = text.to_string();
-        let content = ClipboardContent::Text {
-            text: text.clone(),
-            kind: ClipboardEntryKind::Text,
-        };
-        self.clipboard_tx
-            .try_send(ClipboardWrite::Text(text))
-            .map_err(|error| queue_error("提交系统剪贴板写入任务", error))?;
-        self.clipboard_cache.store(content);
-        Ok(())
+    fn write_clipboard(
+        &self,
+        write: ClipboardWrite,
+        sink: ClipboardSink,
+    ) -> Result<ClipboardJobId, PortError> {
+        self.submit_clipboard(ClipboardRequest::Write(write), sink)
     }
 
-    fn write_image_clipboard(&self, image: image::RgbaImage) -> Result<(), PortError> {
-        let image = Arc::new(image);
-        self.clipboard_tx
-            .try_send(ClipboardWrite::Image(image.clone()))
-            .map_err(|error| queue_error("提交系统剪贴板写入任务", error))?;
-        self.clipboard_cache.store(ClipboardContent::Image(image));
-        Ok(())
-    }
-
-    fn read_clipboard_image(&self) -> Option<Arc<image::RgbaImage>> {
-        self.clipboard_cache.image()
-    }
-
-    fn read_clipboard_text(&self) -> Option<String> {
-        self.clipboard_cache.text()
+    fn read_clipboard(&self, sink: ClipboardSink) -> Result<ClipboardJobId, PortError> {
+        self.submit_clipboard(ClipboardRequest::Read, sink)
     }
 
     fn open_in_file_manager(&self, path: PathBuf) {
@@ -242,12 +321,78 @@ fn worker_start_error(operation: &str, error: snapin_runtime::TaskRuntimeError) 
 
 fn queue_error<T>(operation: &str, error: TrySendError<T>) -> PortError {
     let (kind, message) = match error {
-        TrySendError::Full(_) => (PortErrorKind::Busy, "桌面写入队列已满"),
-        TrySendError::Closed(_) => (PortErrorKind::Unavailable, "桌面写入任务已停止"),
+        TrySendError::Full(_) => (PortErrorKind::Busy, "桌面任务队列已满"),
+        TrySendError::Closed(_) => (PortErrorKind::Unavailable, "桌面任务已停止"),
     };
     PortError::with_kind(kind, operation, message)
 }
 
 fn queue_error_message(error: TrySendError<Rect>) -> String {
     queue_error("保存历史选区", error).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// 任务异常退出时析构守卫必须向 UI 回传可识别错误，避免状态永久等待。
+    #[test]
+    fn test_clipboard_task_drop_reports_internal_failure() {
+        let received = Arc::new(Mutex::new(None));
+        let sink_received = received.clone();
+        let task = ClipboardTask {
+            id: ClipboardJobId::new(7),
+            request: None,
+            sink: Some(Box::new(move |_, result| {
+                *sink_received
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(result);
+            })),
+        };
+        drop(task);
+
+        let result = received
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+            .expect("析构守卫必须回传失败结果");
+        assert!(matches!(result, Err(PortError { .. })));
+    }
+
+    /// 队列拒绝的任务不得触发回调，避免 UI 收到从未登记过的伪完成事件。
+    #[test]
+    fn test_clipboard_task_disarm_suppresses_callback() {
+        let count = Arc::new(AtomicU64::new(0));
+        let sink_count = count.clone();
+        let mut task = ClipboardTask {
+            id: ClipboardJobId::new(9),
+            request: None,
+            sink: Some(Box::new(move |_, _| {
+                sink_count.fetch_add(1, Ordering::Relaxed);
+            })),
+        };
+        task.disarm();
+        drop(task);
+
+        assert_eq!(count.load(Ordering::Relaxed), 0);
+    }
+
+    /// 正常完成后析构不得重复调用回调。
+    #[test]
+    fn test_clipboard_task_completes_once() {
+        let count = Arc::new(AtomicU64::new(0));
+        let sink_count = count.clone();
+        let mut task = ClipboardTask {
+            id: ClipboardJobId::new(8),
+            request: None,
+            sink: Some(Box::new(move |_, _| {
+                sink_count.fetch_add(1, Ordering::Relaxed);
+            })),
+        };
+        task.complete(Ok(ClipboardResult::Written));
+        drop(task);
+
+        assert_eq!(count.load(Ordering::Relaxed), 1);
+    }
 }

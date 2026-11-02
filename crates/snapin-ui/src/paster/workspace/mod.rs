@@ -7,6 +7,7 @@
 //! 工作区只消费宿主注入的端口与配置快照，不自行读取配置文件、不创建后台线程；
 //! GUI 线程的派生与后台执行器生命周期属于应用层职责。
 
+pub mod clipboard_events;
 pub mod event_handler;
 pub mod job_events;
 pub mod paster_events;
@@ -22,14 +23,17 @@ use super::manager::PasterManager;
 use super::window::jobs::PasterJobRuntime;
 use crate::error::UiError;
 use crate::model::GroupId;
-use crate::ports::{DesktopPort, MediaJobRunner, WorkspaceState, WorkspaceStateStore};
+use crate::ports::{
+    ClipboardEventSink, ClipboardTarget, DesktopPort, MediaJobRunner, WorkspaceState,
+    WorkspaceStateStore,
+};
 use crate::snipper::{SnipperOutcome, SnipperView};
 use event_handler::{handle_workspace_user_event, handle_workspace_window_event};
 use paster_events::handle_workspace_about_to_wait;
 use snapin_config::config::Config;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
@@ -67,6 +71,22 @@ pub struct PasterWorkspaceOptions {
     pub on_tick: Option<Box<dyn FnMut()>>,
 }
 
+/// 构建线程安全的剪贴板完成事件投递器。
+///
+/// `EventLoopProxy` 在部分平台不是 `Sync`，因此使用短临界区互斥锁保护代理；
+/// 锁只覆盖一次事件投递，不跨越任何 I/O 或 await。
+fn build_clipboard_event_sink(proxy: PasterWorkspaceProxy) -> ClipboardEventSink {
+    let proxy = Arc::new(Mutex::new(proxy));
+    Arc::new(move |target: ClipboardTarget, job_id, result| {
+        let proxy = proxy
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Err(error) = proxy.clipboard_finished(target, job_id, result) {
+            tracing::warn!("剪贴板任务结果未能投递回 GUI 事件循环: {error}");
+        }
+    })
+}
+
 /// 贴图工作区事件循环持有的全部长生命周期资源。
 ///
 /// 集中封装窗口实例、分组管理器、全局配置与媒体任务运行时，
@@ -91,6 +111,8 @@ pub(crate) struct WorkspaceRuntime {
     /// 回调在主线程执行，不能捕获要求 `Send` 的宿主对象之外的限制；
     /// 返回后事件循环会安排 100ms 后的下一次唤醒。
     pub on_tick: Option<Box<dyn FnMut()>>,
+    /// 剪贴板任务完成事件投递器。
+    pub clipboard_events: ClipboardEventSink,
 }
 
 /// 创建集中多窗口贴图工作区事件循环与配套代理
@@ -204,6 +226,7 @@ pub fn run_paster_workspace_loop(
 
     let event_proxy = event_loop.create_proxy();
     let proxy = PasterWorkspaceProxy::new(event_proxy.clone());
+    let clipboard_events = build_clipboard_event_sink(proxy.clone());
     let jobs = Rc::new(PasterJobRuntime::new(media, proxy.clone()));
     let runtime = WorkspaceRuntime {
         instances: HashMap::new(),
@@ -216,6 +239,7 @@ pub fn run_paster_workspace_loop(
         event_proxy,
         on_snipper_finished,
         on_tick,
+        clipboard_events,
     };
 
     let mut application = WorkspaceApplication { runtime };

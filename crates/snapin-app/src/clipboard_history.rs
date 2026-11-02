@@ -3,14 +3,13 @@
 //! 使用固定间隔轮询读取系统剪贴板，读写与哈希计算放入阻塞线程池。相同内容不会
 //! 重复入库，历史仓库负责 10 条与 1 天保留策略。
 
-use crate::clipboard_cache::{ClipboardCache, ClipboardContent};
 use anyhow::{Context, Result};
+use image::RgbaImage;
 use sha2::{Digest, Sha256};
 use snapin_config::config::HexColor;
 use snapin_platform::{read_clipboard_image, read_clipboard_text};
 use snapin_runtime::{TaskPool, TaskRuntime, TaskRuntimeError};
 use snapin_storage::{append_clipboard_image, append_clipboard_text, ClipboardEntryKind};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::MissedTickBehavior;
 
@@ -18,22 +17,32 @@ const POLL_INTERVAL: Duration = Duration::from_millis(500);
 /// 持久化失败后的重试间隔，避免磁盘故障时每 500 毫秒重复告警。
 const PERSIST_RETRY_DELAY: Duration = Duration::from_secs(30);
 
+/// 最近一次读取到的剪贴板内容。
+#[derive(Clone)]
+enum ClipboardContent {
+    /// 文本或颜色值。
+    Text {
+        /// 原始文本。
+        text: String,
+        /// 截屏历史条目类别。
+        kind: ClipboardEntryKind,
+    },
+    /// 图像内容。
+    Image(RgbaImage),
+}
+
 /// 启动剪贴板历史监控任务。
 ///
 /// # Errors
 ///
 /// 统一后台运行时拒绝任务时返回错误。
-pub(crate) fn run_clipboard_history_monitor(
-    runtime: &TaskRuntime,
-    cache: Arc<ClipboardCache>,
-) -> Result<()> {
+pub(crate) fn run_clipboard_history_monitor(runtime: &TaskRuntime) -> Result<()> {
     let cancel = runtime.cancellation_token();
     let runtime = runtime.clone();
     runtime
         .clone()
         .spawn_in(TaskPool::Background, async move {
             let mut persist_gate = PersistGate::default();
-            let mut published_fingerprint = String::new();
             let mut interval = tokio::time::interval(POLL_INTERVAL);
             interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
             loop {
@@ -54,11 +63,6 @@ pub(crate) fn run_clipboard_history_monitor(
                         }
                     },
                 };
-                if fingerprint != published_fingerprint {
-                    cache.store(snapshot.clone());
-                    published_fingerprint.clear();
-                    published_fingerprint.push_str(&fingerprint);
-                }
                 if !persist_gate.should_attempt(&fingerprint, Instant::now()) {
                     continue;
                 }
@@ -163,7 +167,7 @@ fn read_snapshot_value() -> Option<ClipboardContent> {
     read_clipboard_image()
         .ok()
         .flatten()
-        .map(|image| ClipboardContent::Image(Arc::new(image)))
+        .map(ClipboardContent::Image)
 }
 
 #[cfg(test)]

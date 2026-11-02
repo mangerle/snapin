@@ -1,6 +1,7 @@
 //! 截图交互会话状态机模型与配置初始化。
 
 use super::annotation_edit::AnnotationDrag;
+use super::clipboard::PendingClipboardJob;
 use super::jobs::{SnipperJobKind, SnipperJobRuntime};
 use super::ocr_panel::OcrPanelState;
 use super::redaction::RedactionPreview;
@@ -9,7 +10,10 @@ use crate::editor::stroke_session::StrokeSession;
 use crate::editor::text_input::TextInputSession;
 use crate::editor::toolbar::{clear_remembered_sub_options, remembered_sub_options, Toolbar};
 use crate::model::ShapeId;
-use crate::ports::{DesktopPort, JobCancel, JobId, NoopDesktop, QrCodeItem};
+use crate::ports::{
+    noop_clipboard_event_sink, ClipboardEventSink, DesktopPort, JobCancel, JobId, NoopDesktop,
+    QrCodeItem,
+};
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionConstraint, SelectionHistory, SelectionState};
 use crate::snipper::window_rect::WindowRect;
@@ -65,6 +69,10 @@ pub struct SnipperState {
     pub job_runtime: Option<Arc<SnipperJobRuntime>>,
     /// 当前在途媒体任务；三要素由单一值维护，避免部分状态组合
     pub(crate) pending_job: Option<PendingMediaJob>,
+    /// 当前在途剪贴板写入；完成前不得重复发起或提前报告成功
+    pub(crate) pending_clipboard: Option<PendingClipboardJob>,
+    /// 剪贴板完成事件投递器
+    pub(crate) clipboard_events: ClipboardEventSink,
     /// 智能打码可点击文字区域；马赛克已实时写入标注历史，点击区域切换遮挡
     pub redaction_preview: Option<RedactionPreview>,
     /// 最近一次二维码识别结果；存在时 Ctrl+Enter 可打开首个安全链接
@@ -117,6 +125,8 @@ impl SnipperState {
             status_message: None,
             job_runtime: None,
             pending_job: None,
+            pending_clipboard: None,
+            clipboard_events: noop_clipboard_event_sink(),
             redaction_preview: None,
             qr_result: None,
             ocr_panel: None,

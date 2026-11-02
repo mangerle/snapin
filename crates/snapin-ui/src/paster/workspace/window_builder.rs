@@ -71,6 +71,7 @@ pub(crate) fn create_new_paster_window(
     // 工作区级端口注入窗口状态后，工具栏动作才能把整图任务投递到应用层执行器
     state.services.job_runtime = Some(runtime.jobs.clone());
     state.services.desktop = runtime.desktop.clone();
+    state.services.clipboard_events = runtime.clipboard_events.clone();
 
     let win_id = window.id();
     if !runtime.manager.add_entry(item_id, group_id) {
