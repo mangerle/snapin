@@ -10,6 +10,8 @@ use std::borrow::Cow;
 use std::sync::Mutex;
 
 static CLIPBOARD_INSTANCE: Mutex<Option<Clipboard>> = Mutex::new(None);
+/// 单个剪贴板图像允许接收的最大像素数，防止异常内容长期占用数百兆内存。
+const MAX_CLIPBOARD_PIXELS: u64 = 100_000_000;
 
 /// 在全局复用的剪贴板实例上执行操作闭包，具备断开连接时的单次自动重建自愈能力
 fn with_clipboard<R, F: FnMut(&mut Clipboard) -> Result<R, arboard::Error>>(
@@ -126,44 +128,57 @@ pub fn read_clipboard_text() -> Result<Option<String>, PlatformError> {
 
 /// 从系统剪贴板读取 RGBA 图像 (若不存在则返回 None)
 pub fn read_clipboard_image() -> Result<Option<RgbaImage>, PlatformError> {
-    let res = with_clipboard(|cb| match cb.get_image() {
-        Ok(img_data) => {
-            let width = u32::try_from(img_data.width).map_err(|_| arboard::Error::Unknown {
-                description: format!("剪贴板图像宽度超出 u32 范围: {}", img_data.width),
-            })?;
-            let height = u32::try_from(img_data.height).map_err(|_| arboard::Error::Unknown {
-                description: format!("剪贴板图像高度超出 u32 范围: {}", img_data.height),
-            })?;
-            let expected_len = (width as usize)
-                .checked_mul(height as usize)
-                .and_then(|pixels| pixels.checked_mul(4))
-                .ok_or_else(|| arboard::Error::Unknown {
-                    description: format!("剪贴板图像尺寸溢出，宽度: {width}，高度: {height}"),
-                })?;
-            let bytes = img_data.bytes.into_owned();
-            if bytes.len() != expected_len {
-                return Err(arboard::Error::Unknown {
-                    description: format!(
-                        "剪贴板图像像素长度不匹配，期望 {expected_len} 字节，实际 {} 字节",
-                        bytes.len()
-                    ),
-                });
-            }
-            if let Some(rgba) = RgbaImage::from_raw(width, height, bytes) {
-                Ok(Some(rgba))
-            } else {
-                Ok(None)
-            }
-        }
+    let image = match with_clipboard(|cb| match cb.get_image() {
+        Ok(image) => Ok(Some(image)),
         Err(arboard::Error::ContentNotAvailable) => Ok(None),
-        Err(e) => Err(e),
-    });
+        Err(error) => Err(error),
+    }) {
+        Ok(image) => image,
+        Err(error) => {
+            tracing::debug!("读取系统剪贴板图像失败，按无图像内容处理: {error}");
+            return Ok(None);
+        }
+    };
+    image.map(clipboard_image_from_data).transpose()
+}
 
-    match res {
-        Ok(opt) => Ok(opt),
-        Err(PlatformError::Clipboard { .. }) => Ok(None),
-        Err(e) => Err(e),
+fn clipboard_image_from_data(img_data: ImageData<'_>) -> Result<RgbaImage, PlatformError> {
+    let width = u32::try_from(img_data.width).map_err(|_| PlatformError::Clipboard {
+        message: format!("剪贴板图像宽度超出 u32 范围: {}", img_data.width),
+    })?;
+    let height = u32::try_from(img_data.height).map_err(|_| PlatformError::Clipboard {
+        message: format!("剪贴板图像高度超出 u32 范围: {}", img_data.height),
+    })?;
+    let pixels = u64::from(width)
+        .checked_mul(u64::from(height))
+        .ok_or_else(|| PlatformError::Clipboard {
+            message: format!("剪贴板图像尺寸溢出，宽度: {width}，高度: {height}"),
+        })?;
+    if pixels == 0 || pixels > MAX_CLIPBOARD_PIXELS {
+        return Err(PlatformError::Clipboard {
+            message: format!(
+                "剪贴板图像像素数非法，尺寸: {width}x{height}，上限: {MAX_CLIPBOARD_PIXELS}"
+            ),
+        });
     }
+    let expected_len = usize::try_from(pixels)
+        .ok()
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| PlatformError::Clipboard {
+            message: format!("剪贴板图像字节数超出平台范围，尺寸: {width}x{height}"),
+        })?;
+    let bytes = img_data.bytes.into_owned();
+    if bytes.len() != expected_len {
+        return Err(PlatformError::Clipboard {
+            message: format!(
+                "剪贴板图像像素长度不匹配，期望 {expected_len} 字节，实际 {} 字节",
+                bytes.len()
+            ),
+        });
+    }
+    RgbaImage::from_raw(width, height, bytes).ok_or_else(|| PlatformError::Clipboard {
+        message: format!("构建剪贴板图像失败，尺寸: {width}x{height}"),
+    })
 }
 
 #[cfg(test)]
@@ -182,5 +197,25 @@ mod tests {
         // 在无显示服务的 headless 环境下 Clipboard::new 可能会返回 Err，
         // 此处验证函数能够安全返回 Result 而不触发 panic
         let _ = read_clipboard_text();
+    }
+
+    #[test]
+    fn test_clipboard_image_data_rejects_length_mismatch() {
+        let data = ImageData {
+            width: 2,
+            height: 2,
+            bytes: Cow::Borrowed(&[0, 0, 0, 255]),
+        };
+        assert!(clipboard_image_from_data(data).is_err());
+    }
+
+    #[test]
+    fn test_clipboard_image_data_rejects_oversized_dimensions() {
+        let data = ImageData {
+            width: 10_001,
+            height: 10_000,
+            bytes: Cow::Borrowed(&[]),
+        };
+        assert!(clipboard_image_from_data(data).is_err());
     }
 }
