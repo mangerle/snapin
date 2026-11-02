@@ -60,17 +60,7 @@ impl BaiduTranslator {
         to_lang: &str,
         expected: usize,
     ) -> Result<Vec<String>, ServiceError> {
-        let salt = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-            .to_string();
-        let raw_sign = format!("{}{}{}{}", self.app_id, query, salt, self.secret_key);
-
-        let mut hasher = Md5::new();
-        hasher.update(raw_sign.as_bytes());
-        let sign = format!("{:x}", hasher.finalize());
-
+        let signature = BaiduSignature::build(query, &self.app_id, &self.secret_key);
         let body = post_signed_form(
             "baidu",
             &self.client,
@@ -80,47 +70,74 @@ impl BaiduTranslator {
                 ("from", from_lang),
                 ("to", to_lang),
                 ("appid", self.app_id.as_str()),
-                ("salt", salt.as_str()),
-                ("sign", sign.as_str()),
+                ("salt", signature.salt.as_str()),
+                ("sign", signature.sign.as_str()),
             ],
         )
         .await?;
-        let resp_data: BaiduResponse =
-            serde_json::from_slice(&body).map_err(|error| ServiceError::ResponseFormat {
-                provider: "baidu".to_string(),
-                message: format!("无法解析百度翻译 JSON 响应: {error}"),
-            })?;
+        parse_response(&body, expected)
+    }
+}
 
-        if let Some(err_code) = resp_data.error_code {
-            if err_code != "52000" {
-                return Err(ServiceError::ApiError {
-                    provider: "baidu".to_string(),
-                    code: err_code,
-                    message: resp_data.error_msg.unwrap_or_default(),
-                });
-            }
+/// 百度翻译请求的盐值与 MD5 签名。
+struct BaiduSignature {
+    salt: String,
+    sign: String,
+}
+
+impl BaiduSignature {
+    /// 使用纳秒盐值计算百度要求的 MD5 签名。
+    fn build(query: &str, app_id: &str, secret_key: &str) -> Self {
+        let salt = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+            .to_string();
+        let raw_sign = format!("{app_id}{query}{salt}{secret_key}");
+        let mut hasher = Md5::new();
+        hasher.update(raw_sign.as_bytes());
+        Self {
+            salt,
+            sign: format!("{:x}", hasher.finalize()),
         }
+    }
+}
 
-        let trans_items = resp_data
-            .trans_result
-            .ok_or_else(|| ServiceError::ApiError {
-                provider: "baidu".to_string(),
-                code: "EMPTY_RESULT".to_string(),
-                message: "百度翻译接口未返回译文列表".to_string(),
-            })?;
-        let results: Vec<String> = trans_items.into_iter().map(|item| item.dst).collect();
-        if results.len() != expected {
+/// 解析百度响应并校验业务码、空结果和返回条数。
+fn parse_response(body: &[u8], expected: usize) -> Result<Vec<String>, ServiceError> {
+    let response: BaiduResponse =
+        serde_json::from_slice(body).map_err(|error| ServiceError::ResponseFormat {
+            provider: "baidu".to_string(),
+            message: format!("无法解析百度翻译 JSON 响应: {error}"),
+        })?;
+    if let Some(error_code) = response.error_code {
+        if error_code != "52000" {
             return Err(ServiceError::ApiError {
                 provider: "baidu".to_string(),
-                code: "RESULT_COUNT_MISMATCH".to_string(),
-                message: format!(
-                    "百度翻译返回 {} 条译文，与请求 {expected} 条不一致",
-                    results.len()
-                ),
+                code: error_code,
+                message: response.error_msg.unwrap_or_default(),
             });
         }
-        Ok(results)
     }
+    let translated = response
+        .trans_result
+        .ok_or_else(|| ServiceError::ApiError {
+            provider: "baidu".to_string(),
+            code: "EMPTY_RESULT".to_string(),
+            message: "百度翻译接口未返回译文列表".to_string(),
+        })?;
+    let results: Vec<String> = translated.into_iter().map(|item| item.dst).collect();
+    if results.len() != expected {
+        return Err(ServiceError::ApiError {
+            provider: "baidu".to_string(),
+            code: "RESULT_COUNT_MISMATCH".to_string(),
+            message: format!(
+                "百度翻译返回 {} 条译文，与请求 {expected} 条不一致",
+                results.len()
+            ),
+        });
+    }
+    Ok(results)
 }
 
 #[derive(Deserialize)]
