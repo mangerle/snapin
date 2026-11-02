@@ -1,17 +1,13 @@
 //! 工具栏动作类别图标绘制实现。
 
 use super::primitives::{add_round_rect, make_paint, RoundRect};
-use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Stroke, Transform};
+use super::IconPainter;
+use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 图标 8: 向左回转撤销
-pub fn render_icon_undo(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_undo(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut pb = PathBuilder::new();
     pb.move_to(cx - 3.0 * s, cy - 6.5 * s);
     pb.line_to(cx - 6.5 * s, cy - 3.0 * s);
@@ -31,14 +27,9 @@ pub fn render_icon_undo(
 }
 
 /// 图标 9: 向右回转重做
-pub fn render_icon_redo(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_redo(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut pb = PathBuilder::new();
     pb.move_to(cx + 3.0 * s, cy - 6.5 * s);
     pb.line_to(cx + 6.5 * s, cy - 3.0 * s);
@@ -58,14 +49,9 @@ pub fn render_icon_redo(
 }
 
 /// 图标 10: 关闭取消 X
-pub fn render_icon_close(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_close(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut pb = PathBuilder::new();
     pb.move_to(cx - 5.0 * s, cy - 5.0 * s);
     pb.line_to(cx + 5.0 * s, cy + 5.0 * s);
@@ -77,14 +63,9 @@ pub fn render_icon_close(
 }
 
 /// 图标 12: 鼠标指针加斜杠 (贴图鼠标穿透开关)
-pub fn render_icon_mouse_through(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_mouse_through(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut pb = PathBuilder::new();
     // 指针轮廓
     pb.move_to(cx - 4.5 * s, cy - 7.0 * s);
@@ -104,14 +85,9 @@ pub fn render_icon_mouse_through(
 }
 
 /// 图标 11: 经典大头工字图钉 (贴图置顶)
-pub fn render_icon_pin(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_pin(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut pb = PathBuilder::new();
     // 钉帽与钉身轮廓：平顶帽盖、内收腰身、展开托盘
     pb.move_to(cx - 5.5 * s, cy - 6.5 * s);
@@ -132,14 +108,9 @@ pub fn render_icon_pin(
 }
 
 /// 图标 12: 经典 3.5 寸软盘
-pub fn render_icon_save(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_save(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut pb = PathBuilder::new();
     pb.move_to(cx - 6.5 * s, cy - 6.5 * s);
     pb.line_to(cx + 3.5 * s, cy - 6.5 * s);
@@ -161,14 +132,9 @@ pub fn render_icon_save(
 }
 
 /// 图标 13: 双重叠矩形纸张 (复制到剪贴板)
-pub fn render_icon_copy(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_copy(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut pb_back = PathBuilder::new();
     add_round_rect(
         &mut pb_back,
@@ -200,14 +166,9 @@ pub fn render_icon_copy(
 }
 
 /// 图标 14: 四角取景框内嵌大写 A (文字识别)
-pub fn render_icon_ocr(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_ocr(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let reach = 6.6 * s;
     let inner = 3.4 * s;
     let mut pb = PathBuilder::new();
@@ -234,14 +195,9 @@ pub fn render_icon_ocr(
 }
 
 /// 二维码图标：三个定位方块与中间简化数据点。
-pub fn render_icon_qr(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_qr(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut pb = PathBuilder::new();
     for (x, y) in [
         (cx - 6.0 * s, cy - 6.0 * s),
@@ -276,14 +232,9 @@ pub fn render_icon_qr(
 ///
 /// 前框先以按钮当前底色填充再描边，遮住后框被压住的一角，
 /// 从而在任意悬停/激活高亮状态下都呈现干净的纸张叠层效果。
-pub fn render_icon_translate(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_translate(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let side = 9.6 * s;
     let radius = 1.5 * s;
     let back = (cx - 1.6 * s, cy - 7.8 * s);

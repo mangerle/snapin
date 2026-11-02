@@ -1,17 +1,13 @@
 //! 标注工具类别图标绘制实现。
 
 use super::primitives::{add_ellipse, add_round_rect, make_paint, Ellipse, RoundRect};
-use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Stroke, Transform};
+use super::IconPainter;
+use tiny_skia::{PathBuilder, PixmapMut, Transform};
 
 /// 图标: 纯椭圆几何造型
-pub fn render_icon_ellipse(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_ellipse(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut epb = PathBuilder::new();
     add_ellipse(
         &mut epb,
@@ -28,14 +24,9 @@ pub fn render_icon_ellipse(
 }
 
 /// 图标 1: 几何图形 (矩形与扁椭圆相交组合)
-pub fn render_icon_rect(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_rect(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut pb = PathBuilder::new();
     add_round_rect(
         &mut pb,
@@ -68,15 +59,10 @@ pub fn render_icon_rect(
 }
 
 /// 图标 2: 坚挺斜向指示箭头 + 右上当前所选颜色微圆点
-pub fn render_icon_arrow(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    active_color: Color,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_arrow(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
+    let active_color = painter.active_color;
     let mut pb = PathBuilder::new();
     // 主干箭杆：从左下坚挺刺向右上
     pb.move_to(cx - 6.5 * s, cy + 6.5 * s);
@@ -104,14 +90,9 @@ pub fn render_icon_arrow(
 }
 
 /// 图标 3: 斜置铅笔 (圆角笔身 + 尾端束线，笔尖指向左下)
-pub fn render_icon_pen(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_pen(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let length = 15.5 * s;
     let width = 3.4 * s;
     let mut pb = PathBuilder::new();
@@ -142,14 +123,9 @@ pub fn render_icon_pen(
 }
 
 /// 折线工具：单段直线与多段折线组合图形。
-pub fn render_icon_line(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_line(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut pb = PathBuilder::new();
     pb.move_to(cx - 7.0 * s, cy + 5.0 * s);
     pb.line_to(cx - 1.5 * s, cy - 4.0 * s);
@@ -161,14 +137,9 @@ pub fn render_icon_line(
 }
 
 /// 橡皮擦图标。
-pub fn render_icon_eraser(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_eraser(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut pb = PathBuilder::new();
     add_round_rect(
         &mut pb,
@@ -188,14 +159,9 @@ pub fn render_icon_eraser(
 }
 
 /// 放大镜图标：圆形镜片与向右下延伸的手柄。
-pub fn render_icon_magnifier(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_magnifier(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut pb = PathBuilder::new();
     pb.push_circle(cx - 1.5 * s, cy - 1.5 * s, 6.0 * s);
     pb.move_to(cx + 3.0 * s, cy + 3.0 * s);
@@ -206,14 +172,9 @@ pub fn render_icon_magnifier(
 }
 
 /// 图标 4: 荧光记号笔 (倒梯形宽笔头 + 笔身)
-pub fn render_icon_marker(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_marker(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut pb = PathBuilder::new();
     pb.move_to(cx - 6.5 * s, cy + 4.5 * s);
     pb.line_to(cx - 3.5 * s, cy + 7.5 * s);
@@ -231,14 +192,9 @@ pub fn render_icon_marker(
 }
 
 /// 图标 5: 2x2 黑白对角棋盘格马赛克
-pub fn render_icon_mosaic(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_mosaic(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let sz = 12.0 * s;
     let hsz = sz / 2.0;
     let x0 = cx - hsz;
@@ -287,14 +243,9 @@ pub fn render_icon_mosaic(
 }
 
 /// 图标 6: 圆角方框内衬无衬线大写 T
-pub fn render_icon_text(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_text(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let half = 6.8 * s;
     let bar_y = cy - 2.1 * s;
     let mut pb = PathBuilder::new();
@@ -319,14 +270,9 @@ pub fn render_icon_text(
 }
 
 /// 图标 7: 圆圈数字 1 步骤序号徽标
-pub fn render_icon_badge(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_badge(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut pb = PathBuilder::new();
     // 外部规整正圆
     pb.push_circle(cx, cy, 7.5 * s);
@@ -342,14 +288,9 @@ pub fn render_icon_badge(
 }
 
 /// 图标: 水滴造型表示局部模糊
-pub fn render_icon_blur(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_blur(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut pb = PathBuilder::new();
     pb.move_to(cx, cy - 7.5 * s);
     pb.cubic_to(
@@ -375,14 +316,9 @@ pub fn render_icon_blur(
 }
 
 /// 图标: 中心圆与四向光线表示聚光灯
-pub fn render_icon_spotlight(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    paint: &Paint,
-    stroke: &Stroke,
-) {
+pub(super) fn render_icon_spotlight(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let mut pb = PathBuilder::new();
     pb.push_circle(cx, cy, 3.8 * s);
     for (dx, dy) in [(0.0, -1.0), (0.0, 1.0), (-1.0, 0.0), (1.0, 0.0)] {
