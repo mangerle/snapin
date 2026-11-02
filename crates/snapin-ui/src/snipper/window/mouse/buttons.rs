@@ -1,6 +1,7 @@
 //! 鼠标按键按下、释放与自动后处理触发。
 
 use super::*;
+use crate::snipper::selection::ResizeHandle;
 
 /// 鼠标按键点击事件处理
 pub fn handle_mouse_button(
@@ -108,28 +109,52 @@ fn handle_locked_press(
 ) -> bool {
     // 优先检测是否点击在工具栏范围内，坚决拦截阻止事件穿透到画布
     if state.editor.annotation.toolbar.contains_point(cx, cy) {
-        commit_active_text_input(state);
-        crate::snipper::window::annotation_edit::clear(state);
-        if state.editor.annotation.toolbar.begin_drag(cx, cy) {
-            return true;
-        }
-        if let Some(item) = state.editor.annotation.toolbar.handle_click(cx, cy) {
-            dispatch_toolbar_action(state, item, original_rgba);
-        }
-        return true;
+        return handle_toolbar_press(state, cx, cy, original_rgba);
     }
 
     // 点击画布表示离开二级栏数值控件；后续滚轮恢复默认粗细调节。
     state.editor.annotation.toolbar.clear_sub_focus();
-
     commit_active_text_input(state);
 
+    if let Some(handled) = handle_annotation_press(state, cx, cy) {
+        return handled;
+    }
+    if let Some(handle) = selection_handle_at(state, rect, cx, cy) {
+        return begin_selection_resize(state, handle);
+    }
+    if rect.contains(cx, cy) {
+        return handle_inside_selection_press(state, rect, cx, cy);
+    }
+    reset_selection_from_canvas(state, cx, cy);
+    true
+}
+
+/// 处理工具栏范围内的按下；无论是否命中控件都拦截穿透。
+fn handle_toolbar_press(
+    state: &mut SnipperState,
+    cx: f32,
+    cy: f32,
+    original_rgba: &RgbaImage,
+) -> bool {
+    commit_active_text_input(state);
+    crate::snipper::window::annotation_edit::clear(state);
+    if state.editor.annotation.toolbar.begin_drag(cx, cy) {
+        return true;
+    }
+    if let Some(item) = state.editor.annotation.toolbar.handle_click(cx, cy) {
+        dispatch_toolbar_action(state, item, original_rgba);
+    }
+    true
+}
+
+/// 处理已提交标注的编辑、锁定提示与文字工具入口。
+fn handle_annotation_press(state: &mut SnipperState, cx: f32, cy: f32) -> Option<bool> {
     // 已提交标注的编辑优先于新建文本与新图元：默认只允许编辑最新一条，
     // 旧标注处于锁定态，让它们重新变成可绘制的画布；按住 Alt 可显式解锁旧标注。
     let allow_locked_annotation = state.viewport.modifiers.alt_key();
     if crate::snipper::window::annotation_edit::handle_press(state, cx, cy, allow_locked_annotation)
     {
-        return true;
+        return Some(true);
     }
 
     // 未激活绘制工具时点击旧标注：不应误拖动整个选区，改为提示 Alt 解锁方式。
@@ -139,69 +164,79 @@ fn handle_locked_press(
         state.set_status_message(snapin_foundation::i18n::tr(
             "旧标注已锁定，按住 Alt 点击可重新编辑",
         ));
-        return true;
+        return Some(true);
     }
 
     if state.editor.annotation.toolbar.active_tool == Some(Tool::Text) {
-        return handle_text_tool_click(state, cx, cy);
+        return Some(handle_text_tool_click(state, cx, cy));
     }
+    None
+}
 
-    // 选区控制手柄优先于继续绘制：工具激活时也允许随时调整选区大小
+/// 查找选区控制手柄；工具激活时也允许随时调整选区大小。
+fn selection_handle_at(state: &SnipperState, rect: Rect, cx: f32, cy: f32) -> Option<ResizeHandle> {
     let handle_tolerance = 8.0 * state.editor.annotation.toolbar.ui_scale;
-    if let Some(handle) = hit_test_handle(&rect, cx, cy, handle_tolerance) {
+    hit_test_handle(&rect, cx, cy, handle_tolerance)
+}
+
+/// 进入选区手柄缩放状态。
+fn begin_selection_resize(state: &mut SnipperState, handle: ResizeHandle) -> bool {
+    crate::snipper::window::annotation_edit::clear(state);
+    if let SelectionState::Locked {
+        ref mut active_drag,
+        ..
+    } = state.viewport.selection
+    {
+        *active_drag = Some(DragMode::Resize(handle));
+    }
+    true
+}
+
+/// 处理选区内部的橡皮擦、绘制工具或整体拖动。
+fn handle_inside_selection_press(state: &mut SnipperState, rect: Rect, cx: f32, cy: f32) -> bool {
+    if state.editor.annotation.toolbar.active_tool == Some(Tool::Eraser) {
+        return eraser::handle_press(state, cx, cy);
+    }
+    if state.editor.annotation.toolbar.active_tool == Some(Tool::Line)
+        && state.editor.annotation.toolbar.sub_options.line_mode == LineMode::Polyline
+    {
         crate::snipper::window::annotation_edit::clear(state);
-        if let SelectionState::Locked {
-            ref mut active_drag,
-            ..
-        } = state.viewport.selection
-        {
-            *active_drag = Some(DragMode::Resize(handle));
-        }
+        state
+            .editor
+            .annotation
+            .stroke
+            .points
+            .push(crate::geometry::Point::new(cx, cy));
+        state.editor.annotation.stroke.is_drawing = true;
         return true;
     }
-
-    if rect.contains(cx, cy) {
-        if state.editor.annotation.toolbar.active_tool == Some(Tool::Eraser) {
-            return eraser::handle_press(state, cx, cy);
-        }
-        if state.editor.annotation.toolbar.active_tool == Some(Tool::Line)
-            && state.editor.annotation.toolbar.sub_options.line_mode == LineMode::Polyline
-        {
-            crate::snipper::window::annotation_edit::clear(state);
-            state
-                .editor
-                .annotation
-                .stroke
-                .points
-                .push(crate::geometry::Point::new(cx, cy));
-            state.editor.annotation.stroke.is_drawing = true;
-            return true;
-        }
-        if state.editor.annotation.toolbar.active_tool.is_some() {
-            crate::snipper::window::annotation_edit::clear(state);
-            state.editor.annotation.stroke.points.clear();
-            state
-                .editor
-                .annotation
-                .stroke
-                .points
-                .push(crate::geometry::Point::new(cx, cy));
-            return true;
-        }
+    if state.editor.annotation.toolbar.active_tool.is_some() {
         crate::snipper::window::annotation_edit::clear(state);
-        if let SelectionState::Locked {
-            ref mut active_drag,
-            ..
-        } = state.viewport.selection
-        {
-            *active_drag = Some(DragMode::Move {
-                offset_x: (cx - rect.x) as i32,
-                offset_y: (cy - rect.y) as i32,
-            });
-        }
+        state.editor.annotation.stroke.points.clear();
+        state
+            .editor
+            .annotation
+            .stroke
+            .points
+            .push(crate::geometry::Point::new(cx, cy));
         return true;
     }
+    crate::snipper::window::annotation_edit::clear(state);
+    if let SelectionState::Locked {
+        ref mut active_drag,
+        ..
+    } = state.viewport.selection
+    {
+        *active_drag = Some(DragMode::Move {
+            offset_x: (cx - rect.x) as i32,
+            offset_y: (cy - rect.y) as i32,
+        });
+    }
+    true
+}
 
+/// 点击空白画布时清除旧选区并开始新的框选。
+fn reset_selection_from_canvas(state: &mut SnipperState, cx: f32, cy: f32) {
     // 点击在已有选区外部：清除当前选区，允许重新框选；工具栏随新选区重新自适应摆放
     state.editor.annotation.toolbar.active_tool = None;
     state.editor.annotation.toolbar.reset_manual_position();
@@ -211,7 +246,6 @@ fn handle_locked_press(
         start: (cx, cy),
         current: (cx, cy),
     };
-    true
 }
 
 /// 鼠标左键抬起交互
