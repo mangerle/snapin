@@ -36,6 +36,12 @@ pub fn get_default_config_path() -> Result<PathBuf, CoreError> {
 /// 校验失败时返回 [`CoreError`]。语法损坏会先备份再重建；语义错误则保留原文件
 /// 并拒绝继续，避免把用户可修复的配置静默替换成默认值。
 pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreError> {
+    if custom_path.is_none() {
+        crate::paths::AppPaths::ensure_config_dir().map_err(|source| CoreError::IoError {
+            path: crate::paths::AppPaths::config_dir(),
+            source,
+        })?;
+    }
     let target_path = match custom_path {
         Some(p) => p.to_path_buf(),
         None => get_default_config_path()?,
