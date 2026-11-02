@@ -49,57 +49,101 @@ use update_loop::run_update_check_loop;
 /// 后台运行时创建、应用服务初始化、GUI 事件循环或服务任务失败时返回错误。
 pub fn run_daemon_process(cfg: Config) -> Result<()> {
     snapin_foundation::i18n::set_language(cfg.general.language);
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .thread_name("snapin-daemon")
-        .build()
-        .context("创建守护进程后台运行时失败")?;
+    let runtime = create_daemon_runtime()?;
     let handle = runtime.handle().clone();
-
-    // 1. 幂等启动：已有守护进程时只确保扩展启用后退出。
-    //    套接字被占用但对端协议不兼容（典型为升级前的旧版本还在运行）时必须直接失败：
-    //    继续初始化只会随后在绑定阶段被拒绝，白白改动扩展与快捷键状态。
-    match runtime.block_on(probe_daemon()) {
-        DaemonProbe::Online => {
+    match probe_existing_daemon(&runtime) {
+        ExistingDaemon::Online => {
             tracing::info!("Snapin 守护服务已在后台运行中，无需重复启动。");
             enable_gnome_extension();
             runtime.shutdown_timeout(Duration::from_secs(1));
             return Ok(());
         }
-        DaemonProbe::Unresponsive { reason } => {
+        ExistingDaemon::Unresponsive(reason) => {
             runtime.shutdown_timeout(Duration::from_secs(1));
             anyhow::bail!(
                 "检测到正在运行但无法通信的 Snapin 守护进程（可能是旧版本或已无响应），\
                  请先结束该进程后重试，原因: {reason}"
             );
         }
-        DaemonProbe::Absent => {}
+        ExistingDaemon::Absent => {}
     }
+    recover_update_on_startup();
+    initialize_daemon_platform(&runtime, &cfg);
 
-    // 只有真正的长驻入口才参与更新健康观察：短命令不会确认升级，不能累加崩溃计数。
-    // 守护进程完成启动后会调用 confirm_update_success 闭环，避免正常使用触发误回滚。
+    let services = initialize_services(&cfg, &handle);
+    let (event_loop, workspace_proxy) =
+        create_paster_workspace().context("创建集中贴图工作区事件循环失败")?;
+    let (snipper_callback, snipper_rx) = create_snipper_channel(&services);
+    let (gui_closed_tx, gui_closed_rx) = watch::channel(false);
+    let server = spawn_daemon_server(
+        &handle,
+        cfg.clone(),
+        workspace_proxy.clone(),
+        services.clone(),
+        snipper_rx,
+        gui_closed_rx,
+    );
+    let options = build_workspace_options(&cfg, &services, &workspace_proxy, snipper_callback);
+    let gui_result = run_paster_workspace_loop(event_loop, options);
+    let _ = gui_closed_tx.send(true);
+    finish_daemon(runtime, server, gui_result)
+}
+
+/// 创建守护进程后台 Tokio 运行时。
+fn create_daemon_runtime() -> Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_name("snapin-daemon")
+        .build()
+        .context("创建守护进程后台运行时失败")
+}
+
+/// 启动探测结果。
+enum ExistingDaemon {
+    Online,
+    Absent,
+    Unresponsive(String),
+}
+
+/// 探测已有实例，不在借用运行时上执行销毁。
+fn probe_existing_daemon(runtime: &tokio::runtime::Runtime) -> ExistingDaemon {
+    match runtime.block_on(probe_daemon()) {
+        DaemonProbe::Online => ExistingDaemon::Online,
+        DaemonProbe::Unresponsive { reason } => ExistingDaemon::Unresponsive(reason),
+        DaemonProbe::Absent => ExistingDaemon::Absent,
+    }
+}
+
+/// 长驻入口启动时执行更新健康自检；失败只告警并继续。
+fn recover_update_on_startup() {
     if let Err(error) = snapin_updater::check_and_recover_on_startup() {
         tracing::warn!("自更新启动自检失败，继续启动: {error}");
     }
+}
 
+/// 初始化平台能力、快捷键和 GNOME 扩展。
+fn initialize_daemon_platform(runtime: &tokio::runtime::Runtime, cfg: &Config) {
     tracing::info!("Snapin 守护服务启动中...");
     runtime.block_on(snapin_platform::init_platform_capabilities());
-    runtime.block_on(run_startup_hotkeys_and_extension(&cfg));
+    runtime.block_on(run_startup_hotkeys_and_extension(cfg));
     enable_gnome_extension();
     runtime.block_on(snapin_platform::refresh_platform_capabilities());
+}
 
-    // 2. 统一后台任务运行时与应用服务
+/// 构建统一任务运行时与应用服务，并启动剪贴板历史监控。
+fn initialize_services(cfg: &Config, handle: &tokio::runtime::Handle) -> Arc<AppServices> {
     let task_runtime = TaskRuntime::from_handle(handle.clone(), 8);
     let services = Arc::new(AppServices::with_runtime(cfg.clone(), task_runtime));
     if let Err(error) = crate::run_clipboard_history_monitor(&services.runtime()) {
         tracing::warn!("启动剪贴板历史监控失败: {error:#}");
     }
+    services
+}
 
-    // 3. 主线程创建唯一的 GUI 事件循环
-    let (event_loop, workspace_proxy) =
-        create_paster_workspace().context("创建集中贴图工作区事件循环失败")?;
-
-    // 4. 截图结果与 GUI 退出信号通过有界通道回传
+/// 创建有界截图结果通道与 GUI 线程回传回调。
+fn create_snipper_channel(
+    services: &Arc<AppServices>,
+) -> (SnipperFinishedCallback, mpsc::Receiver<SnipperOutcome>) {
     let (snipper_tx, snipper_rx) = mpsc::channel::<SnipperOutcome>(4);
     let callback_runtime = services.runtime();
     let snipper_callback: SnipperFinishedCallback = Arc::new(move |outcome| {
@@ -121,44 +165,53 @@ pub fn run_daemon_process(cfg: Config) -> Result<()> {
             }
         }
     });
-    let (gui_closed_tx, gui_closed_rx) = watch::channel(false);
+    (snipper_callback, snipper_rx)
+}
 
-    // 5. 后台服务与主线程 GUI 并行启动；服务启动失败时必须关闭 GUI，避免留下无服务空壳进程
-    let gui_config = cfg.clone();
-    let gui_services = services.clone();
+/// 启动后台服务；服务异常时必须关闭 GUI，避免留下无服务空壳进程。
+fn spawn_daemon_server(
+    handle: &tokio::runtime::Handle,
+    cfg: Config,
+    workspace_proxy: PasterWorkspaceProxy,
+    services: Arc<AppServices>,
+    snipper_rx: mpsc::Receiver<SnipperOutcome>,
+    gui_closed_rx: watch::Receiver<bool>,
+) -> JoinHandle<Result<()>> {
     let shutdown_proxy = workspace_proxy.clone();
     let server_proxy = workspace_proxy.clone();
-    let server = handle.spawn(async move {
-        let result = run_daemon_server(
-            cfg.clone(),
-            server_proxy,
-            services.clone(),
-            snipper_rx,
-            gui_closed_rx,
-        )
-        .await;
+    handle.spawn(async move {
+        let result =
+            run_daemon_server(cfg, server_proxy, services, snipper_rx, gui_closed_rx).await;
         if result.is_err() {
             let _ = shutdown_proxy.shutdown_and_wait().await;
         }
         result
-    });
+    })
+}
 
+/// 汇总主线程托盘、热键、桌面端口与截图回调，构建工作区选项。
+fn build_workspace_options(
+    cfg: &Config,
+    services: &Arc<AppServices>,
+    workspace_proxy: &PasterWorkspaceProxy,
+    snipper_callback: SnipperFinishedCallback,
+) -> PasterWorkspaceOptions {
     let tray = create_daemon_tray();
-    let hotkey_listener = create_hotkey_listener(&gui_config);
-    let on_tick = build_gui_tick(tray, hotkey_listener, gui_services.clone(), workspace_proxy);
-
-    let options = PasterWorkspaceOptions {
-        config: gui_config,
-        desktop: gui_services.desktop(),
-        media: gui_services.media(),
+    let hotkey_listener = create_hotkey_listener(cfg);
+    let on_tick = build_gui_tick(
+        tray,
+        hotkey_listener,
+        services.clone(),
+        workspace_proxy.clone(),
+    );
+    PasterWorkspaceOptions {
+        config: cfg.clone(),
+        desktop: services.desktop(),
+        media: services.media(),
         state_store: Arc::new(crate::workspace_state::AppWorkspaceStateStore::new()),
         on_snipper_finished: Some(snipper_callback),
         on_tick,
-    };
-    let gui_result = run_paster_workspace_loop(event_loop, options);
-    let _ = gui_closed_tx.send(true);
-
-    finish_daemon(runtime, server, gui_result)
+    }
 }
 
 /// 等待后台服务收尾并汇总 GUI/服务两侧的退出结果。
