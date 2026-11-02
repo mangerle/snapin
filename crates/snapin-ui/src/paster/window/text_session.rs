@@ -119,7 +119,7 @@ pub(crate) fn render_text_session_preview(state: &PasterWindowState, target: &mu
     let Some(session) = &state.interaction.active_text_input else {
         return;
     };
-    let scale = state.document.item.transform.scale.max(f32::EPSILON);
+    let scale = state.document.item.transform.scale().max(f32::EPSILON);
     session.render_scaled(&mut target.as_mut(), scale, true);
 }
 
@@ -142,7 +142,7 @@ pub(crate) fn refresh_ime_cursor_area(state: &PasterWindowState, window: &Window
     let Some(session) = &state.interaction.active_text_input else {
         return;
     };
-    let scale = state.document.item.transform.scale.max(f32::EPSILON);
+    let scale = state.document.item.transform.scale().max(f32::EPSILON);
     let (x, y) = image_to_screen_point(session.pos, scale);
     let font_size = (session.font_size * scale).max(8.0);
     window.set_ime_cursor_area(
@@ -278,7 +278,7 @@ mod tests {
     #[test]
     fn 文字会话坐标按缩放换算() {
         let mut state = text_state(200, 100);
-        state.document.item.transform.scale = 1.0;
+        state.document.item.transform.set_scale(1.0);
         assert!(state.begin_text_session((30.0, 20.0)));
         assert_eq!(
             state
@@ -291,7 +291,7 @@ mod tests {
         );
 
         state.cancel_text_session();
-        state.document.item.transform.scale = 1.67;
+        state.document.item.transform.set_scale(1.67);
         assert!(state.begin_text_session((100.2, 83.5)));
         let pos = state
             .interaction

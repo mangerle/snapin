@@ -82,7 +82,7 @@ impl PasterWindowState {
 
     /// 根据用户配置初始化贴图状态（注入初始不透明度）
     pub fn from_config(mut item: PasterItem, config: Arc<Config>) -> Self {
-        item.transform.opacity = config.paster.initial_opacity.clamp(0.1, 1.0);
+        item.transform.set_opacity(config.paster.initial_opacity);
         let mut state = Self::new(item);
         state.services.config = config;
         state
@@ -150,9 +150,9 @@ impl PasterWindowState {
     /// 滚轮平滑缩放，并按配置的光标/中心锚点重新定位窗口。
     pub fn zoom(&mut self, delta: f32, window: &Window) {
         let old_size = window.inner_size();
-        let old_scale = self.document.item.transform.scale;
+        let old_scale = self.document.item.transform.scale();
         self.document.item.transform.zoom(delta);
-        let new_scale = self.document.item.transform.scale;
+        let new_scale = self.document.item.transform.scale();
         if (new_scale - old_scale).abs() < f32::EPSILON {
             return;
         }
@@ -318,7 +318,7 @@ impl PasterWindowState {
     pub(crate) fn screen_point_inside_image(&self, pos: (f32, f32)) -> bool {
         crate::paster::window::annotation::is_point_inside_image(
             pos,
-            self.document.item.transform.scale,
+            self.document.item.transform.scale(),
             self.document.item.pixmap.width(),
             self.document.item.pixmap.height(),
         )
@@ -328,7 +328,7 @@ impl PasterWindowState {
     pub(crate) fn image_point(&self, screen_pos: (f32, f32)) -> (f32, f32) {
         screen_to_image_point(
             screen_pos,
-            self.document.item.transform.scale,
+            self.document.item.transform.scale(),
             self.document.item.pixmap.width(),
             self.document.item.pixmap.height(),
         )
@@ -386,7 +386,7 @@ impl PasterWindowState {
 pub(crate) fn apply_window_scale_resize(state: &mut PasterWindowState, window: &Window) {
     let base_w = state.document.item.pixmap.width() as f32;
     let base_h = state.document.item.pixmap.height() as f32;
-    let scale = state.document.item.transform.scale;
+    let scale = state.document.item.transform.scale();
     let mut new_w = (base_w * scale).max(20.0);
     let mut new_h = (base_h * scale).max(20.0);
 

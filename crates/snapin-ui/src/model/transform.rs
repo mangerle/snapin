@@ -8,9 +8,9 @@
 #[derive(Debug, Clone, PartialEq)]
 pub struct PasterTransform {
     /// 缩放倍率 (0.1 ~ 10.0)
-    pub scale: f32,
+    scale: f32,
     /// 窗口不透明度 (0.1 ~ 1.0)
-    pub opacity: f32,
+    opacity: f32,
 }
 
 impl Default for PasterTransform {
@@ -23,6 +23,16 @@ impl Default for PasterTransform {
 }
 
 impl PasterTransform {
+    /// 当前缩放倍率，始终位于 0.1 到 10.0。
+    pub const fn scale(&self) -> f32 {
+        self.scale
+    }
+
+    /// 当前窗口不透明度，始终位于 0.1 到 1.0。
+    pub const fn opacity(&self) -> f32 {
+        self.opacity
+    }
+
     /// 按照给定的滚轮角度增量调整缩放倍率，限制在 10% 到 1000% 之间
     pub fn zoom(&mut self, delta_y: f32) {
         if !delta_y.is_finite() || delta_y == 0.0 {
@@ -43,6 +53,13 @@ impl PasterTransform {
     pub fn adjust_opacity(&mut self, delta: f32) {
         if delta.is_finite() {
             self.opacity = (self.opacity + delta).clamp(0.1, 1.0);
+        }
+    }
+
+    /// 精确设置不透明度，非有限值会被忽略。
+    pub fn set_opacity(&mut self, opacity: f32) {
+        if opacity.is_finite() {
+            self.opacity = opacity.clamp(0.1, 1.0);
         }
     }
 }

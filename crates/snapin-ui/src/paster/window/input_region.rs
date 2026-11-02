@@ -142,7 +142,7 @@ pub(crate) fn input_layout_from_state(
     window_w: f32,
     window_h: f32,
 ) -> InputRegionLayout {
-    let scale = state.document.item.transform.scale.max(f32::EPSILON);
+    let scale = state.document.item.transform.scale().max(f32::EPSILON);
     let (toolbar_main, toolbar_sub, toolbar_dropdown) = if state.chrome.show_toolbar {
         (
             Some(state.interaction.toolbar.main_rect),

@@ -128,7 +128,7 @@ pub(crate) fn refresh_toolbar_layout(
     let ui_scale = state.viewport.ui_scale.max(0.1);
     state.interaction.toolbar.ui_scale = ui_scale;
 
-    let scale = state.document.item.transform.scale.max(f32::EPSILON);
+    let scale = state.document.item.transform.scale().max(f32::EPSILON);
     let scaled_h = (state.document.item.pixmap.height() as f32 * scale).max(1.0);
     let margin = 8.0 * ui_scale;
     let bar_x = margin;
