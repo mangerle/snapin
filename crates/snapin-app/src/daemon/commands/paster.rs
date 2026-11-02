@@ -22,6 +22,14 @@ pub(super) struct CreatePasterRequest {
     pub(super) raw_path: String,
 }
 
+/// 已校验像素数据的贴图投递参数。
+struct OpenPasterRequest {
+    title: String,
+    x: i32,
+    y: i32,
+    pixmap: Pixmap,
+}
+
 /// 一次性像素文件守卫：所有读取失败与任务取消路径都通过析构完成最终清理。
 ///
 /// 显式 [`Self::remove`] 会先尝试异步删除并把错误交给调用方；析构只作为兜底，
@@ -124,6 +132,29 @@ pub(super) async fn create(
         return None;
     }
 
+    open_paster(
+        workspace,
+        OpenPasterRequest {
+            title,
+            x,
+            y,
+            pixmap,
+        },
+    )
+    .await
+}
+
+/// 将已读取的贴图投递到工作区并确认 Wayland 精确放置。
+async fn open_paster(
+    workspace: &PasterWorkspaceProxy,
+    request: OpenPasterRequest,
+) -> Option<DaemonResponse> {
+    let OpenPasterRequest {
+        title,
+        x,
+        y,
+        pixmap,
+    } = request;
     let uid = AppPaths::generate_unique_id();
     register_paster_placement(&title, x, y).await;
     let item = PasterItem::new(uid, title.clone(), pixmap, (x, y));
@@ -134,7 +165,7 @@ pub(super) async fn create(
             format!("打开贴图失败: {error}"),
         ));
     }
-    // 窗口已投递到工作区线程，此时再轮询确认放置，顺序不能提前
+    // 窗口已投递到工作区线程，此时再轮询确认放置，顺序不能提前。
     confirm_paster_placement(&title, x, y).await;
     Some(DaemonResponse::Ok)
 }
