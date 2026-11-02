@@ -31,6 +31,10 @@ const IFACE_XML = `
 // 延迟放置请求的最长有效期：贴图标题含唯一 ID 不会复用，超时仅用于兜底回收异常未映射的请求
 const PLACEMENT_TTL_US = 5 * 1000 * 1000;
 
+// 窗口映射完成前 Mutter 会静默丢弃 move_frame，故在首次放置后按这些延迟（毫秒）重放。
+// 取值覆盖 Wayland 客户端提交首帧的常见耗时，过短会放空，过长会与用户拖动产生明显争抢。
+const PLACEMENT_REPLAY_DELAYS_MS = [60, 180];
+
 export default class SnapinHelperExtension extends Extension {
     enable() {
         // 1. 导出 Mutter 特权窗口操作与原生截屏 D-Bus 服务
@@ -98,9 +102,42 @@ export default class SnapinHelperExtension extends Extension {
      * @param {number} y 物理像素 Y 坐标
      */
     _moveWindowByPhysical(metaWin, x, y) {
-        if (typeof metaWin.move_frame !== 'function') return;
         let scale = this._windowScale(metaWin);
-        metaWin.move_frame(true, Math.round(x / scale), Math.round(y / scale));
+        this._replayMove(metaWin, Math.round(x / scale), Math.round(y / scale));
+    }
+
+    /**
+     * 按逻辑坐标移动窗口，并在窗口完成映射后重放同一落点。
+     *
+     * 设计原理：window-created 触发时 Wayland 客户端往往尚未提交首帧，此时调用
+     * move_frame 会被 Mutter 静默丢弃（实测窗口停留在合成器默认位置）；只依赖
+     * notify::title 也不行，因为标题通常早于创建信号写入，补挂监听不会再触发。
+     * 因此在首次尝试后按固定延迟重放已解析好的绝对坐标。
+     *
+     * 重放复用同一坐标而不重新采样鼠标位置，避免多次取值造成窗口漂移；重放次数固定，
+     * 不做无限重试，以免窗口销毁后残留定时器或与用户拖动长期争抢位置。
+     * @param {Meta.Window} metaWin 目标窗口
+     * @param {number} x 逻辑坐标 X
+     * @param {number} y 逻辑坐标 Y
+     */
+    _replayMove(metaWin, x, y) {
+        if (typeof metaWin.move_frame !== 'function') return;
+
+        const move = () => {
+            try {
+                metaWin.move_frame(true, x, y);
+            } catch (e) {
+                console.error('Snapin 贴图窗口定位失败:', e);
+            }
+        };
+
+        move();
+        for (const delay of PLACEMENT_REPLAY_DELAYS_MS) {
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
+                move();
+                return GLib.SOURCE_REMOVE;
+            });
+        }
     }
 
     /**
@@ -173,9 +210,7 @@ export default class SnapinHelperExtension extends Extension {
         let scale = this._windowScale(metaWin);
         let targetX = Math.max(10, mouseX - Math.floor(rect.width / scale / 2));
         let targetY = Math.max(30, mouseY - Math.floor(rect.height / scale / 2));
-        if (typeof metaWin.move_frame === 'function') {
-            metaWin.move_frame(true, targetX, targetY);
-        }
+        this._replayMove(metaWin, targetX, targetY);
     }
 
     /**
