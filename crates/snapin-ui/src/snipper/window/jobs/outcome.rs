@@ -1,14 +1,15 @@
 //! 截图任务结果回填与状态流转。
 
 use super::SnipperJobKind;
-use crate::ports::{JobId, MediaJobOutcome};
+use crate::ports::{JobId, MediaJobOutcome, OcrTextItem, QrCodeItem};
 use crate::snipper::window::clipboard::SnipperClipboardAction;
 use crate::snipper::window::ocr_panel::OcrPanelState;
 use crate::snipper::window::redaction::{apply_redaction, RedactionPreview};
 use crate::snipper::window::state::SnipperState;
 use crate::snipper::window::types::SnipperOutcome;
 use snapin_annotation::action::AnnotationShape;
-use snapin_annotation::shapes::TranslationAction;
+use snapin_annotation::shapes::{TranslationAction, TranslationShapeItem};
+use std::path::PathBuf;
 
 /// 处理后台任务结果，驱动截图会话状态流转。
 pub fn handle_job_outcome(
@@ -23,106 +24,131 @@ pub fn handle_job_outcome(
     }
 
     match outcome {
-        MediaJobOutcome::Ocr { text, lines } => {
-            if kind == SnipperJobKind::Redact {
-                if lines.is_empty() {
-                    state.clear_status_message();
-                    return;
-                }
-                let preview = RedactionPreview::from_ocr_lines(&lines);
-                let applied = apply_redaction(state, &preview);
-                state.ocr.redaction_preview = (applied > 0).then_some(preview);
-                state.clear_status_message();
-                return;
-            }
-            state.ocr.panel = Some(OcrPanelState::from_ocr_lines(&lines));
-            let text = text.trim();
-            if text.is_empty() {
-                state.set_status_message(snapin_foundation::i18n::tr("未识别到文字"));
-                return;
-            }
-            // 识别结果只写入剪贴板，不结束截图会话：用户常常要在同一张图上继续
-            // 标注或再识别另一块区域。成功提示必须等真实剪贴板写入完成后展示。
-            let success_message = snapin_foundation::trf!(
-                "已复制识别文字（{} 字符）",
-                "Recognized text copied ({} characters)",
-                text.chars().count()
-            );
-            state.submit_clipboard_text(
-                text.to_string(),
-                SnipperClipboardAction::TransientStatus {
-                    success_message,
-                    failure_label: "复制识别文字",
-                },
-            );
-        }
-        MediaJobOutcome::QrCodes { codes } => {
-            if codes.is_empty() {
-                state.ocr.qr_result = None;
-                state.set_status_message(snapin_foundation::i18n::tr("未识别到二维码"));
-                return;
-            }
-            let count = codes.len();
-            let first = codes[0].text.clone();
-            let suffix = if first.starts_with("http://") || first.starts_with("https://") {
-                snapin_foundation::i18n::tr("；Ctrl+Enter 打开链接")
-            } else {
-                ""
-            };
-            let success_message = snapin_foundation::trf!(
-                "已复制二维码内容（共 {} 个）{}",
-                "QR content copied ({} codes){}",
-                count,
-                suffix
-            );
-            state.ocr.qr_result = Some(codes);
-            state.submit_clipboard_text(
-                first,
-                SnipperClipboardAction::TransientStatus {
-                    success_message,
-                    failure_label: "复制二维码内容",
-                },
-            );
-        }
-        MediaJobOutcome::Translated { items } => {
-            if items.is_empty() {
-                state.set_status_message(snapin_foundation::i18n::tr("未获得有效翻译结果"));
-                return;
-            }
-            state
-                .editor
-                .annotations
-                .push(AnnotationShape::Translation(TranslationAction::new(items)));
-            state.editor.annotation.toolbar.active_tool = None;
-            state.editor.annotation.toolbar.sub_rect = None;
-            state.clear_status_message();
-            tracing::info!("原位翻译完成，已成功压入标注动作栈");
-        }
-        MediaJobOutcome::Saved { path } => {
-            if kind == SnipperJobKind::Export {
-                state.set_status_message(snapin_foundation::trf!(
-                    "OCR 结果已导出至: {}",
-                    "OCR results exported to: {}",
-                    path.display()
-                ));
-            } else {
-                state.session.outcome = Some(SnipperOutcome::Saved(path));
-            }
-        }
+        MediaJobOutcome::Ocr { text, lines } => handle_ocr_outcome(state, kind, text, lines),
+        MediaJobOutcome::QrCodes { codes } => handle_qr_outcome(state, codes),
+        MediaJobOutcome::Translated { items } => handle_translation_outcome(state, items),
+        MediaJobOutcome::Saved { path } => handle_saved_outcome(state, kind, path),
         MediaJobOutcome::SaveCancelled => {
             state.set_status_message(snapin_foundation::i18n::tr("已取消保存"));
         }
-        MediaJobOutcome::Failed { message } => {
-            tracing::warn!("{}后台任务失败: {message}", kind.label());
-            let message = snapin_foundation::i18n::localize_error(&message);
-            state.set_status_message(snapin_foundation::trf!(
-                "{}失败: {}",
-                "{} failed: {}",
-                kind.label(),
-                message
-            ));
-        }
+        MediaJobOutcome::Failed { message } => handle_job_failure(state, kind, message),
     }
+}
+
+/// 处理 OCR 结果：智能打码进入预览，其余模式打开结果面板并复制正文。
+fn handle_ocr_outcome(
+    state: &mut SnipperState,
+    kind: SnipperJobKind,
+    text: String,
+    lines: Vec<OcrTextItem>,
+) {
+    if kind == SnipperJobKind::Redact {
+        handle_redact_outcome(state, lines);
+        return;
+    }
+    state.ocr.panel = Some(OcrPanelState::from_ocr_lines(&lines));
+    let text = text.trim();
+    if text.is_empty() {
+        state.set_status_message(snapin_foundation::i18n::tr("未识别到文字"));
+        return;
+    }
+    // 识别结果只写入剪贴板，不结束截图会话：用户常常要在同一张图上继续
+    // 标注或再识别另一块区域。成功提示必须等真实剪贴板写入完成后展示。
+    let success_message = snapin_foundation::trf!(
+        "已复制识别文字（{} 字符）",
+        "Recognized text copied ({} characters)",
+        text.chars().count()
+    );
+    state.submit_clipboard_text(
+        text.to_string(),
+        SnipperClipboardAction::TransientStatus {
+            success_message,
+            failure_label: "复制识别文字",
+        },
+    );
+}
+
+/// 将智能打码命中的文字区域立即写入标注历史并保留可切换预览。
+fn handle_redact_outcome(state: &mut SnipperState, lines: Vec<OcrTextItem>) {
+    if lines.is_empty() {
+        state.clear_status_message();
+        return;
+    }
+    let preview = RedactionPreview::from_ocr_lines(&lines);
+    let applied = apply_redaction(state, &preview);
+    state.ocr.redaction_preview = (applied > 0).then_some(preview);
+    state.clear_status_message();
+}
+
+/// 处理二维码结果：空结果清空旧状态，多结果复制第一项并保留全部结果。
+fn handle_qr_outcome(state: &mut SnipperState, codes: Vec<QrCodeItem>) {
+    if codes.is_empty() {
+        state.ocr.qr_result = None;
+        state.set_status_message(snapin_foundation::i18n::tr("未识别到二维码"));
+        return;
+    }
+    let count = codes.len();
+    let first = codes[0].text.clone();
+    let suffix = if first.starts_with("http://") || first.starts_with("https://") {
+        snapin_foundation::i18n::tr("；Ctrl+Enter 打开链接")
+    } else {
+        ""
+    };
+    let success_message = snapin_foundation::trf!(
+        "已复制二维码内容（共 {} 个）{}",
+        "QR content copied ({} codes){}",
+        count,
+        suffix
+    );
+    state.ocr.qr_result = Some(codes);
+    state.submit_clipboard_text(
+        first,
+        SnipperClipboardAction::TransientStatus {
+            success_message,
+            failure_label: "复制二维码内容",
+        },
+    );
+}
+
+/// 将有效原位翻译结果作为一条复合标注提交。
+fn handle_translation_outcome(state: &mut SnipperState, items: Vec<TranslationShapeItem>) {
+    if items.is_empty() {
+        state.set_status_message(snapin_foundation::i18n::tr("未获得有效翻译结果"));
+        return;
+    }
+    state
+        .editor
+        .annotations
+        .push(AnnotationShape::Translation(TranslationAction::new(items)));
+    state.editor.annotation.toolbar.active_tool = None;
+    state.editor.annotation.toolbar.sub_rect = None;
+    state.clear_status_message();
+    tracing::info!("原位翻译完成，已成功压入标注动作栈");
+}
+
+/// 保存成功时区分普通截图保存与 OCR 结果导出。
+fn handle_saved_outcome(state: &mut SnipperState, kind: SnipperJobKind, path: PathBuf) {
+    if kind == SnipperJobKind::Export {
+        state.set_status_message(snapin_foundation::trf!(
+            "OCR 结果已导出至: {}",
+            "OCR results exported to: {}",
+            path.display()
+        ));
+    } else {
+        state.session.outcome = Some(SnipperOutcome::Saved(path));
+    }
+}
+
+/// 将后台任务失败转换为带任务类型的中文提示。
+fn handle_job_failure(state: &mut SnipperState, kind: SnipperJobKind, message: String) {
+    tracing::warn!("{}后台任务失败: {message}", kind.label());
+    let message = snapin_foundation::i18n::localize_error(&message);
+    state.set_status_message(snapin_foundation::trf!(
+        "{}失败: {}",
+        "{} failed: {}",
+        kind.label(),
+        message
+    ));
 }
 
 #[cfg(test)]
