@@ -4,7 +4,9 @@ use crate::daemon::commands::DaemonResponse;
 use crate::placement::{confirm_paster_placement, register_paster_placement};
 use snapin_daemon::DaemonErrorCode;
 use snapin_foundation::AppPaths;
+use snapin_runtime::CancellationToken;
 use snapin_ui::paster::{PasterItem, PasterWorkspaceProxy};
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use tiny_skia::Pixmap;
 use tokio::io::AsyncReadExt;
@@ -19,10 +21,67 @@ pub(super) struct CreatePasterRequest {
     pub(super) raw_path: String,
 }
 
+/// 一次性像素文件守卫：所有读取失败与任务取消路径都通过析构完成最终清理。
+///
+/// 显式 [`Self::remove`] 会先尝试异步删除并把错误交给调用方；析构只作为兜底，
+/// 因此正常路径可报告清理失败，异常路径也不会遗留运行时临时文件。
+struct RuntimePixmapFile {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl RuntimePixmapFile {
+    /// 包裹已经通过运行时目录校验的受控临时文件。
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    /// 获取受控文件路径。
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// 显式删除文件并解除析构兜底；文件已不存在视为清理成功。
+    async fn remove(mut self) -> std::io::Result<()> {
+        match tokio::fs::remove_file(&self.path).await {
+            Ok(()) => {
+                self.armed = false;
+                Ok(())
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                self.armed = false;
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+}
+
+impl Drop for RuntimePixmapFile {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        match std::fs::remove_file(&self.path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => tracing::warn!(
+                "清理被取消或失败的贴图临时像素文件时出错，路径: {:?}，原因: {error}",
+                self.path
+            ),
+        }
+    }
+}
+
+/// 创建贴图窗口；返回 `None` 表示在产生 GUI 或系统副作用前已取消。
 pub(super) async fn create(
     workspace: &PasterWorkspaceProxy,
     request: CreatePasterRequest,
-) -> DaemonResponse {
+    cancel: &CancellationToken,
+) -> Option<DaemonResponse> {
+    if cancel.is_cancelled() {
+        return None;
+    }
     let CreatePasterRequest {
         width,
         height,
@@ -32,31 +91,51 @@ pub(super) async fn create(
         raw_path,
     } = request;
     let Some(expected_len) = snapin_storage::checked_rgba_byte_len(width, height) else {
-        return DaemonResponse::error(DaemonErrorCode::InvalidInput, "贴图像素尺寸非法或超过上限");
+        return Some(DaemonResponse::error(
+            DaemonErrorCode::InvalidInput,
+            "贴图像素尺寸非法或超过上限",
+        ));
     };
     let file_path = PathBuf::from(&raw_path);
 
     if let Err(response) = verify_runtime_file(&file_path).await {
-        return response;
+        return Some(response);
     }
-    let pixmap = match read_pixel_pixmap(&file_path, width, height, expected_len).await {
+    if cancel.is_cancelled() {
+        return None;
+    }
+
+    let temp_file = RuntimePixmapFile::new(file_path);
+    let pixmap = match read_pixel_pixmap(temp_file.path(), width, height, expected_len).await {
         Ok(pixmap) => pixmap,
-        Err(response) => return response,
+        Err(response) => return Some(response),
     };
+    if cancel.is_cancelled() {
+        return None;
+    }
+    if let Err(error) = temp_file.remove().await {
+        return Some(DaemonResponse::error(
+            DaemonErrorCode::Io,
+            format!("清理贴图临时像素文件失败: {error}"),
+        ));
+    }
+    if cancel.is_cancelled() {
+        return None;
+    }
 
     let uid = AppPaths::generate_unique_id();
     register_paster_placement(&title, x, y).await;
     let item = PasterItem::new(uid, title.clone(), pixmap, (x, y));
     if let Err(error) = workspace.open_paster(item) {
         tracing::error!("在集中工作区中打开贴图失败: {error}");
-        return DaemonResponse::error(
+        return Some(DaemonResponse::error(
             DaemonErrorCode::Unavailable,
             format!("打开贴图失败: {error}"),
-        );
+        ));
     }
     // 窗口已投递到工作区线程，此时再轮询确认放置，顺序不能提前
     confirm_paster_placement(&title, x, y).await;
-    DaemonResponse::Ok
+    Some(DaemonResponse::Ok)
 }
 
 /// 校验临时像素文件位于受控运行时目录内，阻断任意路径读取。
@@ -85,7 +164,10 @@ async fn verify_runtime_file(file_path: &Path) -> Result<(), DaemonResponse> {
     }
 }
 
-/// 读取并回收一次性像素文件，直接把像素流入预分配位图，避免整文件中间缓冲。
+/// 读取一次性像素文件，直接把像素流入预分配位图，避免整文件中间缓冲。
+///
+/// 清理由调用方的 [`RuntimePixmapFile`] 负责，确保读取、分配或取消失败时都不会
+/// 遗留受控运行时文件。
 async fn read_pixel_pixmap(
     file_path: &Path,
     width: u32,
@@ -97,7 +179,6 @@ async fn read_pixel_pixmap(
         .map(|metadata| metadata.len() == expected_len as u64)
         .unwrap_or(false);
     if !metadata_matches {
-        let _ = tokio::fs::remove_file(file_path).await;
         return Err(DaemonResponse::error(
             DaemonErrorCode::InvalidInput,
             "像素数据长度与图像分辨率不匹配",
@@ -105,7 +186,6 @@ async fn read_pixel_pixmap(
     }
 
     let Some(mut pixmap) = Pixmap::new(width, height) else {
-        let _ = tokio::fs::remove_file(file_path).await;
         return Err(DaemonResponse::error(
             DaemonErrorCode::Internal,
             "分配像素缓冲区失败",
@@ -121,7 +201,6 @@ async fn read_pixel_pixmap(
         Ok::<(), String>(())
     }
     .await;
-    let _ = tokio::fs::remove_file(file_path).await;
     match read_result {
         Ok(()) => Ok(pixmap),
         Err(message) => Err(DaemonResponse::error(DaemonErrorCode::Io, message)),
@@ -132,19 +211,29 @@ async fn read_pixel_pixmap(
 mod tests {
     use super::*;
 
-    /// 像素文件应直接流入预分配位图，并在成功后回收临时文件。
+    /// 像素文件应直接流入预分配位图，并在守卫显式清理后删除。
     #[tokio::test]
     async fn test_read_pixel_pixmap_streams_and_removes_file() {
         let file = tempfile::NamedTempFile::new().expect("应可创建临时测试文件");
         tokio::fs::write(file.path(), [1u8, 2, 3, 255])
             .await
             .expect("应可写入测试像素");
-        let path = file.path().to_path_buf();
-        let pixmap = read_pixel_pixmap(&path, 1, 1, 4)
+        let guard = RuntimePixmapFile::new(file.path().to_path_buf());
+        let pixmap = read_pixel_pixmap(guard.path(), 1, 1, 4)
             .await
             .expect("应可读取 1x1 像素");
         assert_eq!(pixmap.data(), &[1, 2, 3, 255]);
-        assert!(!path.exists(), "读取成功后必须回收临时文件");
+        guard.remove().await.expect("显式清理像素文件失败");
+        assert!(!file.path().exists(), "读取成功后必须回收临时文件");
+    }
+
+    /// 任务在读取途中被取消时，守卫析构仍必须删除一次性像素文件。
+    #[test]
+    fn test_runtime_pixmap_file_removes_on_drop() {
+        let file = tempfile::NamedTempFile::new().expect("应可创建临时测试文件");
+        let path = file.path().to_path_buf();
+        drop(RuntimePixmapFile::new(path.clone()));
+        assert!(!path.exists(), "守卫析构必须回收临时像素文件");
     }
 
     /// 运行时目录外的任意文件不得通过贴图 IPC 读取，防止路径穿越。

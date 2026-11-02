@@ -7,26 +7,38 @@ mod config;
 mod paster;
 mod status;
 
-use crate::paste::paste_clipboard_to_workspace;
+use crate::paste::{paste_clipboard_to_workspace, PasteDispatchOutcome};
 use crate::services::AppServices;
 use paster::CreatePasterRequest;
 use snapin_daemon::{DaemonErrorCode, DaemonRequest, DaemonResponse};
+use snapin_runtime::CancellationToken;
 use snapin_ui::paster::PasterWorkspaceProxy;
 use std::sync::Arc;
 
 /// 处理单条守护进程指令。
+///
+/// 返回 `None` 表示命令在产生不可逆副作用前检测到取消。取消只在明确的阶段边界
+/// 生效：安全的读取或计算可以完成后再丢弃结果，已经开始的事件投递、配置应用和
+/// 系统集成则必须完整收尾，避免命令只执行一半。
 pub async fn handle_command(
     command: DaemonRequest,
     workspace: &PasterWorkspaceProxy,
     services: &Arc<AppServices>,
-) -> DaemonResponse {
+    cancel: &CancellationToken,
+) -> Option<DaemonResponse> {
+    if cancel.is_cancelled() {
+        return None;
+    }
+
     match command {
-        DaemonRequest::ReloadConfig => config::reload_config(workspace, services.as_ref()).await,
+        DaemonRequest::ReloadConfig => {
+            Some(config::reload_config(workspace, services.as_ref()).await)
+        }
         DaemonRequest::StartSnip {
             mode,
             delay_seconds,
             post_action,
-        } => start_snip(
+        } => Some(start_snip(
             services,
             workspace,
             crate::snip::SnipStartRequest {
@@ -34,8 +46,8 @@ pub async fn handle_command(
                 delay_seconds,
                 post_action,
             },
-        ),
-        DaemonRequest::Paste => paste_clipboard(workspace).await,
+        )),
+        DaemonRequest::Paste => paste_clipboard(workspace, cancel).await,
         DaemonRequest::CreatePaster {
             width,
             height,
@@ -54,23 +66,26 @@ pub async fn handle_command(
                     title,
                     raw_path,
                 },
+                cancel,
             )
             .await
         }
-        DaemonRequest::TogglePasters => status::toggle(workspace),
-        DaemonRequest::SwitchGroup(target_id) => status::switch_group(workspace, target_id).await,
-        DaemonRequest::OpenWorkspace => DaemonResponse::error(
+        DaemonRequest::TogglePasters => Some(status::toggle(workspace)),
+        DaemonRequest::SwitchGroup(target_id) => {
+            Some(status::switch_group(workspace, target_id).await)
+        }
+        DaemonRequest::OpenWorkspace => Some(DaemonResponse::error(
             DaemonErrorCode::Unsupported,
             "贴图工作区面板尚未接入当前界面",
-        ),
-        DaemonRequest::OpenClipboardHistory => DaemonResponse::error(
+        )),
+        DaemonRequest::OpenClipboardHistory => Some(DaemonResponse::error(
             DaemonErrorCode::Unsupported,
             "剪贴板历史面板尚未接入当前界面",
-        ),
-        DaemonRequest::ClearHistory => clear_history().await,
-        DaemonRequest::Shutdown => DaemonResponse::Ok,
-        DaemonRequest::Ping => DaemonResponse::Pong,
-        DaemonRequest::GetStatus => status::query(workspace).await,
+        )),
+        DaemonRequest::ClearHistory => Some(clear_history().await),
+        DaemonRequest::Shutdown => Some(DaemonResponse::Ok),
+        DaemonRequest::Ping => Some(DaemonResponse::Pong),
+        DaemonRequest::GetStatus => Some(status::query(workspace).await),
     }
 }
 
@@ -105,14 +120,19 @@ async fn clear_history() -> DaemonResponse {
 }
 
 /// 从剪贴板生成贴图并投递到集中工作区。
-async fn paste_clipboard(workspace: &PasterWorkspaceProxy) -> DaemonResponse {
-    if let Err(error) = paste_clipboard_to_workspace(workspace).await {
-        tracing::error!("守护服务执行剪贴板贴图失败: {error}");
-        DaemonResponse::error(
-            DaemonErrorCode::Unavailable,
-            format!("剪贴板贴图失败: {error}"),
-        )
-    } else {
-        DaemonResponse::Ok
+async fn paste_clipboard(
+    workspace: &PasterWorkspaceProxy,
+    cancel: &CancellationToken,
+) -> Option<DaemonResponse> {
+    match paste_clipboard_to_workspace(workspace, cancel).await {
+        Ok(PasteDispatchOutcome::Handled) => Some(DaemonResponse::Ok),
+        Ok(PasteDispatchOutcome::Cancelled) => None,
+        Err(error) => {
+            tracing::error!("守护服务执行剪贴板贴图失败: {error}");
+            Some(DaemonResponse::error(
+                DaemonErrorCode::Unavailable,
+                format!("剪贴板贴图失败: {error}"),
+            ))
+        }
     }
 }

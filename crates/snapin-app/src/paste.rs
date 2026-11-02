@@ -3,6 +3,7 @@
 use anyhow::{bail, Context, Result};
 use snapin_foundation::AppPaths;
 use snapin_platform::{read_clipboard_image, read_clipboard_text, send_desktop_notification};
+use snapin_runtime::CancellationToken;
 use snapin_ui::paster::{
     render_color_swatch_card, render_simple_text_card, try_parse_hex_color, PasterItem,
     PasterWorkspaceProxy,
@@ -56,28 +57,49 @@ pub fn create_paster_item_from_clipboard() -> Result<Option<PasterItem>> {
     Ok(None)
 }
 
-/// 检查系统剪贴板并将新贴图直接挂载至集中工作区
-pub async fn paste_clipboard_to_workspace(proxy: &PasterWorkspaceProxy) -> Result<()> {
+/// 剪贴板贴图投递结果。
+///
+/// 取消只允许发生在系统剪贴板读取完成、窗口事件投递之前；一旦开始向 GUI 工作区
+/// 投递窗口，命令就必须完成该不可逆动作，不能在半途丢弃 Future。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PasteDispatchOutcome {
+    /// 已投递贴图或完成空剪贴板提示。
+    Handled,
+    /// 命令在产生 GUI 副作用前已取消。
+    Cancelled,
+}
+
+/// 检查系统剪贴板并将新贴图直接挂载至集中工作区。
+///
+/// # Errors
+///
+/// 剪贴板读取、后台解析、卡片渲染、窗口事件投递或通知发送失败时返回错误。
+pub async fn paste_clipboard_to_workspace(
+    proxy: &PasterWorkspaceProxy,
+    cancel: &CancellationToken,
+) -> Result<PasteDispatchOutcome> {
     tracing::info!("正在检查剪贴板内容以生成贴图...");
     let item = tokio::task::spawn_blocking(create_paster_item_from_clipboard)
         .await
         .context("剪贴板解析任务调度失败")??;
 
+    if cancel.is_cancelled() {
+        return Ok(PasteDispatchOutcome::Cancelled);
+    }
+
     if let Some(item) = item {
         proxy
             .open_paster(item)
             .context("向集中工作区投递贴图失败")?;
-    } else {
-        if let Err(error) = send_desktop_notification(
-            snapin_foundation::i18n::tr("Snapin 贴图提示"),
-            snapin_foundation::i18n::tr("当前剪贴板为空，无法生成贴图"),
-        )
-        .await
-        {
-            tracing::debug!("发送剪贴板为空提示失败或系统通知不可用: {error}");
-        }
+    } else if let Err(error) = send_desktop_notification(
+        snapin_foundation::i18n::tr("Snapin 贴图提示"),
+        snapin_foundation::i18n::tr("当前剪贴板为空，无法生成贴图"),
+    )
+    .await
+    {
+        tracing::debug!("发送剪贴板为空提示失败或系统通知不可用: {error}");
     }
-    Ok(())
+    Ok(PasteDispatchOutcome::Handled)
 }
 
 /// 从磁盘读取并解码目标图像为 tiny-skia 位图（同步阻塞实现，仅供阻塞线程池调用）。

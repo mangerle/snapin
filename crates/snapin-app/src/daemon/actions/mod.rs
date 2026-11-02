@@ -11,7 +11,7 @@ use crate::services::AppServices;
 use crate::snip::{handle_snipper_outcome, start_snipper_task, SnipStartRequest};
 use snapin_daemon::{DaemonErrorCode, DaemonRequest, DaemonResponse};
 use snapin_platform::spawn_independent_process;
-use snapin_runtime::TaskRuntime;
+use snapin_runtime::{CancellationToken, TaskRuntime};
 use snapin_ui::paster::PasterWorkspaceProxy;
 use snapin_ui::snipper::SnipperOutcome;
 use std::sync::{Arc, Mutex};
@@ -97,11 +97,10 @@ pub(super) fn handle_ipc_request(
     let services = Arc::clone(services);
     let workspace = workspace.clone();
     if let Err(error) = services.runtime().spawn(async move {
-        let response = tokio::select! {
-            _ = cancelled.cancelled() => return,
-            response = handle_command(request, &workspace, &services) => response,
-        };
-        task_responder.send(response);
+        let response = handle_command(request, &workspace, &services, &cancelled).await;
+        if let Some(response) = response {
+            task_responder.send(response);
+        }
     }) {
         tracing::warn!("提交 IPC 命令任务失败: {error}");
         responder.send(DaemonResponse::error(
@@ -140,7 +139,8 @@ pub(super) fn spawn_workspace_command(
     let services = Arc::clone(services);
     let workspace = workspace.clone();
     spawn_daemon_command(runtime, async move {
-        let _ = handle_command(request, &workspace, &services).await;
+        let cancel = CancellationToken::new();
+        let _ = handle_command(request, &workspace, &services, &cancel).await;
     });
 }
 
