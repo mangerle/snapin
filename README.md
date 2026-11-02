@@ -43,9 +43,14 @@ Snapin 是纯 Rust 打造的跨平台截图与贴图工具，支持 Linux、Wind
 - 配套扩展零白闪截屏；扩展不可用时自动降级到 XDG Desktop Portal。
 - 鼠标跟随像素放大镜、网格线与 HEX / RGB / HSL 取色。
 - 窗口截图：光标悬停高亮窗口，短按直接吸附窗口边界，拖动仍可自由框选（需配套扩展在线）。
+- 固定比例与固定尺寸选区、Tab 窗口循环、方向键像素微调；Linux GNOME 扩展通道可包含鼠标指针。
 - 矩形、椭圆、箭头、画笔、荧光笔、文字、序号、马赛克、局部模糊、聚光灯标注。
 - 描边线型、填充、圆角、箭头样式、序号样式与调色板。
 - 撤销 / 重做、复制、快捷保存、贴图置顶、OCR、原位翻译。
+- 智能打码：OCR 识别选区全部文字，预览后选择马赛克或模糊并一次性应用。
+- 二维码识别：自动发现选区中的二维码，复制内容，按 `Ctrl+Enter` 打开安全网页链接。
+- OCR 结果面板：默认全选识别行，可逐行选择、编辑并导出 Markdown 或 JSON。
+- 美化导出：在设置中心配置圆角、阴影、渐变背景、水印、原始尺寸和社交平台尺寸，复制、保存与贴图输出统一应用。
 - 标注二次编辑：新画完的标注自动选中，可整体拖动或用包围盒手柄拉伸；旧标注默认锁定，按住 Alt 点击可重新解锁编辑。
 - 工具栏按钮悬浮提示：在按钮下方固定显示工具名与快捷键；贴图窗口没有截图侧的键位，只显示名称。
 - `snip --auto-copy` 框选后自动复制；`snip --translate` 框选后自动翻译。
@@ -77,7 +82,8 @@ Snapin 是纯 Rust 打造的跨平台截图与贴图工具，支持 Linux、Wind
 ### 系统集成
 
 - **[Linux]** 配套 GNOME Shell 扩展：窗口置顶、精确落位、原生截屏、顶栏托盘。
-- 5 个可自定义全局快捷键（Linux 同步到 GNOME，Windows / macOS 通过原生热键注册）。
+- 10 个可自定义全局快捷键（Linux 同步到 GNOME，Windows / macOS 通过原生热键注册）。
+- 配置导入导出；导入执行严格 schema 与未知字段校验，导出包含翻译凭证且不额外加密。
 - **[Linux]** systemd 用户服务、开机自启、桌面通知。
 - Slint 设置中心，保存后热重载守护进程配置。
 
@@ -208,6 +214,11 @@ cargo run -p snapin -- daemon
 | 贴图 | `F1` |
 | 批量隐藏 / 显示贴图 | `Ctrl+F3` |
 | 切换贴图分组 | `Shift+F3` |
+| 智能打码 | `Ctrl+Alt+R` |
+| 二维码识别 | `Ctrl+Alt+Q` |
+| 美化导出 | `Ctrl+Alt+B` |
+| 贴图工作区 | `Ctrl+Alt+W` |
+| 剪贴板历史 | `Ctrl+Shift+V` |
 
 截图工具栏常用操作：
 
@@ -217,6 +228,12 @@ cargo run -p snapin -- daemon
 | 保存并退出 | `Ctrl+S` |
 | 贴图置顶 | `Enter` 或 `F3` |
 | 文字识别 | `O` |
+| OCR 结果面板 | `Shift+O` |
+| 智能打码 | `R` |
+| 二维码识别 | `Q`（位于文字工具之后） |
+| 切换固定比例 / 尺寸 | `1` 到 `6` |
+| 循环窗口候选 | `Tab` / `Shift+Tab` |
+| 微调选区位置 | 方向键 / `Shift` + 方向键 |
 | 原位翻译 | `T` |
 | 撤销 / 重做 | `Ctrl+Z` / `Ctrl+Y` |
 | 上一个 / 下一个历史选区 | `,` / `.` |
@@ -237,11 +254,13 @@ cargo run -p snapin -- daemon
 ## 命令行
 
 ```text
-snapin snip [--auto-copy] [--custom] [--translate] [--fullscreen] [--delay SECONDS]
+snapin snip [--auto-copy] [--custom] [--translate] [--fullscreen] [--redact] [--qr] [--beautify] [--ocr-panel] [--delay SECONDS]
 snapin pick-color
 snapin paste
 snapin toggle
 snapin switch-group [ID]
+snapin workspace
+snapin clipboard-history
 snapin clear-history
 snapin prefs
 snapin daemon
@@ -330,7 +349,7 @@ deb 在安装时会把扩展同步到当前用户的
 - **[Linux]** GNOME Shell 扩展是完整体验的前提。其他桌面环境只能使用 XDG Portal 截屏等部分能力，
   全局快捷键、托盘与窗口置顶可能不可用。
 - 暂不支持跨显示器拼接截图或滚动截图。
-- 截图默认不包含鼠标指针。
+- 截图默认不包含鼠标指针；Linux GNOME 扩展通道可原生包含，Windows / macOS 当前截屏通道仍不包含。
 - 不提供云端上传、分享链接与历史图库。
 - **[Linux]** GNOME Shell 扩展的 JavaScript 无法热更新，升级扩展代码后必须注销并重新登录。
 - OCR 使用 PP-OCRv6 small 模型，超小字号或复杂排版可能需要用户替换更大的模型。
