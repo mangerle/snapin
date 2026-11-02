@@ -361,6 +361,10 @@ impl TaskRuntime {
     ///
     /// 供事件循环退出、进程收尾等同步上下文使用；若在 Tokio 运行时内部调用
     /// `Handle::block_on` 会 panic，因此异步任务中必须使用 [`Self::shutdown`]。
+    ///
+    /// # Panics
+    ///
+    /// 当前线程已处于 Tokio 运行时上下文时调用会 panic，因为 Tokio 禁止嵌套阻塞等待。
     pub fn shutdown_blocking(&self, timeout: Duration) -> bool {
         self.inner.handle.block_on(self.shutdown(timeout))
     }

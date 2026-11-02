@@ -475,6 +475,11 @@ pub const TOOL_DESCRIPTORS: &[ToolDescriptor] = &[
 ];
 
 /// 按工具查找描述元数据；表必须覆盖全部工具。
+///
+/// # Panics
+///
+/// `TOOL_DESCRIPTORS` 是受控静态表，并由 `test_tool_descriptors_cover_all_tools`
+/// 校验覆盖全部 [`Tool`] 变体；若新增工具却遗漏描述项，本函数会立即 panic 暴露开发错误。
 pub fn tool_descriptor(tool: Tool) -> &'static ToolDescriptor {
     TOOL_DESCRIPTORS
         .iter()
