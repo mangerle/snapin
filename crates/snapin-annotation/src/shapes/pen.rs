@@ -6,6 +6,18 @@ use crate::style::{ColorRgba, LineStyle, StrokePathSpec};
 use serde::{Deserialize, Serialize};
 use tiny_skia::{LineCap, LineJoin, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
+/// 高频画笔预览的点集、颜色、线宽、线型与偏移。
+///
+/// 预览阶段直接借用点集切片，避免每个鼠标移动事件都复制 `Vec<Point>`。
+#[derive(Clone, Copy)]
+pub struct PenStrokeSpec<'a> {
+    pub points: &'a [Point],
+    pub color: ColorRgba,
+    pub stroke_width: f32,
+    pub line_style: LineStyle,
+    pub offset: Point,
+}
+
 /// 普通涂鸦画笔动作
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PenAction {
@@ -19,39 +31,38 @@ pub struct PenAction {
 
 impl PenAction {
     /// 直接基于点集切片在 Pixmap 上绘制，避免在预览和高频路径中分配临时 Vec
-    pub fn draw_points_offset(
-        points: &[Point],
-        color: (u8, u8, u8, u8),
-        stroke_width: f32,
-        line_style: LineStyle,
-        pixmap: &mut PixmapMut,
-        offset_x: f32,
-        offset_y: f32,
-    ) {
-        if points.len() < 2 {
+    pub fn draw_points_offset(spec: PenStrokeSpec<'_>, pixmap: &mut PixmapMut) {
+        if spec.points.len() < 2 {
             return;
         }
 
         let mut paint = Paint::default();
-        paint.set_color_rgba8(color.0, color.1, color.2, color.3);
+        paint.set_color_rgba8(spec.color.0, spec.color.1, spec.color.2, spec.color.3);
 
         let mut pb = PathBuilder::new();
-        pb.move_to(points[0].x + offset_x, points[0].y + offset_y);
-        for pt in &points[1..] {
-            pb.line_to(pt.x + offset_x, pt.y + offset_y);
+        pb.move_to(
+            spec.points[0].x + spec.offset.x,
+            spec.points[0].y + spec.offset.y,
+        );
+        for point in &spec.points[1..] {
+            pb.line_to(point.x + spec.offset.x, point.y + spec.offset.y);
         }
 
         if let Some(path) = pb.finish() {
-            if line_style == LineStyle::Solid {
+            if spec.line_style == LineStyle::Solid {
                 let stroke = Stroke {
-                    width: stroke_width,
+                    width: spec.stroke_width,
                     line_cap: LineCap::Round,
                     line_join: LineJoin::Round,
                     ..Default::default()
                 };
                 pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
             } else {
-                line_style.stroke_path(pixmap, &paint, StrokePathSpec::new(&path, stroke_width));
+                spec.line_style.stroke_path(
+                    pixmap,
+                    &paint,
+                    StrokePathSpec::new(&path, spec.stroke_width),
+                );
             }
         }
     }
@@ -60,13 +71,14 @@ impl PenAction {
 impl PenAction {
     pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         Self::draw_points_offset(
-            &self.points,
-            self.color.to_tuple(),
-            self.stroke_width,
-            self.line_style,
+            PenStrokeSpec {
+                points: &self.points,
+                color: self.color,
+                stroke_width: self.stroke_width,
+                line_style: self.line_style,
+                offset: Point::new(offset_x, offset_y),
+            },
             pixmap,
-            offset_x,
-            offset_y,
         );
     }
 

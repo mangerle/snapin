@@ -4,9 +4,18 @@
 
 use super::{map_point, points_bounds, SizeParam};
 use crate::geometry::{Point, Rect};
-use crate::style::{LineStyle, StrokePathSpec};
+use crate::style::{ColorRgba, LineStyle, StrokePathSpec};
 use serde::{Deserialize, Serialize};
 use tiny_skia::{BlendMode, LineCap, LineJoin, Paint, PathBuilder, PixmapMut, Stroke, Transform};
+
+/// 荧光笔预览的点集、颜色、线宽与偏移。
+#[derive(Clone, Copy)]
+pub struct MarkerStrokeSpec<'a> {
+    pub points: &'a [Point],
+    pub color: ColorRgba,
+    pub stroke_width: f32,
+    pub offset: Point,
+}
 
 /// 荧光笔绘制范围。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -62,34 +71,30 @@ pub struct MarkerAction {
 
 impl MarkerAction {
     /// 直接基于点集切片在 Pixmap 上绘制，避免在预览和高频路径中分配临时 Vec
-    pub fn draw_points_offset(
-        points: &[Point],
-        color: (u8, u8, u8),
-        stroke_width: f32,
-        pixmap: &mut PixmapMut,
-        offset_x: f32,
-        offset_y: f32,
-    ) {
-        if points.len() < 2 {
+    pub fn draw_points_offset(spec: MarkerStrokeSpec<'_>, pixmap: &mut PixmapMut) {
+        if spec.points.len() < 2 {
             return;
         }
 
         let mut paint = Paint::default();
         // 50% 半透明荧光色，搭配 Multiply 混合模式
-        paint.set_color_rgba8(color.0, color.1, color.2, 110);
+        paint.set_color_rgba8(spec.color.0, spec.color.1, spec.color.2, 110);
         paint.blend_mode = BlendMode::Multiply;
 
         let stroke = Stroke {
-            width: stroke_width,
+            width: spec.stroke_width,
             line_cap: LineCap::Square,
             line_join: LineJoin::Miter,
             ..Default::default()
         };
 
         let mut pb = PathBuilder::new();
-        pb.move_to(points[0].x + offset_x, points[0].y + offset_y);
-        for pt in &points[1..] {
-            pb.line_to(pt.x + offset_x, pt.y + offset_y);
+        pb.move_to(
+            spec.points[0].x + spec.offset.x,
+            spec.points[0].y + spec.offset.y,
+        );
+        for point in &spec.points[1..] {
+            pb.line_to(point.x + spec.offset.x, point.y + spec.offset.y);
         }
 
         if let Some(path) = pb.finish() {

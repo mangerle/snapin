@@ -5,8 +5,8 @@ use crate::geometry::{Point, Rect};
 use snapin_annotation::action::AnnotationShape;
 use snapin_annotation::shapes::{
     ArrowAction, BadgeAction, BlurAction, EllipseAction, MagnifierAction, MagnifierConnector,
-    MagnifierShape, MarkerAction, MarkerBlendMode, MarkerShape, MosaicAction, PenAction,
-    PolylineAction, RectAction, SpotlightAction, SpotlightShape,
+    MagnifierShape, MarkerAction, MarkerBlendMode, MarkerShape, MarkerStrokeSpec, MosaicAction,
+    PenAction, PenStrokeSpec, PolylineAction, RectAction, SpotlightAction, SpotlightShape,
 };
 use snapin_annotation::{ArrowHeadStyle, ArrowStyle, BadgeSequence, BadgeStyle, LineStyle};
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, StrokeDash, Transform};
@@ -134,13 +134,14 @@ pub fn render_draft_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapM
 /// 画笔直接借用点集切片绘制，避免高频鼠标移动时分配临时 Vec。
 fn draw_pen_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
     PenAction::draw_points_offset(
-        params.points,
-        params.style.color_rgba,
-        params.style.stroke_width,
-        params.style.line_style,
+        PenStrokeSpec {
+            points: params.points,
+            color: params.style.color_rgba.into(),
+            stroke_width: params.style.stroke_width,
+            line_style: params.style.line_style,
+            offset: Point::default(),
+        },
         pixmap,
-        0.0,
-        0.0,
     );
 }
 
@@ -153,16 +154,13 @@ fn draw_shape_with_border(params: &AnnotationDraftParams, pixmap: &mut PixmapMut
 /// 记号笔直接借用点集切片绘制。
 fn draw_marker_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
     MarkerAction::draw_points_offset(
-        params.points,
-        (
-            params.style.color_rgba.0,
-            params.style.color_rgba.1,
-            params.style.color_rgba.2,
-        ),
-        params.style.stroke_width * 2.0,
+        MarkerStrokeSpec {
+            points: params.points,
+            color: params.style.color_rgba.into(),
+            stroke_width: params.style.stroke_width * 2.0,
+            offset: Point::default(),
+        },
         pixmap,
-        0.0,
-        0.0,
     );
 }
 
