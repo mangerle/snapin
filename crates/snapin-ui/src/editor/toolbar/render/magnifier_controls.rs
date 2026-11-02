@@ -8,6 +8,7 @@ use super::sub_bar_helpers::{
 };
 use super::widgets::{
     fill_button_highlight, render_magnifier_connector_preview, MagnifierConnectorPreviewSpec,
+    PreviewSpan,
 };
 use snapin_annotation::MagnifierShape;
 use tiny_skia::{Color, PixmapMut};
@@ -92,12 +93,14 @@ fn render_connector_control(pixmap: &mut PixmapMut, spec: &MagnifierControlSpec<
     render_magnifier_connector_preview(
         pixmap,
         MagnifierConnectorPreviewSpec {
-            x0: spec.geometry.rect.x + 8.0 * spec.geometry.scale,
-            x1: spec.geometry.rect.x + spec.geometry.rect.width - 18.0 * spec.geometry.scale,
-            center_y: spec.geometry.center_y,
-            scale: spec.geometry.scale,
+            span: PreviewSpan {
+                x0: spec.geometry.rect.x + 8.0 * spec.geometry.scale,
+                x1: spec.geometry.rect.x + spec.geometry.rect.width - 18.0 * spec.geometry.scale,
+                center_y: spec.geometry.center_y,
+                scale: spec.geometry.scale,
+                color: Color::from_rgba8(45, 48, 56, 255),
+            },
             connector: spec.toolbar.sub_options.magnifier_connector,
-            color: Color::from_rgba8(45, 48, 56, 255),
         },
     );
     render_caret(

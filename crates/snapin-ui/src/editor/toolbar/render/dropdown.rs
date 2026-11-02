@@ -6,8 +6,8 @@ use super::super::layout::{DropdownLayout, SubDropdown};
 use super::super::Toolbar;
 use super::widgets::{
     fill_circle, render_arrow_head_preview, render_arrow_preview, render_badge_style_icon,
-    render_magnifier_connector_preview, stroke_sample, ArrowHeadPreviewSpec,
-    MagnifierConnectorPreviewSpec,
+    render_magnifier_connector_preview, stroke_sample, ArrowHeadPreviewSpec, ArrowPreviewSpec,
+    BadgeStyleIconSpec, CircleSpec, LineSampleSpec, MagnifierConnectorPreviewSpec, PreviewSpan,
 };
 use crate::geometry::Rect;
 use snapin_annotation::{
@@ -42,10 +42,12 @@ pub(super) fn render_dropdown(
         if is_current {
             fill_circle(
                 pixmap,
-                row.x + row.width - 12.0 * s,
-                center_y,
-                3.0 * s,
-                Color::from_rgba8(37, 99, 235, 255),
+                CircleSpec {
+                    center_x: row.x + row.width - 12.0 * s,
+                    center_y,
+                    radius: 3.0 * s,
+                    color: Color::from_rgba8(37, 99, 235, 255),
+                },
             );
         }
     }
@@ -262,28 +264,43 @@ fn render_preview(
     match preview {
         DropdownPreview::Line(style) => render_line_preview(pixmap, row, center_y, s, ink, style),
         DropdownPreview::Badge(style) => {
-            render_badge_style_icon(pixmap, row.x + 18.0 * s, center_y, s, style, ink);
+            render_badge_style_icon(
+                pixmap,
+                BadgeStyleIconSpec {
+                    center_x: row.x + 18.0 * s,
+                    center_y,
+                    scale: s,
+                    style,
+                    color: ink,
+                },
+            );
         }
         DropdownPreview::Arrow(style) => {
             render_arrow_preview(
                 pixmap,
-                row.x + 10.0 * s,
-                row.x + row.width - 24.0 * s,
-                center_y,
-                s,
-                style,
-                ink,
+                ArrowPreviewSpec {
+                    span: PreviewSpan {
+                        x0: row.x + 10.0 * s,
+                        x1: row.x + row.width - 24.0 * s,
+                        center_y,
+                        scale: s,
+                        color: ink,
+                    },
+                    style,
+                },
             );
         }
         DropdownPreview::ArrowHead(style, at_start) => render_arrow_head_preview(
             pixmap,
             ArrowHeadPreviewSpec {
-                x0: row.x + 12.0 * s,
-                x1: row.x + row.width - 24.0 * s,
-                cy: center_y,
-                scale: s,
+                span: PreviewSpan {
+                    x0: row.x + 12.0 * s,
+                    x1: row.x + row.width - 24.0 * s,
+                    center_y,
+                    scale: s,
+                    color: ink,
+                },
                 style,
-                color: ink,
                 at_start,
             },
         ),
@@ -291,12 +308,14 @@ fn render_preview(
             render_magnifier_connector_preview(
                 pixmap,
                 MagnifierConnectorPreviewSpec {
-                    x0: row.x + 12.0 * s,
-                    x1: row.x + row.width - 26.0 * s,
-                    center_y,
-                    scale: s,
+                    span: PreviewSpan {
+                        x0: row.x + 12.0 * s,
+                        x1: row.x + row.width - 26.0 * s,
+                        center_y,
+                        scale: s,
+                        color: ink,
+                    },
                     connector,
-                    color: ink,
                 },
             );
         }
@@ -327,12 +346,14 @@ fn render_line_preview(
 ) {
     stroke_sample(
         pixmap,
-        row.x + 10.0 * s,
-        row.x + row.width - 24.0 * s,
-        center_y,
-        2.0 * s,
-        style,
-        ink,
+        LineSampleSpec {
+            x0: row.x + 10.0 * s,
+            x1: row.x + row.width - 24.0 * s,
+            y: center_y,
+            width: 2.0 * s,
+            style,
+            color: ink,
+        },
     );
 }
 

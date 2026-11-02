@@ -15,7 +15,8 @@ use super::sub_bar_helpers::{
 };
 use super::widgets::{
     fill_button_highlight, fill_circle, render_arrow_head_preview, render_arrow_preview,
-    render_divider, stroke_circle, stroke_sample, ArrowHeadPreviewSpec,
+    render_divider, stroke_circle, stroke_sample, ArrowHeadPreviewSpec, ArrowPreviewSpec,
+    CircleSpec, LineSampleSpec, PreviewSpan, StrokeCircleSpec,
 };
 use crate::geometry::Rect;
 use snapin_annotation::SpotlightShape;
@@ -199,12 +200,14 @@ impl SubControlRenderer<'_, '_> {
         self.highlight_if_open(open);
         stroke_sample(
             self.pixmap,
-            self.rect.x + 8.0 * self.scale,
-            self.rect.x + self.rect.width - 14.0 * self.scale,
-            self.center_y,
-            2.0 * self.scale,
-            self.toolbar.sub_options.line_style,
-            Color::from_rgba8(45, 48, 56, 255),
+            LineSampleSpec {
+                x0: self.rect.x + 8.0 * self.scale,
+                x1: self.rect.x + self.rect.width - 14.0 * self.scale,
+                y: self.center_y,
+                width: 2.0 * self.scale,
+                style: self.toolbar.sub_options.line_style,
+                color: Color::from_rgba8(45, 48, 56, 255),
+            },
         );
         self.render_caret_with_inset(8.0);
     }
@@ -214,12 +217,16 @@ impl SubControlRenderer<'_, '_> {
         self.highlight_if_open(open);
         render_arrow_preview(
             self.pixmap,
-            self.rect.x + 8.0 * self.scale,
-            self.rect.x + self.rect.width - 14.0 * self.scale,
-            self.center_y,
-            self.scale,
-            self.toolbar.sub_options.arrow_style,
-            Color::from_rgba8(45, 48, 56, 255),
+            ArrowPreviewSpec {
+                span: PreviewSpan {
+                    x0: self.rect.x + 8.0 * self.scale,
+                    x1: self.rect.x + self.rect.width - 14.0 * self.scale,
+                    center_y: self.center_y,
+                    scale: self.scale,
+                    color: Color::from_rgba8(45, 48, 56, 255),
+                },
+                style: self.toolbar.sub_options.arrow_style,
+            },
         );
         self.render_caret_with_inset(8.0);
     }
@@ -233,12 +240,14 @@ impl SubControlRenderer<'_, '_> {
         render_arrow_head_preview(
             self.pixmap,
             ArrowHeadPreviewSpec {
-                x0: self.rect.x + 10.0 * self.scale,
-                x1: self.rect.x + self.rect.width - 18.0 * self.scale,
-                cy: self.center_y,
-                scale: self.scale,
+                span: PreviewSpan {
+                    x0: self.rect.x + 10.0 * self.scale,
+                    x1: self.rect.x + self.rect.width - 18.0 * self.scale,
+                    center_y: self.center_y,
+                    scale: self.scale,
+                    color: Color::from_rgba8(45, 48, 56, 255),
+                },
                 style,
-                color: Color::from_rgba8(45, 48, 56, 255),
                 at_start,
             },
         );
@@ -250,23 +259,34 @@ impl SubControlRenderer<'_, '_> {
             return;
         };
         let cx = self.rect.x + 8.0 * self.scale;
-        fill_circle(self.pixmap, cx, self.center_y, 8.0 * self.scale, *preset);
+        let circle = CircleSpec {
+            center_x: cx,
+            center_y: self.center_y,
+            radius: 8.0 * self.scale,
+            color: *preset,
+        };
+        fill_circle(self.pixmap, circle);
         stroke_circle(
             self.pixmap,
-            cx,
-            self.center_y,
-            8.0 * self.scale,
-            Color::from_rgba8(0, 0, 0, 32),
-            self.scale,
+            StrokeCircleSpec {
+                circle: CircleSpec {
+                    color: Color::from_rgba8(0, 0, 0, 32),
+                    ..circle
+                },
+                width: self.scale,
+            },
         );
         if self.selected_color_index == index {
             stroke_circle(
                 self.pixmap,
-                cx,
-                self.center_y,
-                10.5 * self.scale,
-                Color::from_rgba8(37, 99, 235, 255),
-                2.2 * self.scale,
+                StrokeCircleSpec {
+                    circle: CircleSpec {
+                        radius: 10.5 * self.scale,
+                        color: Color::from_rgba8(37, 99, 235, 255),
+                        ..circle
+                    },
+                    width: 2.2 * self.scale,
+                },
             );
         }
     }

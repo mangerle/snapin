@@ -5,6 +5,7 @@ use super::super::layout::{SubControl, SubDropdown};
 use super::super::Toolbar;
 use super::widgets::{
     fill_button_highlight, fill_circle, render_badge_style_icon, render_corner_radius_icon,
+    BadgeStyleIconSpec, CircleSpec, CornerRadiusIconSpec,
 };
 use crate::geometry::Rect;
 use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
@@ -119,10 +120,12 @@ pub(super) fn render_size_with_dot(
     let dot_radius = (1.0 + value.clamp(1.0, 48.0) / 48.0 * 8.0) * s;
     fill_circle(
         pixmap,
-        rect.x + 8.0 * s,
-        center_y,
-        dot_radius,
-        Color::from_rgba8(45, 48, 56, 255),
+        CircleSpec {
+            center_x: rect.x + 8.0 * s,
+            center_y,
+            radius: dot_radius,
+            color: Color::from_rgba8(45, 48, 56, 255),
+        },
     );
     with_thread_local_text_renderer(|renderer| {
         renderer.draw_text_rgba(
@@ -149,7 +152,15 @@ pub(super) fn render_corner_radius_with_value(
     if focused {
         fill_button_highlight(pixmap, rect, Color::from_rgba8(37, 99, 235, 36), s);
     }
-    render_corner_radius_icon(pixmap, rect.x + 10.0 * s, center_y, s, value);
+    render_corner_radius_icon(
+        pixmap,
+        CornerRadiusIconSpec {
+            center_x: rect.x + 10.0 * s,
+            center_y,
+            scale: s,
+            corner_radius: value,
+        },
+    );
     with_thread_local_text_renderer(|renderer| {
         renderer.draw_text_rgba(
             pixmap,
@@ -197,24 +208,30 @@ pub(super) fn render_effect_strength_slider(
     }
     fill_circle(
         pixmap,
-        left,
-        center_y,
-        2.0 * s,
-        Color::from_rgba8(120, 126, 140, 255),
+        CircleSpec {
+            center_x: left,
+            center_y,
+            radius: 2.0 * s,
+            color: Color::from_rgba8(120, 126, 140, 255),
+        },
     );
     fill_circle(
         pixmap,
-        right,
-        center_y,
-        5.0 * s,
-        Color::from_rgba8(120, 126, 140, 255),
+        CircleSpec {
+            center_x: right,
+            center_y,
+            radius: 5.0 * s,
+            color: Color::from_rgba8(120, 126, 140, 255),
+        },
     );
     fill_circle(
         pixmap,
-        knob_x,
-        center_y,
-        5.0 * s,
-        Color::from_rgba8(37, 99, 235, 255),
+        CircleSpec {
+            center_x: knob_x,
+            center_y,
+            radius: 5.0 * s,
+            color: Color::from_rgba8(37, 99, 235, 255),
+        },
     );
 }
 
@@ -263,10 +280,12 @@ pub(super) fn render_magnifier_scale_slider(
     }
     fill_circle(
         pixmap,
-        knob_x,
-        center_y,
-        5.0 * s,
-        Color::from_rgba8(37, 99, 235, 255),
+        CircleSpec {
+            center_x: knob_x,
+            center_y,
+            radius: 5.0 * s,
+            color: Color::from_rgba8(37, 99, 235, 255),
+        },
     );
 }
 
@@ -420,11 +439,13 @@ pub(super) fn render_badge_control(
             }
             render_badge_style_icon(
                 pixmap,
-                rect.x + 12.0 * s,
-                center_y,
-                s,
-                toolbar.sub_options.badge_style,
-                toolbar.sub_options.color,
+                BadgeStyleIconSpec {
+                    center_x: rect.x + 12.0 * s,
+                    center_y,
+                    scale: s,
+                    style: toolbar.sub_options.badge_style,
+                    color: toolbar.sub_options.color,
+                },
             );
             render_caret(pixmap, rect.x + rect.width - 8.0 * s, center_y, s);
         }

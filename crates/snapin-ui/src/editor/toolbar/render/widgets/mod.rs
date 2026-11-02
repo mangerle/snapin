@@ -2,19 +2,82 @@
 
 mod arrow;
 
-pub(super) use arrow::{render_arrow_head_preview, render_arrow_preview, ArrowHeadPreviewSpec};
+pub(super) use arrow::{
+    render_arrow_head_preview, render_arrow_preview, ArrowHeadPreviewSpec, ArrowPreviewSpec,
+};
 
 use super::super::icons::{add_round_rect, make_paint, RoundRect};
 use crate::geometry::Rect;
 use snapin_annotation::{BadgeStyle, LineStyle, MagnifierConnector};
 use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
+/// 横向预览图元的起止坐标、中心线、缩放与颜色。
+#[derive(Clone, Copy)]
+pub(super) struct PreviewSpan {
+    pub(super) x0: f32,
+    pub(super) x1: f32,
+    pub(super) center_y: f32,
+    pub(super) scale: f32,
+    pub(super) color: Color,
+}
+
+/// 圆形图元的圆心、半径与颜色。
+#[derive(Clone, Copy)]
+pub(super) struct CircleSpec {
+    pub(super) center_x: f32,
+    pub(super) center_y: f32,
+    pub(super) radius: f32,
+    pub(super) color: Color,
+}
+
+/// 圆形描边图元的几何与线宽。
+#[derive(Clone, Copy)]
+pub(super) struct StrokeCircleSpec {
+    pub(super) circle: CircleSpec,
+    pub(super) width: f32,
+}
+
+/// 水平线型预览的几何与样式。
+#[derive(Clone, Copy)]
+pub(super) struct LineSampleSpec {
+    pub(super) x0: f32,
+    pub(super) x1: f32,
+    pub(super) y: f32,
+    pub(super) width: f32,
+    pub(super) style: LineStyle,
+    pub(super) color: Color,
+}
+
+/// 圆角半径图标的中心、缩放与当前值。
+#[derive(Clone, Copy)]
+pub(super) struct CornerRadiusIconSpec {
+    pub(super) center_x: f32,
+    pub(super) center_y: f32,
+    pub(super) scale: f32,
+    pub(super) corner_radius: f32,
+}
+
+/// 序号底板样式图标的中心、缩放、样式与颜色。
+#[derive(Clone, Copy)]
+pub(super) struct BadgeStyleIconSpec {
+    pub(super) center_x: f32,
+    pub(super) center_y: f32,
+    pub(super) scale: f32,
+    pub(super) style: BadgeStyle,
+    pub(super) color: Color,
+}
+
 /// 绘制通用浅米白微圆角容器背景与微阴影 (参考官方经典现代浅色设计)
 pub(super) fn render_panel_background(pixmap: &mut PixmapMut, rect: &Rect, s: f32) {
-    // 1. 底部浅淡微投影
-    let mut pb_shadow = PathBuilder::new();
+    draw_panel_shadow(pixmap, rect, s);
+    draw_panel_body(pixmap, rect, s);
+}
+
+/// 绘制面板底部的浅淡投影。
+fn draw_panel_shadow(pixmap: &mut PixmapMut, rect: &Rect, s: f32) {
+    let mut builder = PathBuilder::new();
     add_round_rect(
-        &mut pb_shadow,
+        &mut builder,
         RoundRect {
             x: rect.x,
             y: rect.y + 1.5 * s,
@@ -23,21 +86,22 @@ pub(super) fn render_panel_background(pixmap: &mut PixmapMut, rect: &Rect, s: f3
             radius: 6.0 * s,
         },
     );
-    if let Some(path) = pb_shadow.finish() {
-        let shadow_paint = make_paint(Color::from_rgba8(0, 0, 0, 16));
+    if let Some(path) = builder.finish() {
         pixmap.fill_path(
             &path,
-            &shadow_paint,
+            &make_paint(Color::from_rgba8(0, 0, 0, 16)),
             tiny_skia::FillRule::Winding,
             Transform::identity(),
             None,
         );
     }
+}
 
-    // 2. 浅灰米白底色卡片主体
-    let mut pb = PathBuilder::new();
+/// 绘制面板底色与细边框。
+fn draw_panel_body(pixmap: &mut PixmapMut, rect: &Rect, s: f32) {
+    let mut builder = PathBuilder::new();
     add_round_rect(
-        &mut pb,
+        &mut builder,
         RoundRect {
             x: rect.x,
             y: rect.y,
@@ -46,23 +110,27 @@ pub(super) fn render_panel_background(pixmap: &mut PixmapMut, rect: &Rect, s: f3
             radius: 6.0 * s,
         },
     );
-    if let Some(path) = pb.finish() {
-        let paint = make_paint(Color::from_rgba8(243, 244, 246, 252));
-        pixmap.fill_path(
-            &path,
-            &paint,
-            tiny_skia::FillRule::Winding,
-            Transform::identity(),
-            None,
-        );
-
-        let stroke_paint = make_paint(Color::from_rgba8(0, 0, 0, 24));
-        let stroke = Stroke {
-            width: 1.0 * s,
-            ..Default::default()
-        };
-        pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
-    }
+    let Some(path) = builder.finish() else {
+        return;
+    };
+    pixmap.fill_path(
+        &path,
+        &make_paint(Color::from_rgba8(243, 244, 246, 252)),
+        tiny_skia::FillRule::Winding,
+        Transform::identity(),
+        None,
+    );
+    let stroke = Stroke {
+        width: 1.0 * s,
+        ..Default::default()
+    };
+    pixmap.stroke_path(
+        &path,
+        &make_paint(Color::from_rgba8(0, 0, 0, 24)),
+        &stroke,
+        Transform::identity(),
+        None,
+    );
 }
 
 /// 绘制按钮悬停与激活背景 (浅灰半透明微胶囊)
@@ -125,13 +193,13 @@ pub(super) fn render_divider(pixmap: &mut PixmapMut, x: f32, y: f32, s: f32) {
 }
 
 /// 绘制一个实心圆点
-pub(super) fn fill_circle(pixmap: &mut PixmapMut, cx: f32, cy: f32, radius: f32, color: Color) {
+pub(super) fn fill_circle(pixmap: &mut PixmapMut, circle: CircleSpec) {
     let mut pb = PathBuilder::new();
-    pb.push_circle(cx, cy, radius);
+    pb.push_circle(circle.center_x, circle.center_y, circle.radius);
     if let Some(path) = pb.finish() {
         pixmap.fill_path(
             &path,
-            &make_paint(color),
+            &make_paint(circle.color),
             tiny_skia::FillRule::Winding,
             Transform::identity(),
             None,
@@ -140,24 +208,18 @@ pub(super) fn fill_circle(pixmap: &mut PixmapMut, cx: f32, cy: f32, radius: f32,
 }
 
 /// 绘制一个圆形描边
-pub(super) fn stroke_circle(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    radius: f32,
-    color: Color,
-    width: f32,
-) {
+pub(super) fn stroke_circle(pixmap: &mut PixmapMut, spec: StrokeCircleSpec) {
+    let circle = spec.circle;
     let mut pb = PathBuilder::new();
-    pb.push_circle(cx, cy, radius);
+    pb.push_circle(circle.center_x, circle.center_y, circle.radius);
     if let Some(path) = pb.finish() {
         let stroke = Stroke {
-            width,
+            width: spec.width,
             ..Default::default()
         };
         pixmap.stroke_path(
             &path,
-            &make_paint(color),
+            &make_paint(circle.color),
             &stroke,
             Transform::identity(),
             None,
@@ -166,33 +228,21 @@ pub(super) fn stroke_circle(
 }
 
 /// 按线型绘制一条水平示意线
-pub(super) fn stroke_sample(
-    pixmap: &mut PixmapMut,
-    x0: f32,
-    x1: f32,
-    y: f32,
-    width: f32,
-    style: LineStyle,
-    color: Color,
-) {
+pub(super) fn stroke_sample(pixmap: &mut PixmapMut, spec: LineSampleSpec) {
     let mut pb = PathBuilder::new();
-    pb.move_to(x0, y);
-    pb.line_to(x1, y);
+    pb.move_to(spec.x0, spec.y);
+    pb.line_to(spec.x1, spec.y);
     if let Some(path) = pb.finish() {
-        style.stroke_path(pixmap, &path, &make_paint(color), width);
+        spec.style
+            .stroke_path(pixmap, &path, &make_paint(spec.color), spec.width);
     }
 }
 
 /// 绘制圆角半径图标：视觉圆角随当前半径值变化，滚轮调节时可直观看到效果
-pub(super) fn render_corner_radius_icon(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    corner_radius: f32,
-) {
+pub(super) fn render_corner_radius_icon(pixmap: &mut PixmapMut, spec: CornerRadiusIconSpec) {
+    let (cx, cy, s) = (spec.center_x, spec.center_y, spec.scale);
     let half = 7.0 * s;
-    let visual_radius = (1.0 + corner_radius / 90.0 * 5.0) * s;
+    let visual_radius = (1.0 + spec.corner_radius / 90.0 * 5.0) * s;
     let mut pb = PathBuilder::new();
     add_round_rect(
         &mut pb,
@@ -237,28 +287,32 @@ pub(super) fn render_corner_radius_icon(
 }
 
 /// 绘制序号底板样式图标（实心圆 / 空心环）
-pub(super) fn render_badge_style_icon(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    s: f32,
-    style: BadgeStyle,
-    color: Color,
-) {
-    match style {
-        BadgeStyle::Filled => fill_circle(pixmap, cx, cy, 7.0 * s, color),
-        BadgeStyle::Outline => stroke_circle(pixmap, cx, cy, 6.5 * s, color, 2.0 * s),
+pub(super) fn render_badge_style_icon(pixmap: &mut PixmapMut, spec: BadgeStyleIconSpec) {
+    let circle = CircleSpec {
+        center_x: spec.center_x,
+        center_y: spec.center_y,
+        radius: 7.0 * spec.scale,
+        color: spec.color,
+    };
+    match spec.style {
+        BadgeStyle::Filled => fill_circle(pixmap, circle),
+        BadgeStyle::Outline => stroke_circle(
+            pixmap,
+            StrokeCircleSpec {
+                circle: CircleSpec {
+                    radius: 6.5 * spec.scale,
+                    ..circle
+                },
+                width: 2.0 * spec.scale,
+            },
+        ),
     }
 }
 
 /// 放大镜连接线预览的几何与样式参数。
 pub(super) struct MagnifierConnectorPreviewSpec {
-    pub x0: f32,
-    pub x1: f32,
-    pub center_y: f32,
-    pub scale: f32,
+    pub span: PreviewSpan,
     pub connector: MagnifierConnector,
-    pub color: Color,
 }
 
 /// 绘制放大镜连接线图示：用两个小框表示源区域与放大图像，并展示当前连接方式。
@@ -266,13 +320,13 @@ pub(super) fn render_magnifier_connector_preview(
     pixmap: &mut PixmapMut,
     spec: MagnifierConnectorPreviewSpec,
 ) {
-    let box_size = 7.0 * spec.scale;
-    let left = spec.x0;
-    let right = spec.x1 - box_size;
-    let top = spec.center_y - box_size / 2.0;
-    let paint = make_paint(spec.color);
+    let box_size = 7.0 * spec.span.scale;
+    let left = spec.span.x0;
+    let right = spec.span.x1 - box_size;
+    let top = spec.span.center_y - box_size / 2.0;
+    let paint = make_paint(spec.span.color);
     let box_stroke = Stroke {
-        width: 1.2 * spec.scale,
+        width: 1.2 * spec.span.scale,
         ..Default::default()
     };
     for x in [left, right] {
@@ -289,10 +343,10 @@ pub(super) fn render_magnifier_connector_preview(
     let line_start = left + box_size;
     let line_end = right;
     let mut line = PathBuilder::new();
-    line.move_to(line_start, spec.center_y);
-    line.line_to(line_end, spec.center_y);
+    line.move_to(line_start, spec.span.center_y);
+    line.line_to(line_end, spec.span.center_y);
     if let Some(path) = line.finish() {
-        draw_connector_line(pixmap, &path, line_start, line_end, &spec, &paint);
+        draw_connector_line(pixmap, &path, &spec, &paint);
     }
 }
 
@@ -300,45 +354,42 @@ pub(super) fn render_magnifier_connector_preview(
 fn draw_connector_line(
     pixmap: &mut PixmapMut,
     path: &tiny_skia::Path,
-    start: f32,
-    end: f32,
     spec: &MagnifierConnectorPreviewSpec,
     paint: &Paint,
 ) {
     match spec.connector {
         MagnifierConnector::Solid => {
-            LineStyle::Solid.stroke_path(pixmap, path, paint, 1.4 * spec.scale);
+            LineStyle::Solid.stroke_path(pixmap, path, paint, 1.4 * spec.span.scale);
         }
         MagnifierConnector::Dotted => {
-            LineStyle::Dotted.stroke_path(pixmap, path, paint, 1.4 * spec.scale);
+            LineStyle::Dotted.stroke_path(pixmap, path, paint, 1.4 * spec.span.scale);
         }
         MagnifierConnector::Frame => {
-            LineStyle::Solid.stroke_path(pixmap, path, paint, 1.4 * spec.scale);
-            draw_connector_caps(pixmap, start, end, spec, paint);
+            LineStyle::Solid.stroke_path(pixmap, path, paint, 1.4 * spec.span.scale);
+            draw_connector_caps(pixmap, spec, paint);
         }
-        MagnifierConnector::None => draw_connector_cross(pixmap, (start + end) / 2.0, spec, paint),
+        MagnifierConnector::None => draw_connector_cross(pixmap, spec, paint),
     }
 }
 
 /// 绘制框线连接模式两端的竖向端帽。
 fn draw_connector_caps(
     pixmap: &mut PixmapMut,
-    start: f32,
-    end: f32,
     spec: &MagnifierConnectorPreviewSpec,
     paint: &Paint,
 ) {
+    let box_size = 7.0 * spec.span.scale;
     let mut caps = PathBuilder::new();
-    for x in [start, end] {
-        caps.move_to(x, spec.center_y - 3.0 * spec.scale);
-        caps.line_to(x, spec.center_y + 3.0 * spec.scale);
+    for x in [spec.span.x0 + box_size, spec.span.x1 - box_size] {
+        caps.move_to(x, spec.span.center_y - 3.0 * spec.span.scale);
+        caps.line_to(x, spec.span.center_y + 3.0 * spec.span.scale);
     }
     if let Some(caps) = caps.finish() {
         pixmap.stroke_path(
             &caps,
             paint,
             &Stroke {
-                width: 1.2 * spec.scale,
+                width: 1.2 * spec.span.scale,
                 ..Default::default()
             },
             Transform::identity(),
@@ -350,22 +401,22 @@ fn draw_connector_caps(
 /// 绘制表示不连接的叉线。
 fn draw_connector_cross(
     pixmap: &mut PixmapMut,
-    center_x: f32,
     spec: &MagnifierConnectorPreviewSpec,
     paint: &Paint,
 ) {
-    let size = 2.5 * spec.scale;
+    let center_x = (spec.span.x0 + spec.span.x1) / 2.0;
+    let size = 2.5 * spec.span.scale;
     let mut cross = PathBuilder::new();
-    cross.move_to(center_x - size, spec.center_y - size);
-    cross.line_to(center_x + size, spec.center_y + size);
-    cross.move_to(center_x + size, spec.center_y - size);
-    cross.line_to(center_x - size, spec.center_y + size);
+    cross.move_to(center_x - size, spec.span.center_y - size);
+    cross.line_to(center_x + size, spec.span.center_y + size);
+    cross.move_to(center_x + size, spec.span.center_y - size);
+    cross.line_to(center_x - size, spec.span.center_y + size);
     if let Some(cross) = cross.finish() {
         pixmap.stroke_path(
             &cross,
             paint,
             &Stroke {
-                width: 1.2 * spec.scale,
+                width: 1.2 * spec.span.scale,
                 ..Default::default()
             },
             Transform::identity(),
