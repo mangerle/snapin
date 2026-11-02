@@ -18,8 +18,5 @@ pub mod state;
 pub mod types;
 pub mod view;
 
-pub use event_dispatcher::SnipperEventDispatcher;
-pub use presenter::{create_dimmed_pixmap_fast, SnipperPresenter};
-pub use state::SnipperState;
 pub use types::{SnipMode, SnipperLaunch, SnipperOutcome, SnipperRuntime};
 pub use view::SnipperView;

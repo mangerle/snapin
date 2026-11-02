@@ -83,8 +83,9 @@ impl TextInputSession {
         }
     }
 
-    /// 动态调节字号
-    pub fn adjust_font_size(&mut self, delta: f32) {
+    /// 动态调节字号，仅供单元测试验证边界行为。
+    #[cfg(test)]
+    fn adjust_font_size(&mut self, delta: f32) {
         self.font_size = (self.font_size + delta).clamp(12.0, 72.0);
     }
 

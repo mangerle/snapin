@@ -488,11 +488,6 @@ impl SnipperPresenter {
             magnifier_signature: magnifier_signature(&state.viewport.magnifier),
         })
     }
-
-    /// 获取截图背景底图引用
-    pub fn base_bg(&self) -> &Pixmap {
-        &self.base_bg
-    }
 }
 
 /// 生成放大镜配置签名，用于判断卡片几何或外观是否发生变化。

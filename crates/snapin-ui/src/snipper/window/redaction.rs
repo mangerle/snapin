@@ -39,11 +39,6 @@ impl RedactionPreview {
             .find(|rect| rect.contains(point.0, point.1))
             .copied()
     }
-
-    /// 返回点击位置是否命中文字区域。
-    pub fn contains(&self, point: (f32, f32)) -> bool {
-        self.hit_at(point).is_some()
-    }
 }
 
 /// 立即为全部有效文字区域添加马赛克，返回新增图元数量。
