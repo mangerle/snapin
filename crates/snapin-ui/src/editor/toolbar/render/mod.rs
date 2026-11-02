@@ -7,6 +7,7 @@ mod dropdown;
 mod magnifier_controls;
 mod main_bar;
 mod sub_bar;
+mod sub_bar_controls;
 mod sub_bar_helpers;
 mod tooltip;
 mod widgets;
