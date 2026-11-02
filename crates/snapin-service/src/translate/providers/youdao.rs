@@ -70,27 +70,7 @@ impl YoudaoTranslator {
         to_lang: &str,
         expected: usize,
     ) -> Result<Vec<String>, ServiceError> {
-        let salt = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-            .to_string();
-        let curtime = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-            .to_string();
-
-        let truncated = Self::truncate_input(query);
-        let raw_sign = format!(
-            "{}{}{}{}{}",
-            self.app_key, truncated, salt, curtime, self.app_secret
-        );
-
-        let mut hasher = Sha256::new();
-        hasher.update(raw_sign.as_bytes());
-        let sign = format!("{:x}", hasher.finalize());
-
+        let signature = YoudaoSignature::build(query, &self.app_key, &self.app_secret);
         let body = post_signed_form(
             "youdao",
             &self.client,
@@ -100,50 +80,78 @@ impl YoudaoTranslator {
                 ("from", from_lang),
                 ("to", to_lang),
                 ("appKey", self.app_key.as_str()),
-                ("salt", salt.as_str()),
-                ("sign", sign.as_str()),
+                ("salt", signature.salt.as_str()),
+                ("sign", signature.sign.as_str()),
                 ("signType", "v3"),
-                ("curtime", curtime.as_str()),
+                ("curtime", signature.curtime.as_str()),
             ],
         )
         .await?;
-        let data: YoudaoResponse =
-            serde_json::from_slice(&body).map_err(|error| ServiceError::ResponseFormat {
-                provider: "youdao".to_string(),
-                message: format!("无法解析有道翻译 JSON 响应: {error}"),
-            })?;
-
-        if data.error_code != "0" {
-            return Err(ServiceError::ApiError {
-                provider: "youdao".to_string(),
-                code: data.error_code,
-                message: "有道翻译请求未成功".to_string(),
-            });
-        }
-
-        let translated = data.translation.ok_or_else(|| ServiceError::ApiError {
-            provider: "youdao".to_string(),
-            code: "EMPTY_RESULT".to_string(),
-            message: "有道翻译接口未返回译文".to_string(),
-        })?;
-
-        // 有道通常返回单个合并文本，按行切割以匹配各文本行
-        let lines: Vec<String> = translated
-            .into_iter()
-            .flat_map(|text| text.lines().map(str::to_string).collect::<Vec<_>>())
-            .collect();
-        if lines.len() != expected {
-            return Err(ServiceError::ApiError {
-                provider: "youdao".to_string(),
-                code: "RESULT_COUNT_MISMATCH".to_string(),
-                message: format!(
-                    "有道翻译返回 {} 条译文，与请求 {expected} 条不一致",
-                    lines.len()
-                ),
-            });
-        }
-        Ok(lines)
+        parse_response(&body, expected)
     }
+}
+
+/// 有道 v3 签名所需的盐、时间戳与摘要。
+struct YoudaoSignature {
+    salt: String,
+    curtime: String,
+    sign: String,
+}
+
+impl YoudaoSignature {
+    /// 按有道 v3 规则截断输入并计算 SHA-256 签名。
+    fn build(query: &str, app_key: &str, app_secret: &str) -> Self {
+        let elapsed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        let salt = elapsed.as_nanos().to_string();
+        let curtime = elapsed.as_secs().to_string();
+        let truncated = YoudaoTranslator::truncate_input(query);
+        let raw_sign = format!("{app_key}{truncated}{salt}{curtime}{app_secret}");
+        let mut hasher = Sha256::new();
+        hasher.update(raw_sign.as_bytes());
+        Self {
+            salt,
+            curtime,
+            sign: format!("{:x}", hasher.finalize()),
+        }
+    }
+}
+
+/// 解析有道响应并校验业务码、空结果与合并文本行数。
+fn parse_response(body: &[u8], expected: usize) -> Result<Vec<String>, ServiceError> {
+    let data: YoudaoResponse =
+        serde_json::from_slice(body).map_err(|error| ServiceError::ResponseFormat {
+            provider: "youdao".to_string(),
+            message: format!("无法解析有道翻译 JSON 响应: {error}"),
+        })?;
+    if data.error_code != "0" {
+        return Err(ServiceError::ApiError {
+            provider: "youdao".to_string(),
+            code: data.error_code,
+            message: "有道翻译请求未成功".to_string(),
+        });
+    }
+    let translated = data.translation.ok_or_else(|| ServiceError::ApiError {
+        provider: "youdao".to_string(),
+        code: "EMPTY_RESULT".to_string(),
+        message: "有道翻译接口未返回译文".to_string(),
+    })?;
+    let lines: Vec<String> = translated
+        .into_iter()
+        .flat_map(|text| text.lines().map(str::to_string).collect::<Vec<_>>())
+        .collect();
+    if lines.len() != expected {
+        return Err(ServiceError::ApiError {
+            provider: "youdao".to_string(),
+            code: "RESULT_COUNT_MISMATCH".to_string(),
+            message: format!(
+                "有道翻译返回 {} 条译文，与请求 {expected} 条不一致",
+                lines.len()
+            ),
+        });
+    }
+    Ok(lines)
 }
 
 #[derive(Deserialize)]
