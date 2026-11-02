@@ -97,6 +97,7 @@ async fn read_pixel_pixmap(
         .map(|metadata| metadata.len() == expected_len as u64)
         .unwrap_or(false);
     if !metadata_matches {
+        let _ = tokio::fs::remove_file(file_path).await;
         return Err(DaemonResponse::error(
             DaemonErrorCode::InvalidInput,
             "像素数据长度与图像分辨率不匹配",
@@ -104,6 +105,7 @@ async fn read_pixel_pixmap(
     }
 
     let Some(mut pixmap) = Pixmap::new(width, height) else {
+        let _ = tokio::fs::remove_file(file_path).await;
         return Err(DaemonResponse::error(
             DaemonErrorCode::Internal,
             "分配像素缓冲区失败",
