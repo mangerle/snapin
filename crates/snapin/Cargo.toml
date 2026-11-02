@@ -19,7 +19,6 @@ snapin-daemon.workspace = true
 snapin-platform.workspace = true
 snapin-ui.workspace = true
 snapin-settings.workspace = true
-snapin-updater.workspace = true
 
 clap.workspace = true
 tokio.workspace = true
