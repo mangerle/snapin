@@ -160,6 +160,7 @@ fn render_separator(pixmap: &mut PixmapMut, layout: MenuLayout, top: f32) {
 }
 
 /// 单个菜单行的渲染参数。
+#[derive(Clone, Copy)]
 struct MenuRowSpec<'a> {
     item: &'a MenuItem,
     top: f32,
@@ -173,51 +174,76 @@ fn render_menu_row(
     layout: MenuLayout,
     row: MenuRowSpec<'_>,
 ) {
-    let s = layout.scale;
-    let item_height = layout.item_height;
     if row.hovered {
-        let mut builder = PathBuilder::new();
-        add_round_rect(
-            &mut builder,
-            layout.x + 5.0 * s,
-            row.top + 2.0 * s,
-            layout.width - 10.0 * s,
-            item_height - 4.0 * s,
-            5.0 * s,
-        );
-        if let Some(path) = builder.finish() {
-            let paint = make_paint(Color::from_rgba8(59, 130, 246, 240));
-            pixmap.fill_path(
-                &path,
-                &paint,
-                tiny_skia::FillRule::Winding,
-                Transform::identity(),
-                None,
-            );
-        }
+        render_row_hover(pixmap, layout, row.top);
     }
+    render_row_label(pixmap, text_renderer, layout, row);
+    if row.item.submenu.is_some() {
+        render_arrow_mark(
+            pixmap,
+            ArrowMarkSpec {
+                center_x: layout.x + layout.width - 16.0 * layout.scale,
+                center_y: row.top + layout.item_height / 2.0,
+                hovered: row.hovered,
+                scale: layout.scale,
+            },
+        );
+    }
+}
 
+/// 绘制菜单行的蓝色悬停底色。
+fn render_row_hover(pixmap: &mut PixmapMut, layout: MenuLayout, top: f32) {
+    let scale = layout.scale;
+    let mut builder = PathBuilder::new();
+    add_round_rect(
+        &mut builder,
+        layout.x + 5.0 * scale,
+        top + 2.0 * scale,
+        layout.width - 10.0 * scale,
+        layout.item_height - 4.0 * scale,
+        5.0 * scale,
+    );
+    if let Some(path) = builder.finish() {
+        let paint = make_paint(Color::from_rgba8(59, 130, 246, 240));
+        pixmap.fill_path(
+            &path,
+            &paint,
+            tiny_skia::FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+    }
+}
+
+/// 绘制复选框（可选）与菜单标签文本。
+fn render_row_label(
+    pixmap: &mut PixmapMut,
+    text_renderer: &mut TextRenderer,
+    layout: MenuLayout,
+    row: MenuRowSpec<'_>,
+) {
+    let scale = layout.scale;
     let text_color = if row.hovered {
         Color::from_rgba8(255, 255, 255, 255)
     } else {
         Color::from_rgba8(30, 41, 59, 255)
     };
-    let font_size = 13.0 * s;
-    let text_y = row.top + (item_height - font_size * 1.25) / 2.0;
+    let font_size = 13.0 * scale;
+    let text_y = row.top + (layout.item_height - font_size * 1.25) / 2.0;
     let text_x = if row.item.is_checkbox {
         render_checkbox_mark(
             pixmap,
             CheckboxMarkSpec {
-                x: layout.x + 12.0 * s,
-                y: row.top + (item_height - 14.0 * s) / 2.0,
+                x: layout.x + 12.0 * scale,
+                y: row.top + (layout.item_height - 14.0 * scale) / 2.0,
                 checked: row.item.is_checked,
                 hovered: row.hovered,
-                scale: s,
+                scale,
             },
         );
-        layout.x + 32.0 * s
+        layout.x + 32.0 * scale
     } else {
-        layout.x + 14.0 * s
+        layout.x + 14.0 * scale
     };
     text_renderer.draw_text(
         pixmap,
@@ -227,18 +253,6 @@ fn render_menu_row(
         font_size,
         text_color,
     );
-
-    if row.item.submenu.is_some() {
-        render_arrow_mark(
-            pixmap,
-            ArrowMarkSpec {
-                center_x: layout.x + layout.width - 16.0 * s,
-                center_y: row.top + item_height / 2.0,
-                hovered: row.hovered,
-                scale: s,
-            },
-        );
-    }
 }
 
 /// 复选框图标的位置、状态与缩放参数。
@@ -252,65 +266,81 @@ struct CheckboxMarkSpec {
 
 /// 绘制复选框小图标。
 fn render_checkbox_mark(pixmap: &mut PixmapMut, spec: CheckboxMarkSpec) {
-    let (x, y, s) = (spec.x, spec.y, spec.scale);
-    let size = 14.0 * s;
-    let mut pb = PathBuilder::new();
-    add_round_rect(&mut pb, x, y, size, size, 3.0 * s);
-    if let Some(path) = pb.finish() {
-        if spec.checked {
-            let bg_color = if spec.hovered {
-                Color::from_rgba8(255, 255, 255, 255)
-            } else {
-                Color::from_rgba8(59, 130, 246, 255)
-            };
-            let p = make_paint(bg_color);
-            pixmap.fill_path(
-                &path,
-                &p,
-                tiny_skia::FillRule::Winding,
-                Transform::identity(),
-                None,
-            );
-
-            // 小对勾
-            let check_color = if spec.hovered {
-                Color::from_rgba8(59, 130, 246, 255)
-            } else {
-                Color::from_rgba8(255, 255, 255, 255)
-            };
-            let mut pb_check = PathBuilder::new();
-            pb_check.move_to(x + 3.0 * s, y + 7.0 * s);
-            pb_check.line_to(x + 6.0 * s, y + 10.5 * s);
-            pb_check.line_to(x + 11.0 * s, y + 3.5 * s);
-            if let Some(cp) = pb_check.finish() {
-                let cp_paint = make_paint(check_color);
-                let stroke = Stroke {
-                    width: 1.8 * s,
-                    line_cap: tiny_skia::LineCap::Round,
-                    line_join: tiny_skia::LineJoin::Round,
-                    ..Default::default()
-                };
-                pixmap.stroke_path(&cp, &cp_paint, &stroke, Transform::identity(), None);
-            }
-        } else {
-            let stroke_color = if spec.hovered {
-                (255, 255, 255, 220)
-            } else {
-                (203, 213, 225, 255)
-            };
-            let p = make_paint(Color::from_rgba8(
-                stroke_color.0,
-                stroke_color.1,
-                stroke_color.2,
-                stroke_color.3,
-            ));
-            let stroke = Stroke {
-                width: 1.2 * s,
-                ..Default::default()
-            };
-            pixmap.stroke_path(&path, &p, &stroke, Transform::identity(), None);
-        }
+    let size = 14.0 * spec.scale;
+    let mut builder = PathBuilder::new();
+    add_round_rect(&mut builder, spec.x, spec.y, size, size, 3.0 * spec.scale);
+    let Some(path) = builder.finish() else {
+        return;
+    };
+    if spec.checked {
+        render_checked_checkbox(pixmap, &path, spec);
+    } else {
+        render_unchecked_checkbox(pixmap, &path, spec);
     }
+}
+
+/// 绘制选中态复选框与对勾。
+fn render_checked_checkbox(pixmap: &mut PixmapMut, path: &tiny_skia::Path, spec: CheckboxMarkSpec) {
+    let background = if spec.hovered {
+        Color::from_rgba8(255, 255, 255, 255)
+    } else {
+        Color::from_rgba8(59, 130, 246, 255)
+    };
+    pixmap.fill_path(
+        path,
+        &make_paint(background),
+        tiny_skia::FillRule::Winding,
+        Transform::identity(),
+        None,
+    );
+    let check_color = if spec.hovered {
+        Color::from_rgba8(59, 130, 246, 255)
+    } else {
+        Color::from_rgba8(255, 255, 255, 255)
+    };
+    let mut check = PathBuilder::new();
+    check.move_to(spec.x + 3.0 * spec.scale, spec.y + 7.0 * spec.scale);
+    check.line_to(spec.x + 6.0 * spec.scale, spec.y + 10.5 * spec.scale);
+    check.line_to(spec.x + 11.0 * spec.scale, spec.y + 3.5 * spec.scale);
+    if let Some(check) = check.finish() {
+        let stroke = Stroke {
+            width: 1.8 * spec.scale,
+            line_cap: tiny_skia::LineCap::Round,
+            line_join: tiny_skia::LineJoin::Round,
+            ..Default::default()
+        };
+        pixmap.stroke_path(
+            &check,
+            &make_paint(check_color),
+            &stroke,
+            Transform::identity(),
+            None,
+        );
+    }
+}
+
+/// 绘制未选中态复选框边框。
+fn render_unchecked_checkbox(
+    pixmap: &mut PixmapMut,
+    path: &tiny_skia::Path,
+    spec: CheckboxMarkSpec,
+) {
+    let color = if spec.hovered {
+        Color::from_rgba8(255, 255, 255, 220)
+    } else {
+        Color::from_rgba8(203, 213, 225, 255)
+    };
+    let stroke = Stroke {
+        width: 1.2 * spec.scale,
+        ..Default::default()
+    };
+    pixmap.stroke_path(
+        path,
+        &make_paint(color),
+        &stroke,
+        Transform::identity(),
+        None,
+    );
 }
 
 /// 子菜单指示箭头的中心位置、状态与缩放参数。
