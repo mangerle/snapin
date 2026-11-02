@@ -162,7 +162,7 @@ fn parse_config_file(content: &str) -> Result<ConfigFile, String> {
 /// 备份失败时不覆盖原文件，宁可把错误向上抛出，也不能在未保留用户数据的情况下
 /// 用默认值静默替换包含翻译密钥的配置。
 fn recover_invalid_config(target_path: &Path, reason: &str) -> Result<Config, CoreError> {
-    let backup_path = target_path.with_extension("toml.bak");
+    let backup_path = reserve_backup_path(target_path)?;
     fs::rename(target_path, &backup_path).map_err(|error| CoreError::IoError {
         path: target_path.to_path_buf(),
         source: error,
@@ -175,6 +175,29 @@ fn recover_invalid_config(target_path: &Path, reason: &str) -> Result<Config, Co
         backup_path
     );
     Ok(default_config)
+}
+
+/// 为损坏配置保留不覆盖既有备份的恢复路径。
+fn reserve_backup_path(target_path: &Path) -> Result<PathBuf, CoreError> {
+    let primary = target_path.with_extension("toml.bak");
+    if !primary.exists() {
+        return Ok(primary);
+    }
+
+    for index in 1..=1000u32 {
+        let candidate = target_path.with_extension(format!("toml.bak.{index}"));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(CoreError::IoError {
+        path: primary,
+        source: std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "损坏配置备份数量超过上限",
+        ),
+    })
 }
 
 /// 将已存在配置文件的权限收紧为 0600，避免历史版本创建的 0644 文件泄露 API 密钥。
@@ -405,6 +428,27 @@ provider = "deepl"
         );
         let rebuilt = std::fs::read_to_string(&config_file).expect("重建配置应存在");
         assert!(rebuilt.contains("schema_version"));
+    }
+
+    /// 已存在旧备份时不得覆盖它，应使用递增后缀保留每一次损坏现场。
+    #[test]
+    fn test_corrupt_config_backup_does_not_overwrite_existing_backup() {
+        let temp_dir = tempdir().expect("创建临时目录失败");
+        let config_file = temp_dir.path().join("config.toml");
+        let primary_backup = config_file.with_extension("toml.bak");
+        std::fs::write(&config_file, "broken = [").expect("写入损坏配置失败");
+        std::fs::write(&primary_backup, "previous backup").expect("写入旧备份失败");
+
+        load_or_create_config(Some(&config_file)).expect("损坏配置应降级为默认值");
+
+        assert_eq!(
+            std::fs::read_to_string(&primary_backup).expect("读取旧备份失败"),
+            "previous backup"
+        );
+        assert!(
+            config_file.with_extension("toml.bak.1").exists(),
+            "第二次恢复必须创建递增后缀备份"
+        );
     }
 
     #[test]
