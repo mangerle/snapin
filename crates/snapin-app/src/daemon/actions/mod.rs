@@ -10,7 +10,7 @@ use super::commands::handle_command;
 use crate::services::AppServices;
 use crate::snip::{handle_snipper_outcome, start_snipper_task, SnipStartRequest};
 use snapin_daemon::DaemonRequest;
-use snapin_platform::spawn_detached_system_command;
+use snapin_platform::spawn_independent_process;
 use snapin_runtime::TaskRuntime;
 use snapin_ui::paster::PasterWorkspaceProxy;
 use snapin_ui::snipper::SnipperOutcome;
@@ -110,11 +110,7 @@ pub(super) fn spawn_preferences_subprocess() {
         tracing::warn!("获取当前可执行文件路径失败，无法启动设置中心");
         return;
     };
-    let Some(exe) = exe.to_str() else {
-        tracing::warn!("当前可执行文件路径包含非法编码，无法启动设置中心");
-        return;
-    };
-    spawn_detached_system_command(exe, &["prefs"]);
+    spawn_independent_process(&exe, &["prefs"]);
 }
 
 /// 派生独立剪贴板历史面板进程。
@@ -123,9 +119,5 @@ pub(super) fn spawn_clipboard_history_subprocess() {
         tracing::warn!("获取当前可执行文件路径失败，无法启动剪贴板历史面板");
         return;
     };
-    let Some(exe) = exe.to_str() else {
-        tracing::warn!("当前可执行文件路径包含非法编码，无法启动剪贴板历史面板");
-        return;
-    };
-    spawn_detached_system_command(exe, &["clipboard-history"]);
+    spawn_independent_process(&exe, &["clipboard-history"]);
 }

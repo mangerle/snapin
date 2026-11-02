@@ -155,14 +155,15 @@ fn spawn_daemon_process(executable: &Path) -> Result<(), PlatformError> {
 /// 启用配套 GNOME Shell 扩展并自动收割子进程状态，杜绝僵尸进程
 pub fn enable_gnome_extension() {
     #[cfg(target_os = "linux")]
-    spawn_detached_system_command("gnome-extensions", &["enable", "snapin@wangle.local"]);
+    run_bounded_system_command("gnome-extensions", &["enable", "snapin@wangle.local"]);
 }
 
-/// 在后台异步启动并收割外部系统子进程，防止在操作系统中残留僵尸进程 (Zombie PCB)。
+/// 在后台运行预期会很快退出的系统命令，并自动收割其退出状态。
 ///
-/// 命令进入进程级后台运行时队列；队列满或运行时不可用时记录警告并放弃本次派生，
-/// 不阻塞调用线程，也不会创建不受追踪的临时线程。
-pub fn spawn_detached_system_command<P: AsRef<OsStr>>(program: &str, args: &[P]) {
+/// 命令进入进程级后台运行时队列；超过 [`SYSTEM_COMMAND_TIMEOUT`] 会被强制终止，
+/// 避免桌面打开器或系统工具挂死后长期占用任务名额。常驻守护进程、设置窗口等
+/// 长生命周期进程必须使用 [`spawn_independent_process`]，不能复用本入口。
+pub fn run_bounded_system_command<P: AsRef<OsStr>>(program: &str, args: &[P]) {
     let Some(runtime) = TaskRuntime::shared() else {
         tracing::error!("后台进程运行时不可用，已放弃启动系统命令: {program}");
         return;
@@ -207,20 +208,62 @@ pub fn spawn_detached_system_command<P: AsRef<OsStr>>(program: &str, args: &[P])
     }
 }
 
+/// 派生生命周期独立于当前调用方的长期运行进程，并持续等待其退出以完成状态收割。
+///
+/// 设置窗口和剪贴板面板可能运行任意长时间，因此不能设置强制终止超时；但它们仍
+/// 进入统一运行时追踪，父进程存活期间不会留下僵尸进程。父进程退出时，等待任务随
+/// 运行时一起释放，子进程由操作系统重新托管，不会因父进程退出而被误杀。
+pub fn spawn_independent_process<P: AsRef<OsStr>>(program: &Path, args: &[P]) {
+    let Some(runtime) = TaskRuntime::shared() else {
+        tracing::error!(
+            "后台进程运行时不可用，已放弃启动独立进程: {}",
+            program.display()
+        );
+        return;
+    };
+
+    let program = program.to_path_buf();
+    let arguments: Vec<OsString> = args.iter().map(|arg| arg.as_ref().to_os_string()).collect();
+    let command_name = program.display().to_string();
+    let task_name = command_name.clone();
+    if let Err(error) = runtime.spawn_in(TaskPool::Process, async move {
+        let spawned = tokio::process::Command::new(&program)
+            .args(&arguments)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        match spawned {
+            Ok(mut child) => match child.wait().await {
+                Ok(status) if !status.success() => {
+                    tracing::warn!("独立子进程退出码非零 [{task_name}]，状态: {status}");
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::warn!("等待独立子进程退出失败 [{task_name}]: {error}");
+                }
+            },
+            Err(error) => tracing::warn!("派生独立子进程失败 [{task_name}]: {error}"),
+        }
+    }) {
+        tracing::warn!("提交独立子进程任务失败 [{command_name}]: {error}");
+    }
+}
+
 /// 在系统文件管理器中打开指定目录或文件并自动收割子进程，杜绝僵尸进程
 pub fn open_path_in_file_manager<P: AsRef<std::path::Path>>(path: P) {
     let p = path.as_ref().to_path_buf();
     #[cfg(target_os = "windows")]
     {
-        spawn_detached_system_command("explorer", &[p.as_os_str()]);
+        run_bounded_system_command("explorer", &[p.as_os_str()]);
     }
     #[cfg(target_os = "macos")]
     {
-        spawn_detached_system_command("open", &[p.as_os_str()]);
+        run_bounded_system_command("open", &[p.as_os_str()]);
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
-        spawn_detached_system_command("xdg-open", &[p.as_os_str()]);
+        run_bounded_system_command("xdg-open", &[p.as_os_str()]);
     }
 }
 
@@ -242,15 +285,15 @@ pub fn open_url(url: &str) -> Result<(), crate::error::PlatformError> {
 
     #[cfg(target_os = "windows")]
     {
-        spawn_detached_system_command("explorer", &[url]);
+        run_bounded_system_command("explorer", &[url]);
     }
     #[cfg(target_os = "macos")]
     {
-        spawn_detached_system_command("open", &[url]);
+        run_bounded_system_command("open", &[url]);
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
-        spawn_detached_system_command("xdg-open", &[url]);
+        run_bounded_system_command("xdg-open", &[url]);
     }
     Ok(())
 }
@@ -260,9 +303,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_spawn_detached_system_command_executes_safely() {
+    fn test_run_bounded_system_command_executes_safely() {
         // 测试拉起标准无害命令并验证其能在统一运行时中正常回收，不触发 panic
-        spawn_detached_system_command("true", &[""]);
+        run_bounded_system_command("true", &[""]);
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 

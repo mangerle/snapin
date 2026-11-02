@@ -6,7 +6,8 @@
 
 use anyhow::{bail, Context, Result};
 use snapin_daemon::{probe_daemon, DaemonProbe};
-use snapin_platform::spawn_detached_system_command;
+use snapin_platform::start_daemon_process;
+use std::path::Path;
 use std::time::Duration;
 
 /// 等待守护进程 IPC 就绪的最大时长。
@@ -36,9 +37,10 @@ pub async fn ensure_daemon_running() -> Result<()> {
     }
 
     let exe = std::env::current_exe().context("获取当前可执行文件路径失败")?;
-    let exe = exe.to_str().context("当前可执行文件路径包含非法编码")?;
     tracing::info!("未检测到常驻守护服务，正在启动守护进程...");
-    spawn_detached_system_command(exe, &["daemon"]);
+    start_daemon_process(Path::new(&exe))
+        .await
+        .context("启动守护进程失败")?;
 
     let attempts = (DAEMON_START_TIMEOUT.as_millis() / DAEMON_POLL_INTERVAL.as_millis()).max(1);
     for _ in 0..attempts {
