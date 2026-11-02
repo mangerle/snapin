@@ -29,3 +29,6 @@ xcap = { version = "0.9", default-features = false }
 tray-icon = { version = "0.26", default-features = false }
 global-hotkey = { version = "0.9", default-features = false }
 rfd = { version = "0.15", default-features = false, features = ["tokio"] }
+
+[dev-dependencies]
+tempfile.workspace = true

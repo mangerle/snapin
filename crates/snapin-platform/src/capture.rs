@@ -6,6 +6,8 @@
 
 use crate::error::PlatformError;
 use image::RgbaImage;
+#[cfg(target_os = "linux")]
+use std::path::PathBuf;
 use std::time::Duration;
 
 /// 原生抓屏或解码任务的最长等待时间，避免 macOS 权限弹窗或驱动挂起拖死整条流程。
@@ -76,6 +78,7 @@ async fn capture_linux(include_cursor: bool) -> Result<RgbaImage, PlatformError>
 #[cfg(target_os = "linux")]
 async fn capture_via_extension(include_cursor: bool) -> Result<RgbaImage, PlatformError> {
     let target_path = AppPaths::generate_temp_path("screen", "png");
+    let _cleanup = TemporaryScreenshotFile::new(target_path.clone());
     let target_str = target_path.to_string_lossy().to_string();
     let success = crate::extension_client::capture_fullscreen_extension_with_cursor(
         &target_str,
@@ -87,39 +90,35 @@ async fn capture_via_extension(include_cursor: bool) -> Result<RgbaImage, Platfo
             message: format!("GNOME 扩展返回截屏失败，目标路径: {target_str}"),
         });
     }
-    let file_bytes = read_extension_screenshot(&target_path, &target_str).await?;
+    let file_bytes = read_extension_screenshot(target_path, target_str).await?;
     decode_extension_screenshot(file_bytes).await
 }
 
-/// 读取扩展输出文件，限制大小并立即回收临时文件。
+/// 读取扩展输出文件，并在读取阶段强制施加大小上限。
 #[cfg(target_os = "linux")]
 async fn read_extension_screenshot(
-    target_path: &std::path::Path,
-    target_str: &str,
+    target_path: PathBuf,
+    target_str: String,
 ) -> Result<Vec<u8>, PlatformError> {
-    let metadata = tokio::fs::metadata(target_path)
-        .await
-        .map_err(|source| PlatformError::Io {
-            path: target_str.to_string(),
-            source,
-        })?;
-    if metadata.len() > MAX_SCREENSHOT_FILE_BYTES {
-        let _ = tokio::fs::remove_file(target_path).await;
-        return Err(PlatformError::Capture {
-            message: format!(
-                "GNOME 扩展导出的截图文件过大，大小: {} 字节，上限: {MAX_SCREENSHOT_FILE_BYTES} 字节",
-                metadata.len()
-            ),
-        });
-    }
-    let bytes = tokio::fs::read(target_path)
-        .await
-        .map_err(|source| PlatformError::Io {
-            path: target_str.to_string(),
-            source,
-        })?;
-    let _ = tokio::fs::remove_file(target_path).await;
-    Ok(bytes)
+    tokio::time::timeout(
+        CAPTURE_TIMEOUT,
+        tokio::task::spawn_blocking(move || {
+            snapin_foundation::read_file_limited(&target_path, MAX_SCREENSHOT_FILE_BYTES as usize)
+                .map_err(|error| PlatformError::Capture {
+                    message: format!("读取 GNOME 扩展截图失败，路径: {target_str}，原因: {error}"),
+                })
+        }),
+    )
+    .await
+    .map_err(|_| PlatformError::Capture {
+        message: format!(
+            "读取 GNOME 扩展截图超时（{} 秒）",
+            CAPTURE_TIMEOUT.as_secs()
+        ),
+    })?
+    .map_err(|error| PlatformError::Capture {
+        message: format!("等待 GNOME 扩展截图读取任务失败: {error}"),
+    })?
 }
 
 /// 在阻塞池解码扩展导出的 PNG，避免阻塞异步 worker。
@@ -223,6 +222,33 @@ fn capture_monitor_desktop(monitors: &[xcap::Monitor]) -> Result<RgbaImage, Plat
     Ok(bounds.compose(frames))
 }
 
+/// 临时截图文件的取消安全清理守卫。
+///
+/// 即使截图调用被取消或后续解码失败，析构也会同步删除文件，避免长期运行目录
+/// 因异常路径持续积累全屏截图。
+#[cfg(target_os = "linux")]
+pub(crate) struct TemporaryScreenshotFile {
+    path: PathBuf,
+}
+
+#[cfg(target_os = "linux")]
+impl TemporaryScreenshotFile {
+    pub(crate) fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for TemporaryScreenshotFile {
+    fn drop(&mut self) {
+        if let Err(error) = std::fs::remove_file(&self.path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!("清理临时截图文件失败，路径: {:?}，原因: {error}", self.path);
+            }
+        }
+    }
+}
+
 /// 多显示器虚拟桌面联合边界。
 #[derive(Default)]
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -260,5 +286,22 @@ impl DesktopBounds {
             );
         }
         combined
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_temporary_screenshot_file_is_removed_on_drop() {
+        let dir = tempfile::tempdir().expect("应可创建测试目录");
+        let path = dir.path().join("screen.png");
+        std::fs::write(&path, b"screenshot").expect("应可写入临时截图");
+        let guard = TemporaryScreenshotFile::new(path.clone());
+
+        drop(guard);
+
+        assert!(!path.exists(), "守卫析构后临时截图必须被删除");
     }
 }

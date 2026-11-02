@@ -3,13 +3,13 @@
 //! 在 Wayland / Ubuntu 26 GNOME 环境下，遵照 Freedesktop 安全沙箱规范，
 //! 请求系统特权合成器交付完整屏幕帧缓冲区。
 
+use crate::capture::TemporaryScreenshotFile;
 use crate::dbus_session::get_session_connection;
 use crate::error::PlatformError;
 use ashpd::desktop::file_chooser::{FileFilter, SelectedFiles};
 use ashpd::desktop::screenshot::Screenshot;
 use ashpd::desktop::ResponseError;
 use image::RgbaImage;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -29,6 +29,9 @@ const PORTAL_PERMISSION_APP_IDS: &[&str] = &["snapin", "snapin.desktop"];
 
 /// 单次 PermissionStore 调用的超时上限
 const PORTAL_PERMISSION_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Portal 截图文件读取与解码的最长等待时间。
+const PORTAL_DECODE_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// 本轮进程是否已成功预登记截屏授权，避免每次截图重复写后端权限存储。
 static PORTAL_PERMISSION_ENSURED: AtomicBool = AtomicBool::new(false);
@@ -204,38 +207,37 @@ fn portal_response_path(
 async fn decode_portal_screenshot(file_path: PathBuf) -> Result<RgbaImage, PlatformError> {
     let started = std::time::Instant::now();
     let decode_path = file_path.clone();
-    let image = tokio::task::spawn_blocking(move || {
-        let metadata = fs::metadata(&decode_path).map_err(|error| PlatformError::Io {
-            path: decode_path.to_string_lossy().to_string(),
-            source: error,
-        })?;
-        if metadata.len() > crate::capture::MAX_SCREENSHOT_FILE_BYTES {
-            let _ = fs::remove_file(&decode_path);
-            return Err(PlatformError::ImageDecode {
-                message: format!(
-                    "Portal 返回的截图文件过大，大小: {} 字节，上限: {} 字节",
-                    metadata.len(),
-                    crate::capture::MAX_SCREENSHOT_FILE_BYTES
-                ),
-            });
-        }
-        let bytes = fs::read(&decode_path).map_err(|error| PlatformError::Io {
-            path: decode_path.to_string_lossy().to_string(),
-            source: error,
-        })?;
-        if let Err(error) = fs::remove_file(&decode_path) {
-            tracing::warn!("清理 Portal 临时图片文件失败: {error}");
-        }
-        image::load_from_memory(&bytes)
-            .map(|dynamic_img| dynamic_img.into_rgba8())
+    let image = tokio::time::timeout(
+        PORTAL_DECODE_TIMEOUT,
+        tokio::task::spawn_blocking(move || {
+            let _cleanup = TemporaryScreenshotFile::new(decode_path.clone());
+            let bytes = snapin_foundation::read_file_limited(
+                &decode_path,
+                crate::capture::MAX_SCREENSHOT_FILE_BYTES as usize,
+            )
             .map_err(|error| PlatformError::ImageDecode {
                 message: format!(
-                    "Portal 返回内容无法按受支持的图像格式解码，字节数: {}，原因: {error}",
-                    bytes.len()
+                    "读取 Portal 截图文件失败，路径: {}，原因: {error}",
+                    decode_path.display()
                 ),
-            })
-    })
+            })?;
+            image::load_from_memory(&bytes)
+                .map(|dynamic_img| dynamic_img.into_rgba8())
+                .map_err(|error| PlatformError::ImageDecode {
+                    message: format!(
+                        "Portal 返回内容无法按受支持的图像格式解码，字节数: {}，原因: {error}",
+                        bytes.len()
+                    ),
+                })
+        }),
+    )
     .await
+    .map_err(|_| PlatformError::Portal {
+        message: format!(
+            "Portal 截图读取或解码超时（{} 秒）",
+            PORTAL_DECODE_TIMEOUT.as_secs()
+        ),
+    })?
     .map_err(|error| PlatformError::Portal {
         message: format!("Portal 图像解码任务异常: {error}"),
     })??;
