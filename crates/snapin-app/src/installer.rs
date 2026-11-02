@@ -6,6 +6,10 @@
 #[cfg(target_os = "linux")]
 use anyhow::Context;
 use anyhow::Result;
+#[cfg(target_os = "linux")]
+use snapin_platform::output_with_timeout;
+#[cfg(target_os = "linux")]
+use std::time::Duration;
 
 #[cfg(target_os = "linux")]
 const EXT_METADATA: &str = include_str!("../../../extension/metadata.json");
@@ -13,6 +17,8 @@ const EXT_METADATA: &str = include_str!("../../../extension/metadata.json");
 const EXT_JAVASCRIPT: &str = include_str!("../../../extension/extension.js");
 #[cfg(target_os = "linux")]
 const EXT_ICON_SVG: &[u8] = include_bytes!("../../../assets/icons/snapin.svg");
+#[cfg(target_os = "linux")]
+const GNOME_EXTENSION_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// 安装配套 GNOME Shell 扩展到用户目录并向系统请求启用
 pub fn install_gnome_extension() -> Result<()> {
@@ -41,11 +47,23 @@ pub fn install_gnome_extension() -> Result<()> {
         tracing::info!("GNOME 扩展文件已成功部署至: {:?}", target_dir);
 
         // 请求 GNOME 启用该扩展（登录或重启 Shell 后将自动加载生效）
-        let _ = std::process::Command::new("gnome-extensions")
-            .args(["enable", uuid])
-            .output();
-
-        tracing::info!("已向 GNOME 发送扩展启用指令。");
+        let mut command = std::process::Command::new("gnome-extensions");
+        command.args(["enable", uuid]);
+        match output_with_timeout(command, GNOME_EXTENSION_COMMAND_TIMEOUT) {
+            Ok(output) if output.status.success() => {
+                tracing::info!("已向 GNOME 发送扩展启用指令。");
+            }
+            Ok(output) => {
+                tracing::warn!(
+                    "GNOME 扩展启用命令返回非零状态，状态: {}，原因: {}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
+            }
+            Err(error) => {
+                tracing::warn!("执行 GNOME 扩展启用命令失败: {error}");
+            }
+        }
         Ok(())
     }
 }

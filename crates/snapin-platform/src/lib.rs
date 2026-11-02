@@ -4,6 +4,7 @@ pub mod autostart;
 pub mod capabilities;
 pub mod capture;
 pub mod clipboard;
+mod command;
 pub mod error;
 #[cfg(target_os = "linux")]
 pub mod extension_client;
@@ -31,6 +32,7 @@ pub use clipboard::{
     read_clipboard_image, read_clipboard_text, write_image_to_clipboard,
     write_raw_image_to_clipboard, write_text_to_clipboard,
 };
+pub use command::output_with_timeout;
 pub use error::PlatformError;
 pub use window::WindowRect;
 

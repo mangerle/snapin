@@ -2,8 +2,13 @@
 
 use super::{configured_bindings, hotkey_to_gnome_accelerator, HotkeyAction};
 use crate::error::PlatformError;
+use crate::output_with_timeout;
 use snapin_config::config::HotkeyConfig;
 use std::process::Command;
+use std::time::Duration;
+
+/// 单次 GNOME 设置命令的最长执行时间。
+const GSETTINGS_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// 返回 GNOME 注册所需的路径后缀、显示名与命令行参数。
 #[cfg(target_os = "linux")]
@@ -105,17 +110,18 @@ fn ensure_custom_keybindings_registered(paths: &[String]) -> Result<(), Platform
 
 /// 读取 GNOME 当前已注册的自定义快捷键路径。
 fn read_registered_keybindings() -> Result<Vec<String>, PlatformError> {
-    let output = Command::new("gsettings")
-        .args([
-            "get",
-            "org.gnome.settings-daemon.plugins.media-keys",
-            "custom-keybindings",
-        ])
-        .output()
-        .map_err(|error| PlatformError::Io {
+    let mut command = Command::new("gsettings");
+    command.args([
+        "get",
+        "org.gnome.settings-daemon.plugins.media-keys",
+        "custom-keybindings",
+    ]);
+    let output = output_with_timeout(command, GSETTINGS_COMMAND_TIMEOUT).map_err(|error| {
+        PlatformError::Io {
             path: "gsettings".to_string(),
             source: error,
-        })?;
+        }
+    })?;
     if !output.status.success() {
         return Err(PlatformError::Hotkey {
             message: format!(
@@ -188,10 +194,9 @@ fn get_snapin_executable_path() -> String {
 fn execute_gsettings_batch(items: &[(&str, &str, &str)]) -> Result<(), PlatformError> {
     let mut failures: Vec<String> = Vec::new();
     for (schema, key, value) in items {
-        match Command::new("gsettings")
-            .args(["set", schema, key, value])
-            .output()
-        {
+        let mut command = Command::new("gsettings");
+        command.args(["set", schema, key, value]);
+        match output_with_timeout(command, GSETTINGS_COMMAND_TIMEOUT) {
             Ok(out) if !out.status.success() => {
                 failures.push(format!(
                     "{schema} {key}: {}",

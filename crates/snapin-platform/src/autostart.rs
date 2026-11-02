@@ -5,6 +5,12 @@
 //! - macOS: 用户级 LaunchAgents 服务代理清单 (~/Library/LaunchAgents/local.wangle.snapin.plist)。
 
 use crate::error::PlatformError;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use std::time::Duration;
+
+/// 自启动相关系统命令的最长执行时间。
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+const AUTOSTART_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// 同步开机自启动配置状态。
 ///
@@ -35,6 +41,7 @@ pub fn sync_autostart(enabled: bool) -> Result<(), PlatformError> {
 #[cfg(target_os = "linux")]
 mod linux {
     use crate::error::PlatformError;
+    use crate::output_with_timeout;
     use std::path::PathBuf;
     use std::process::Command;
 
@@ -61,17 +68,16 @@ X-GNOME-Autostart-enabled=true
     }
 
     fn systemd_unit_loaded() -> bool {
-        let output = match Command::new("systemctl")
-            .args([
-                "--user",
-                "show",
-                "-p",
-                "LoadState",
-                "--value",
-                SYSTEMD_SERVICE,
-            ])
-            .output()
-        {
+        let mut command = Command::new("systemctl");
+        command.args([
+            "--user",
+            "show",
+            "-p",
+            "LoadState",
+            "--value",
+            SYSTEMD_SERVICE,
+        ]);
+        let output = match output_with_timeout(command, super::AUTOSTART_COMMAND_TIMEOUT) {
             Ok(output) => output,
             Err(error) => {
                 tracing::debug!(
@@ -90,13 +96,15 @@ X-GNOME-Autostart-enabled=true
 
     fn sync_systemd_service(enabled: bool) -> Result<(), PlatformError> {
         let action = if enabled { "enable" } else { "disable" };
-        let output = Command::new("systemctl")
-            .args(["--user", action, SYSTEMD_SERVICE])
-            .output()
-            .map_err(|error| PlatformError::Systemd {
-                action: action.to_string(),
-                service: SYSTEMD_SERVICE.to_string(),
-                message: error.to_string(),
+        let mut command = Command::new("systemctl");
+        command.args(["--user", action, SYSTEMD_SERVICE]);
+        let output =
+            output_with_timeout(command, super::AUTOSTART_COMMAND_TIMEOUT).map_err(|error| {
+                PlatformError::Systemd {
+                    action: action.to_string(),
+                    service: SYSTEMD_SERVICE.to_string(),
+                    message: error.to_string(),
+                }
             })?;
 
         if !output.status.success() {
@@ -181,6 +189,7 @@ X-GNOME-Autostart-enabled=true
 #[cfg(target_os = "windows")]
 mod windows {
     use crate::error::PlatformError;
+    use crate::output_with_timeout;
     use std::process::Command;
 
     const REG_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
@@ -194,15 +203,16 @@ mod windows {
             })?;
             let cmd_val = format!("\"{}\" daemon", current_exe.to_string_lossy());
 
-            let status = Command::new("reg")
-                .args([
-                    "add", REG_KEY, "/v", APP_NAME, "/t", "REG_SZ", "/d", &cmd_val, "/f",
-                ])
-                .status()
+            let mut command = Command::new("reg");
+            command.args([
+                "add", REG_KEY, "/v", APP_NAME, "/t", "REG_SZ", "/d", &cmd_val, "/f",
+            ]);
+            let status = output_with_timeout(command, super::AUTOSTART_COMMAND_TIMEOUT)
                 .map_err(|e| PlatformError::Io {
                     path: REG_KEY.to_string(),
                     source: e,
-                })?;
+                })?
+                .status;
 
             if !status.success() {
                 return Err(PlatformError::Capture {
@@ -211,9 +221,9 @@ mod windows {
             }
             tracing::info!("已在 Windows 注册表中配置自启动项: {APP_NAME}");
         } else {
-            let _ = Command::new("reg")
-                .args(["delete", REG_KEY, "/v", APP_NAME, "/f"])
-                .status();
+            let mut command = Command::new("reg");
+            command.args(["delete", REG_KEY, "/v", APP_NAME, "/f"]);
+            let _ = output_with_timeout(command, super::AUTOSTART_COMMAND_TIMEOUT);
             tracing::info!("已从 Windows 注册表中清理自启动项: {APP_NAME}");
         }
         Ok(())
