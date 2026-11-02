@@ -19,6 +19,15 @@ use snapin_config::config::CoverMode;
 use std::sync::Arc;
 use tiny_skia::Pixmap;
 
+/// 贴图保存任务的交互选项。
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PasterSaveOptions {
+    /// 是否打开系统另存为对话框；为否时使用快捷保存路径。
+    pub(crate) as_dialog: bool,
+    /// 保存完成后是否打开文件所在目录。
+    pub(crate) open_folder_after: bool,
+}
+
 /// 将 tiny-skia 位图转换为 OCR 引擎可直接消费的 RGBA 图像。
 ///
 /// `Pixmap::data()` 为预乘 RGBA 字节序，与引擎入参的通道布局一致；
@@ -127,15 +136,14 @@ impl PasterJobRuntime {
         &self,
         paster_id: PasterId,
         image: RgbaImage,
-        as_dialog: bool,
-        open_folder_after: bool,
+        options: PasterSaveOptions,
     ) -> Result<(JobId, JobCancel), PortError> {
         let proxy = self.proxy.clone();
         self.runner.submit(
             MediaJob::SavePaster {
                 image,
-                as_dialog,
-                open_folder_after,
+                as_dialog: options.as_dialog,
+                open_folder_after: options.open_folder_after,
             },
             Box::new(move |job_id, outcome| {
                 let result = match outcome {

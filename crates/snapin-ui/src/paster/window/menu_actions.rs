@@ -3,7 +3,7 @@
 //! UI 只负责把用户动作转换为端口调用或媒体任务；保存对话框、图像编码、
 //! 桌面通知与文件管理器打开统一由应用层完成。
 
-use super::jobs::pixmap_to_rgba_image;
+use super::jobs::{pixmap_to_rgba_image, PasterSaveOptions};
 use super::state::PasterWindowState;
 use crate::paster::context_menu::MenuItemId;
 use image::RgbaImage;
@@ -96,7 +96,14 @@ fn submit_paster_save(state: &mut PasterWindowState, as_dialog: bool, open_folde
         return;
     };
 
-    match runtime.submit_save(state.document.item.id, image, as_dialog, open_folder_after) {
+    match runtime.submit_save(
+        state.document.item.id,
+        image,
+        PasterSaveOptions {
+            as_dialog,
+            open_folder_after,
+        },
+    ) {
         Ok((job_id, cancel)) => {
             state.begin_job(job_id, cancel);
             state.set_status_message(if as_dialog {
