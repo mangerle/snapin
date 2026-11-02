@@ -13,18 +13,21 @@ use winit::window::{CursorIcon, Window};
 /// 只在期望形状变化时调用系统接口，避免每次鼠标移动都提交冗余的光标设置。
 pub fn refresh_cursor(window: &Window, state: &mut SnipperState) {
     let icon = desired_cursor_icon(state);
-    if state.cursor_icon != icon {
-        state.cursor_icon = icon;
+    if state.viewport.cursor_icon != icon {
+        state.viewport.cursor_icon = icon;
         window.set_cursor(icon);
     }
 }
 
 /// 计算当前应显示的光标形状。
 fn desired_cursor_icon(state: &SnipperState) -> CursorIcon {
-    let SelectionState::Locked { rect, active_drag } = &state.selection else {
+    let SelectionState::Locked { rect, active_drag } = &state.viewport.selection else {
         return CursorIcon::Default;
     };
-    let (cx, cy) = (state.cursor_pos.0 as f32, state.cursor_pos.1 as f32);
+    let (cx, cy) = (
+        state.viewport.cursor_pos.0 as f32,
+        state.viewport.cursor_pos.1 as f32,
+    );
     if let Some(icon) = active_drag_cursor(state, active_drag) {
         return icon;
     }
@@ -39,7 +42,7 @@ fn desired_cursor_icon(state: &SnipperState) -> CursorIcon {
 
 /// 拖拽过程中固定显示当前操作对应的光标，避免闪回箭头。
 fn active_drag_cursor(state: &SnipperState, active_drag: &Option<DragMode>) -> Option<CursorIcon> {
-    if let Some(drag) = &state.annotation_drag {
+    if let Some(drag) = &state.editor.annotation_drag {
         return Some(match drag {
             AnnotationDrag::Move { .. } => CursorIcon::Move,
             AnnotationDrag::Resize { handle, .. } => resize_cursor(*handle),
@@ -56,13 +59,14 @@ fn active_drag_cursor(state: &SnipperState, active_drag: &Option<DragMode>) -> O
 
 /// 工具栏拖动、拖动把手与面板区域的光标。
 fn toolbar_cursor(state: &SnipperState, cx: f32, cy: f32) -> Option<CursorIcon> {
-    if state.toolbar.is_dragging() {
+    if state.editor.toolbar.is_dragging() {
         return Some(CursorIcon::Grabbing);
     }
-    if state.toolbar.hit_test_drag_handle(cx, cy) {
+    if state.editor.toolbar.hit_test_drag_handle(cx, cy) {
         return Some(CursorIcon::Grab);
     }
     state
+        .editor
         .toolbar
         .contains_point(cx, cy)
         .then_some(CursorIcon::Default)
@@ -73,24 +77,25 @@ fn annotation_cursor(state: &SnipperState, cx: f32, cy: f32) -> Option<CursorIco
     if let Some(handle) = annotation_edit::hit_test_selected_handle(state, cx, cy) {
         return Some(resize_cursor(handle));
     }
-    let allow_locked = state.modifiers.alt_key();
+    let allow_locked = state.viewport.modifiers.alt_key();
     if annotation_edit::hit_test_selected_body(state, cx, cy)
         || annotation_edit::hit_test_editable(state, (cx, cy), allow_locked).is_some()
     {
         return Some(CursorIcon::Move);
     }
-    (state.toolbar.active_tool.is_none() && annotation_edit::hit_test_locked(state, (cx, cy)))
-        .then_some(CursorIcon::Default)
+    (state.editor.toolbar.active_tool.is_none()
+        && annotation_edit::hit_test_locked(state, (cx, cy)))
+    .then_some(CursorIcon::Default)
 }
 
 /// 根据选区手柄、绘制工具与选区内部决定最终光标。
 fn selection_cursor(state: &SnipperState, rect: &Rect, cx: f32, cy: f32) -> CursorIcon {
-    let tolerance = 8.0 * state.toolbar.ui_scale;
+    let tolerance = 8.0 * state.editor.toolbar.ui_scale;
     if let Some(handle) = hit_test_handle(rect, cx, cy, tolerance) {
         return resize_cursor(handle);
     }
 
-    if state.toolbar.active_tool.is_some() {
+    if state.editor.toolbar.active_tool.is_some() {
         return if rect.contains(cx, cy) {
             CursorIcon::Crosshair
         } else {
@@ -123,8 +128,8 @@ mod tests {
     #[test]
     fn test_cursor_icon_by_selection_region() {
         let mut state = SnipperState::new();
-        state.toolbar.ui_scale = 1.0;
-        state.selection = SelectionState::Locked {
+        state.editor.toolbar.ui_scale = 1.0;
+        state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 100.0,
                 y: 100.0,
@@ -134,16 +139,16 @@ mod tests {
             active_drag: None,
         };
 
-        state.cursor_pos = (300.0, 250.0);
+        state.viewport.cursor_pos = (300.0, 250.0);
         assert_eq!(desired_cursor_icon(&state), CursorIcon::NwseResize);
 
-        state.cursor_pos = (300.0, 175.0);
+        state.viewport.cursor_pos = (300.0, 175.0);
         assert_eq!(desired_cursor_icon(&state), CursorIcon::EwResize);
 
-        state.cursor_pos = (200.0, 175.0);
+        state.viewport.cursor_pos = (200.0, 175.0);
         assert_eq!(desired_cursor_icon(&state), CursorIcon::Move);
 
-        state.cursor_pos = (50.0, 50.0);
+        state.viewport.cursor_pos = (50.0, 50.0);
         assert_eq!(desired_cursor_icon(&state), CursorIcon::Default);
     }
 
@@ -151,9 +156,9 @@ mod tests {
     #[test]
     fn test_cursor_icon_during_drag_and_with_active_tool() {
         let mut state = SnipperState::new();
-        state.toolbar.ui_scale = 1.0;
-        state.cursor_pos = (200.0, 175.0);
-        state.selection = SelectionState::Locked {
+        state.editor.toolbar.ui_scale = 1.0;
+        state.viewport.cursor_pos = (200.0, 175.0);
+        state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 100.0,
                 y: 100.0,
@@ -164,7 +169,7 @@ mod tests {
         };
         assert_eq!(desired_cursor_icon(&state), CursorIcon::NeswResize);
 
-        state.selection = SelectionState::Locked {
+        state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 100.0,
                 y: 100.0,
@@ -178,7 +183,7 @@ mod tests {
         };
         assert_eq!(desired_cursor_icon(&state), CursorIcon::Move);
 
-        state.selection = SelectionState::Locked {
+        state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 100.0,
                 y: 100.0,
@@ -187,7 +192,7 @@ mod tests {
             },
             active_drag: None,
         };
-        state.toolbar.active_tool = Some(crate::editor::toolbar::Tool::Rect);
+        state.editor.toolbar.active_tool = Some(crate::editor::toolbar::Tool::Rect);
         assert_eq!(desired_cursor_icon(&state), CursorIcon::Crosshair);
     }
 
@@ -198,8 +203,8 @@ mod tests {
         use snapin_annotation::{AnnotationShape, LineStyle};
 
         let mut state = SnipperState::new();
-        state.toolbar.ui_scale = 1.0;
-        state.selection = SelectionState::Locked {
+        state.editor.toolbar.ui_scale = 1.0;
+        state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 0.0,
                 y: 0.0,
@@ -208,26 +213,29 @@ mod tests {
             },
             active_drag: None,
         };
-        state.annotations.push(AnnotationShape::Rect(RectAction {
-            rect: (100.0, 100.0, 200.0, 120.0),
-            color: (255, 0, 0, 255).into(),
-            stroke_width: 2.0,
-            is_filled: false,
-            corner_radius: 0.0,
-            line_style: LineStyle::Solid,
-        }));
+        state
+            .editor
+            .annotations
+            .push(AnnotationShape::Rect(RectAction {
+                rect: (100.0, 100.0, 200.0, 120.0),
+                color: (255, 0, 0, 255).into(),
+                stroke_width: 2.0,
+                is_filled: false,
+                corner_radius: 0.0,
+                line_style: LineStyle::Solid,
+            }));
 
-        state.cursor_pos = (150.0, 150.0);
+        state.viewport.cursor_pos = (150.0, 150.0);
         assert_eq!(desired_cursor_icon(&state), CursorIcon::Move);
 
-        state.selected_annotation = Some(0.into());
-        state.cursor_pos = (300.0, 220.0);
+        state.editor.selected_annotation = Some(0.into());
+        state.viewport.cursor_pos = (300.0, 220.0);
         assert_eq!(desired_cursor_icon(&state), CursorIcon::NwseResize);
 
         // 远离标注且移到选区外时恢复默认；选区内空白处保持移动光标
-        state.cursor_pos = (600.0, 500.0);
+        state.viewport.cursor_pos = (600.0, 500.0);
         assert_eq!(desired_cursor_icon(&state), CursorIcon::Move);
-        state.cursor_pos = (850.0, 650.0);
+        state.viewport.cursor_pos = (850.0, 650.0);
         assert_eq!(desired_cursor_icon(&state), CursorIcon::Default);
     }
 }

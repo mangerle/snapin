@@ -13,14 +13,14 @@ use snapin_annotation::LineStyle;
 #[test]
 fn test_idle_cursor_move_requests_redraw_for_magnifier() {
     let mut state = SnipperState::new();
-    state.magnifier.enabled = true;
+    state.viewport.magnifier.enabled = true;
 
     assert!(
         handle_cursor_move(&mut state, (100.0, 100.0), 1920.0, 1080.0),
         "首次移动必须请求重绘以显示放大镜"
     );
-    assert!(state.cursor_ready);
-    assert_eq!(state.cursor_pos, (100.0, 100.0));
+    assert!(state.viewport.cursor_ready);
+    assert_eq!(state.viewport.cursor_pos, (100.0, 100.0));
 
     // 悬停区域未变化时仍要逐帧重绘，否则放大镜会停在旧位置
     assert!(
@@ -33,7 +33,7 @@ fn test_idle_cursor_move_requests_redraw_for_magnifier() {
 #[test]
 fn test_idle_cursor_move_skips_redraw_without_magnifier() {
     let mut state = SnipperState::new();
-    state.magnifier.enabled = false;
+    state.viewport.magnifier.enabled = false;
 
     assert!(!handle_cursor_move(
         &mut state,
@@ -41,37 +41,40 @@ fn test_idle_cursor_move_skips_redraw_without_magnifier() {
         1920.0,
         1080.0
     ));
-    assert!(state.cursor_ready);
+    assert!(state.viewport.cursor_ready);
 }
 
 #[test]
 fn test_mouse_wheel_continuous_stroke_width_and_retroactive_adjust() {
     let mut state = SnipperState::new();
     // 初始粗细为 4.0
-    assert_eq!(state.toolbar.sub_options.custom_stroke_width, 4.0);
+    assert_eq!(state.editor.toolbar.sub_options.custom_stroke_width, 4.0);
 
     // 模拟已绘制一个矩形标注
-    state.annotations.push(AnnotationShape::Rect(RectAction {
-        rect: (10.0, 10.0, 100.0, 100.0),
-        color: (255, 0, 0, 255).into(),
-        stroke_width: 4.0,
-        is_filled: false,
-        corner_radius: 0.0,
-        line_style: LineStyle::Solid,
-    }));
+    state
+        .editor
+        .annotations
+        .push(AnnotationShape::Rect(RectAction {
+            rect: (10.0, 10.0, 100.0, 100.0),
+            color: (255, 0, 0, 255).into(),
+            stroke_width: 4.0,
+            is_filled: false,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
+        }));
 
     // 滚轮向上滚动：4.0 -> 5.0
     let delta = MouseScrollDelta::LineDelta(0.0, 1.0);
     let changed = handle_mouse_wheel(&mut state, delta);
     assert!(changed);
-    assert_eq!(state.toolbar.sub_options.custom_stroke_width, 5.0);
+    assert_eq!(state.editor.toolbar.sub_options.custom_stroke_width, 5.0);
 
     // 再次向上：5.0 -> 6.0，档位变为 Thick
     let changed = handle_mouse_wheel(&mut state, delta);
     assert!(changed);
-    assert_eq!(state.toolbar.sub_options.custom_stroke_width, 6.0);
+    assert_eq!(state.editor.toolbar.sub_options.custom_stroke_width, 6.0);
     assert_eq!(
-        state.toolbar.sub_options.stroke_width,
+        state.editor.toolbar.sub_options.stroke_width,
         StrokeWidthLevel::Thick
     );
 }
@@ -79,20 +82,20 @@ fn test_mouse_wheel_continuous_stroke_width_and_retroactive_adjust() {
 #[test]
 fn test_mouse_wheel_text_mode_font_size_adjust() {
     let mut state = SnipperState::new();
-    state.toolbar.active_tool = Some(Tool::Text);
-    let initial_sz = state.toolbar.sub_options.font_size;
+    state.editor.toolbar.active_tool = Some(Tool::Text);
+    let initial_sz = state.editor.toolbar.sub_options.font_size;
 
     // 处于文字模式，向上滚字号增大 2.0
     let delta = MouseScrollDelta::LineDelta(0.0, 1.0);
     let changed = handle_mouse_wheel(&mut state, delta);
     assert!(changed);
-    assert_eq!(state.toolbar.sub_options.font_size, initial_sz + 2.0);
+    assert_eq!(state.editor.toolbar.sub_options.font_size, initial_sz + 2.0);
 }
 
 fn state_with_magnifier_wheel_target() -> SnipperState {
     let mut state = SnipperState::new();
-    state.toolbar.active_tool = Some(Tool::Magnifier);
-    state.selection = SelectionState::Locked {
+    state.editor.toolbar.active_tool = Some(Tool::Magnifier);
+    state.viewport.selection = SelectionState::Locked {
         rect: Rect {
             x: 0.0,
             y: 0.0,
@@ -101,7 +104,7 @@ fn state_with_magnifier_wheel_target() -> SnipperState {
         },
         active_drag: None,
     };
-    state.toolbar.update_layout(
+    state.editor.toolbar.update_layout(
         &Rect {
             x: 0.0,
             y: 0.0,
@@ -112,6 +115,7 @@ fn state_with_magnifier_wheel_target() -> SnipperState {
         800.0,
     );
     state
+        .editor
         .annotations
         .push(AnnotationShape::Magnifier(MagnifierAction {
             source: (10.0, 10.0, 40.0, 40.0),
@@ -123,7 +127,7 @@ fn state_with_magnifier_wheel_target() -> SnipperState {
             shadow: true,
             connector: MagnifierConnector::Solid,
         }));
-    state.selected_annotation = Some(0.into());
+    state.editor.selected_annotation = Some(0.into());
     state
 }
 
@@ -131,15 +135,15 @@ fn state_with_magnifier_wheel_target() -> SnipperState {
 #[test]
 fn test_magnifier_wheel_over_image_adjusts_scale() {
     let mut state = state_with_magnifier_wheel_target();
-    state.cursor_pos = (140.0, 140.0);
+    state.viewport.cursor_pos = (140.0, 140.0);
 
     assert!(handle_mouse_wheel(
         &mut state,
         MouseScrollDelta::LineDelta(0.0, 1.0)
     ));
 
-    assert_eq!(state.toolbar.sub_options.magnifier_scale, 2.25);
-    match state.annotations.shape_at(0) {
+    assert_eq!(state.editor.toolbar.sub_options.magnifier_scale, 2.25);
+    match state.editor.annotations.shape_at(0) {
         Some(AnnotationShape::Magnifier(action)) => {
             assert_eq!(action.source, (10.0, 10.0, 40.0, 40.0));
             assert_eq!(action.dest, (95.0, 95.0, 90.0, 90.0));
@@ -152,15 +156,15 @@ fn test_magnifier_wheel_over_image_adjusts_scale() {
 #[test]
 fn test_magnifier_wheel_outside_image_adjusts_border_width() {
     let mut state = state_with_magnifier_wheel_target();
-    state.cursor_pos = (400.0, 350.0);
+    state.viewport.cursor_pos = (400.0, 350.0);
 
     assert!(handle_mouse_wheel(
         &mut state,
         MouseScrollDelta::LineDelta(0.0, 1.0)
     ));
 
-    assert_eq!(state.toolbar.sub_options.custom_stroke_width, 5.0);
-    match state.annotations.shape_at(0) {
+    assert_eq!(state.editor.toolbar.sub_options.custom_stroke_width, 5.0);
+    match state.editor.annotations.shape_at(0) {
         Some(AnnotationShape::Magnifier(action)) => {
             assert_eq!(action.border_width, 5.0);
             assert_eq!(action.dest, (100.0, 100.0, 80.0, 80.0));
@@ -178,37 +182,44 @@ fn test_toolbar_click_does_not_create_annotation() {
         width: 800.0,
         height: 600.0,
     };
-    state.selection = SelectionState::Locked {
+    state.viewport.selection = SelectionState::Locked {
         rect: selection,
         active_drag: None,
     };
     // 激活序号印章工具
-    state.toolbar.active_tool = Some(Tool::Badge);
-    state.toolbar.update_layout(&selection, 1920.0, 1080.0);
+    state.editor.toolbar.active_tool = Some(Tool::Badge);
+    state
+        .editor
+        .toolbar
+        .update_layout(&selection, 1920.0, 1080.0);
 
     let original = RgbaImage::new(1920, 1080);
 
     // 模拟点击二级属性栏中的颜色位置（位于 sub_rect 内）
-    let sub_rect = state.toolbar.sub_rect.expect("序号印章应具备二级属性栏");
+    let sub_rect = state
+        .editor
+        .toolbar
+        .sub_rect
+        .expect("序号印章应具备二级属性栏");
     let click_x = sub_rect.x + 10.0;
     let click_y = sub_rect.y + 10.0;
 
-    assert!(state.toolbar.contains_point(click_x, click_y));
+    assert!(state.editor.toolbar.contains_point(click_x, click_y));
 
     let pressed = handle_left_press(&mut state, click_x, click_y, &original);
     assert!(pressed, "工具栏点击应被有效拦截消费");
-    assert!(state.stroke.points.is_empty(), "不应产生待定笔触点");
+    assert!(state.editor.stroke.points.is_empty(), "不应产生待定笔触点");
 
     let released = handle_left_release(&mut state, click_x, click_y, &original);
     assert!(released, "释放事件应被安全消费");
 
     // 核心断言：绝不应该生成任何标注，序号数字也不应该自增
     assert!(
-        !state.annotations.can_undo(),
+        !state.editor.annotations.can_undo(),
         "工具栏点击绝不应生成画布标注"
     );
     assert_eq!(
-        state.annotations.next_badge_number(),
+        state.editor.annotations.next_badge_number(),
         1,
         "序号印章不应被误创建"
     );
@@ -224,23 +235,26 @@ fn test_badge_click_places_shape_without_text_session() {
         width: 400.0,
         height: 300.0,
     };
-    state.selection = SelectionState::Locked {
+    state.viewport.selection = SelectionState::Locked {
         rect: selection,
         active_drag: None,
     };
-    state.toolbar.active_tool = Some(Tool::Badge);
-    state.toolbar.update_layout(&selection, 800.0, 600.0);
+    state.editor.toolbar.active_tool = Some(Tool::Badge);
+    state.editor.toolbar.update_layout(&selection, 800.0, 600.0);
     let original = RgbaImage::new(800, 600);
 
     assert!(handle_left_press(&mut state, 220.0, 200.0, &original));
-    assert!(state.active_text_input.is_none(), "序号不得开启文字输入");
+    assert!(
+        state.editor.active_text_input.is_none(),
+        "序号不得开启文字输入"
+    );
     assert!(handle_left_release(&mut state, 220.0, 200.0, &original));
 
     assert!(matches!(
-        state.annotations.undo_stack().last(),
+        state.editor.annotations.undo_stack().last(),
         Some(AnnotationShape::Badge(_))
     ));
-    assert_eq!(state.annotations.next_badge_number(), 2);
+    assert_eq!(state.editor.annotations.next_badge_number(), 2);
 }
 
 /// 智能打码完成后点击文字区域应实时增删对应马赛克，无需回车确认。
@@ -253,8 +267,8 @@ fn test_redaction_region_click_toggles_mosaic_immediately() {
     }]);
     apply_redaction(&mut state, &preview);
     let rect = preview.regions[0];
-    state.redaction_preview = Some(preview);
-    state.cursor_pos = (20.0, 25.0);
+    state.ocr.redaction_preview = Some(preview);
+    state.viewport.cursor_pos = (20.0, 25.0);
     let original = RgbaImage::new(800, 600);
 
     assert!(handle_mouse_button(
@@ -263,7 +277,7 @@ fn test_redaction_region_click_toggles_mosaic_immediately() {
         ElementState::Pressed,
         &original
     ));
-    assert!(!is_redaction_applied(&state.annotations, rect));
+    assert!(!is_redaction_applied(&state.editor.annotations, rect));
     assert!(handle_mouse_button(
         &mut state,
         MouseButton::Left,
@@ -277,7 +291,7 @@ fn test_redaction_region_click_toggles_mosaic_immediately() {
         ElementState::Pressed,
         &original
     ));
-    assert!(is_redaction_applied(&state.annotations, rect));
+    assert!(is_redaction_applied(&state.editor.annotations, rect));
 }
 
 #[test]
@@ -289,12 +303,12 @@ fn test_hit_test_resize_handle_starts_resizing() {
         width: 200.0,
         height: 150.0,
     };
-    state.selection = SelectionState::Locked {
+    state.viewport.selection = SelectionState::Locked {
         rect: selection,
         active_drag: None,
     };
     // 确保未激活特定标注工具
-    state.toolbar.active_tool = None;
+    state.editor.toolbar.active_tool = None;
 
     let original = RgbaImage::new(1920, 1080);
 
@@ -302,7 +316,7 @@ fn test_hit_test_resize_handle_starts_resizing() {
     let pressed = handle_left_press(&mut state, 300.0, 250.0, &original);
     assert!(pressed);
 
-    match &state.selection {
+    match &state.viewport.selection {
         SelectionState::Locked { active_drag, .. } => {
             assert_eq!(
                 *active_drag,
@@ -319,7 +333,7 @@ fn test_hit_test_resize_handle_starts_resizing() {
     // 构造一个虚拟 Window
     // handle_cursor_move 会直接调用 calculate_drag
     let (cx, cy) = (350.0f32, 300.0f32);
-    if let SelectionState::Locked { rect, active_drag } = &mut state.selection {
+    if let SelectionState::Locked { rect, active_drag } = &mut state.viewport.selection {
         if let Some(drag) = active_drag {
             let (r, d) =
                 crate::snipper::window::drag_calculator::calculate_drag(rect, drag, (cx, cy));
@@ -328,7 +342,7 @@ fn test_hit_test_resize_handle_starts_resizing() {
         }
     }
 
-    match &state.selection {
+    match &state.viewport.selection {
         SelectionState::Locked { rect, .. } => {
             assert_eq!(rect.width, 250.0);
             assert_eq!(rect.height, 200.0);
@@ -378,8 +392,8 @@ fn test_shift_constraint_shapes_and_arrow() {
 #[test]
 fn test_translate_mode_triggers_translation_on_first_selection() {
     let mut state = SnipperState::new();
-    state.mode = SnipMode::Translate;
-    state.selection = SelectionState::Creating {
+    state.session.mode = SnipMode::Translate;
+    state.viewport.selection = SelectionState::Creating {
         start: (10.0, 10.0),
         current: (110.0, 110.0),
     };
@@ -387,12 +401,16 @@ fn test_translate_mode_triggers_translation_on_first_selection() {
 
     assert!(handle_left_release(&mut state, 110.0, 110.0, &original));
     assert!(
-        matches!(state.selection, SelectionState::Locked { .. }),
+        matches!(state.viewport.selection, SelectionState::Locked { .. }),
         "有效拖拽后选区应锁定"
     );
-    assert_eq!(state.mode, SnipMode::Normal, "自动翻译应复位为普通模式");
     assert_eq!(
-        state.status_message.as_deref(),
+        state.session.mode,
+        SnipMode::Normal,
+        "自动翻译应复位为普通模式"
+    );
+    assert_eq!(
+        state.session.status_message.as_deref(),
         Some("后台任务媒体执行器不可用"),
         "应进入翻译任务派发路径"
     );
@@ -402,7 +420,7 @@ fn test_translate_mode_triggers_translation_on_first_selection() {
 #[test]
 fn test_normal_mode_does_not_auto_translate() {
     let mut state = SnipperState::new();
-    state.selection = SelectionState::Creating {
+    state.viewport.selection = SelectionState::Creating {
         start: (10.0, 10.0),
         current: (110.0, 110.0),
     };
@@ -410,7 +428,7 @@ fn test_normal_mode_does_not_auto_translate() {
 
     assert!(handle_left_release(&mut state, 110.0, 110.0, &original));
     assert!(
-        state.status_message.is_none(),
+        state.session.status_message.is_none(),
         "普通模式不应产生翻译派发提示"
     );
 }
@@ -422,8 +440,8 @@ fn test_new_annotation_is_selected_and_old_ones_lock() {
     use super::super::annotation_edit::{clear, AnnotationDrag};
 
     let mut state = SnipperState::new();
-    state.toolbar.ui_scale = 1.0;
-    state.selection = SelectionState::Locked {
+    state.editor.toolbar.ui_scale = 1.0;
+    state.viewport.selection = SelectionState::Locked {
         rect: Rect {
             x: 0.0,
             y: 0.0,
@@ -432,7 +450,7 @@ fn test_new_annotation_is_selected_and_old_ones_lock() {
         },
         active_drag: None,
     };
-    state.toolbar.active_tool = Some(Tool::Rect);
+    state.editor.toolbar.active_tool = Some(Tool::Rect);
     let original = RgbaImage::new(800, 600);
 
     // 画第一个矩形：松手后应立刻选中，可直接进入拖动
@@ -440,13 +458,16 @@ fn test_new_annotation_is_selected_and_old_ones_lock() {
     handle_cursor_move(&mut state, (200.0, 180.0), 800.0, 600.0);
     assert!(handle_left_release(&mut state, 200.0, 180.0, &original));
     assert_eq!(
-        state.selected_annotation,
+        state.editor.selected_annotation,
         Some(0.into()),
         "新标注应自动选中"
     );
     assert!(handle_left_press(&mut state, 150.0, 140.0, &original));
     assert!(
-        matches!(state.annotation_drag, Some(AnnotationDrag::Move { .. })),
+        matches!(
+            state.editor.annotation_drag,
+            Some(AnnotationDrag::Move { .. })
+        ),
         "选中后可立即拖动"
     );
     handle_left_release(&mut state, 150.0, 140.0, &original);
@@ -455,30 +476,31 @@ fn test_new_annotation_is_selected_and_old_ones_lock() {
     assert!(handle_left_press(&mut state, 400.0, 300.0, &original));
     handle_cursor_move(&mut state, (500.0, 380.0), 800.0, 600.0);
     assert!(handle_left_release(&mut state, 500.0, 380.0, &original));
-    assert_eq!(state.selected_annotation, Some(1.into()));
+    assert_eq!(state.editor.selected_annotation, Some(1.into()));
 
     // 取消选中后点击旧标注：不再进入编辑，而是作为画布继续绘制新图元
     clear(&mut state);
     assert!(handle_left_press(&mut state, 150.0, 140.0, &original));
-    assert!(state.selected_annotation.is_none(), "旧标注默认锁定");
-    assert!(state.annotation_drag.is_none());
-    state.stroke.points.clear();
+    assert!(state.editor.selected_annotation.is_none(), "旧标注默认锁定");
+    assert!(state.editor.annotation_drag.is_none());
+    state.editor.stroke.points.clear();
 
     // 未激活绘制工具时点击旧标注只给出解锁提示，不误拖动选区
-    state.toolbar.active_tool = None;
+    state.editor.toolbar.active_tool = None;
     assert!(handle_left_press(&mut state, 150.0, 140.0, &original));
-    assert!(state.selected_annotation.is_none());
+    assert!(state.editor.selected_annotation.is_none());
     assert!(state
+        .session
         .status_message
         .as_deref()
         .is_some_and(|message| message.contains("Alt")));
 
     // 按住 Alt 才可显式解锁旧标注
-    state.modifiers = winit::keyboard::ModifiersState::ALT;
+    state.viewport.modifiers = winit::keyboard::ModifiersState::ALT;
     assert!(handle_left_press(&mut state, 150.0, 140.0, &original));
-    assert_eq!(state.selected_annotation, Some(0.into()));
+    assert_eq!(state.editor.selected_annotation, Some(0.into()));
     assert!(matches!(
-        state.annotation_drag,
+        state.editor.annotation_drag,
         Some(AnnotationDrag::Move { .. })
     ));
 }

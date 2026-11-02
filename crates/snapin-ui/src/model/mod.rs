@@ -71,11 +71,6 @@ impl From<usize> for GroupId {
 pub struct ShapeId(usize);
 
 impl ShapeId {
-    /// 构造标注历史索引。
-    pub const fn new(value: usize) -> Self {
-        Self(value)
-    }
-
     /// 读取原始索引。
     pub const fn get(self) -> usize {
         self.0

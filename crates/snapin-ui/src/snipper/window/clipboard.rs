@@ -42,13 +42,16 @@ pub(crate) struct PendingClipboardJob {
 impl SnipperState {
     /// 是否存在尚未完成的剪贴板写入。
     pub(crate) fn has_pending_clipboard(&self) -> bool {
-        self.pending_clipboard.is_some()
+        self.jobs.pending_clipboard.is_some()
     }
 
     /// 返回当前在途剪贴板任务标识，供测试精确匹配。
     #[cfg(test)]
     pub(crate) fn pending_clipboard_id(&self) -> Option<ClipboardJobId> {
-        self.pending_clipboard.as_ref().map(|pending| pending.id)
+        self.jobs
+            .pending_clipboard
+            .as_ref()
+            .map(|pending| pending.id)
     }
 
     /// 提交图像复制；任务完成前保持截图会话打开。
@@ -80,13 +83,13 @@ impl SnipperState {
             return false;
         }
 
-        let events = self.clipboard_events.clone();
+        let events = self.jobs.clipboard_events.clone();
         let sink = Box::new(move |job_id, result| {
             events(ClipboardTarget::Snipper, job_id, result);
         });
-        match self.desktop.write_clipboard(write, sink) {
+        match self.session.desktop.write_clipboard(write, sink) {
             Ok(id) => {
-                self.pending_clipboard = Some(PendingClipboardJob { id, action });
+                self.jobs.pending_clipboard = Some(PendingClipboardJob { id, action });
                 true
             }
             Err(error) => {
@@ -102,21 +105,21 @@ impl SnipperState {
         job_id: ClipboardJobId,
         result: Result<ClipboardResult, PortError>,
     ) -> bool {
-        let Some(pending) = self.pending_clipboard.take() else {
+        let Some(pending) = self.jobs.pending_clipboard.take() else {
             return false;
         };
         if pending.id != job_id {
-            self.pending_clipboard = Some(pending);
+            self.jobs.pending_clipboard = Some(pending);
             return false;
         }
 
         match result {
             Ok(ClipboardResult::Written) => match pending.action {
                 SnipperClipboardAction::CopyImage => {
-                    self.outcome = Some(SnipperOutcome::CopiedImage);
+                    self.session.outcome = Some(SnipperOutcome::CopiedImage);
                 }
                 SnipperClipboardAction::PickColor(color) => {
-                    self.outcome = Some(SnipperOutcome::CopiedColor(color));
+                    self.session.outcome = Some(SnipperOutcome::CopiedColor(color));
                 }
                 SnipperClipboardAction::TransientStatus {
                     success_message, ..
@@ -151,11 +154,17 @@ mod tests {
         assert!(
             state.submit_clipboard_image(RgbaImage::new(2, 2), SnipperClipboardAction::CopyImage)
         );
-        assert!(state.outcome.is_none(), "任务入队不得提前结束截图会话");
+        assert!(
+            state.session.outcome.is_none(),
+            "任务入队不得提前结束截图会话"
+        );
 
         let job_id = state.pending_clipboard_id().expect("应登记在途剪贴板任务");
         assert!(state.handle_clipboard_finished(job_id, Ok(ClipboardResult::Written)));
-        assert!(matches!(state.outcome, Some(SnipperOutcome::CopiedImage)));
+        assert!(matches!(
+            state.session.outcome,
+            Some(SnipperOutcome::CopiedImage)
+        ));
     }
 
     /// 辅助文本复制完成后只展示提示并保持截图会话打开。
@@ -172,7 +181,7 @@ mod tests {
         let job_id = state.pending_clipboard_id().expect("应登记在途剪贴板任务");
         assert!(state.handle_clipboard_finished(job_id, Ok(ClipboardResult::Written)));
 
-        assert!(state.outcome.is_none());
-        assert_eq!(state.status_message.as_deref(), Some("文本已复制"));
+        assert!(state.session.outcome.is_none());
+        assert_eq!(state.session.status_message.as_deref(), Some("文本已复制"));
     }
 }

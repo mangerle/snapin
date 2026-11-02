@@ -33,8 +33,8 @@ impl SnipperEventDispatcher {
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 let s = scale_factor as f32;
-                state.toolbar.ui_scale = s;
-                state.magnifier.ui_scale = s;
+                state.editor.toolbar.ui_scale = s;
+                state.viewport.magnifier.ui_scale = s;
                 window.request_redraw();
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -75,7 +75,7 @@ impl SnipperEventDispatcher {
             WindowEvent::Ime(ime_event) => {
                 let need_redraw = match ime_event {
                     Ime::Commit(text) => {
-                        if let Some(session) = &mut state.active_text_input {
+                        if let Some(session) = &mut state.editor.active_text_input {
                             session.push_commit(&text);
                             true
                         } else {
@@ -83,7 +83,7 @@ impl SnipperEventDispatcher {
                         }
                     }
                     Ime::Preedit(text, _cursor) => {
-                        if let Some(session) = &mut state.active_text_input {
+                        if let Some(session) = &mut state.editor.active_text_input {
                             session.set_preedit(&text);
                             true
                         } else {
@@ -93,7 +93,7 @@ impl SnipperEventDispatcher {
                     _ => false,
                 };
                 if need_redraw {
-                    if let Some(session) = &state.active_text_input {
+                    if let Some(session) = &state.editor.active_text_input {
                         window.set_ime_cursor_area(
                             winit::dpi::PhysicalPosition::new(
                                 session.pos.0 as i32,
@@ -106,11 +106,11 @@ impl SnipperEventDispatcher {
                 }
             }
             WindowEvent::ModifiersChanged(mods) => {
-                state.modifiers = mods.state();
+                state.viewport.modifiers = mods.state();
             }
             WindowEvent::CloseRequested => {
                 state.cancel_pending_job();
-                state.outcome = Some(SnipperOutcome::Cancelled);
+                state.session.outcome = Some(SnipperOutcome::Cancelled);
             }
             _ => {}
         }

@@ -18,12 +18,12 @@ pub fn crop_selection_image(
     super::annotation_builder::commit_annotation(state);
     super::events::commit_active_text_input(state);
 
-    if let SelectionState::Locked { rect, .. } = &state.selection {
+    if let SelectionState::Locked { rect, .. } = &state.viewport.selection {
         let (px, py, pw, ph) = rect.to_pixel_bounds(original_rgba.width(), original_rgba.height());
         if pw > 0 && ph > 0 {
             // 无论是否有标注，首先仅截取选区尺寸的子图
             let sub_image = original_rgba.view(px, py, pw, ph).to_image();
-            if !state.annotations.can_undo() {
+            if !state.editor.annotations.can_undo() {
                 return Some(sub_image);
             }
 
@@ -32,7 +32,7 @@ pub fn crop_selection_image(
             cropped_pixmap
                 .data_mut()
                 .copy_from_slice(sub_image.as_raw());
-            state.annotations.replay_with_offset(
+            state.editor.annotations.replay_with_offset(
                 &mut cropped_pixmap.as_mut(),
                 -(px as f32),
                 -(py as f32),
@@ -55,7 +55,7 @@ pub fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
                 return;
             }
         };
-        if let SelectionState::Locked { rect, .. } = &state.selection {
+        if let SelectionState::Locked { rect, .. } = &state.viewport.selection {
             state.remember_selection(*rect);
         }
         state.submit_clipboard_image(cropped, SnipperClipboardAction::CopyImage);
@@ -71,16 +71,16 @@ pub fn handle_action_save(state: &mut SnipperState, original_rgba: &RgbaImage) {
     }
 
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
-        if let SelectionState::Locked { rect, .. } = &state.selection {
+        if let SelectionState::Locked { rect, .. } = &state.viewport.selection {
             state.remember_selection(*rect);
         }
-        if state.config.beautify.enabled {
+        if state.session.config.beautify.enabled {
             dispatch_job(
                 state,
                 SnipperJobKind::Beautify,
                 MediaJob::SaveBeautified {
                     image: cropped,
-                    options: (&state.config.beautify).into(),
+                    options: (&state.session.config.beautify).into(),
                 },
             );
         } else {
@@ -101,7 +101,7 @@ pub fn handle_action_save_beautified(state: &mut SnipperState, original_rgba: &R
         return;
     }
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
-        if let SelectionState::Locked { rect, .. } = &state.selection {
+        if let SelectionState::Locked { rect, .. } = &state.viewport.selection {
             state.remember_selection(*rect);
         }
         dispatch_job(
@@ -109,7 +109,7 @@ pub fn handle_action_save_beautified(state: &mut SnipperState, original_rgba: &R
             SnipperJobKind::Beautify,
             MediaJob::SaveBeautified {
                 image: cropped,
-                options: (&state.config.beautify).into(),
+                options: (&state.session.config.beautify).into(),
             },
         );
     }
@@ -118,7 +118,7 @@ pub fn handle_action_save_beautified(state: &mut SnipperState, original_rgba: &R
 /// 将选区转为贴图固定在屏幕
 pub fn handle_action_pin(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
-    let pin_pos = match &state.selection {
+    let pin_pos = match &state.viewport.selection {
         SelectionState::Locked { rect, .. } => (rect.x as i32, rect.y as i32),
         _ => return,
     };
@@ -136,7 +136,7 @@ pub fn handle_action_pin(state: &mut SnipperState, original_rgba: &RgbaImage) {
                 pixmap.data_mut().copy_from_slice(cropped.as_raw());
                 let id = snapin_foundation::AppPaths::generate_unique_id();
                 let item = PasterItem::new(id, format!("pin_{id}"), pixmap, pin_pos);
-                state.outcome = Some(SnipperOutcome::Pinned(item));
+                state.session.outcome = Some(SnipperOutcome::Pinned(item));
             }
             None => {
                 tracing::error!(
@@ -152,14 +152,14 @@ pub fn handle_action_pin(state: &mut SnipperState, original_rgba: &RgbaImage) {
 
 /// 按配置把最终输出图像转换为美化版本；关闭美化时原样返回。
 fn apply_configured_beautify(state: &SnipperState, image: RgbaImage) -> Result<RgbaImage, String> {
-    if !state.config.beautify.enabled {
+    if !state.session.config.beautify.enabled {
         return Ok(image);
     }
     let mut input = tiny_skia::Pixmap::new(image.width(), image.height())
         .ok_or_else(|| "分配美化输出输入缓冲区失败".to_string())?;
     input.data_mut().copy_from_slice(image.as_raw());
     let output =
-        snapin_render::render_beautified(input.as_ref(), &(&state.config.beautify).into())?;
+        snapin_render::render_beautified(input.as_ref(), &(&state.session.config.beautify).into())?;
     RgbaImage::from_raw(output.width(), output.height(), output.take())
         .ok_or_else(|| "转换美化输出图像失败".to_string())
 }
@@ -173,10 +173,13 @@ pub fn handle_action_pick_color(state: &mut SnipperState, original_rgba: &RgbaIm
 
 /// 读取光标位置颜色并按当前取色格式输出；坐标越界时夹取到屏幕边缘。
 fn color_text_at_cursor(state: &SnipperState, img: &RgbaImage) -> String {
-    let px = (state.cursor_pos.0 as i32).clamp(0, img.width().saturating_sub(1) as i32) as u32;
-    let py = (state.cursor_pos.1 as i32).clamp(0, img.height().saturating_sub(1) as i32) as u32;
+    let px =
+        (state.viewport.cursor_pos.0 as i32).clamp(0, img.width().saturating_sub(1) as i32) as u32;
+    let py =
+        (state.viewport.cursor_pos.1 as i32).clamp(0, img.height().saturating_sub(1) as i32) as u32;
     let pixel = img.get_pixel(px, py);
     state
+        .viewport
         .magnifier
         .format
         .format_color(pixel[0], pixel[1], pixel[2])
@@ -257,7 +260,7 @@ pub fn handle_action_qr(state: &mut SnipperState, original_rgba: &RgbaImage) {
 
 /// 重新打开最近一次 OCR 结果面板；没有结果时立即执行一次 OCR。
 pub fn handle_action_ocr_panel(state: &mut SnipperState, original_rgba: &RgbaImage) {
-    if state.ocr_panel.is_some() {
+    if state.ocr.panel.is_some() {
         state.set_status_message(snapin_foundation::i18n::tr("OCR 结果面板已打开；Esc 关闭"));
     } else {
         handle_action_ocr(state, original_rgba);
@@ -270,7 +273,7 @@ pub fn handle_action_export_ocr(state: &mut SnipperState, format: OcrExportForma
         state.set_status_message(snapin_foundation::i18n::tr("请等待当前任务完成"));
         return;
     }
-    let Some(panel) = state.ocr_panel.as_ref() else {
+    let Some(panel) = state.ocr.panel.as_ref() else {
         state.set_status_message(snapin_foundation::i18n::tr("没有可导出的 OCR 结果"));
         return;
     };
@@ -288,7 +291,7 @@ pub fn handle_action_export_ocr(state: &mut SnipperState, format: OcrExportForma
 
 /// 返回当前锁定选区在原始截图中的像素原点。
 fn locked_selection_origin(state: &SnipperState, original_rgba: &RgbaImage) -> Option<(u32, u32)> {
-    let SelectionState::Locked { rect, .. } = &state.selection else {
+    let SelectionState::Locked { rect, .. } = &state.viewport.selection else {
         return None;
     };
     let (x, y, width, height) = rect.to_pixel_bounds(original_rgba.width(), original_rgba.height());
@@ -299,7 +302,7 @@ fn locked_selection_origin(state: &SnipperState, original_rgba: &RgbaImage) -> O
 ///
 /// UI 不自行创建线程或 Tokio 任务；取消与结果回传统一由截图任务运行时负责。
 fn dispatch_job(state: &mut SnipperState, kind: SnipperJobKind, job: MediaJob) {
-    let Some(runtime) = state.job_runtime.clone() else {
+    let Some(runtime) = state.jobs.runtime.clone() else {
         state.set_status_message(snapin_foundation::i18n::tr("后台任务媒体执行器不可用"));
         return;
     };
@@ -328,7 +331,7 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
         return;
     }
 
-    let (px, py, pw, ph) = match &state.selection {
+    let (px, py, pw, ph) = match &state.viewport.selection {
         SelectionState::Locked { rect, .. } => {
             rect.to_pixel_bounds(original_rgba.width(), original_rgba.height())
         }
@@ -350,7 +353,7 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
         MediaJob::Translate {
             image: cropped,
             origin: (px, py),
-            cover_mode: state.config.translate.cover_mode,
+            cover_mode: state.session.config.translate.cover_mode,
         },
     );
 }
@@ -371,14 +374,14 @@ mod tests {
         let mut state = SnipperState::new();
         let img = RgbaImage::from_pixel(4, 4, Rgba([255, 0, 0, 255]));
 
-        state.cursor_pos = (2.0, 2.0);
-        state.magnifier.format = ColorFormat::Hex;
+        state.viewport.cursor_pos = (2.0, 2.0);
+        state.viewport.magnifier.format = ColorFormat::Hex;
         assert_eq!(color_text_at_cursor(&state, &img), "#FF0000");
 
-        state.magnifier.format = ColorFormat::Rgb;
+        state.viewport.magnifier.format = ColorFormat::Rgb;
         assert_eq!(color_text_at_cursor(&state, &img), "rgb(255, 0, 0)");
 
-        state.cursor_pos = (99.0, -5.0);
+        state.viewport.cursor_pos = (99.0, -5.0);
         assert_eq!(color_text_at_cursor(&state, &img), "rgb(255, 0, 0)");
     }
 
@@ -392,7 +395,7 @@ mod tests {
     #[test]
     fn test_crop_without_annotations_returns_original() {
         let mut state = SnipperState::new();
-        state.selection = SelectionState::Locked {
+        state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 10.0,
                 y: 10.0,
@@ -411,7 +414,7 @@ mod tests {
     #[test]
     fn test_crop_with_annotations_composited() {
         let mut state = SnipperState::new();
-        state.selection = SelectionState::Locked {
+        state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 10.0,
                 y: 10.0,
@@ -422,14 +425,17 @@ mod tests {
         };
 
         // 添加一个全红色的填充矩形标注到全屏坐标 (15, 15, 20, 20)
-        state.annotations.push(AnnotationShape::Rect(RectAction {
-            rect: (15.0, 15.0, 20.0, 20.0),
-            color: (255, 0, 0, 255).into(),
-            stroke_width: 1.0,
-            is_filled: true,
-            corner_radius: 0.0,
-            line_style: LineStyle::Solid,
-        }));
+        state
+            .editor
+            .annotations
+            .push(AnnotationShape::Rect(RectAction {
+                rect: (15.0, 15.0, 20.0, 20.0),
+                color: (255, 0, 0, 255).into(),
+                stroke_width: 1.0,
+                is_filled: true,
+                corner_radius: 0.0,
+                line_style: LineStyle::Solid,
+            }));
 
         let original = RgbaImage::from_pixel(100, 100, Rgba([255, 255, 255, 255]));
         let cropped = crop_selection_image(&mut state, &original).expect("应成功裁切合成选区");
@@ -445,7 +451,7 @@ mod tests {
     #[test]
     fn test_handle_action_pin_sets_pinned_outcome() {
         let mut state = SnipperState::new();
-        state.selection = SelectionState::Locked {
+        state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 10.0,
                 y: 10.0,
@@ -457,7 +463,7 @@ mod tests {
         let original = RgbaImage::from_pixel(100, 100, Rgba([255, 255, 255, 255]));
         handle_action_pin(&mut state, &original);
 
-        match &state.outcome {
+        match &state.session.outcome {
             Some(SnipperOutcome::Pinned(item)) => {
                 assert_eq!(item.position, (10, 10));
                 assert_eq!(item.pixmap.width(), 40);
@@ -470,7 +476,7 @@ mod tests {
     #[test]
     fn test_handle_action_ocr_empty_image_keeps_session_open() {
         let mut state = SnipperState::new();
-        state.selection = SelectionState::Locked {
+        state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 0.0,
                 y: 0.0,
@@ -483,11 +489,11 @@ mod tests {
         handle_action_ocr(&mut state, &original);
 
         assert!(
-            state.outcome.is_none(),
+            state.session.outcome.is_none(),
             "空图像或引擎不可用时不得以 Copied 状态退出"
         );
         assert!(
-            state.status_message.is_some(),
+            state.session.status_message.is_some(),
             "识别失败或空结果必须给出用户提示"
         );
     }
@@ -495,7 +501,7 @@ mod tests {
     #[test]
     fn test_handle_action_translate_graceful_handling() {
         let mut state = SnipperState::new();
-        state.selection = SelectionState::Locked {
+        state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 0.0,
                 y: 0.0,
@@ -507,8 +513,8 @@ mod tests {
         let original = RgbaImage::from_pixel(100, 100, Rgba([255, 255, 255, 255]));
         // 无可用模型或未识别到文字时安全返回，不崩溃，也不得压入破坏性图元
         handle_action_translate(&mut state, &original);
-        assert!(!state.annotations.can_undo());
-        assert!(state.status_message.is_some());
+        assert!(!state.editor.annotations.can_undo());
+        assert!(state.session.status_message.is_some());
     }
 
     #[test]
@@ -519,7 +525,7 @@ mod tests {
         handle_action_translate(&mut state, &original);
 
         // 零尺寸锁定状态安全返回
-        state.selection = SelectionState::Locked {
+        state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 10.0,
                 y: 10.0,
@@ -529,15 +535,15 @@ mod tests {
             active_drag: None,
         };
         handle_action_translate(&mut state, &original);
-        assert!(!state.annotations.can_undo());
+        assert!(!state.editor.annotations.can_undo());
     }
 
     /// 美化开启后，最终输出图像必须采用设置中的尺寸和留白。
     #[test]
     fn test_configured_beautify_changes_final_output() {
         let mut state = SnipperState::new();
-        state.config.beautify.enabled = true;
-        state.config.beautify.social_size = snapin_render::SocialSize::Square;
+        state.session.config.beautify.enabled = true;
+        state.session.config.beautify.social_size = snapin_render::SocialSize::Square;
         let image = RgbaImage::from_pixel(100, 50, Rgba([255, 0, 0, 255]));
         let output = apply_configured_beautify(&state, image).expect("美化输出应成功");
         assert_eq!(output.dimensions(), (1080, 1080));

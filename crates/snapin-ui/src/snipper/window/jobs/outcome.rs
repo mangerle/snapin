@@ -31,11 +31,11 @@ pub fn handle_job_outcome(
                 }
                 let preview = RedactionPreview::from_ocr_lines(&lines);
                 let applied = apply_redaction(state, &preview);
-                state.redaction_preview = (applied > 0).then_some(preview);
+                state.ocr.redaction_preview = (applied > 0).then_some(preview);
                 state.clear_status_message();
                 return;
             }
-            state.ocr_panel = Some(OcrPanelState::from_ocr_lines(&lines));
+            state.ocr.panel = Some(OcrPanelState::from_ocr_lines(&lines));
             let text = text.trim();
             if text.is_empty() {
                 state.set_status_message(snapin_foundation::i18n::tr("未识别到文字"));
@@ -58,7 +58,7 @@ pub fn handle_job_outcome(
         }
         MediaJobOutcome::QrCodes { codes } => {
             if codes.is_empty() {
-                state.qr_result = None;
+                state.ocr.qr_result = None;
                 state.set_status_message(snapin_foundation::i18n::tr("未识别到二维码"));
                 return;
             }
@@ -75,7 +75,7 @@ pub fn handle_job_outcome(
                 count,
                 suffix
             );
-            state.qr_result = Some(codes);
+            state.ocr.qr_result = Some(codes);
             state.submit_clipboard_text(
                 first,
                 SnipperClipboardAction::TransientStatus {
@@ -90,10 +90,11 @@ pub fn handle_job_outcome(
                 return;
             }
             state
+                .editor
                 .annotations
                 .push(AnnotationShape::Translation(TranslationAction::new(items)));
-            state.toolbar.active_tool = None;
-            state.toolbar.sub_rect = None;
+            state.editor.toolbar.active_tool = None;
+            state.editor.toolbar.sub_rect = None;
             state.clear_status_message();
             tracing::info!("原位翻译完成，已成功压入标注动作栈");
         }
@@ -105,7 +106,7 @@ pub fn handle_job_outcome(
                     path.display()
                 ));
             } else {
-                state.outcome = Some(SnipperOutcome::Saved(path));
+                state.session.outcome = Some(SnipperOutcome::Saved(path));
             }
         }
         MediaJobOutcome::SaveCancelled => {
@@ -165,8 +166,11 @@ mod tests {
                 lines: Vec::new(),
             },
         );
-        assert!(state.outcome.is_none());
-        assert_eq!(state.status_message.as_deref(), Some("未识别到文字"));
+        assert!(state.session.outcome.is_none());
+        assert_eq!(
+            state.session.status_message.as_deref(),
+            Some("未识别到文字")
+        );
     }
 
     /// 智能打码空结果不显示顶部提示，保持画布与工具栏原状。
@@ -185,9 +189,9 @@ mod tests {
             },
         );
 
-        assert!(state.redaction_preview.is_none());
+        assert!(state.ocr.redaction_preview.is_none());
         assert!(
-            state.status_message.is_none(),
+            state.session.status_message.is_none(),
             "智能打码空结果不得保留顶部提示"
         );
     }
@@ -204,8 +208,8 @@ mod tests {
                 items: vec![translation_item()],
             },
         );
-        assert!(state.annotations.can_undo());
-        assert!(state.status_message.is_none());
+        assert!(state.editor.annotations.can_undo());
+        assert!(state.session.status_message.is_none());
     }
 
     #[test]
@@ -219,7 +223,7 @@ mod tests {
             SnipperJobKind::Save,
             MediaJobOutcome::Saved { path: path.clone() },
         );
-        match state.outcome {
+        match state.session.outcome {
             Some(SnipperOutcome::Saved(saved_path)) => assert_eq!(saved_path, path),
             _ => panic!("保存成功必须返回 Saved 结果"),
         }
@@ -235,8 +239,8 @@ mod tests {
             SnipperJobKind::Save,
             MediaJobOutcome::SaveCancelled,
         );
-        assert!(state.outcome.is_none(), "取消保存不得结束截图会话");
-        assert_eq!(state.status_message.as_deref(), Some("已取消保存"));
+        assert!(state.session.outcome.is_none(), "取消保存不得结束截图会话");
+        assert_eq!(state.session.status_message.as_deref(), Some("已取消保存"));
     }
 
     #[test]
@@ -252,6 +256,7 @@ mod tests {
             },
         );
         assert!(state
+            .session
             .status_message
             .as_deref()
             .unwrap_or_default()
@@ -273,12 +278,15 @@ mod tests {
             },
         );
 
-        assert!(state.outcome.is_none(), "OCR 成功不得直接把会话置为结束态");
+        assert!(
+            state.session.outcome.is_none(),
+            "OCR 成功不得直接把会话置为结束态"
+        );
         let clipboard_id = state
             .pending_clipboard_id()
             .expect("OCR 文本复制应处于等待真实写入状态");
         state.handle_clipboard_finished(clipboard_id, Ok(crate::ports::ClipboardResult::Written));
-        let message = state.status_message.as_deref().unwrap_or_default();
+        let message = state.session.status_message.as_deref().unwrap_or_default();
         assert!(
             message.contains("已复制识别文字"),
             "真实写入完成后应提示识别结果已复制，实际: {message}"
@@ -302,9 +310,9 @@ mod tests {
                 }],
             },
         );
-        assert!(state.redaction_preview.is_some());
+        assert!(state.ocr.redaction_preview.is_some());
         assert!(matches!(
-            state.annotations.undo_stack(),
+            state.editor.annotations.undo_stack(),
             [AnnotationShape::Mosaic(_)]
         ));
     }
@@ -327,6 +335,7 @@ mod tests {
         );
         assert_eq!(
             state
+                .ocr
                 .qr_result
                 .as_ref()
                 .and_then(|codes| codes.first())
@@ -368,7 +377,7 @@ mod stale_tests {
         );
 
         assert_eq!(state.pending_job_id(), Some(JobId::new(2)));
-        assert!(state.outcome.is_none());
-        assert!(state.status_message.is_none());
+        assert!(state.session.outcome.is_none());
+        assert!(state.session.status_message.is_none());
     }
 }

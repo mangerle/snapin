@@ -39,15 +39,16 @@ pub enum AnnotationDrag {
 
 /// 已选中标注的包围盒
 pub fn selected_bounds(state: &SnipperState) -> Option<Rect> {
-    let index = state.selected_annotation?;
-    state.annotations.bounds_at(index.get())
+    let index = state.editor.selected_annotation?;
+    state.editor.annotations.bounds_at(index.get())
 }
 
 /// 已选中标注是否支持手柄拉伸
 pub fn selected_supports_resize(state: &SnipperState) -> bool {
     state
+        .editor
         .selected_annotation
-        .and_then(|index| state.annotations.shape_at(index.get()))
+        .and_then(|index| state.editor.annotations.shape_at(index.get()))
         .is_some_and(AnnotationShape::supports_resize)
 }
 
@@ -57,7 +58,7 @@ pub fn hit_test_selected_handle(state: &SnipperState, cx: f32, cy: f32) -> Optio
         return None;
     }
     let rect = selected_bounds(state)?;
-    hit_test_handle(&rect, cx, cy, 8.0 * state.toolbar.ui_scale)
+    hit_test_handle(&rect, cx, cy, 8.0 * state.editor.toolbar.ui_scale)
 }
 
 /// 命中当前允许编辑的标注：默认只允许最新一条，`allow_locked`（按住 Alt）时允许任意一条。
@@ -71,10 +72,10 @@ pub fn hit_test_editable(
     allow_locked: bool,
 ) -> Option<usize> {
     if allow_locked {
-        return state.annotations.hit_test(point);
+        return state.editor.annotations.hit_test(point);
     }
-    let latest = state.annotations.undo_stack().len().checked_sub(1)?;
-    let bounds = state.annotations.bounds_at(latest)?;
+    let latest = state.editor.annotations.undo_stack().len().checked_sub(1)?;
+    let bounds = state.editor.annotations.bounds_at(latest)?;
     bounds.contains(point.0, point.1).then_some(latest)
 }
 
@@ -82,7 +83,7 @@ pub fn hit_test_editable(
 ///
 /// 用于给出"按住 Alt 可编辑"的提示，并避免无绘制工具时点击旧标注被误判为移动选区。
 pub fn hit_test_locked(state: &SnipperState, point: (f32, f32)) -> bool {
-    let Some(index) = state.annotations.hit_test(point) else {
+    let Some(index) = state.editor.annotations.hit_test(point) else {
         return false;
     };
     hit_test_editable(state, point, false) != Some(index)
@@ -97,8 +98,9 @@ pub fn hit_test_selected_body(state: &SnipperState, cx: f32, cy: f32) -> bool {
 ///
 /// 新画完、撤销与重做之后都调用它，保证"当前可编辑的标注"始终是文档最后一条。
 pub fn select_latest(state: &mut SnipperState) {
-    state.annotation_drag = None;
-    state.selected_annotation = state
+    state.editor.annotation_drag = None;
+    state.editor.selected_annotation = state
+        .editor
         .annotations
         .undo_stack()
         .len()
@@ -121,9 +123,9 @@ pub fn handle_press(state: &mut SnipperState, cx: f32, cy: f32, allow_locked: bo
     }
 
     if let Some(index) = hit_test_editable(state, (cx, cy), allow_locked) {
-        state.selected_annotation = Some(index.into());
-        if let Some(original) = state.annotations.shape_at(index).cloned() {
-            state.annotation_drag = Some(AnnotationDrag::Move {
+        state.editor.selected_annotation = Some(index.into());
+        if let Some(original) = state.editor.annotations.shape_at(index).cloned() {
+            state.editor.annotation_drag = Some(AnnotationDrag::Move {
                 origin: (cx, cy),
                 original,
             });
@@ -139,16 +141,16 @@ fn try_start_handle_resize(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
     let Some(handle) = hit_test_selected_handle(state, cx, cy) else {
         return false;
     };
-    let Some(index) = state.selected_annotation else {
+    let Some(index) = state.editor.selected_annotation else {
         return false;
     };
     let Some(original_bounds) = selected_bounds(state) else {
         return false;
     };
-    let Some(original) = state.annotations.shape_at(index.get()).cloned() else {
+    let Some(original) = state.editor.annotations.shape_at(index.get()).cloned() else {
         return false;
     };
-    state.annotation_drag = Some(AnnotationDrag::Resize {
+    state.editor.annotation_drag = Some(AnnotationDrag::Resize {
         handle,
         original_bounds,
         original,
@@ -158,10 +160,10 @@ fn try_start_handle_resize(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
 
 /// 放大镜的源区域和放大图可分别拖动。
 fn try_start_magnifier_drag(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
-    let Some(index) = state.selected_annotation else {
+    let Some(index) = state.editor.selected_annotation else {
         return false;
     };
-    let Some(original) = state.annotations.shape_at(index.get()).cloned() else {
+    let Some(original) = state.editor.annotations.shape_at(index.get()).cloned() else {
         return false;
     };
     let AnnotationShape::Magnifier(action) = &original else {
@@ -180,14 +182,14 @@ fn try_start_magnifier_drag(state: &mut SnipperState, cx: f32, cy: f32) -> bool 
         height: action.dest.3,
     };
     if source.contains(cx, cy) {
-        state.annotation_drag = Some(AnnotationDrag::MagnifierSource {
+        state.editor.annotation_drag = Some(AnnotationDrag::MagnifierSource {
             origin: (cx, cy),
             original,
         });
         return true;
     }
     if dest.contains(cx, cy) {
-        state.annotation_drag = Some(AnnotationDrag::MagnifierImage {
+        state.editor.annotation_drag = Some(AnnotationDrag::MagnifierImage {
             origin: (cx, cy),
             original,
         });
@@ -201,13 +203,13 @@ fn try_start_selected_move(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
     if !hit_test_selected_body(state, cx, cy) {
         return false;
     }
-    let Some(index) = state.selected_annotation else {
+    let Some(index) = state.editor.selected_annotation else {
         return false;
     };
-    let Some(original) = state.annotations.shape_at(index.get()).cloned() else {
+    let Some(original) = state.editor.annotations.shape_at(index.get()).cloned() else {
         return false;
     };
-    state.annotation_drag = Some(AnnotationDrag::Move {
+    state.editor.annotation_drag = Some(AnnotationDrag::Move {
         origin: (cx, cy),
         original,
     });
@@ -216,11 +218,11 @@ fn try_start_selected_move(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
 
 /// 处理标注拖拽过程中的鼠标移动；返回 true 表示画面已变化需要重绘。
 pub fn handle_drag_move(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
-    let Some(index) = state.selected_annotation else {
-        state.annotation_drag = None;
+    let Some(index) = state.editor.selected_annotation else {
+        state.editor.annotation_drag = None;
         return false;
     };
-    let Some(drag) = state.annotation_drag.as_ref() else {
+    let Some(drag) = state.editor.annotation_drag.as_ref() else {
         return false;
     };
 
@@ -257,7 +259,7 @@ pub fn handle_drag_move(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
         }
     };
 
-    if state.annotations.replace(index.get(), updated) {
+    if state.editor.annotations.replace(index.get(), updated) {
         true
     } else {
         clear(state);
@@ -267,13 +269,13 @@ pub fn handle_drag_move(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
 
 /// 结束标注拖拽；返回 true 表示确实存在进行中的拖拽
 pub fn handle_drag_release(state: &mut SnipperState) -> bool {
-    state.annotation_drag.take().is_some()
+    state.editor.annotation_drag.take().is_some()
 }
 
 /// 清除标注选中与拖拽状态
 pub fn clear(state: &mut SnipperState) {
-    state.selected_annotation = None;
-    state.annotation_drag = None;
+    state.editor.selected_annotation = None;
+    state.editor.annotation_drag = None;
 }
 
 #[cfg(test)]
@@ -289,8 +291,8 @@ mod tests {
 
     fn state_with_rect() -> SnipperState {
         let mut state = SnipperState::new();
-        state.toolbar.ui_scale = 1.0;
-        state.selection = SelectionState::Locked {
+        state.editor.toolbar.ui_scale = 1.0;
+        state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 0.0,
                 y: 0.0,
@@ -299,20 +301,23 @@ mod tests {
             },
             active_drag: None,
         };
-        state.annotations.push(AnnotationShape::Rect(RectAction {
-            rect: (100.0, 100.0, 200.0, 120.0),
-            color: (255, 0, 0, 255).into(),
-            stroke_width: 2.0,
-            is_filled: false,
-            corner_radius: 0.0,
-            line_style: LineStyle::Solid,
-        }));
+        state
+            .editor
+            .annotations
+            .push(AnnotationShape::Rect(RectAction {
+                rect: (100.0, 100.0, 200.0, 120.0),
+                color: (255, 0, 0, 255).into(),
+                stroke_width: 2.0,
+                is_filled: false,
+                corner_radius: 0.0,
+                line_style: LineStyle::Solid,
+            }));
         state
     }
 
     fn state_with_magnifier() -> SnipperState {
         let mut state = SnipperState::new();
-        state.selection = SelectionState::Locked {
+        state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 0.0,
                 y: 0.0,
@@ -322,6 +327,7 @@ mod tests {
             active_drag: None,
         };
         state
+            .editor
             .annotations
             .push(AnnotationShape::Magnifier(MagnifierAction {
                 source: (10.0, 10.0, 20.0, 20.0),
@@ -333,7 +339,7 @@ mod tests {
                 shadow: true,
                 connector: MagnifierConnector::Solid,
             }));
-        state.selected_annotation = Some(0.into());
+        state.editor.selected_annotation = Some(0.into());
         state
     }
 
@@ -343,11 +349,11 @@ mod tests {
         let mut state = state_with_magnifier();
         assert!(handle_press(&mut state, 20.0, 20.0, false));
         assert!(matches!(
-            state.annotation_drag,
+            state.editor.annotation_drag,
             Some(AnnotationDrag::MagnifierSource { .. })
         ));
         assert!(handle_drag_move(&mut state, 30.0, 40.0));
-        match state.annotations.shape_at(0) {
+        match state.editor.annotations.shape_at(0) {
             Some(AnnotationShape::Magnifier(action)) => {
                 assert_eq!(action.source, (20.0, 30.0, 20.0, 20.0));
                 assert_eq!(action.dest, (110.0, 120.0, 40.0, 40.0));
@@ -362,11 +368,11 @@ mod tests {
         let mut state = state_with_magnifier();
         assert!(handle_press(&mut state, 110.0, 110.0, false));
         assert!(matches!(
-            state.annotation_drag,
+            state.editor.annotation_drag,
             Some(AnnotationDrag::MagnifierImage { .. })
         ));
         assert!(handle_drag_move(&mut state, 115.0, 117.0));
-        match state.annotations.shape_at(0) {
+        match state.editor.annotations.shape_at(0) {
             Some(AnnotationShape::Magnifier(action)) => {
                 assert_eq!(action.source, (10.0, 10.0, 20.0, 20.0));
                 assert_eq!(action.dest, (105.0, 107.0, 40.0, 40.0));
@@ -381,19 +387,23 @@ mod tests {
         let mut state = state_with_rect();
 
         assert!(handle_press(&mut state, 150.0, 150.0, false));
-        assert_eq!(state.selected_annotation, Some(0.into()));
+        assert_eq!(state.editor.selected_annotation, Some(0.into()));
         assert!(matches!(
-            state.annotation_drag,
+            state.editor.annotation_drag,
             Some(AnnotationDrag::Move { .. })
         ));
 
         assert!(handle_drag_move(&mut state, 180.0, 130.0));
-        let bounds = state.annotations.bounds_at(0).expect("矩形必须有包围盒");
+        let bounds = state
+            .editor
+            .annotations
+            .bounds_at(0)
+            .expect("矩形必须有包围盒");
         assert_eq!(bounds.x, 130.0);
         assert_eq!(bounds.y, 80.0);
 
         assert!(handle_drag_release(&mut state));
-        assert!(state.annotation_drag.is_none());
+        assert!(state.editor.annotation_drag.is_none());
     }
 
     /// 已选中标注的手柄应进入拉伸模式，并按原始包围盒映射尺寸
@@ -405,12 +415,16 @@ mod tests {
         // 右下角手柄位于 (300, 220)，向外拖到 (400, 320)
         assert!(handle_press(&mut state, 300.0, 220.0, false));
         assert!(matches!(
-            state.annotation_drag,
+            state.editor.annotation_drag,
             Some(AnnotationDrag::Resize { .. })
         ));
 
         assert!(handle_drag_move(&mut state, 400.0, 320.0));
-        let bounds = state.annotations.bounds_at(0).expect("矩形必须有包围盒");
+        let bounds = state
+            .editor
+            .annotations
+            .bounds_at(0)
+            .expect("矩形必须有包围盒");
         assert_eq!(bounds.x, 100.0);
         assert_eq!(bounds.y, 100.0);
         assert_eq!(bounds.width, 300.0);
@@ -423,19 +437,19 @@ mod tests {
         let mut state = state_with_rect();
         assert!(handle_press(&mut state, 150.0, 150.0, false));
         assert!(!handle_press(&mut state, 600.0, 500.0, false));
-        assert!(state.selected_annotation.is_none());
-        assert!(state.annotation_drag.is_none());
+        assert!(state.editor.selected_annotation.is_none());
+        assert!(state.editor.annotation_drag.is_none());
     }
 
     /// 标注工具激活时仍应允许直接点击已有标注进入编辑，而不是强制先取消工具
     #[test]
     fn test_active_tool_still_allows_annotation_editing() {
         let mut state = state_with_rect();
-        state.toolbar.active_tool = Some(Tool::Pen);
+        state.editor.toolbar.active_tool = Some(Tool::Pen);
         assert!(handle_press(&mut state, 150.0, 150.0, false));
-        assert_eq!(state.selected_annotation, Some(0.into()));
+        assert_eq!(state.editor.selected_annotation, Some(0.into()));
         assert!(matches!(
-            state.annotation_drag,
+            state.editor.annotation_drag,
             Some(AnnotationDrag::Move { .. })
         ));
     }
@@ -443,14 +457,17 @@ mod tests {
     /// 构造两个互不重叠的矩形，索引 1 为最新一条。
     fn state_with_two_rects() -> SnipperState {
         let mut state = state_with_rect();
-        state.annotations.push(AnnotationShape::Rect(RectAction {
-            rect: (300.0, 300.0, 100.0, 100.0),
-            color: (255, 0, 0, 255).into(),
-            stroke_width: 2.0,
-            is_filled: false,
-            corner_radius: 0.0,
-            line_style: LineStyle::Solid,
-        }));
+        state
+            .editor
+            .annotations
+            .push(AnnotationShape::Rect(RectAction {
+                rect: (300.0, 300.0, 100.0, 100.0),
+                color: (255, 0, 0, 255).into(),
+                stroke_width: 2.0,
+                is_filled: false,
+                corner_radius: 0.0,
+                line_style: LineStyle::Solid,
+            }));
         state
     }
 
@@ -461,22 +478,22 @@ mod tests {
 
         // 最新的矩形可直接选中并进入拖动
         assert!(handle_press(&mut state, 350.0, 350.0, false));
-        assert_eq!(state.selected_annotation, Some(1.into()));
+        assert_eq!(state.editor.selected_annotation, Some(1.into()));
         assert!(matches!(
-            state.annotation_drag,
+            state.editor.annotation_drag,
             Some(AnnotationDrag::Move { .. })
         ));
 
         // 旧矩形默认锁定：不消费事件，也不留下选中状态
         clear(&mut state);
         assert!(!handle_press(&mut state, 150.0, 150.0, false));
-        assert!(state.selected_annotation.is_none());
+        assert!(state.editor.selected_annotation.is_none());
 
         // 按住 Alt 才能显式解锁旧标注
         assert!(handle_press(&mut state, 150.0, 150.0, true));
-        assert_eq!(state.selected_annotation, Some(0.into()));
+        assert_eq!(state.editor.selected_annotation, Some(0.into()));
         assert!(matches!(
-            state.annotation_drag,
+            state.editor.annotation_drag,
             Some(AnnotationDrag::Move { .. })
         ));
     }
@@ -489,9 +506,9 @@ mod tests {
         assert!(handle_drag_release(&mut state));
 
         assert!(handle_press(&mut state, 150.0, 150.0, false));
-        assert_eq!(state.selected_annotation, Some(0.into()));
+        assert_eq!(state.editor.selected_annotation, Some(0.into()));
         assert!(matches!(
-            state.annotation_drag,
+            state.editor.annotation_drag,
             Some(AnnotationDrag::Move { .. })
         ));
     }
@@ -501,10 +518,10 @@ mod tests {
     fn test_select_latest_follows_document_tail() {
         let mut state = state_with_two_rects();
         select_latest(&mut state);
-        assert_eq!(state.selected_annotation, Some(1.into()));
+        assert_eq!(state.editor.selected_annotation, Some(1.into()));
 
-        state.annotations.clear();
+        state.editor.annotations.clear();
         select_latest(&mut state);
-        assert!(state.selected_annotation.is_none());
+        assert!(state.editor.selected_annotation.is_none());
     }
 }

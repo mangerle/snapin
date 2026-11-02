@@ -218,10 +218,10 @@ impl SnipperPresenter {
         let Some(prev) = &self.overlay else {
             return false;
         };
-        matches!(state.selection, SelectionState::Idle)
-            && state.active_text_input.is_none()
-            && prev.hovered_window == state.hovered_window
-            && prev.magnifier_signature == magnifier_signature(&state.magnifier)
+        matches!(state.viewport.selection, SelectionState::Idle)
+            && state.editor.active_text_input.is_none()
+            && prev.hovered_window == state.viewport.hovered_window
+            && prev.magnifier_signature == magnifier_signature(&state.viewport.magnifier)
     }
 
     /// 全量重绘：恢复底图后绘制全部图层，并记录可供下一次增量复用的覆盖层快照。
@@ -274,22 +274,25 @@ impl SnipperPresenter {
         width: u32,
         height: u32,
     ) -> OverlaySnapshot {
-        let (cx, cy) = (state.cursor_pos.0 as i32, state.cursor_pos.1 as i32);
-        let magnifier_rect = if state.cursor_ready {
-            state.magnifier.card_bounds(cx, cy, width, height)
+        let (cx, cy) = (
+            state.viewport.cursor_pos.0 as i32,
+            state.viewport.cursor_pos.1 as i32,
+        );
+        let magnifier_rect = if state.viewport.cursor_ready {
+            state.viewport.magnifier.card_bounds(cx, cy, width, height)
         } else {
             None
         };
         let status_rect = SnipperCanvas::status_message_bounds(
-            state.status_message.as_deref(),
+            state.session.status_message.as_deref(),
             width,
-            state.toolbar.ui_scale,
+            state.editor.toolbar.ui_scale,
         );
         OverlaySnapshot {
-            hovered_window: state.hovered_window,
+            hovered_window: state.viewport.hovered_window,
             magnifier_rect,
             status_rect,
-            magnifier_signature: magnifier_signature(&state.magnifier),
+            magnifier_signature: magnifier_signature(&state.viewport.magnifier),
         }
     }
 
@@ -368,12 +371,12 @@ impl SnipperPresenter {
         state: &'a SnipperState,
         bg_image: &'a RgbaImage,
     ) -> SnipperCanvas<'a> {
-        let pending_stroke = state.toolbar.active_tool.as_ref().and_then(|tool| {
-            if !state.stroke.points.is_empty() {
+        let pending_stroke = state.editor.toolbar.active_tool.as_ref().and_then(|tool| {
+            if !state.editor.stroke.is_empty() {
                 Some((
                     tool,
-                    state.stroke.points.as_slice(),
-                    state.annotations.next_badge_number(),
+                    state.editor.stroke.points.as_slice(),
+                    state.editor.annotations.next_badge_number(),
                 ))
             } else {
                 None
@@ -383,46 +386,49 @@ impl SnipperPresenter {
         SnipperCanvas {
             base_bg,
             original_rgba: bg_image,
-            selection: &state.selection,
-            cursor_pos: state.cursor_pos,
-            cursor_ready: state.cursor_ready,
-            hovered_window: state.hovered_window,
-            magnifier: &state.magnifier,
-            toolbar: Some(&state.toolbar),
-            annotations: Some(&state.annotations),
-            ui_scale: state.toolbar.ui_scale,
-            accent_color: state.config.interface.accent_color.to_rgb(),
+            selection: &state.viewport.selection,
+            cursor_pos: state.viewport.cursor_pos,
+            cursor_ready: state.viewport.cursor_ready,
+            hovered_window: state.viewport.hovered_window,
+            magnifier: &state.viewport.magnifier,
+            toolbar: Some(&state.editor.toolbar),
+            annotations: Some(&state.editor.annotations),
+            ui_scale: state.editor.toolbar.ui_scale,
+            accent_color: state.session.config.interface.accent_color.to_rgb(),
             pending_stroke,
-            active_text_input: state.active_text_input.as_ref(),
-            status_message: state.status_message.as_deref(),
+            active_text_input: state.editor.active_text_input.as_ref(),
+            status_message: state.session.status_message.as_deref(),
             selected_annotation: selected_annotation_view(state),
-            redaction_preview: state.redaction_preview.as_ref(),
-            qr_codes: state.qr_result.as_deref(),
-            ocr_panel: state.ocr_panel.as_ref(),
+            redaction_preview: state.ocr.redaction_preview.as_ref(),
+            qr_codes: state.ocr.qr_result.as_deref(),
+            ocr_panel: state.ocr.panel.as_ref(),
         }
     }
 
     /// 按当前状态记录光标覆盖层快照；非空闲态返回 None，强制下一帧全量重绘。
     fn capture_overlay(state: &SnipperState, pixmap: &Pixmap) -> Option<OverlaySnapshot> {
-        if !matches!(state.selection, SelectionState::Idle) {
+        if !matches!(state.viewport.selection, SelectionState::Idle) {
             return None;
         }
         let (width, height) = (pixmap.width(), pixmap.height());
-        let (cx, cy) = (state.cursor_pos.0 as i32, state.cursor_pos.1 as i32);
+        let (cx, cy) = (
+            state.viewport.cursor_pos.0 as i32,
+            state.viewport.cursor_pos.1 as i32,
+        );
 
         Some(OverlaySnapshot {
-            hovered_window: state.hovered_window,
-            magnifier_rect: if state.cursor_ready {
-                state.magnifier.card_bounds(cx, cy, width, height)
+            hovered_window: state.viewport.hovered_window,
+            magnifier_rect: if state.viewport.cursor_ready {
+                state.viewport.magnifier.card_bounds(cx, cy, width, height)
             } else {
                 None
             },
             status_rect: SnipperCanvas::status_message_bounds(
-                state.status_message.as_deref(),
+                state.session.status_message.as_deref(),
                 width,
-                state.toolbar.ui_scale,
+                state.editor.toolbar.ui_scale,
             ),
-            magnifier_signature: magnifier_signature(&state.magnifier),
+            magnifier_signature: magnifier_signature(&state.viewport.magnifier),
         })
     }
 
@@ -464,7 +470,7 @@ fn magnifier_signature(magnifier: &Magnifier) -> MagnifierSignature {
 
 /// 仅在选择器锁定状态下构建选中标注的编辑框视图。
 fn selected_annotation_view(state: &SnipperState) -> Option<SelectedAnnotation> {
-    if !matches!(state.selection, SelectionState::Locked { .. }) {
+    if !matches!(state.viewport.selection, SelectionState::Locked { .. }) {
         return None;
     }
     let rect = super::annotation_edit::selected_bounds(state)?;

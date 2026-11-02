@@ -9,31 +9,34 @@ pub fn handle_cursor_move(
     screen_w: f32,
     screen_h: f32,
 ) -> bool {
-    state.cursor_pos = pos;
-    state.cursor_ready = true;
+    state.viewport.cursor_pos = pos;
+    state.viewport.cursor_ready = true;
     let (cx, cy) = (pos.0 as f32, pos.1 as f32);
 
     // 标注编辑拖拽优先于选区与工具栏悬停处理
-    if state.annotation_drag.is_some() {
+    if state.editor.annotation_drag.is_some() {
         return crate::snipper::window::annotation_edit::handle_drag_move(state, cx, cy);
     }
-    if state.toolbar.is_dragging() {
-        return state.toolbar.drag_to(cx, cy);
+    if state.editor.toolbar.is_dragging() {
+        return state.editor.toolbar.drag_to(cx, cy);
     }
 
-    match &mut state.selection {
+    match &mut state.viewport.selection {
         SelectionState::Idle => {
-            let hovered = window_at((cx, cy), &state.window_rects);
-            let changed = hovered != state.hovered_window;
-            state.hovered_window = hovered;
+            let hovered = window_at((cx, cy), &state.viewport.window_rects);
+            let changed = hovered != state.viewport.hovered_window;
+            state.viewport.hovered_window = hovered;
             if changed {
-                state.window_cycle = None;
+                state.viewport.window_cycle = None;
             }
             // 放大镜必须逐帧跟随光标；禁用放大镜时仍只在高亮窗口切换时重绘
-            changed || state.magnifier.enabled
+            changed || state.viewport.magnifier.enabled
         }
         SelectionState::Creating { start, current } => {
-            *current = state.selection_constraint.constrain(*start, (cx, cy));
+            *current = state
+                .viewport
+                .selection_constraint
+                .constrain(*start, (cx, cy));
             true
         }
         SelectionState::Locked { rect, active_drag } => {
@@ -42,55 +45,54 @@ pub fn handle_cursor_move(
                     crate::snipper::window::drag_calculator::calculate_drag(rect, drag, (cx, cy));
                 *rect = r;
                 *active_drag = Some(d);
-                state.toolbar.update_layout(rect, screen_w, screen_h);
+                state.editor.toolbar.update_layout(rect, screen_w, screen_h);
                 true
-            } else if state.toolbar.active_tool == Some(Tool::Eraser) {
+            } else if state.editor.toolbar.active_tool == Some(Tool::Eraser) {
                 let px = cx.clamp(rect.x, rect.x + rect.width);
                 let py = cy.clamp(rect.y, rect.y + rect.height);
                 eraser::handle_drag_move(state, (px, py));
                 true
-            } else if state.toolbar.active_tool.is_some() && !state.stroke.points.is_empty() {
+            } else if state.editor.toolbar.active_tool.is_some() && !state.editor.stroke.is_empty()
+            {
                 let px = cx.clamp(rect.x, rect.x + rect.width);
                 let py = cy.clamp(rect.y, rect.y + rect.height);
-                let tool = state.toolbar.active_tool;
+                let tool = state.editor.toolbar.active_tool;
                 match tool {
-                    Some(Tool::Pen) if state.modifiers.shift_key() => {
-                        let start = state.stroke.points[0];
+                    Some(Tool::Pen) if state.viewport.modifiers.shift_key() => {
+                        let start = state.editor.stroke.points[0];
                         let endpoint = constrain_with_shift(Tool::Arrow, start, (px, py));
-                        state.stroke.points.truncate(1);
-                        state.stroke.points.push(endpoint);
+                        state.editor.stroke.points.truncate(1);
+                        state.editor.stroke.points.push(endpoint);
                     }
                     Some(Tool::Pen) | Some(Tool::Marker) => {
-                        state.stroke.points.push((px, py));
+                        state.editor.stroke.points.push((px, py));
                     }
-                    Some(Tool::Mosaic) if state.toolbar.sub_options.mosaic_brush_mode => {
-                        if state.stroke.points.last() != Some(&(px, py)) {
-                            state.stroke.points.push((px, py));
-                        }
+                    Some(Tool::Mosaic) if state.editor.toolbar.sub_options.mosaic_brush_mode => {
+                        state.editor.stroke.append((px, py));
                     }
                     Some(Tool::Line)
-                        if state.toolbar.sub_options.line_mode == LineMode::Polyline =>
+                        if state.editor.toolbar.sub_options.line_mode == LineMode::Polyline =>
                     {
                         // 折线由连续单击追加节点，鼠标移动只刷新预览，不修改已提交节点。
                     }
                     _ => {
-                        let endpoint = match (state.modifiers.shift_key(), tool) {
+                        let endpoint = match (state.viewport.modifiers.shift_key(), tool) {
                             (true, Some(active)) => {
-                                let start = state.stroke.points[0];
+                                let start = state.editor.stroke.points[0];
                                 constrain_with_shift(active, start, (px, py))
                             }
                             _ => (px, py),
                         };
-                        if state.stroke.points.len() > 1 {
-                            state.stroke.points[1] = endpoint;
+                        if state.editor.stroke.points.len() > 1 {
+                            state.editor.stroke.points[1] = endpoint;
                         } else {
-                            state.stroke.points.push(endpoint);
+                            state.editor.stroke.points.push(endpoint);
                         }
                     }
                 }
                 true
             } else {
-                let hover_changed = state.toolbar.handle_mouse_move(cx, cy);
+                let hover_changed = state.editor.toolbar.handle_mouse_move(cx, cy);
                 hover_changed || has_brush_cursor(state)
             }
         }
@@ -133,9 +135,9 @@ pub(super) fn constrain_with_shift(
 
 /// 当前工具是否需要持续跟随光标重绘圆形画笔轮廓。
 fn has_brush_cursor(state: &SnipperState) -> bool {
-    match state.toolbar.active_tool {
-        Some(Tool::Mosaic) => state.toolbar.sub_options.mosaic_brush_mode,
-        Some(Tool::Eraser) => !state.toolbar.sub_options.eraser_rectangle_mode,
+    match state.editor.toolbar.active_tool {
+        Some(Tool::Mosaic) => state.editor.toolbar.sub_options.mosaic_brush_mode,
+        Some(Tool::Eraser) => !state.editor.toolbar.sub_options.eraser_rectangle_mode,
         _ => false,
     }
 }

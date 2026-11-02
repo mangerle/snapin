@@ -22,56 +22,68 @@ pub fn handle_key_input(
         return false;
     }
 
-    if state.active_text_input.is_some() {
+    if state.editor.active_text_input.is_some() {
         return handle_text_key_input(state, key);
     }
 
-    if state.redaction_preview.is_some() && handle_redaction_preview_key(state, key) {
+    if state.ocr.redaction_preview.is_some() && handle_redaction_preview_key(state, key) {
         return true;
     }
 
-    if state.ocr_panel.is_some() {
+    if state.ocr.panel.is_some() {
         return handle_ocr_panel_key(state, key, original_rgba);
     }
 
     match key {
         Key::Named(NamedKey::Escape) => handle_escape(state),
-        Key::Named(NamedKey::Tab) => cycle_window(state, !state.modifiers.shift_key()),
+        Key::Named(NamedKey::Tab) => cycle_window(state, !state.viewport.modifiers.shift_key()),
         Key::Named(NamedKey::ArrowLeft) => nudge_locked_selection(state, -1, 0, original_rgba),
         Key::Named(NamedKey::ArrowRight) => nudge_locked_selection(state, 1, 0, original_rgba),
         Key::Named(NamedKey::ArrowUp) => nudge_locked_selection(state, 0, -1, original_rgba),
         Key::Named(NamedKey::ArrowDown) => nudge_locked_selection(state, 0, 1, original_rgba),
         Key::Named(NamedKey::Shift) => {
-            state.magnifier.format = state.magnifier.format.next();
+            state.viewport.magnifier.format = state.viewport.magnifier.format.next();
             true
         }
-        Key::Character(c) if c.eq_ignore_ascii_case("c") && !state.modifiers.control_key() => {
+        Key::Character(c)
+            if c.eq_ignore_ascii_case("c") && !state.viewport.modifiers.control_key() =>
+        {
             handle_copy_hex_color(state, original_rgba);
             false
         }
-        Key::Character(c) if c.eq_ignore_ascii_case("z") && state.modifiers.control_key() => {
-            let changed = state.annotations.undo();
+        Key::Character(c)
+            if c.eq_ignore_ascii_case("z") && state.viewport.modifiers.control_key() =>
+        {
+            let changed = state.editor.annotations.undo();
             // 撤销后新的文档最后一条接管可编辑权；文档为空则清除选中。
             super::annotation_edit::select_latest(state);
             changed
         }
-        Key::Character(c) if c.eq_ignore_ascii_case("y") && state.modifiers.control_key() => {
-            let changed = state.annotations.redo();
+        Key::Character(c)
+            if c.eq_ignore_ascii_case("y") && state.viewport.modifiers.control_key() =>
+        {
+            let changed = state.editor.annotations.redo();
             super::annotation_edit::select_latest(state);
             changed
         }
-        Key::Character(c) if c.eq_ignore_ascii_case("c") && state.modifiers.control_key() => {
+        Key::Character(c)
+            if c.eq_ignore_ascii_case("c") && state.viewport.modifiers.control_key() =>
+        {
             handle_action_copy(state, original_rgba);
             true
         }
-        Key::Character(c) if c.eq_ignore_ascii_case("s") && state.modifiers.control_key() => {
+        Key::Character(c)
+            if c.eq_ignore_ascii_case("s") && state.viewport.modifiers.control_key() =>
+        {
             handle_action_save(state, original_rgba);
             true
         }
-        Key::Named(NamedKey::Enter) if state.modifiers.control_key() => handle_qr_open_link(state),
+        Key::Named(NamedKey::Enter) if state.viewport.modifiers.control_key() => {
+            handle_qr_open_link(state)
+        }
         Key::Named(NamedKey::Enter) | Key::Named(NamedKey::F3) => {
-            if state.toolbar.active_tool == Some(crate::editor::toolbar::Tool::Line)
-                && state.stroke.points.len() >= 2
+            if state.editor.toolbar.active_tool == Some(crate::editor::toolbar::Tool::Line)
+                && state.editor.stroke.points.len() >= 2
             {
                 super::annotation_builder::commit_annotation(state);
                 return true;
@@ -79,40 +91,50 @@ pub fn handle_key_input(
             handle_action_pin(state, original_rgba);
             true
         }
-        Key::Character(c) if c.eq_ignore_ascii_case("o") && state.modifiers.shift_key() => {
-            if matches!(state.selection, SelectionState::Locked { .. }) {
+        Key::Character(c)
+            if c.eq_ignore_ascii_case("o") && state.viewport.modifiers.shift_key() =>
+        {
+            if matches!(state.viewport.selection, SelectionState::Locked { .. }) {
                 super::actions::handle_action_ocr_panel(state, original_rgba);
                 true
             } else {
                 false
             }
         }
-        Key::Character(c) if c.eq_ignore_ascii_case("o") && !state.modifiers.control_key() => {
-            if matches!(state.selection, SelectionState::Locked { .. }) {
+        Key::Character(c)
+            if c.eq_ignore_ascii_case("o") && !state.viewport.modifiers.control_key() =>
+        {
+            if matches!(state.viewport.selection, SelectionState::Locked { .. }) {
                 super::actions::handle_action_ocr(state, original_rgba);
                 true
             } else {
                 false
             }
         }
-        Key::Character(c) if c.eq_ignore_ascii_case("t") && !state.modifiers.control_key() => {
-            if matches!(state.selection, SelectionState::Locked { .. }) {
+        Key::Character(c)
+            if c.eq_ignore_ascii_case("t") && !state.viewport.modifiers.control_key() =>
+        {
+            if matches!(state.viewport.selection, SelectionState::Locked { .. }) {
                 super::actions::handle_action_translate(state, original_rgba);
                 true
             } else {
                 false
             }
         }
-        Key::Character(c) if c.eq_ignore_ascii_case("r") && !state.modifiers.control_key() => {
-            if matches!(state.selection, SelectionState::Locked { .. }) {
+        Key::Character(c)
+            if c.eq_ignore_ascii_case("r") && !state.viewport.modifiers.control_key() =>
+        {
+            if matches!(state.viewport.selection, SelectionState::Locked { .. }) {
                 super::actions::handle_action_redact(state, original_rgba);
                 true
             } else {
                 false
             }
         }
-        Key::Character(c) if c.eq_ignore_ascii_case("q") && !state.modifiers.control_key() => {
-            if matches!(state.selection, SelectionState::Locked { .. }) {
+        Key::Character(c)
+            if c.eq_ignore_ascii_case("q") && !state.viewport.modifiers.control_key() =>
+        {
+            if matches!(state.viewport.selection, SelectionState::Locked { .. }) {
                 super::actions::handle_action_qr(state, original_rgba);
                 true
             } else {
@@ -163,28 +185,32 @@ pub fn handle_key_input(
 
 /// 在窗口候选之间循环，Tab 向前、Shift+Tab 向后。
 fn cycle_window(state: &mut SnipperState, forward: bool) -> bool {
-    if !matches!(state.selection, SelectionState::Idle) || state.window_rects.is_empty() {
+    if !matches!(state.viewport.selection, SelectionState::Idle)
+        || state.viewport.window_rects.is_empty()
+    {
         return false;
     }
-    let len = state.window_rects.len();
-    let current = state
-        .window_cycle
-        .unwrap_or(if forward { len.saturating_sub(1) } else { 0 });
+    let len = state.viewport.window_rects.len();
+    let current =
+        state
+            .viewport
+            .window_cycle
+            .unwrap_or(if forward { len.saturating_sub(1) } else { 0 });
     let next = if forward {
         current.saturating_add(1) % len
     } else {
         current.saturating_add(len).saturating_sub(1) % len
     };
-    state.window_cycle = Some(next);
-    state.hovered_window = state.window_rects.get(next).copied();
+    state.viewport.window_cycle = Some(next);
+    state.viewport.hovered_window = state.viewport.window_rects.get(next).copied();
     state.set_status_message(format!("窗口循环: {}/{}，短按左键吸附", next + 1, len));
     true
 }
 
 /// 设置选区尺寸约束；正在拖拽时立即按新约束刷新终点。
 fn set_selection_constraint(state: &mut SnipperState, constraint: SelectionConstraint) -> bool {
-    state.selection_constraint = constraint;
-    if let SelectionState::Creating { start, current } = &mut state.selection {
+    state.viewport.selection_constraint = constraint;
+    if let SelectionState::Creating { start, current } = &mut state.viewport.selection {
         *current = constraint.constrain(*start, *current);
     }
     state.set_status_message(format!(
@@ -201,8 +227,12 @@ fn nudge_locked_selection(
     dy: i32,
     original_rgba: &RgbaImage,
 ) -> bool {
-    let step = if state.modifiers.shift_key() { 10 } else { 1 };
-    let SelectionState::Locked { rect, active_drag } = &mut state.selection else {
+    let step = if state.viewport.modifiers.shift_key() {
+        10
+    } else {
+        1
+    };
+    let SelectionState::Locked { rect, active_drag } = &mut state.viewport.selection else {
         return false;
     };
     if active_drag.is_some() {
@@ -212,7 +242,7 @@ fn nudge_locked_selection(
     let max_y = (original_rgba.height() as f32 - rect.height).max(0.0);
     rect.x = (rect.x + (dx * step) as f32).clamp(0.0, max_x);
     rect.y = (rect.y + (dy * step) as f32).clamp(0.0, max_y);
-    state.toolbar.update_layout(
+    state.editor.toolbar.update_layout(
         rect,
         original_rgba.width() as f32,
         original_rgba.height() as f32,
@@ -224,27 +254,27 @@ fn nudge_locked_selection(
 
 /// 处理 OCR 结果面板键盘操作。
 fn handle_ocr_panel_key(state: &mut SnipperState, key: &Key, original_rgba: &RgbaImage) -> bool {
-    let scale = state.toolbar.ui_scale;
+    let scale = state.editor.toolbar.ui_scale;
     let screen_width = original_rgba.width() as f32;
     let screen_height = original_rgba.height() as f32;
     match key {
         Key::Named(NamedKey::Escape) => {
-            state.ocr_panel = None;
-            state.ocr_edit_row = None;
-            state.active_text_input = None;
+            state.ocr.panel = None;
+            state.ocr.edit_row = None;
+            state.editor.active_text_input = None;
             state.set_status_message(snapin_foundation::i18n::tr("已关闭 OCR 结果面板"));
             true
         }
         Key::Named(NamedKey::ArrowUp) => move_ocr_cursor(state, -1, screen_height, scale),
         Key::Named(NamedKey::ArrowDown) => move_ocr_cursor(state, 1, screen_height, scale),
         Key::Named(NamedKey::Space) => {
-            if let Some(panel) = state.ocr_panel.as_mut() {
+            if let Some(panel) = state.ocr.panel.as_mut() {
                 panel.toggle_cursor();
             }
             true
         }
         Key::Character(c) if c.eq_ignore_ascii_case("a") => {
-            if let Some(panel) = state.ocr_panel.as_mut() {
+            if let Some(panel) = state.ocr.panel.as_mut() {
                 panel.toggle_all();
             }
             true
@@ -268,11 +298,12 @@ fn handle_ocr_panel_key(state: &mut SnipperState, key: &Key, original_rgba: &Rgb
 /// 在 OCR 可见行范围内移动结果面板光标。
 fn move_ocr_cursor(state: &mut SnipperState, delta: isize, screen_height: f32, scale: f32) -> bool {
     let visible = state
-        .ocr_panel
+        .ocr
+        .panel
         .as_ref()
         .map(|panel| panel.visible_rows(screen_height, scale))
         .unwrap_or(1);
-    if let Some(panel) = state.ocr_panel.as_mut() {
+    if let Some(panel) = state.ocr.panel.as_mut() {
         panel.move_cursor(delta, visible);
     }
     true
@@ -280,7 +311,7 @@ fn move_ocr_cursor(state: &mut SnipperState, delta: isize, screen_height: f32, s
 
 /// 为当前 OCR 行创建文本编辑会话，提交时回写该行。
 fn begin_ocr_row_edit(state: &mut SnipperState, screen_width: f32, screen_height: f32, scale: f32) {
-    let Some(panel) = state.ocr_panel.as_ref() else {
+    let Some(panel) = state.ocr.panel.as_ref() else {
         return;
     };
     let Some(line) = panel.lines.get(panel.cursor) else {
@@ -291,8 +322,8 @@ fn begin_ocr_row_edit(state: &mut SnipperState, screen_width: f32, screen_height
     };
     let mut session = TextInputSession::new(pos, (255, 255, 255, 255), 14.0);
     session.text = line.text.clone();
-    state.ocr_edit_row = Some(panel.cursor);
-    state.active_text_input = Some(session);
+    state.ocr.edit_row = Some(panel.cursor);
+    state.editor.active_text_input = Some(session);
     state.set_status_message(snapin_foundation::i18n::tr(
         "编辑 OCR 文本；Enter 确认，Esc 取消",
     ));
@@ -302,7 +333,7 @@ fn begin_ocr_row_edit(state: &mut SnipperState, screen_width: f32, screen_height
 fn handle_redaction_preview_key(state: &mut SnipperState, key: &Key) -> bool {
     match key {
         Key::Named(NamedKey::Escape | NamedKey::Enter) => {
-            state.redaction_preview = None;
+            state.ocr.redaction_preview = None;
             state.clear_status_message();
             true
         }
@@ -313,6 +344,7 @@ fn handle_redaction_preview_key(state: &mut SnipperState, key: &Key) -> bool {
 /// 打开最近二维码结果中的首个网页链接。
 fn handle_qr_open_link(state: &mut SnipperState) -> bool {
     let Some(url) = state
+        .ocr
         .qr_result
         .as_ref()
         .and_then(|codes| codes.first())
@@ -321,7 +353,7 @@ fn handle_qr_open_link(state: &mut SnipperState) -> bool {
         state.set_status_message(snapin_foundation::i18n::tr("请先识别二维码"));
         return true;
     };
-    match state.desktop.open_url(&url) {
+    match state.session.desktop.open_url(&url) {
         Ok(()) => state.set_status_message(snapin_foundation::i18n::tr(
             "已请求系统浏览器打开二维码链接",
         )),
@@ -338,8 +370,8 @@ fn handle_qr_open_link(state: &mut SnipperState) -> bool {
 /// 具体字符增删与 Esc/Enter 语义由共享的 [`TextInputSession`] 处理，
 /// 截图侧只负责把动作落到标注历史。
 fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
-    let ctrl_pressed = state.modifiers.control_key();
-    let action = match state.active_text_input.as_mut() {
+    let ctrl_pressed = state.viewport.modifiers.control_key();
+    let action = match state.editor.active_text_input.as_mut() {
         Some(session) => crate::editor::text_input::handle_session_key(session, key, ctrl_pressed),
         None => return false,
     };
@@ -350,8 +382,8 @@ fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
             true
         }
         crate::editor::text_input::TextSessionAction::Cancel => {
-            state.active_text_input = None;
-            state.ocr_edit_row = None;
+            state.editor.active_text_input = None;
+            state.ocr.edit_row = None;
             true
         }
         crate::editor::text_input::TextSessionAction::Ignored => false,
@@ -360,43 +392,45 @@ fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
 
 /// 逐级退出处理 (先提交文本 -> 再收起二级栏/工具 -> 再取消标注选中 -> 再取消选区 -> 再退出窗口)
 pub fn handle_escape(state: &mut SnipperState) -> bool {
-    if state.ocr_panel.is_some() {
-        state.ocr_panel = None;
-        state.ocr_edit_row = None;
-        state.active_text_input = None;
+    if state.ocr.panel.is_some() {
+        state.ocr.panel = None;
+        state.ocr.edit_row = None;
+        state.editor.active_text_input = None;
         state.set_status_message(snapin_foundation::i18n::tr("已关闭 OCR 结果面板"));
         true
-    } else if state.redaction_preview.is_some() {
+    } else if state.ocr.redaction_preview.is_some() {
         // 马赛克在识别完成时已经写入标注历史，退出交互模式不得撤销用户当前选择。
-        state.redaction_preview = None;
+        state.ocr.redaction_preview = None;
         state.clear_status_message();
         true
-    } else if state.active_text_input.is_some() {
+    } else if state.editor.active_text_input.is_some() {
         // Esc 统一取消当前输入，与贴图侧保持一致。
-        state.active_text_input = None;
+        state.editor.active_text_input = None;
         true
-    } else if state.toolbar.active_tool.is_some() {
-        state.toolbar.active_tool = None;
-        state.toolbar.sub_rect = None;
+    } else if state.editor.toolbar.active_tool.is_some() {
+        state.editor.toolbar.active_tool = None;
+        state.editor.toolbar.sub_rect = None;
         super::annotation_edit::clear(state);
         true
-    } else if state.selected_annotation.is_some() {
+    } else if state.editor.selected_annotation.is_some() {
         super::annotation_edit::clear(state);
         true
-    } else if matches!(state.selection, SelectionState::Locked { .. }) {
+    } else if matches!(state.viewport.selection, SelectionState::Locked { .. }) {
         super::annotation_edit::clear(state);
-        state.selection = SelectionState::Idle;
+        state.viewport.selection = SelectionState::Idle;
         true
     } else {
-        state.outcome = Some(SnipperOutcome::Cancelled);
+        state.session.outcome = Some(SnipperOutcome::Cancelled);
         true
     }
 }
 
 /// 复制放大镜中心取色结果
 fn handle_copy_hex_color(state: &mut SnipperState, img: &RgbaImage) {
-    let px = (state.cursor_pos.0 as i32).clamp(0, img.width().saturating_sub(1) as i32) as u32;
-    let py = (state.cursor_pos.1 as i32).clamp(0, img.height().saturating_sub(1) as i32) as u32;
+    let px =
+        (state.viewport.cursor_pos.0 as i32).clamp(0, img.width().saturating_sub(1) as i32) as u32;
+    let py =
+        (state.viewport.cursor_pos.1 as i32).clamp(0, img.height().saturating_sub(1) as i32) as u32;
     let pixel = img.get_pixel(px, py);
     let hex = format!("#{:02X}{:02X}{:02X}", pixel[0], pixel[1], pixel[2]);
     state.submit_clipboard_text(
@@ -410,13 +444,14 @@ fn handle_copy_hex_color(state: &mut SnipperState, img: &RgbaImage) {
 
 /// 历史选区回溯向后
 fn handle_history_back(state: &mut SnipperState, img: &RgbaImage) -> bool {
-    if let Some(r) = state.history.previous_history() {
+    if let Some(r) = state.viewport.history.previous_history() {
         super::annotation_edit::clear(state);
-        state.selection = SelectionState::Locked {
+        state.viewport.selection = SelectionState::Locked {
             rect: r,
             active_drag: None,
         };
         state
+            .editor
             .toolbar
             .update_layout(&r, img.width() as f32, img.height() as f32);
         true
@@ -427,13 +462,14 @@ fn handle_history_back(state: &mut SnipperState, img: &RgbaImage) -> bool {
 
 /// 历史选区回溯向前
 fn handle_history_forward(state: &mut SnipperState, img: &RgbaImage) -> bool {
-    if let Some(r) = state.history.next_history() {
+    if let Some(r) = state.viewport.history.next_history() {
         super::annotation_edit::clear(state);
-        state.selection = SelectionState::Locked {
+        state.viewport.selection = SelectionState::Locked {
             rect: r,
             active_drag: None,
         };
         state
+            .editor
             .toolbar
             .update_layout(&r, img.width() as f32, img.height() as f32);
         true

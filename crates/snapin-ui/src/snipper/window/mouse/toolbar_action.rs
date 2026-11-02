@@ -18,14 +18,14 @@ pub fn dispatch_toolbar_action(
 ) -> bool {
     match action {
         ToolbarAction::Undo => {
-            let changed = state.annotations.undo();
+            let changed = state.editor.annotations.undo();
             // 历史变化后让新的文档最后一条接管可编辑权，避免选中停留在已被撤销的索引上。
             super::super::annotation_edit::select_latest(state);
             changed
         }
         ToolbarAction::MouseThrough => true,
         ToolbarAction::Redo => {
-            let changed = state.annotations.redo();
+            let changed = state.editor.annotations.redo();
             super::super::annotation_edit::select_latest(state);
             changed
         }
@@ -58,12 +58,12 @@ pub fn dispatch_toolbar_action(
             true
         }
         ToolbarAction::Close => {
-            state.outcome = Some(SnipperOutcome::Cancelled);
+            state.session.outcome = Some(SnipperOutcome::Cancelled);
             true
         }
         ToolbarAction::ClearAnnotations => {
-            state.annotations.clear();
-            state.selected_annotation = None;
+            state.editor.annotations.clear();
+            state.editor.selected_annotation = None;
             true
         }
     }
@@ -71,10 +71,10 @@ pub fn dispatch_toolbar_action(
 
 /// 处理文字工具点击选区开启输入
 pub fn handle_text_tool_click(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
-    if let SelectionState::Locked { rect, .. } = &state.selection {
+    if let SelectionState::Locked { rect, .. } = &state.viewport.selection {
         if rect.contains(cx, cy) {
             commit_active_text_input(state);
-            let c = state.toolbar.sub_options.color;
+            let c = state.editor.toolbar.sub_options.color;
             let rgba = (
                 (c.red() * 255.0).round() as u8,
                 (c.green() * 255.0).round() as u8,
@@ -82,9 +82,9 @@ pub fn handle_text_tool_click(state: &mut SnipperState, cx: f32, cy: f32) -> boo
                 (c.alpha() * 255.0).round() as u8,
             );
             let mut session =
-                TextInputSession::new((cx, cy), rgba, state.toolbar.sub_options.font_size);
-            session.apply_toolbar_options(&state.toolbar.sub_options);
-            state.active_text_input = Some(session);
+                TextInputSession::new((cx, cy), rgba, state.editor.toolbar.sub_options.font_size);
+            session.apply_toolbar_options(&state.editor.toolbar.sub_options);
+            state.editor.active_text_input = Some(session);
             return true;
         }
     }

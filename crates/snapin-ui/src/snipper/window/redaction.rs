@@ -57,8 +57,8 @@ pub(crate) fn apply_redaction(state: &mut SnipperState, preview: &RedactionPrevi
     super::annotation_edit::clear(state);
     let mut count = 0;
     for rect in &preview.regions {
-        if !is_redaction_applied(&state.annotations, *rect) {
-            state.annotations.push(mosaic_shape(*rect));
+        if !is_redaction_applied(&state.editor.annotations, *rect) {
+            state.editor.annotations.push(mosaic_shape(*rect));
             count += 1;
         }
     }
@@ -67,11 +67,11 @@ pub(crate) fn apply_redaction(state: &mut SnipperState, preview: &RedactionPrevi
 
 /// 切换指定文字区域的马赛克状态；返回切换后是否已应用马赛克。
 pub(crate) fn toggle_redaction_region(state: &mut SnipperState, rect: Rect) -> bool {
-    if let Some(index) = redaction_mask_index(&state.annotations, rect) {
-        state.annotations.remove_at(index);
+    if let Some(index) = redaction_mask_index(&state.editor.annotations, rect) {
+        state.editor.annotations.remove_at(index);
         false
     } else {
-        state.annotations.push(mosaic_shape(rect));
+        state.editor.annotations.push(mosaic_shape(rect));
         true
     }
 }
@@ -142,14 +142,17 @@ mod tests {
         assert!(preview
             .regions
             .iter()
-            .all(|rect| is_redaction_applied(&state.annotations, *rect)));
+            .all(|rect| is_redaction_applied(&state.editor.annotations, *rect)));
 
         let first = preview.regions[0];
         assert!(!toggle_redaction_region(&mut state, first));
-        assert!(!is_redaction_applied(&state.annotations, first));
-        assert!(is_redaction_applied(&state.annotations, preview.regions[1]));
+        assert!(!is_redaction_applied(&state.editor.annotations, first));
+        assert!(is_redaction_applied(
+            &state.editor.annotations,
+            preview.regions[1]
+        ));
 
         assert!(toggle_redaction_region(&mut state, first));
-        assert!(is_redaction_applied(&state.annotations, first));
+        assert!(is_redaction_applied(&state.editor.annotations, first));
     }
 }

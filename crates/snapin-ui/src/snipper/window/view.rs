@@ -114,13 +114,13 @@ fn build_initial_state(
     clipboard_events: ClipboardEventSink,
 ) -> SnipperState {
     let mut state = SnipperState::from_config(runtime.config, mode, runtime.desktop);
-    state.post_action = runtime.post_action;
-    state.window_rects = windows
+    state.session.post_action = runtime.post_action;
+    state.viewport.window_rects = windows
         .iter()
         .filter_map(|window| clamp_window_rect(*window, screen_w as f32, screen_h as f32))
         .collect();
     if mode == SnipMode::Fullscreen {
-        state.selection = SelectionState::Locked {
+        state.viewport.selection = SelectionState::Locked {
             rect: Rect {
                 x: 0.0,
                 y: 0.0,
@@ -130,12 +130,12 @@ fn build_initial_state(
             active_drag: None,
         };
     } else if mode == SnipMode::PickColor {
-        state.magnifier.enabled = true;
+        state.viewport.magnifier.enabled = true;
         state.set_status_message(snapin_foundation::i18n::tr("单击复制颜色，Esc 取消"));
     }
 
-    state.job_runtime = Some(Arc::new(SnipperJobRuntime::new(runtime.media, job_sink)));
-    state.clipboard_events = clipboard_events;
+    state.jobs.runtime = Some(Arc::new(SnipperJobRuntime::new(runtime.media, job_sink)));
+    state.jobs.clipboard_events = clipboard_events;
     state
 }
 
@@ -148,12 +148,13 @@ fn apply_ui_scale(window: &Window, state: &mut SnipperState, screen_w: u32, scre
         2.0
     } else {
         1.0
-    } * state.config.interface.toolbar_scale;
-    state.toolbar.ui_scale = auto_scale;
-    state.magnifier.ui_scale = auto_scale;
+    } * state.session.config.interface.toolbar_scale;
+    state.editor.toolbar.ui_scale = auto_scale;
+    state.viewport.magnifier.ui_scale = auto_scale;
 
-    if let SelectionState::Locked { rect, .. } = &state.selection {
+    if let SelectionState::Locked { rect, .. } = &state.viewport.selection {
         state
+            .editor
             .toolbar
             .update_layout(rect, screen_w as f32, screen_h as f32);
     }
@@ -200,7 +201,7 @@ impl SnipperView {
 
     /// 取出会话结果；存在结果时会取消仍在执行的后台任务。
     pub fn take_outcome(&mut self) -> Option<SnipperOutcome> {
-        let outcome = self.state.outcome.take();
+        let outcome = self.state.session.outcome.take();
         if outcome.is_some() {
             self.state.cancel_pending_job();
         }
@@ -215,7 +216,7 @@ impl SnipperView {
     /// 事件循环退出前取消后台任务并关闭 IME。
     pub fn cancel(&mut self) {
         self.state.cancel_pending_job();
-        self.state.pending_clipboard = None;
+        self.state.jobs.pending_clipboard = None;
         self.window.set_ime_allowed(false);
     }
 }
