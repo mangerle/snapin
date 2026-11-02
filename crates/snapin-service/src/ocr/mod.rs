@@ -1,13 +1,13 @@
 //! 字符检测与文字识别子系统。
 
-pub mod config;
-pub mod ctc;
-pub mod dbnet;
-pub mod engine;
-pub mod image_ops;
-pub mod local_engine;
-pub mod onnx_runtime;
-pub mod types;
+mod config;
+mod ctc;
+mod dbnet;
+mod engine;
+mod image_ops;
+mod local_engine;
+mod onnx_runtime;
+mod types;
 
 pub use config::{load_character_dict, LocalOcrPaths, ModelInferenceConfig};
 pub use ctc::ctc_greedy_decode;

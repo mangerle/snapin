@@ -5,9 +5,11 @@
 
 use crate::error::ServiceError;
 use crate::translate::engine::Translator;
-use crate::translate::providers::{
-    AliyunTranslator, BaiduTranslator, BingFreeTranslator, GoogleFreeTranslator, YoudaoTranslator,
-};
+use crate::translate::providers::aliyun::AliyunTranslator;
+use crate::translate::providers::baidu::BaiduTranslator;
+use crate::translate::providers::bing_free::BingFreeTranslator;
+use crate::translate::providers::google_free::GoogleFreeTranslator;
+use crate::translate::providers::youdao::YoudaoTranslator;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 

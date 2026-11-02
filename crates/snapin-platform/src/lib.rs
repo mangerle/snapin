@@ -1,26 +1,26 @@
 //! 平台特定系统集成层（Ubuntu 26 GNOME / Wayland）。
 
-pub mod autostart;
-pub mod capabilities;
-pub mod capture;
-pub mod clipboard;
+mod autostart;
+mod capabilities;
+mod capture;
+mod clipboard;
 mod command;
-pub mod error;
+mod error;
 #[cfg(target_os = "linux")]
-pub mod extension_client;
-pub mod hotkey_manager;
-pub mod lifecycle;
-pub mod notification;
+mod extension_client;
+mod hotkey_manager;
+mod lifecycle;
+mod notification;
 #[cfg(target_os = "linux")]
-pub mod portal;
-pub mod tray;
-pub mod window;
+mod portal;
+mod tray;
+mod window;
 
 #[cfg(target_os = "linux")]
 pub(crate) mod dbus_session;
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-pub mod dialog;
+mod dialog;
 
 pub use autostart::sync_autostart;
 pub use capabilities::{

@@ -2,10 +2,10 @@
 //!
 //! 提供基于 PP-OCRv6 的离线文字检测识别与五大多服务商（百度、网易有道、阿里、微软 Bing、谷歌）机器翻译集成。
 
-pub mod error;
+mod error;
 pub mod ocr;
 pub mod qr;
-pub mod translate;
+mod translate;
 
 pub use error::ServiceError;
 pub use ocr::{
@@ -86,46 +86,44 @@ mod tests {
         }
     }
 
+    /// 通过公开工厂构造翻译器，避免测试依赖内部服务商模块路径。
+    fn translator_for(provider: ServiceTranslateProvider) -> std::sync::Arc<dyn Translator> {
+        create_translator(&TranslatorOptions {
+            provider,
+            ..TranslatorOptions::default()
+        })
+    }
+
     #[tokio::test]
     async fn test_translators_empty_batch() {
-        let bing = translate::providers::BingFreeTranslator::new();
-        assert_eq!(
-            bing.translate_batch(&[], "auto", "zh").await.unwrap(),
-            Vec::<String>::new()
-        );
-
-        let google = translate::providers::GoogleFreeTranslator::new();
-        assert_eq!(
-            google.translate_batch(&[], "auto", "zh").await.unwrap(),
-            Vec::<String>::new()
-        );
+        for provider in [
+            ServiceTranslateProvider::BingFree,
+            ServiceTranslateProvider::GoogleFree,
+        ] {
+            let translator = translator_for(provider);
+            assert_eq!(
+                translator.translate_batch(&[], "auto", "zh").await.unwrap(),
+                Vec::<String>::new()
+            );
+        }
     }
 
     #[tokio::test]
     async fn test_translators_missing_credentials() {
-        let baidu = translate::providers::BaiduTranslator::new(String::new(), String::new());
-        let res = baidu
-            .translate_batch(&["hello".to_string()], "en", "zh")
-            .await;
-        assert!(
-            matches!(res, Err(ServiceError::MissingCredentials { provider, .. }) if provider == "baidu")
-        );
-
-        let youdao = translate::providers::YoudaoTranslator::new(String::new(), String::new());
-        let res = youdao
-            .translate_batch(&["hello".to_string()], "en", "zh")
-            .await;
-        assert!(
-            matches!(res, Err(ServiceError::MissingCredentials { provider, .. }) if provider == "youdao")
-        );
-
-        let aliyun = translate::providers::AliyunTranslator::new(String::new(), String::new());
-        let res = aliyun
-            .translate_batch(&["hello".to_string()], "en", "zh")
-            .await;
-        assert!(
-            matches!(res, Err(ServiceError::MissingCredentials { provider, .. }) if provider == "aliyun")
-        );
+        let cases = [
+            (ServiceTranslateProvider::Baidu, "baidu"),
+            (ServiceTranslateProvider::Youdao, "youdao"),
+            (ServiceTranslateProvider::Aliyun, "aliyun"),
+        ];
+        for (provider, expected_name) in cases {
+            let translator = translator_for(provider);
+            let result = translator
+                .translate_batch(&["hello".to_string()], "en", "zh")
+                .await;
+            assert!(
+                matches!(result, Err(ServiceError::MissingCredentials { provider, .. }) if provider == expected_name)
+            );
+        }
     }
 
     #[test]

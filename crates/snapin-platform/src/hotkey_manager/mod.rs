@@ -186,8 +186,12 @@ pub fn sync_hotkeys_to_gnome(config: &HotkeyConfig) -> Result<(), PlatformError>
     }
 }
 
-/// 将热键转换为通用的跨平台按键表达字符串
-pub fn hotkey_to_accelerator(hotkey: &Hotkey) -> String {
+/// 将热键转换为通用的跨平台按键表达字符串。
+///
+/// 该表示只供 Windows/macOS 原生热键解析使用；Linux 通过 GNOME accelerator
+/// 格式注册，因此该函数仅在原生后端平台编译。
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+pub(crate) fn hotkey_to_accelerator(hotkey: &Hotkey) -> String {
     if hotkey.is_disabled() {
         return String::new();
     }

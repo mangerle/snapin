@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use snapin_daemon::{send_request_to_daemon, DaemonRequest};
-use snapin_platform::lifecycle::stop_systemd_service;
+use snapin_platform::stop_systemd_service;
 
 /// 停止 Snapin 后台服务（保留配套 GNOME 扩展）
 ///
