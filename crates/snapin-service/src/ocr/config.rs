@@ -76,84 +76,56 @@ impl LocalOcrPaths {
 
     /// 按 XDG 规范三级回退链搜索并定位模型资产
     pub fn resolve_model_paths(custom_dir: Option<&Path>) -> Result<Self, ServiceError> {
-        // 1. 自定义显式指定路径：显式配置无效时必须直接报错，禁止静默回退到其他目录。
         if let Some(custom) = custom_dir {
-            return Self::discover_in_root(custom).ok_or_else(|| ServiceError::ModelNotFound {
-                path: custom.to_string_lossy().to_string(),
-            });
+            return Self::discover_required(custom);
         }
-
-        // 2. 开发与调试环境变量覆盖
         if let Ok(custom) = std::env::var("SNAPIN_OCR_MODEL_DIR") {
-            let dir = PathBuf::from(custom);
-            if let Some(paths) = Self::discover_in_root(&dir) {
-                return Ok(paths);
-            }
-            return Err(ServiceError::ModelNotFound {
-                path: dir.to_string_lossy().to_string(),
-            });
+            return Self::discover_required(Path::new(&custom));
         }
-
-        // 3. 当前可执行文件同级目录 (针对 Windows/Linux 便携包及开发环境)
-        if let Ok(current_exe) = std::env::current_exe() {
-            if let Some(exe_dir) = current_exe.parent() {
-                // 3.1 snapin.exe 同级: ./models/ppocrv6
-                let local_models = exe_dir.join("models").join("ppocrv6");
-                if let Some(paths) = Self::discover_in_root(&local_models) {
-                    return Ok(paths);
-                }
-
-                // 3.2 macOS App Bundle 资源目录: ../Resources/models/ppocrv6
-                let macos_resources = exe_dir
-                    .parent()
-                    .map(|p| p.join("Resources").join("models").join("ppocrv6"));
-                if let Some(mac_dir) = macos_resources {
-                    if let Some(paths) = Self::discover_in_root(&mac_dir) {
-                        return Ok(paths);
-                    }
-                }
-            }
-        }
-
-        // 4. 用户数据目录:
-        // Linux: ~/.local/share/snapin/models/ppocrv6
-        // Windows: %LOCALAPPDATA%\snapin\models\ppocrv6
-        #[cfg(target_os = "windows")]
-        let user_data_base = std::env::var("LOCALAPPDATA").map(PathBuf::from).ok();
-
-        #[cfg(not(target_os = "windows"))]
-        let user_data_base = std::env::var("HOME")
-            .map(|h| PathBuf::from(h).join(".local").join("share"))
-            .ok();
-
-        if let Some(base) = user_data_base {
-            let user_model_dir = base.join("snapin").join("models").join("ppocrv6");
-            if let Some(paths) = Self::discover_in_root(&user_model_dir) {
-                return Ok(paths);
-            }
-        }
-
-        // 5. 系统级标准安装目录:
-        // 5.1 Debian/Ubuntu cargo-packager 默认资源目录: /usr/lib/snapin/models/ppocrv6
-        let sys_lib_dir = Path::new("/usr/lib/snapin/models/ppocrv6");
-        if let Some(paths) = Self::discover_in_root(sys_lib_dir) {
+        if let Some(paths) = Self::discover_first(&model_search_roots()) {
             return Ok(paths);
         }
-
-        // 5.2 共享数据目录: /usr/share/snapin/models/ppocrv6
-        let sys_share_dir = Path::new("/usr/share/snapin/models/ppocrv6");
-        if let Some(paths) = Self::discover_in_root(sys_share_dir) {
-            return Ok(paths);
-        }
-
         Err(ServiceError::ModelNotFound {
-            path: custom_dir
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|| {
-                    "/usr/lib/snapin/models/ppocrv6 或 /usr/share/snapin/models/ppocrv6".to_string()
-                }),
+            path: "/usr/lib/snapin/models/ppocrv6 或 /usr/share/snapin/models/ppocrv6".to_string(),
         })
     }
+
+    /// 严格解析显式目录；配置错误必须直接报错，不能静默回退。
+    fn discover_required(root: &Path) -> Result<Self, ServiceError> {
+        Self::discover_in_root(root).ok_or_else(|| ServiceError::ModelNotFound {
+            path: root.to_string_lossy().to_string(),
+        })
+    }
+
+    /// 返回首个包含完整模型资产的候选目录。
+    fn discover_first(roots: &[PathBuf]) -> Option<Self> {
+        roots.iter().find_map(|root| Self::discover_in_root(root))
+    }
+}
+
+/// 模型目录搜索顺序：可执行文件旁、用户数据目录、系统安装目录。
+fn model_search_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::with_capacity(5);
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            roots.push(exe_dir.join("models").join("ppocrv6"));
+            if let Some(resources) = exe_dir.parent() {
+                roots.push(resources.join("Resources").join("models").join("ppocrv6"));
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    let user_data_base = std::env::var("LOCALAPPDATA").map(PathBuf::from).ok();
+    #[cfg(not(target_os = "windows"))]
+    let user_data_base = std::env::var("HOME")
+        .map(|home| PathBuf::from(home).join(".local").join("share"))
+        .ok();
+    if let Some(base) = user_data_base {
+        roots.push(base.join("snapin").join("models").join("ppocrv6"));
+    }
+    roots.push(PathBuf::from("/usr/lib/snapin/models/ppocrv6"));
+    roots.push(PathBuf::from("/usr/share/snapin/models/ppocrv6"));
+    roots
 }
 
 /// 模型资产必须是存在、非目录且非空的常规文件。
@@ -165,15 +137,32 @@ fn is_non_empty_file(path: &Path) -> bool {
 
 /// 加载字符字典 (支持从 inference.yml 或 dict.txt 自动适配)
 pub fn load_character_dict(config_path: &Path) -> Result<Vec<String>, ServiceError> {
+    let content = read_dictionary_text(config_path)?;
+    if config_path.extension().and_then(|value| value.to_str()) == Some("txt") {
+        return Ok(content.lines().map(str::to_string).collect());
+    }
+    if let Some(dict) = parse_yaml_character_dict(&content) {
+        return Ok(dict);
+    }
+    if let Some(dict) = parse_json_character_dict(&content) {
+        return Ok(dict);
+    }
+    Err(ServiceError::ConfigParseError {
+        path: config_path.to_string_lossy().to_string(),
+        reason: "未能从配置文件中解析出有效的 character_dict 字符列表".to_string(),
+    })
+}
+
+/// 读取并校验模型字典文本。
+fn read_dictionary_text(config_path: &Path) -> Result<String, ServiceError> {
     if !config_path.exists() {
         return Err(ServiceError::ModelNotFound {
             path: config_path.to_string_lossy().to_string(),
         });
     }
-
-    let content = fs::read_to_string(config_path).map_err(|e| ServiceError::IoError {
+    let content = fs::read_to_string(config_path).map_err(|error| ServiceError::IoError {
         path: config_path.to_string_lossy().to_string(),
-        source: e,
+        source: error,
     })?;
     if content.trim().is_empty() {
         return Err(ServiceError::ConfigParseError {
@@ -181,39 +170,29 @@ pub fn load_character_dict(config_path: &Path) -> Result<Vec<String>, ServiceErr
             reason: "模型字典文件为空".to_string(),
         });
     }
+    Ok(content)
+}
 
-    // 若为纯文本字典 (每行一个字符)
-    if config_path.extension().and_then(|s| s.to_str()) == Some("txt") {
-        let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-        return Ok(lines);
-    }
+/// 从 YAML 推理配置中提取字符字典。
+fn parse_yaml_character_dict(content: &str) -> Option<Vec<String>> {
+    let config = serde_yaml::from_str::<ModelInferenceConfig>(content).ok()?;
+    config
+        .post_process
+        .map(|post_process| post_process.character_dict)
+        .filter(|dict| !dict.is_empty())
+}
 
-    // 尝试按 YAML 格式解析 inference.yml
-    if let Ok(cfg) = serde_yaml::from_str::<ModelInferenceConfig>(&content) {
-        if let Some(pp) = cfg.post_process {
-            if !pp.character_dict.is_empty() {
-                return Ok(pp.character_dict);
-            }
-        }
-    }
-
-    // 尝试按 JSON 格式解析 inference.json
+/// 从 JSON 推理配置中提取字符字典。
+fn parse_json_character_dict(content: &str) -> Option<Vec<String>> {
     #[derive(Deserialize)]
     struct JsonDictWrapper {
         #[serde(alias = "character_dict", alias = "character_list", default)]
         character_dict: Vec<String>,
     }
-
-    if let Ok(json_cfg) = serde_json::from_str::<JsonDictWrapper>(&content) {
-        if !json_cfg.character_dict.is_empty() {
-            return Ok(json_cfg.character_dict);
-        }
-    }
-
-    Err(ServiceError::ConfigParseError {
-        path: config_path.to_string_lossy().to_string(),
-        reason: "未能从配置文件中解析出有效的 character_dict 字符列表".to_string(),
-    })
+    serde_json::from_str::<JsonDictWrapper>(content)
+        .ok()
+        .map(|config| config.character_dict)
+        .filter(|dict| !dict.is_empty())
 }
 
 #[cfg(test)]
