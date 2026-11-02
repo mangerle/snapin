@@ -34,12 +34,16 @@ impl PasterTransform {
 
     /// 精确设置缩放比例
     pub fn set_scale(&mut self, scale: f32) {
-        self.scale = scale.clamp(0.1, 10.0);
+        if scale.is_finite() {
+            self.scale = scale.clamp(0.1, 10.0);
+        }
     }
 
     /// 调整不透明度
     pub fn adjust_opacity(&mut self, delta: f32) {
-        self.opacity = (self.opacity + delta).clamp(0.1, 1.0);
+        if delta.is_finite() {
+            self.opacity = (self.opacity + delta).clamp(0.1, 1.0);
+        }
     }
 }
 
@@ -156,6 +160,17 @@ mod tests {
         assert_eq!(transform.scale, original);
         transform.zoom(f32::INFINITY);
         assert_eq!(transform.scale, original);
+    }
+
+    #[test]
+    fn test_non_finite_scale_and_opacity_delta_are_ignored() {
+        let mut transform = PasterTransform::default();
+
+        transform.set_scale(f32::NAN);
+        transform.adjust_opacity(f32::INFINITY);
+
+        assert_eq!(transform.scale, 1.0);
+        assert_eq!(transform.opacity, 1.0);
     }
 
     #[test]
