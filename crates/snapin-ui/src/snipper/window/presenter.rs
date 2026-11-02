@@ -224,11 +224,7 @@ impl SnipperPresenter {
         );
         self.render_pixmap =
             Pixmap::new(width, height).ok_or(UiError::PixmapAlloc { width, height })?;
-        let pixel_count = (width as usize)
-            .checked_mul(height as usize)
-            .ok_or(UiError::PixmapAlloc { width, height })?;
-        self.frame_words.clear();
-        self.frame_words.resize(pixel_count, 0);
+        self.frame_words = create_frame_words(width, height)?;
         self.overlay = None;
         Ok(())
     }
