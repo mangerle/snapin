@@ -5,6 +5,7 @@ use super::clipboard::SnipperClipboardAction;
 pub use super::state::{commit_active_text_input, SnipperState};
 use super::types::SnipperOutcome;
 use crate::editor::text_input::TextInputSession;
+use crate::editor::toolbar::Tool;
 use crate::ports::OcrExportFormat;
 use crate::snipper::selection::{SelectionConstraint, SelectionState};
 use image::RgbaImage;
@@ -35,145 +36,156 @@ pub fn handle_key_input(
     }
 
     match key {
-        Key::Named(NamedKey::Escape) => handle_escape(state),
-        Key::Named(NamedKey::Tab) => cycle_window(state, !state.viewport.modifiers.shift_key()),
-        Key::Named(NamedKey::ArrowLeft) => nudge_locked_selection(state, -1, 0, original_rgba),
-        Key::Named(NamedKey::ArrowRight) => nudge_locked_selection(state, 1, 0, original_rgba),
-        Key::Named(NamedKey::ArrowUp) => nudge_locked_selection(state, 0, -1, original_rgba),
-        Key::Named(NamedKey::ArrowDown) => nudge_locked_selection(state, 0, 1, original_rgba),
-        Key::Named(NamedKey::Shift) => {
+        Key::Named(named) => handle_named_key(state, *named, original_rgba),
+        Key::Character(character) => handle_character_key(state, character, original_rgba),
+        _ => false,
+    }
+}
+
+/// 处理命名按键，保持退出、窗口循环、选区微调与贴图动作的原有优先级。
+fn handle_named_key(state: &mut SnipperState, key: NamedKey, original_rgba: &RgbaImage) -> bool {
+    match key {
+        NamedKey::Escape => handle_escape(state),
+        NamedKey::Tab => cycle_window(state, !state.viewport.modifiers.shift_key()),
+        NamedKey::ArrowLeft => nudge_locked_selection(state, -1, 0, original_rgba),
+        NamedKey::ArrowRight => nudge_locked_selection(state, 1, 0, original_rgba),
+        NamedKey::ArrowUp => nudge_locked_selection(state, 0, -1, original_rgba),
+        NamedKey::ArrowDown => nudge_locked_selection(state, 0, 1, original_rgba),
+        NamedKey::Shift => {
             state.viewport.magnifier.format = state.viewport.magnifier.format.next();
             true
         }
-        Key::Character(c)
-            if c.eq_ignore_ascii_case("c") && !state.viewport.modifiers.control_key() =>
-        {
-            handle_copy_hex_color(state, original_rgba);
-            false
-        }
-        Key::Character(c)
-            if c.eq_ignore_ascii_case("z") && state.viewport.modifiers.control_key() =>
-        {
+        NamedKey::Enter if state.viewport.modifiers.control_key() => handle_qr_open_link(state),
+        NamedKey::Enter | NamedKey::F3 => handle_pin_or_finish_line(state, original_rgba),
+        _ => false,
+    }
+}
+
+/// Enter/F3 优先结束进行中的折线，否则将当前结果贴图为置顶窗口。
+fn handle_pin_or_finish_line(state: &mut SnipperState, original_rgba: &RgbaImage) -> bool {
+    if state.editor.annotation.toolbar.active_tool == Some(Tool::Line)
+        && state.editor.annotation.stroke.points.len() >= 2
+    {
+        super::annotation_builder::commit_annotation(state);
+    } else {
+        handle_action_pin(state, original_rgba);
+    }
+    true
+}
+
+/// 处理字符快捷键，先匹配组合键，再匹配普通动作与选区约束。
+fn handle_character_key(state: &mut SnipperState, key: &str, original_rgba: &RgbaImage) -> bool {
+    if let Some(handled) = handle_control_character(state, key, original_rgba) {
+        return handled;
+    }
+    if let Some(handled) = handle_action_character(state, key, original_rgba) {
+        return handled;
+    }
+    handle_selection_character(state, key, original_rgba)
+}
+
+/// 处理依赖 Control 修饰键的字符命令。
+fn handle_control_character(
+    state: &mut SnipperState,
+    key: &str,
+    original_rgba: &RgbaImage,
+) -> Option<bool> {
+    if !state.viewport.modifiers.control_key() {
+        return None;
+    }
+    match key.to_ascii_lowercase().as_str() {
+        "z" => {
             let changed = state.editor.annotations.undo();
             // 撤销后新的文档最后一条接管可编辑权；文档为空则清除选中。
             super::annotation_edit::select_latest(state);
-            changed
+            Some(changed)
         }
-        Key::Character(c)
-            if c.eq_ignore_ascii_case("y") && state.viewport.modifiers.control_key() =>
-        {
+        "y" => {
             let changed = state.editor.annotations.redo();
             super::annotation_edit::select_latest(state);
-            changed
+            Some(changed)
         }
-        Key::Character(c)
-            if c.eq_ignore_ascii_case("c") && state.viewport.modifiers.control_key() =>
-        {
+        "c" => {
             handle_action_copy(state, original_rgba);
-            true
+            Some(true)
         }
-        Key::Character(c)
-            if c.eq_ignore_ascii_case("s") && state.viewport.modifiers.control_key() =>
-        {
+        "s" => {
             handle_action_save(state, original_rgba);
-            true
+            Some(true)
         }
-        Key::Named(NamedKey::Enter) if state.viewport.modifiers.control_key() => {
-            handle_qr_open_link(state)
-        }
-        Key::Named(NamedKey::Enter) | Key::Named(NamedKey::F3) => {
-            if state.editor.annotation.toolbar.active_tool
-                == Some(crate::editor::toolbar::Tool::Line)
-                && state.editor.annotation.stroke.points.len() >= 2
-            {
-                super::annotation_builder::commit_annotation(state);
-                return true;
-            }
-            handle_action_pin(state, original_rgba);
-            true
-        }
-        Key::Character(c)
-            if c.eq_ignore_ascii_case("o") && state.viewport.modifiers.shift_key() =>
-        {
-            if matches!(state.viewport.selection, SelectionState::Locked { .. }) {
-                super::actions::handle_action_ocr_panel(state, original_rgba);
-                true
-            } else {
-                false
-            }
-        }
-        Key::Character(c)
-            if c.eq_ignore_ascii_case("o") && !state.viewport.modifiers.control_key() =>
-        {
-            if matches!(state.viewport.selection, SelectionState::Locked { .. }) {
-                super::actions::handle_action_ocr(state, original_rgba);
-                true
-            } else {
-                false
-            }
-        }
-        Key::Character(c)
-            if c.eq_ignore_ascii_case("t") && !state.viewport.modifiers.control_key() =>
-        {
-            if matches!(state.viewport.selection, SelectionState::Locked { .. }) {
-                super::actions::handle_action_translate(state, original_rgba);
-                true
-            } else {
-                false
-            }
-        }
-        Key::Character(c)
-            if c.eq_ignore_ascii_case("r") && !state.viewport.modifiers.control_key() =>
-        {
-            if matches!(state.viewport.selection, SelectionState::Locked { .. }) {
-                super::actions::handle_action_redact(state, original_rgba);
-                true
-            } else {
-                false
-            }
-        }
-        Key::Character(c)
-            if c.eq_ignore_ascii_case("q") && !state.viewport.modifiers.control_key() =>
-        {
-            if matches!(state.viewport.selection, SelectionState::Locked { .. }) {
-                super::actions::handle_action_qr(state, original_rgba);
-                true
-            } else {
-                false
-            }
-        }
-        Key::Character(c) if c == "," => handle_history_back(state, original_rgba),
-        Key::Character(c) if c == "." => handle_history_forward(state, original_rgba),
-        Key::Character(c) if c == "1" => set_selection_constraint(state, SelectionConstraint::Free),
-        Key::Character(c) if c == "2" => set_selection_constraint(
+        _ => None,
+    }
+}
+
+/// 处理不依赖 Control 的单键动作。
+fn handle_action_character(
+    state: &mut SnipperState,
+    key: &str,
+    original_rgba: &RgbaImage,
+) -> Option<bool> {
+    if key.eq_ignore_ascii_case("c") && !state.viewport.modifiers.control_key() {
+        handle_copy_hex_color(state, original_rgba);
+        return Some(false);
+    }
+    if !matches!(state.viewport.selection, SelectionState::Locked { .. }) {
+        return None;
+    }
+    if key.eq_ignore_ascii_case("o") && state.viewport.modifiers.shift_key() {
+        super::actions::handle_action_ocr_panel(state, original_rgba);
+        return Some(true);
+    }
+    if state.viewport.modifiers.control_key() {
+        return None;
+    }
+    match key.to_ascii_lowercase().as_str() {
+        "o" => super::actions::handle_action_ocr(state, original_rgba),
+        "t" => super::actions::handle_action_translate(state, original_rgba),
+        "r" => super::actions::handle_action_redact(state, original_rgba),
+        "q" => super::actions::handle_action_qr(state, original_rgba),
+        _ => return None,
+    }
+    Some(true)
+}
+
+/// 处理历史回溯、固定尺寸约束等选区级快捷键。
+fn handle_selection_character(
+    state: &mut SnipperState,
+    key: &str,
+    original_rgba: &RgbaImage,
+) -> bool {
+    match key {
+        "," => handle_history_back(state, original_rgba),
+        "." => handle_history_forward(state, original_rgba),
+        "1" => set_selection_constraint(state, SelectionConstraint::Free),
+        "2" => set_selection_constraint(
             state,
             SelectionConstraint::Ratio {
                 width: 1,
                 height: 1,
             },
         ),
-        Key::Character(c) if c == "3" => set_selection_constraint(
+        "3" => set_selection_constraint(
             state,
             SelectionConstraint::Ratio {
                 width: 4,
                 height: 3,
             },
         ),
-        Key::Character(c) if c == "4" => set_selection_constraint(
+        "4" => set_selection_constraint(
             state,
             SelectionConstraint::Ratio {
                 width: 16,
                 height: 9,
             },
         ),
-        Key::Character(c) if c == "5" => set_selection_constraint(
+        "5" => set_selection_constraint(
             state,
             SelectionConstraint::Fixed {
                 width: 800,
                 height: 600,
             },
         ),
-        Key::Character(c) if c == "6" => set_selection_constraint(
+        "6" => set_selection_constraint(
             state,
             SelectionConstraint::Fixed {
                 width: 1280,
