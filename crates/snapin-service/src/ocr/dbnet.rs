@@ -43,134 +43,254 @@ pub struct DetectedBox {
     pub score: f32,
 }
 
+/// 检测概率图与原始图像之间的尺寸契约。
+///
+/// 将四个尺寸集中为参数对象，避免调用方在连续整数参数中交换概率图尺寸和原图尺寸；
+/// 所有字段均为正整数时构造成功，后处理内部无需重复校验零尺寸。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DetectionShape {
+    /// 概率图宽度
+    pub map_width: usize,
+    /// 概率图高度
+    pub map_height: usize,
+    /// 原始图像宽度
+    pub original_width: u32,
+    /// 原始图像高度
+    pub original_height: u32,
+}
+
+impl DetectionShape {
+    /// 构造检测尺寸契约。
+    pub const fn new(
+        map_width: usize,
+        map_height: usize,
+        original_width: u32,
+        original_height: u32,
+    ) -> Self {
+        Self {
+            map_width,
+            map_height,
+            original_width,
+            original_height,
+        }
+    }
+
+    /// 判断所有尺寸是否可用于后处理。
+    const fn is_valid(self) -> bool {
+        self.map_width > 0
+            && self.map_height > 0
+            && self.original_width > 0
+            && self.original_height > 0
+    }
+}
+
 /// 从 DBNet 输出的概率特征图中提取文本行边界框与多边形。
 pub fn extract_bounding_boxes(
     prob_map: &[f32],
-    map_w: usize,
-    map_h: usize,
-    orig_w: u32,
-    orig_h: u32,
+    shape: DetectionShape,
     params: &DbPostProcessParams,
 ) -> Vec<DetectedBox> {
-    let Some(expected_len) = map_w.checked_mul(map_h) else {
+    let Some(mut detection) = DetectionMap::new(prob_map, shape, params) else {
         return Vec::new();
     };
-    if map_w == 0 || map_h == 0 || orig_w == 0 || orig_h == 0 || prob_map.len() < expected_len {
-        return Vec::new();
-    }
-
-    let mut mask = vec![false; expected_len];
-    for (index, value) in prob_map.iter().take(expected_len).enumerate() {
-        mask[index] = *value >= params.thresh;
-    }
-
-    let dilated = horizontal_dilate(&mask, map_w, map_h);
-
-    let mut visited = vec![false; expected_len];
     let mut boxes: Vec<DetectedBox> = Vec::new();
-    let scale_x = orig_w as f32 / map_w as f32;
-    let scale_y = orig_h as f32 / map_h as f32;
 
-    for y in 0..map_h {
-        for x in 0..map_w {
-            let index = y * map_w + x;
-            if visited[index] || !dilated[index] {
+    for y in 0..shape.map_height {
+        for x in 0..shape.map_width {
+            if !detection.should_start_component(x, y) {
                 continue;
             }
-
-            let mut queue = VecDeque::new();
-            queue.push_back((x, y));
-            visited[index] = true;
-
-            let mut min_x = usize::MAX;
-            let mut max_x = 0usize;
-            let mut min_y = usize::MAX;
-            let mut max_y = 0usize;
-            let mut score_sum = 0.0f32;
-            let mut area = 0usize;
-
-            while let Some((cx, cy)) = queue.pop_front() {
-                // 连通性由膨胀后的掩码决定，但文本框几何与置信度只统计原始概率图有效像素，
-                // 避免膨胀操作把文本框向左右额外撑宽。
-                if prob_map[cy * map_w + cx] >= params.thresh {
-                    area += 1;
-                    score_sum += prob_map[cy * map_w + cx];
-                    min_x = min_x.min(cx);
-                    max_x = max_x.max(cx);
-                    min_y = min_y.min(cy);
-                    max_y = max_y.max(cy);
-                }
-
-                for (nx, ny) in [
-                    (cx.wrapping_sub(1), cy),
-                    (cx + 1, cy),
-                    (cx, cy.wrapping_sub(1)),
-                    (cx, cy + 1),
-                ] {
-                    if nx < map_w && ny < map_h {
-                        let neighbor = ny * map_w + nx;
-                        if !visited[neighbor] && dilated[neighbor] {
-                            visited[neighbor] = true;
-                            queue.push_back((nx, ny));
-                        }
-                    }
-                }
+            let component = detection.collect_component(x, y);
+            if let Some(detected) = detection.detected_box(component) {
+                boxes.push(detected);
             }
-
-            if area < 4 || min_x == usize::MAX || min_y == usize::MAX {
-                continue;
-            }
-
-            let box_w = max_x - min_x + 1;
-            let box_h = max_y - min_y + 1;
-            if box_w < 3 || box_h < 3 {
-                continue;
-            }
-
-            let score = score_sum / area as f32;
-            if score < params.box_thresh {
-                continue;
-            }
-
-            let mut x0 = min_x as f32 * scale_x;
-            let mut y0 = min_y as f32 * scale_y;
-            let mut x1 = (max_x + 1) as f32 * scale_x;
-            let mut y1 = (max_y + 1) as f32 * scale_y;
-
-            // 近似 PaddleOCR 的 unclip 外扩，避免紧贴文字边缘裁切掉笔画。
-            //
-            // 概率图是训练时按字高比例收缩过的文本核，外扩距离必须随文本尺寸线性增长：
-            // 长条文本的面积/周长约为字高的一半，乘以 unclip_ratio 后即为每侧需要恢复的
-            // 缩放量。这里严禁给距离设置固定像素上限，否则大字号文本只有字心被扩回，
-            // 上下缘笔画仍留在框外，原位翻译的擦除矩形便盖不干净原文。
-            let width = x1 - x0;
-            let height = y1 - y0;
-            let distance = width * height * params.unclip_ratio / (2.0 * (width + height));
-            x0 = (x0 - distance).max(0.0);
-            y0 = (y0 - distance).max(0.0);
-            x1 = (x1 + distance).min(orig_w as f32);
-            y1 = (y1 + distance).min(orig_h as f32);
-
-            if x1 - x0 < 2.0 || y1 - y0 < 2.0 {
-                continue;
-            }
-
-            boxes.push(DetectedBox {
-                bbox: Rect::new(x0, y0, x1 - x0, y1 - y0),
-                polygon: [
-                    Point::new(x0, y0),
-                    Point::new(x1, y0),
-                    Point::new(x1, y1),
-                    Point::new(x0, y1),
-                ],
-                score,
-            });
         }
     }
 
     sort_by_reading_order(&mut boxes);
     boxes.truncate(params.max_candidates);
     boxes
+}
+
+/// 单次后处理的只读概率图与可变遍历状态。
+struct DetectionMap<'a> {
+    prob_map: &'a [f32],
+    width: usize,
+    height: usize,
+    dilated: Vec<bool>,
+    visited: Vec<bool>,
+    scale_x: f32,
+    scale_y: f32,
+    original_width: u32,
+    original_height: u32,
+    params: &'a DbPostProcessParams,
+}
+
+impl<'a> DetectionMap<'a> {
+    /// 校验尺寸并构建二值化、膨胀后的检测图。
+    fn new(
+        prob_map: &'a [f32],
+        shape: DetectionShape,
+        params: &'a DbPostProcessParams,
+    ) -> Option<Self> {
+        if !shape.is_valid() {
+            return None;
+        }
+        let expected_len = shape.map_width.checked_mul(shape.map_height)?;
+        if prob_map.len() < expected_len {
+            return None;
+        }
+
+        let mask: Vec<bool> = prob_map
+            .iter()
+            .take(expected_len)
+            .map(|value| *value >= params.thresh)
+            .collect();
+        let dilated = horizontal_dilate(&mask, shape.map_width, shape.map_height);
+        Some(Self {
+            prob_map,
+            width: shape.map_width,
+            height: shape.map_height,
+            dilated,
+            visited: vec![false; expected_len],
+            scale_x: shape.original_width as f32 / shape.map_width as f32,
+            scale_y: shape.original_height as f32 / shape.map_height as f32,
+            original_width: shape.original_width,
+            original_height: shape.original_height,
+            params,
+        })
+    }
+
+    /// 判断该像素是否是尚未访问的新连通域起点。
+    fn should_start_component(&self, x: usize, y: usize) -> bool {
+        let index = y * self.width + x;
+        !self.visited[index] && self.dilated[index]
+    }
+
+    /// 从起点遍历一个连通域，仅统计原始概率图中超过阈值的像素几何。
+    fn collect_component(&mut self, start_x: usize, start_y: usize) -> ComponentStats {
+        let mut queue = VecDeque::with_capacity(64);
+        queue.push_back((start_x, start_y));
+        self.visited[start_y * self.width + start_x] = true;
+        let mut stats = ComponentStats::default();
+
+        while let Some((x, y)) = queue.pop_front() {
+            let index = y * self.width + x;
+            let value = self.prob_map[index];
+            if value >= self.params.thresh {
+                stats.add(x, y, value);
+            }
+            self.enqueue_neighbors(x, y, &mut queue);
+        }
+        stats
+    }
+
+    /// 访问四邻域中仍在膨胀掩码内且未入队的像素。
+    fn enqueue_neighbors(&mut self, x: usize, y: usize, queue: &mut VecDeque<(usize, usize)>) {
+        for (next_x, next_y) in [
+            (x.wrapping_sub(1), y),
+            (x + 1, y),
+            (x, y.wrapping_sub(1)),
+            (x, y + 1),
+        ] {
+            if next_x >= self.width || next_y >= self.height {
+                continue;
+            }
+            let neighbor = next_y * self.width + next_x;
+            if !self.visited[neighbor] && self.dilated[neighbor] {
+                self.visited[neighbor] = true;
+                queue.push_back((next_x, next_y));
+            }
+        }
+    }
+
+    /// 过滤退化连通域并转换为原图坐标下的检测框。
+    fn detected_box(&self, stats: ComponentStats) -> Option<DetectedBox> {
+        if !stats.is_valid() {
+            return None;
+        }
+        let score = stats.score_sum / stats.area as f32;
+        if score < self.params.box_thresh {
+            return None;
+        }
+        let bbox = self.unclipped_bounds(stats)?;
+        Some(DetectedBox {
+            bbox,
+            polygon: [
+                Point::new(bbox.x, bbox.y),
+                Point::new(bbox.x + bbox.width, bbox.y),
+                Point::new(bbox.x + bbox.width, bbox.y + bbox.height),
+                Point::new(bbox.x, bbox.y + bbox.height),
+            ],
+            score,
+        })
+    }
+
+    /// 近似 PaddleOCR 的 unclip 外扩，避免紧贴文字边缘裁切掉笔画。
+    ///
+    /// 概率图是训练时按字高比例收缩过的文本核，外扩距离必须随文本尺寸线性增长：
+    /// 长条文本的面积/周长约为字高的一半，乘以 unclip_ratio 后即为每侧需要恢复的
+    /// 缩放量。这里严禁给距离设置固定像素上限，否则大字号文本只有字心被扩回，
+    /// 上下缘笔画仍留在框外，原位翻译的擦除矩形便盖不干净原文。
+    fn unclipped_bounds(&self, stats: ComponentStats) -> Option<Rect> {
+        let mut x0 = stats.min_x as f32 * self.scale_x;
+        let mut y0 = stats.min_y as f32 * self.scale_y;
+        let mut x1 = (stats.max_x + 1) as f32 * self.scale_x;
+        let mut y1 = (stats.max_y + 1) as f32 * self.scale_y;
+        let width = x1 - x0;
+        let height = y1 - y0;
+        let distance = width * height * self.params.unclip_ratio / (2.0 * (width + height));
+        x0 = (x0 - distance).max(0.0);
+        y0 = (y0 - distance).max(0.0);
+        x1 = (x1 + distance).min(self.original_width as f32);
+        y1 = (y1 + distance).min(self.original_height as f32);
+        (x1 - x0 >= 2.0 && y1 - y0 >= 2.0).then_some(Rect::new(x0, y0, x1 - x0, y1 - y0))
+    }
+}
+
+/// 单个连通域的像素统计。
+#[derive(Clone, Copy)]
+struct ComponentStats {
+    min_x: usize,
+    max_x: usize,
+    min_y: usize,
+    max_y: usize,
+    score_sum: f32,
+    area: usize,
+}
+
+impl Default for ComponentStats {
+    fn default() -> Self {
+        Self {
+            min_x: usize::MAX,
+            max_x: 0,
+            min_y: usize::MAX,
+            max_y: 0,
+            score_sum: 0.0,
+            area: 0,
+        }
+    }
+}
+
+impl ComponentStats {
+    /// 合并一个有效概率像素。
+    fn add(&mut self, x: usize, y: usize, value: f32) {
+        self.area += 1;
+        self.score_sum += value;
+        self.min_x = self.min_x.min(x);
+        self.max_x = self.max_x.max(x);
+        self.min_y = self.min_y.min(y);
+        self.max_y = self.max_y.max(y);
+    }
+
+    /// 判断连通域面积与包围尺寸是否达到最小文本框要求。
+    fn is_valid(self) -> bool {
+        self.area >= 4
+            && self.min_x != usize::MAX
+            && self.min_y != usize::MAX
+            && self.max_x - self.min_x + 1 >= 3
+            && self.max_y - self.min_y + 1 >= 3
+    }
 }
 
 /// 按阅读顺序重排检测框：先按垂直重叠聚成行，行内自左向右。
@@ -310,10 +430,7 @@ mod tests {
 
         let boxes = extract_bounding_boxes(
             &map,
-            100,
-            100,
-            200,
-            200,
+            DetectionShape::new(100, 100, 200, 200),
             &DbPostProcessParams {
                 unclip_ratio: 0.0,
                 ..DbPostProcessParams::default()
@@ -341,7 +458,11 @@ mod tests {
             }
         }
 
-        let boxes = extract_bounding_boxes(&map, map_w, map_h, 300, 200, &Default::default());
+        let boxes = extract_bounding_boxes(
+            &map,
+            DetectionShape::new(map_w, map_h, 300, 200),
+            &Default::default(),
+        );
         assert_eq!(boxes.len(), 1);
 
         // 收缩核为 140x40，理论外扩距离约 21.8px，明显超过旧实现的 16px 上限
@@ -374,8 +495,18 @@ mod tests {
 
     #[test]
     fn test_extract_invalid_input_is_safe() {
-        assert!(extract_bounding_boxes(&[], 0, 0, 100, 100, &Default::default()).is_empty());
-        assert!(extract_bounding_boxes(&[0.9], 100, 100, 100, 100, &Default::default()).is_empty());
+        assert!(extract_bounding_boxes(
+            &[],
+            DetectionShape::new(0, 0, 100, 100),
+            &Default::default()
+        )
+        .is_empty());
+        assert!(extract_bounding_boxes(
+            &[0.9],
+            DetectionShape::new(100, 100, 100, 100),
+            &Default::default()
+        )
+        .is_empty());
     }
 
     fn detected_box(bbox: Rect) -> DetectedBox {
@@ -446,7 +577,11 @@ mod tests {
         for value in map.iter_mut().take(64 * 10).skip(64 * 2) {
             *value = 0.3;
         }
-        let boxes = extract_bounding_boxes(&map, 64, 64, 64, 64, &Default::default());
+        let boxes = extract_bounding_boxes(
+            &map,
+            DetectionShape::new(64, 64, 64, 64),
+            &Default::default(),
+        );
         assert!(boxes.is_empty());
     }
 }

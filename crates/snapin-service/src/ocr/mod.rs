@@ -11,7 +11,7 @@ mod types;
 
 pub use config::{load_character_dict, LocalOcrPaths, ModelInferenceConfig};
 pub use ctc::ctc_greedy_decode;
-pub use dbnet::{extract_bounding_boxes, DbPostProcessParams, DetectedBox};
+pub use dbnet::{extract_bounding_boxes, DbPostProcessParams, DetectedBox, DetectionShape};
 pub use engine::OcrEngine;
 pub use image_ops::{
     estimate_dominant_background_color, get_contrasting_text_color, preprocess_detection_image,

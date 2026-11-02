@@ -10,7 +10,7 @@
 
 use super::config::{load_character_dict, LocalOcrPaths};
 use super::ctc::ctc_greedy_decode;
-use super::dbnet::{extract_bounding_boxes, DbPostProcessParams, DetectedBox};
+use super::dbnet::{extract_bounding_boxes, DbPostProcessParams, DetectedBox, DetectionShape};
 use super::engine::OcrEngine;
 use super::image_ops::{
     estimate_dominant_background_color, get_contrasting_text_color, preprocess_detection_image,
@@ -160,10 +160,7 @@ impl EngineInner {
         let map_width = det_dims[3];
         Ok(extract_bounding_boxes(
             &probability_map,
-            map_width,
-            map_height,
-            image.width(),
-            image.height(),
+            DetectionShape::new(map_width, map_height, image.width(), image.height()),
             &self.det_params,
         ))
     }
