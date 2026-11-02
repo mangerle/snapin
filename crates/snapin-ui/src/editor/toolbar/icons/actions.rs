@@ -2,6 +2,7 @@
 
 use super::primitives::{add_round_rect, make_paint, RoundRect};
 use super::IconPainter;
+use crate::geometry::Rect;
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 图标 8: 向左回转撤销
@@ -188,7 +189,10 @@ pub(super) fn render_icon_ocr(pixmap: &mut PixmapMut, painter: &IconPainter) {
     pb.move_to(cx + inner, cy + reach);
     pb.line_to(cx + reach, cy + reach);
     pb.line_to(cx + reach, cy + inner);
-    add_glyph_a(&mut pb, cx, cy, 7.0 * s, 6.0 * s);
+    add_glyph_a(
+        &mut pb,
+        Rect::new(cx - 3.0 * s, cy - 3.5 * s, 6.0 * s, 7.0 * s),
+    );
     if let Some(path) = pb.finish() {
         pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
     }
@@ -234,90 +238,158 @@ pub(super) fn render_icon_qr(pixmap: &mut PixmapMut, painter: &IconPainter) {
 /// 从而在任意悬停/激活高亮状态下都呈现干净的纸张叠层效果。
 pub(super) fn render_icon_translate(pixmap: &mut PixmapMut, painter: &IconPainter) {
     let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
-    let (paint, stroke) = (&painter.paint, &painter.stroke);
     let side = 9.6 * s;
     let radius = 1.5 * s;
-    let back = (cx - 1.6 * s, cy - 7.8 * s);
-    let front = (cx - 8.0 * s, cy - 1.8 * s);
+    let back = TranslateFrame {
+        origin_x: cx - 1.6 * s,
+        origin_y: cy - 7.8 * s,
+        side,
+        radius,
+        scale: s,
+    };
+    let front = TranslateFrame {
+        origin_x: cx - 8.0 * s,
+        origin_y: cy - 1.8 * s,
+        side,
+        radius,
+        scale: s,
+    };
     // 内嵌字符用细一号笔画，避免小字号下方框与字形粘连成实心块
     let glyph_stroke = Stroke {
-        width: stroke.width * 0.72,
-        ..stroke.clone()
+        width: painter.stroke.width * 0.72,
+        ..painter.stroke.clone()
     };
-    let backdrop = sample_backdrop(pixmap, front.0 + side / 2.0, front.1 + side / 2.0);
 
-    // 1. 后框轮廓
-    let mut pb_back = PathBuilder::new();
-    add_round_rect(
-        &mut pb_back,
-        RoundRect {
-            x: back.0,
-            y: back.1,
-            width: side,
-            height: side,
-            radius,
-        },
-    );
-    if let Some(path) = pb_back.finish() {
-        pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
+    draw_translate_back(pixmap, painter, back);
+    draw_translate_front(pixmap, painter, front, &glyph_stroke);
+}
+
+/// 翻译图标中单个圆角方框的几何信息。
+#[derive(Clone, Copy)]
+struct TranslateFrame {
+    origin_x: f32,
+    origin_y: f32,
+    side: f32,
+    radius: f32,
+    scale: f32,
+}
+
+impl TranslateFrame {
+    fn center(self) -> (f32, f32) {
+        (
+            self.origin_x + self.side / 2.0,
+            self.origin_y + self.side / 2.0,
+        )
     }
 
-    // 2. 后框字母 A
-    let mut pb_a = PathBuilder::new();
-    add_glyph_a(
-        &mut pb_a,
-        back.0 + side / 2.0,
-        back.1 + side / 2.0,
-        5.2 * s,
-        4.4 * s,
-    );
-    if let Some(path) = pb_a.finish() {
-        pixmap.stroke_path(&path, paint, &glyph_stroke, Transform::identity(), None);
+    fn path(self) -> Option<tiny_skia::Path> {
+        let mut builder = PathBuilder::new();
+        add_round_rect(
+            &mut builder,
+            RoundRect {
+                x: self.origin_x,
+                y: self.origin_y,
+                width: self.side,
+                height: self.side,
+                radius: self.radius,
+            },
+        );
+        builder.finish()
     }
+}
 
-    // 3. 前框底色填充遮蔽后框左下角，随后描边
-    let mut pb_front = PathBuilder::new();
-    add_round_rect(
-        &mut pb_front,
-        RoundRect {
-            x: front.0,
-            y: front.1,
-            width: side,
-            height: side,
-            radius,
-        },
-    );
-    if let Some(path) = pb_front.finish() {
-        pixmap.fill_path(
+/// 绘制翻译图标的后层方框与字母 A。
+fn draw_translate_back(pixmap: &mut PixmapMut, painter: &IconPainter, frame: TranslateFrame) {
+    if let Some(path) = frame.path() {
+        pixmap.stroke_path(
             &path,
-            &make_paint(backdrop),
-            tiny_skia::FillRule::Winding,
+            &painter.paint,
+            &painter.stroke,
             Transform::identity(),
             None,
         );
-        pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
     }
 
-    // 4. 前框汉字 "文"
-    let mut pb_wen = PathBuilder::new();
-    add_glyph_wen(&mut pb_wen, front.0 + side / 2.0, front.1 + side / 2.0, s);
-    if let Some(path) = pb_wen.finish() {
-        pixmap.stroke_path(&path, paint, &glyph_stroke, Transform::identity(), None);
+    let (center_x, center_y) = frame.center();
+    let glyph_scale = frame.scale;
+    let mut glyph = PathBuilder::new();
+    add_glyph_a(
+        &mut glyph,
+        Rect::new(
+            center_x - 2.2 * glyph_scale,
+            center_y - 2.6 * glyph_scale,
+            4.4 * glyph_scale,
+            5.2 * glyph_scale,
+        ),
+    );
+    if let Some(path) = glyph.finish() {
+        let glyph_stroke = Stroke {
+            width: painter.stroke.width * 0.72,
+            ..painter.stroke.clone()
+        };
+        pixmap.stroke_path(
+            &path,
+            &painter.paint,
+            &glyph_stroke,
+            Transform::identity(),
+            None,
+        );
+    }
+}
+
+/// 绘制翻译图标的前层遮罩方框与汉字“文”。
+fn draw_translate_front(
+    pixmap: &mut PixmapMut,
+    painter: &IconPainter,
+    frame: TranslateFrame,
+    glyph_stroke: &Stroke,
+) {
+    let (center_x, center_y) = frame.center();
+    let backdrop = sample_backdrop(pixmap, center_x, center_y);
+    let Some(path) = frame.path() else {
+        return;
+    };
+    pixmap.fill_path(
+        &path,
+        &make_paint(backdrop),
+        tiny_skia::FillRule::Winding,
+        Transform::identity(),
+        None,
+    );
+    pixmap.stroke_path(
+        &path,
+        &painter.paint,
+        &painter.stroke,
+        Transform::identity(),
+        None,
+    );
+
+    let mut glyph = PathBuilder::new();
+    add_glyph_wen(&mut glyph, center_x, center_y, frame.scale);
+    if let Some(path) = glyph.finish() {
+        pixmap.stroke_path(
+            &path,
+            &painter.paint,
+            glyph_stroke,
+            Transform::identity(),
+            None,
+        );
     }
 }
 
 /// 向路径追加无衬线大写字母 A，尖顶居中、横梁位于字高约三分之二处
-fn add_glyph_a(pb: &mut PathBuilder, cx: f32, cy: f32, height: f32, width: f32) {
-    let top = cy - height / 2.0;
-    let bottom = cy + height / 2.0;
-    let half = width / 2.0;
-    let bar_y = top + height * 0.68;
+fn add_glyph_a(pb: &mut PathBuilder, rect: Rect) {
+    let center_x = rect.x + rect.width / 2.0;
+    let top = rect.y;
+    let bottom = rect.y + rect.height;
+    let half = rect.width / 2.0;
+    let bar_y = top + rect.height * 0.68;
     let bar_half = half * 0.66;
-    pb.move_to(cx - half, bottom);
-    pb.line_to(cx, top);
-    pb.line_to(cx + half, bottom);
-    pb.move_to(cx - bar_half, bar_y);
-    pb.line_to(cx + bar_half, bar_y);
+    pb.move_to(center_x - half, bottom);
+    pb.line_to(center_x, top);
+    pb.line_to(center_x + half, bottom);
+    pb.move_to(center_x - bar_half, bar_y);
+    pb.line_to(center_x + bar_half, bar_y);
 }
 
 /// 向路径追加汉字 "文" 的骨架笔画 (点、横、撇、捺)
