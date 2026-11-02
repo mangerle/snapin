@@ -10,7 +10,7 @@
 
 use super::config::{load_character_dict, LocalOcrPaths};
 use super::ctc::ctc_greedy_decode;
-use super::dbnet::{extract_bounding_boxes, DbPostProcessParams};
+use super::dbnet::{extract_bounding_boxes, DbPostProcessParams, DetectedBox};
 use super::engine::OcrEngine;
 use super::image_ops::{
     estimate_dominant_background_color, get_contrasting_text_color, preprocess_detection_image,
@@ -101,9 +101,6 @@ impl OcrEngine for LocalPpOcrEngine {
 
 impl EngineInner {
     /// 获取推理会话锁；锁中毒表示此前的推理线程发生过 panic。
-    ///
-    /// ONNX Runtime 的会话对象本身没有需要回滚的 Rust 状态，因此恢复内部守卫继续推理，
-    /// 比让整个进程永久失去 OCR 能力更符合局部故障隔离原则。
     fn lock_sessions(&self) -> MutexGuard<'_, OcrSessions> {
         self.sessions.lock().unwrap_or_else(|poisoned| {
             tracing::debug!("OCR 推理会话锁已中毒，恢复内部状态后继续推理");
@@ -112,115 +109,24 @@ impl EngineInner {
     }
 
     fn recognize(&self, image: &RgbaImage) -> Result<OcrResult, ServiceError> {
-        let (image_width, image_height) = image.dimensions();
-        if image_width == 0 || image_height == 0 {
+        if image.width() == 0 || image.height() == 0 {
             return Ok(OcrResult::default());
         }
 
         let started = Instant::now();
-        let detection_input = preprocess_detection_image(image);
-        if detection_input.chw.is_empty() {
-            return Ok(OcrResult::default());
-        }
-
-        let det_tensor = Tensor::from_array((
-            vec![
-                1_i64,
-                3,
-                detection_input.height as i64,
-                detection_input.width as i64,
-            ],
-            detection_input.chw,
-        ))
-        .map_err(|error| inference_error("det_input", error))?;
-
         let det_started = Instant::now();
-        // 只在检测推理与张量取数期间持有会话锁；二值化、膨胀、连通域等 CPU 后处理
-        // 放到锁外执行，避免多个 OCR 任务在纯计算阶段互相阻塞并长期占用阻塞线程。
-        let (det_dims, probability_map) = {
-            let mut sessions = self.lock_sessions();
-            let det_outputs = sessions
-                .det
-                .run(ort::inputs![det_tensor])
-                .map_err(|error| inference_error("det_run", error))?;
-            let det_output = det_outputs
-                .get("fetch_name_0")
-                .ok_or_else(|| missing_output_error("det_run", "fetch_name_0"))?;
-            let (det_shape, probability_map) = det_output
-                .try_extract_tensor::<f32>()
-                .map_err(|error| inference_error("det_output", error))?;
-
-            if det_shape.len() != 4 {
-                return Err(ServiceError::InferenceError {
-                    stage: "det_output".to_string(),
-                    reason: format!("检测模型输出维度异常: {:?}", det_shape),
-                });
-            }
-
-            (det_shape.to_vec(), probability_map.to_vec())
-        };
-
-        let map_height = det_dims[2] as usize;
-        let map_width = det_dims[3] as usize;
-        let boxes = extract_bounding_boxes(
-            &probability_map,
-            map_width,
-            map_height,
-            image_width,
-            image_height,
-            &self.det_params,
-        );
-
+        let boxes = self.detect_text_boxes(image)?;
         tracing::debug!(
             "OCR 检测完成，文本框数量: {}，耗时: {:.2}ms",
             boxes.len(),
             det_started.elapsed().as_secs_f64() * 1000.0
         );
-
         if boxes.is_empty() {
             return Ok(OcrResult::default());
         }
 
-        let mut blocks: Vec<OcrTextBlock> = Vec::with_capacity(boxes.len());
         let rec_started = Instant::now();
-        let mut skipped_lines = 0usize;
-
-        for (index, detected) in boxes.iter().enumerate() {
-            let Some(cropped) = crop_box(image, detected.bbox) else {
-                continue;
-            };
-
-            let cropped = if cropped.height() as f32 > cropped.width() as f32 * 1.5 {
-                imageops::rotate90(&cropped)
-            } else {
-                cropped
-            };
-
-            let (text, confidence) = match self.recognize_text_line(&cropped) {
-                Ok(Some(decoded)) => decoded,
-                Ok(None) => continue,
-                Err(error) => {
-                    // 单行推理失败属于局部异常：跳过该行继续处理其余文本框，
-                    // 避免一个异常框让整张截图的识别结果全部作废。
-                    skipped_lines += 1;
-                    tracing::warn!(
-                        "单行文本识别失败，已跳过该行，文本框序号: {}，区域: {:?}，原因: {}",
-                        index,
-                        detected.bbox,
-                        error
-                    );
-                    continue;
-                }
-            };
-
-            let bg_color = estimate_dominant_background_color(image, detected.bbox);
-            let text_color = get_contrasting_text_color(bg_color);
-            let mut block = OcrTextBlock::new(text, detected.bbox, detected.polygon, confidence);
-            block.bg_color = bg_color;
-            block.text_color = text_color;
-            blocks.push(block);
-        }
-
+        let (blocks, skipped_lines) = self.recognize_boxes(image, &boxes);
         if skipped_lines > 0 {
             tracing::warn!(
                 "本次识别跳过 {} / {} 行失败文本，返回 {} 个有效文本块",
@@ -229,15 +135,126 @@ impl EngineInner {
                 blocks.len()
             );
         }
-
         tracing::debug!(
             "OCR 识别完成，有效文本块: {}，耗时: {:.2}ms，总耗时: {:.2}ms",
             blocks.len(),
             rec_started.elapsed().as_secs_f64() * 1000.0,
             started.elapsed().as_secs_f64() * 1000.0
         );
-
         Ok(OcrResult::from_blocks(blocks))
+    }
+
+    /// 执行文本检测模型并返回原图坐标系下的文本框。
+    fn detect_text_boxes(&self, image: &RgbaImage) -> Result<Vec<DetectedBox>, ServiceError> {
+        let detection_input = preprocess_detection_image(image);
+        if detection_input.chw.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (det_dims, probability_map) = self.run_detection(
+            detection_input.chw,
+            detection_input.height as usize,
+            detection_input.width as usize,
+        )?;
+        let map_height = det_dims[2];
+        let map_width = det_dims[3];
+        Ok(extract_bounding_boxes(
+            &probability_map,
+            map_width,
+            map_height,
+            image.width(),
+            image.height(),
+            &self.det_params,
+        ))
+    }
+
+    /// 构造检测输入张量、执行推理并复制输出数据。
+    fn run_detection(
+        &self,
+        chw: Vec<f32>,
+        height: usize,
+        width: usize,
+    ) -> Result<(Vec<usize>, Vec<f32>), ServiceError> {
+        let tensor = Tensor::from_array((vec![1_i64, 3, height as i64, width as i64], chw))
+            .map_err(|error| inference_error("det_input", error))?;
+        let mut sessions = self.lock_sessions();
+        let outputs = sessions
+            .det
+            .run(ort::inputs![tensor])
+            .map_err(|error| inference_error("det_run", error))?;
+        let output = outputs
+            .get("fetch_name_0")
+            .ok_or_else(|| missing_output_error("det_run", "fetch_name_0"))?;
+        let (shape, probability_map) = output
+            .try_extract_tensor::<f32>()
+            .map_err(|error| inference_error("det_output", error))?;
+        if shape.len() != 4 {
+            return Err(ServiceError::InferenceError {
+                stage: "det_output".to_string(),
+                reason: format!("检测模型输出维度异常: {:?}", shape),
+            });
+        }
+        let dimensions = shape
+            .iter()
+            .map(|&value| {
+                usize::try_from(value).map_err(|_| ServiceError::InferenceError {
+                    stage: "det_output".to_string(),
+                    reason: format!("检测模型输出维度包含非法值: {value}"),
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((dimensions, probability_map.to_vec()))
+    }
+
+    /// 逐框裁剪识别；单行失败只跳过该框并返回失败数量。
+    fn recognize_boxes(
+        &self,
+        image: &RgbaImage,
+        boxes: &[DetectedBox],
+    ) -> (Vec<OcrTextBlock>, usize) {
+        let mut blocks = Vec::with_capacity(boxes.len());
+        let mut skipped_lines = 0usize;
+        for (index, detected) in boxes.iter().enumerate() {
+            match self.recognize_detected_box(image, index, detected) {
+                Ok(Some(block)) => blocks.push(block),
+                Ok(None) => {}
+                Err(error) => {
+                    skipped_lines += 1;
+                    tracing::warn!(
+                        "单行文本识别失败，已跳过该行，文本框序号: {}，区域: {:?}，原因: {}",
+                        index,
+                        detected.bbox,
+                        error
+                    );
+                }
+            }
+        }
+        (blocks, skipped_lines)
+    }
+
+    /// 裁剪、方向校正并识别一个检测框，同时计算背景和前景色。
+    fn recognize_detected_box(
+        &self,
+        image: &RgbaImage,
+        _index: usize,
+        detected: &DetectedBox,
+    ) -> Result<Option<OcrTextBlock>, ServiceError> {
+        let Some(cropped) = crop_box(image, detected.bbox) else {
+            return Ok(None);
+        };
+        let cropped = if cropped.height() as f32 > cropped.width() as f32 * 1.5 {
+            imageops::rotate90(&cropped)
+        } else {
+            cropped
+        };
+        let Some((text, confidence)) = self.recognize_text_line(&cropped)? else {
+            return Ok(None);
+        };
+        let bg_color = estimate_dominant_background_color(image, detected.bbox);
+        let text_color = get_contrasting_text_color(bg_color);
+        let mut block = OcrTextBlock::new(text, detected.bbox, detected.polygon, confidence);
+        block.bg_color = bg_color;
+        block.text_color = text_color;
+        Ok(Some(block))
     }
 }
 
