@@ -90,9 +90,9 @@ fn render_frame(context: &mut SnipperDispatchContext<'_>) {
 }
 
 /// 同步 DPI 缩放并请求重绘。
-fn apply_scale_factor(context: &mut SnipperDispatchContext<'_>, scale_factor: f32) {
-    context.state.editor.annotation.toolbar.ui_scale = scale_factor;
-    context.state.viewport.magnifier.ui_scale = scale_factor;
+fn apply_scale_factor(context: &mut SnipperDispatchContext<'_>, _scale_factor: f32) {
+    let size = context.window.inner_size();
+    super::apply_ui_scale(context.window, context.state, size.width, size.height);
     context.window.request_redraw();
 }
 
