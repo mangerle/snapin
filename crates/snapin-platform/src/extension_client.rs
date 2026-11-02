@@ -328,6 +328,11 @@ mod tests {
                 "扩展实现缺少方法体: {method}"
             );
         }
+        let auth_argument = "<arg type=\"s\" direction=\"in\" name=\"authToken\"/>";
+        assert!(
+            js.matches(auth_argument).count() >= 4,
+            "所有特权 D-Bus 方法都必须声明能力令牌参数"
+        );
     }
 
     /// D-Bus 方法缺失必须映射为可恢复错误，其他调用异常保持普通错误语义。
