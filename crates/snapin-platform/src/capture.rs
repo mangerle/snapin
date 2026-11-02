@@ -92,6 +92,7 @@ async fn capture_via_extension(include_cursor: bool) -> Result<RgbaImage, Platfo
 }
 
 /// 读取扩展输出文件，限制大小并立即回收临时文件。
+#[cfg(target_os = "linux")]
 async fn read_extension_screenshot(
     target_path: &std::path::Path,
     target_str: &str,
@@ -122,6 +123,7 @@ async fn read_extension_screenshot(
 }
 
 /// 在阻塞池解码扩展导出的 PNG，避免阻塞异步 worker。
+#[cfg(target_os = "linux")]
 async fn decode_extension_screenshot(file_bytes: Vec<u8>) -> Result<RgbaImage, PlatformError> {
     tokio::time::timeout(
         CAPTURE_TIMEOUT,
