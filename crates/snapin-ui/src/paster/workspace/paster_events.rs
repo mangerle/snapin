@@ -7,6 +7,7 @@ use super::super::window::render::render_paster_to_surface;
 use super::super::window::text_session::{refresh_ime_cursor_area, sync_ime_state};
 use super::window_builder::PasterInstance;
 use super::WorkspaceRuntime;
+use crate::paster::PresentOutcome;
 use std::time::Instant;
 use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::window::WindowId;
@@ -145,10 +146,14 @@ fn handle_scale_factor_event(inst: &mut PasterInstance, scale_factor: f64) -> bo
 fn handle_redraw_event(inst: &mut PasterInstance) -> bool {
     inst.state.clear_expired_status(Instant::now());
     let size = inst.window.inner_size();
-    if let Err(error) =
-        render_paster_to_surface(&mut inst.state, &mut inst.surface, size.width, size.height)
-    {
-        tracing::error!("贴图渲染帧缓冲失败: {error}");
+    match render_paster_to_surface(&mut inst.state, &mut inst.surface, size.width, size.height) {
+        Ok(PresentOutcome::Presented) => {}
+        Ok(PresentOutcome::Deferred) => {
+            tracing::debug!("合成器尚未归还贴图缓冲区，本帧已安全延期");
+        }
+        Err(error) => {
+            tracing::error!("贴图渲染帧缓冲失败: {error}");
+        }
     }
     inst.state.should_close
 }
@@ -172,6 +177,13 @@ pub(crate) fn handle_workspace_about_to_wait(runtime: &mut WorkspaceRuntime) -> 
         }
         if let Some(deadline) = inst.state.status_deadline() {
             earliest = Some(earliest.map_or(deadline, |current| current.min(deadline)));
+        }
+        if let Some(deadline) = inst.surface.present_retry_deadline() {
+            if deadline <= now {
+                inst.window.request_redraw();
+            } else {
+                earliest = Some(earliest.map_or(deadline, |current| current.min(deadline)));
+            }
         }
     }
     earliest

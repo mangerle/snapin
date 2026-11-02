@@ -12,6 +12,7 @@ use crate::paster::window::input_region::{
     compute_input_rects, input_layout_from_state, physical_rects_to_surface, InputRegionCache,
 };
 use crate::paster::window::text_session::render_text_session_preview;
+use crate::paster::PresentOutcome;
 use crate::status_badge;
 use snapin_render::with_thread_local_text_renderer;
 use std::time::Instant;
@@ -38,7 +39,7 @@ pub fn render_paster_to_surface(
     surface: &mut PasterSurface,
     width: u32,
     height: u32,
-) -> Result<(), UiError> {
+) -> Result<PresentOutcome, UiError> {
     surface.resize(width, height)?;
 
     let mut target_pixmap = state

@@ -11,6 +11,15 @@ pub mod text_to_pin;
 pub mod window;
 pub mod workspace;
 
+/// 单帧呈现结果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PresentOutcome {
+    /// 本帧已提交给合成器。
+    Presented,
+    /// 合成器尚未归还可写缓冲区，本帧安全延期，稍后应重新请求重绘。
+    Deferred,
+}
+
 pub use crate::model::{GroupId, PasterId, PasterItem, PasterTransform};
 pub use manager::PasterManager;
 pub use surface::PasterSurface;

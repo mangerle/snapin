@@ -19,11 +19,21 @@
 
 mod buffer;
 
+/// 单次等待合成器归还缓冲区的上限。
+///
+/// 该等待运行在 GUI 主线程，必须严格限制；超时后延迟整帧，由事件循环稍后重试。
+const BUFFER_RELEASE_WAIT: Duration = Duration::from_millis(50);
+/// 延迟呈现后的重试间隔。
+const BUFFER_RETRY_DELAY: Duration = Duration::from_millis(50);
+
 use self::buffer::{checked_wayland_size, copy_pixmap_into, damage_and_commit, ShmBuffer};
+use super::PresentOutcome;
 use crate::error::UiError;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
+use rustix::event::{poll, PollFd, PollFlags};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tiny_skia::Pixmap;
 use wayland_client::backend::{Backend, ObjectId};
 use wayland_client::globals::{registry_queue_init, GlobalListContents};
@@ -182,6 +192,11 @@ pub struct ArgbShmSurface {
     size: (u32, u32),
     /// 乒乓候选槽位
     ping: PingPongState,
+    /// 延迟呈现的下一处理时刻。
+    ///
+    /// 合成器未及时归还缓冲区时，本帧不阻塞等待到超时之外，而是记录重试时刻，
+    /// 让 GUI 事件循环继续处理输入并安排下一次 RedrawRequested。
+    present_retry_at: Option<Instant>,
     /// 持有窗口强引用，保证底层 `wl_display` 与 `wl_surface` 在表面存续期内有效。
     ///
     /// 必须按字段声明顺序最后析构（先释放协议对象与共享内存，最后才销毁窗口与其表面）。
@@ -289,6 +304,7 @@ impl ArgbShmSurface {
             conn,
             size: (1, 1),
             ping: PingPongState::default(),
+            present_retry_at: None,
             _window: window,
         })
     }
@@ -305,6 +321,9 @@ impl ArgbShmSurface {
         let width = width.max(1);
         let height = height.max(1);
         checked_wayland_size(width, height)?;
+        if self.size != (width, height) {
+            self.present_retry_at = None;
+        }
         self.size = (width, height);
         Ok(())
     }
@@ -337,16 +356,20 @@ impl ArgbShmSurface {
 
     /// 将一帧预乘 RGBA 像素提交给合成器显示。
     ///
+    /// 合成器在 [`BUFFER_RELEASE_WAIT`] 内未归还可写缓冲区时返回
+    /// [`PresentOutcome::Deferred`]，不阻塞 GUI 线程继续等待。
+    ///
     /// # Errors
     ///
     /// 位图尺寸与 [`Self::resize`] 声明的尺寸不一致时返回 [`UiError::Render`]
     /// （避免缩放/重绘竞态下静默残留上一帧像素）；memfd 创建、共享内存映射或协议交互失败
     /// 返回 [`UiError::ShmSurface`]。
-    ///
-    /// # Panics
-    ///
-    /// 本函数不会 panic。
-    pub fn present(&mut self, pixmap: &Pixmap) -> Result<(), UiError> {
+    pub fn present(&mut self, pixmap: &Pixmap) -> Result<PresentOutcome, UiError> {
+        let now = Instant::now();
+        if self.present_retry_at.is_some_and(|retry_at| now < retry_at) {
+            return Ok(PresentOutcome::Deferred);
+        }
+
         let (width, height) = self.size;
         let expected = width as usize * height as usize;
         let src = pixmap.data().as_chunks::<4>().0;
@@ -365,8 +388,11 @@ impl ArgbShmSurface {
         // 2. 尺寸变化或首次呈现时懒重建前后两块缓冲区
         self.ensure_buffers(width, height)?;
 
-        // 3. 取可写槽位：候选缓冲区仍被合成器持有时阻塞等待 release 事件
-        let slot = self.acquire_writable_slot()?;
+        // 3. 在严格上限内等待可写槽位；超时则安全延迟本帧
+        let Some(slot) = self.acquire_writable_slot(now + BUFFER_RELEASE_WAIT)? else {
+            self.present_retry_at = Some(now + BUFFER_RETRY_DELAY);
+            return Ok(PresentOutcome::Deferred);
+        };
 
         // ensure_buffers 刚刚确认缓冲区存在，None 分支仅为防御性兜底
         let Some(buffers) = self.buffers.as_mut() else {
@@ -384,9 +410,16 @@ impl ArgbShmSurface {
 
         // 5. 乒乓翻转候选槽位，并立即冲刷请求，确保本帧尽快到达合成器
         self.ping.mark_committed();
+        self.present_retry_at = None;
         self.conn.flush().map_err(|e| UiError::ShmSurface {
             message: format!("冲刷 ARGB8888 提交请求失败: {e}"),
-        })
+        })?;
+        Ok(PresentOutcome::Presented)
+    }
+
+    /// 返回延迟呈现的下一处理时刻。
+    pub fn present_retry_deadline(&self) -> Option<Instant> {
+        self.present_retry_at
     }
 
     /// 派发事件队列中已到达的事件（非阻塞），回收缓冲区归还标志。
@@ -418,16 +451,15 @@ impl ArgbShmSurface {
         Ok(())
     }
 
-    /// 等待并返回本次可安全写入的缓冲区槽位（0 或 1）。
+    /// 在截止时刻前等待并返回本次可安全写入的缓冲区槽位（0 或 1）。
     ///
-    /// 乒乓规则要求只有候选槽位已被合成器归还才允许写入；尚未归还时阻塞派发事件直到
-    /// `wl_buffer.release` 到达。宁可短暂阻塞事件循环，也绝不在合成器读取期间写入同一块内存，
-    /// 该策略与 softbuffer `buffer_mut` 的等待语义保持一致。
-    fn acquire_writable_slot(&mut self) -> Result<usize, UiError> {
+    /// 乒乓规则要求只有候选槽位已被合成器归还才允许写入。这里使用带超时的文件描述符
+    /// 轮询代替 `blocking_dispatch`，确保 GUI 事件循环不会被异常合成器永久挂起。
+    fn acquire_writable_slot(&mut self, deadline: Instant) -> Result<Option<usize>, UiError> {
         loop {
             let released = match &self.buffers {
                 Some(buffers) => [buffers.0.is_released(), buffers.1.is_released()],
-                // ensure_buffers 已保证缓冲区就绪；此分支仅作防御性兜底，避免无缓冲区时空转阻塞
+                // ensure_buffers 已保证缓冲区就绪；此分支仅作防御性兜底，避免无缓冲区时空转
                 None => {
                     return Err(UiError::ShmSurface {
                         message: "ARGB8888 共享内存缓冲区尚未创建，无法获取可写槽位".to_string(),
@@ -435,17 +467,52 @@ impl ArgbShmSurface {
                 }
             };
             if let Some(slot) = self.ping.acquire_writable(released) {
-                return Ok(slot);
+                return Ok(Some(slot));
             }
 
-            // 候选缓冲区仍被合成器占用（上一帧 commit 尚未处理完），阻塞等待 release 事件
-            self.event_queue
-                .blocking_dispatch(&mut ShmState)
-                .map_err(|e| UiError::ShmSurface {
-                    message: format!("等待 wl_buffer.release 事件失败: {e}"),
-                })?;
+            let now = Instant::now();
+            if now >= deadline {
+                return Ok(None);
+            }
+            let Some(guard) = self.event_queue.prepare_read() else {
+                self.dispatch_pending()?;
+                std::thread::yield_now();
+                continue;
+            };
+            let timeout_ms = duration_to_poll_timeout(deadline.saturating_duration_since(now));
+            let mut fds = [PollFd::from_borrowed_fd(
+                guard.connection_fd(),
+                PollFlags::IN,
+            )];
+            match poll(&mut fds, timeout_ms) {
+                Ok(0) => return Ok(None),
+                Ok(_) => {
+                    let ready = fds[0].revents();
+                    if ready.intersects(PollFlags::ERR | PollFlags::HUP | PollFlags::NVAL) {
+                        return Err(UiError::ShmSurface {
+                            message: format!(
+                                "等待 wl_buffer.release 时 Wayland 连接异常: {ready:?}"
+                            ),
+                        });
+                    }
+                    guard.read().map_err(|e| UiError::ShmSurface {
+                        message: format!("读取 wl_buffer.release 事件失败: {e}"),
+                    })?;
+                    self.dispatch_pending()?;
+                }
+                Err(error) => {
+                    return Err(UiError::ShmSurface {
+                        message: format!("轮询 Wayland 缓冲区释放事件失败: {error}"),
+                    });
+                }
+            }
         }
     }
+}
+
+/// 将剩余等待时间转换为 `poll` 支持的毫秒上限。
+fn duration_to_poll_timeout(duration: Duration) -> i32 {
+    duration.as_millis().min(i32::MAX as u128) as i32
 }
 
 impl Drop for ArgbShmSurface {
@@ -530,6 +597,17 @@ mod tests {
         assert!(
             buffer_byte_len(i32::MAX, i32::MAX).is_err(),
             "溢出尺寸必须被检查算术拦截而不 panic"
+        );
+    }
+
+    /// 轮询超时必须安全截断到 poll 的 i32 毫秒范围。
+    #[test]
+    fn test_poll_timeout_saturates() {
+        assert_eq!(duration_to_poll_timeout(Duration::ZERO), 0);
+        assert_eq!(duration_to_poll_timeout(Duration::from_millis(25)), 25);
+        assert_eq!(
+            duration_to_poll_timeout(Duration::from_secs(u64::MAX)),
+            i32::MAX
         );
     }
 

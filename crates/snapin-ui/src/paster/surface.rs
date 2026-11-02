@@ -17,9 +17,11 @@
 #[cfg(target_os = "linux")]
 pub use super::alpha_surface::ArgbShmSurface;
 
+use super::PresentOutcome;
 use crate::error::UiError;
 use std::num::NonZeroU32;
 use std::sync::Arc;
+use std::time::Instant;
 use tiny_skia::Pixmap;
 use winit::window::Window;
 
@@ -91,16 +93,29 @@ impl PasterSurface {
 
     /// 将一帧渲染完成的位图提交给合成器显示。
     ///
+    /// 返回 [`PresentOutcome::Deferred`] 表示当前没有可安全写入的共享内存缓冲区，
+    /// 调用方必须保留窗口并安排稍后重绘，不能把该状态当作渲染失败。
+    ///
     /// # Errors
     ///
     /// 窗口表面初始化、尺寸调整或像素呈现失败时返回 [`UiError`]。
-    pub fn present(&mut self, pixmap: &Pixmap) -> Result<(), UiError> {
+    pub fn present(&mut self, pixmap: &Pixmap) -> Result<PresentOutcome, UiError> {
         match self {
             #[cfg(target_os = "linux")]
             Self::Argb(surface) => surface.present(pixmap),
             Self::Softbuffer { surface, .. } => {
-                crate::surface::blit_pixmap_to_surface(surface, pixmap)
+                crate::surface::blit_pixmap_to_surface(surface, pixmap)?;
+                Ok(PresentOutcome::Presented)
             }
+        }
+    }
+
+    /// 返回延迟呈现的下一处理时刻；没有待处理帧时返回 `None`。
+    pub fn present_retry_deadline(&self) -> Option<Instant> {
+        match self {
+            #[cfg(target_os = "linux")]
+            Self::Argb(surface) => surface.present_retry_deadline(),
+            Self::Softbuffer { .. } => None,
         }
     }
 
