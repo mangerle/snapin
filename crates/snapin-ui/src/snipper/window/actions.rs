@@ -57,7 +57,7 @@ pub fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
         if let SelectionState::Locked { rect, .. } = &state.selection {
             state.remember_selection(*rect);
         }
-        match state.desktop.write_image_clipboard(&cropped) {
+        match state.desktop.write_image_clipboard(cropped) {
             Ok(()) => state.outcome = Some(SnipperOutcome::CopiedImage),
             Err(error) => {
                 tracing::warn!("复制选区图像到系统剪贴板失败: {error}");

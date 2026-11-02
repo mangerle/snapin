@@ -3,12 +3,14 @@
 //! 使用固定间隔轮询读取系统剪贴板，读写与哈希计算放入阻塞线程池。相同内容不会
 //! 重复入库，历史仓库负责 10 条与 1 天保留策略。
 
+use crate::clipboard_cache::{ClipboardCache, ClipboardContent};
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use snapin_config::config::HexColor;
 use snapin_platform::{read_clipboard_image, read_clipboard_text};
 use snapin_runtime::{TaskPool, TaskRuntime, TaskRuntimeError};
 use snapin_storage::{append_clipboard_image, append_clipboard_text, ClipboardEntryKind};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -20,7 +22,10 @@ const PERSIST_RETRY_DELAY: Duration = Duration::from_secs(30);
 /// # Errors
 ///
 /// 统一后台运行时拒绝任务时返回错误。
-pub fn run_clipboard_history_monitor(runtime: &TaskRuntime) -> Result<()> {
+pub(crate) fn run_clipboard_history_monitor(
+    runtime: &TaskRuntime,
+    cache: Arc<ClipboardCache>,
+) -> Result<()> {
     let cancel = runtime.cancellation_token();
     let runtime = runtime.clone();
     runtime
@@ -45,6 +50,7 @@ pub fn run_clipboard_history_monitor(runtime: &TaskRuntime) -> Result<()> {
                         }
                     },
                 };
+                cache.store(snapshot.clone());
                 if !persist_gate.should_attempt(&fingerprint, Instant::now()) {
                     continue;
                 }
@@ -97,15 +103,7 @@ impl PersistGate {
     }
 }
 
-enum ClipboardSnapshot {
-    Text {
-        text: String,
-        kind: ClipboardEntryKind,
-    },
-    Image(image::RgbaImage),
-}
-
-impl ClipboardSnapshot {
+impl ClipboardContent {
     fn fingerprint(&self) -> String {
         match self {
             Self::Text { text, kind } => {
@@ -124,25 +122,25 @@ impl ClipboardSnapshot {
     }
 }
 
-fn persist_snapshot(snapshot: ClipboardSnapshot) -> Result<()> {
+fn persist_snapshot(snapshot: ClipboardContent) -> Result<()> {
     match snapshot {
-        ClipboardSnapshot::Text { text, kind } => {
+        ClipboardContent::Text { text, kind } => {
             append_clipboard_text(&text, kind).map_err(anyhow::Error::new)?;
         }
-        ClipboardSnapshot::Image(image) => {
+        ClipboardContent::Image(image) => {
             append_clipboard_image(&image).map_err(anyhow::Error::new)?;
         }
     }
     Ok(())
 }
 
-fn read_snapshot() -> Option<(String, ClipboardSnapshot)> {
+fn read_snapshot() -> Option<(String, ClipboardContent)> {
     let snapshot = read_snapshot_value()?;
     let fingerprint = snapshot.fingerprint();
     Some((fingerprint, snapshot))
 }
 
-fn read_snapshot_value() -> Option<ClipboardSnapshot> {
+fn read_snapshot_value() -> Option<ClipboardContent> {
     if let Ok(Some(text)) = read_clipboard_text() {
         let trimmed = text.trim();
         if !trimmed.is_empty() {
@@ -151,13 +149,13 @@ fn read_snapshot_value() -> Option<ClipboardSnapshot> {
             } else {
                 ClipboardEntryKind::Text
             };
-            return Some(ClipboardSnapshot::Text { text, kind });
+            return Some(ClipboardContent::Text { text, kind });
         }
     }
     read_clipboard_image()
         .ok()
         .flatten()
-        .map(ClipboardSnapshot::Image)
+        .map(|image| ClipboardContent::Image(Arc::new(image)))
 }
 
 #[cfg(test)]

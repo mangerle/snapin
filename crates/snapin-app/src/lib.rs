@@ -10,6 +10,7 @@
 //! - 应用层不直接渲染任何像素，窗口呈现仍由 `snapin-ui` 负责。
 
 mod cleaner;
+mod clipboard_cache;
 mod clipboard_history;
 mod config;
 mod daemon;
@@ -26,7 +27,6 @@ mod update;
 mod workspace_state;
 
 pub use cleaner::clear_snip_history;
-pub use clipboard_history::run_clipboard_history_monitor;
 pub use daemon::run_daemon_process;
 pub use daemon_client::ensure_daemon_running;
 pub use installer::install_gnome_extension;

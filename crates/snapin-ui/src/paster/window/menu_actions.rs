@@ -66,7 +66,7 @@ pub fn copy_paster_to_clipboard(state: &mut PasterWindowState) -> bool {
     let Some(image) = paster_image(state, "复制") else {
         return false;
     };
-    match state.services.desktop.write_image_clipboard(&image) {
+    match state.services.desktop.write_image_clipboard(image) {
         Ok(()) => {
             state.set_status_message(snapin_foundation::i18n::tr("已复制图像到剪贴板"));
             state.services.desktop.notify_copy("贴图图像已复制到剪贴板");

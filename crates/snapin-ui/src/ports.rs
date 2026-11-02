@@ -24,6 +24,7 @@ use snapin_config::config::CoverMode;
 use snapin_render::BeautifyOptions;
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// OCR 识别出的单个文本行，供结果面板和智能打码等表现层功能使用。
 #[derive(Debug, Clone, PartialEq)]
@@ -131,31 +132,34 @@ impl std::error::Error for PortError {}
 ///
 /// 该特型只承载“用户动作产生的系统交互”，不包含业务决策。例如是否发送通知、
 /// 是否自动复制保存结果等策略由应用层实现决定，UI 只负责调用与展示结果。
+/// 所有方法都可能在 winit 事件循环线程调用，实现不得同步等待磁盘或系统服务。
 pub trait DesktopPort: Send + Sync {
     /// 读取上次截图选区缓存；不存在或缓存损坏时返回 `None`。
     fn load_last_selection(&self) -> Option<Rect>;
 
-    /// 保存本次截图选区缓存。
+    /// 更新内存中的本次截图选区，并异步提交持久化。
     fn save_last_selection(&self, rect: Rect);
 
     /// 将文本写入系统剪贴板。
     ///
     /// # Errors
     ///
-    /// 剪贴板服务不可用或系统拒绝写入时返回 [`PortError`]。
+    /// 写入任务无法提交时返回 [`PortError`]；成功仅表示宿主已受理，实际写入结果
+    /// 由宿主记录。这样 GUI 线程不会等待系统剪贴板服务。
     fn write_text_clipboard(&self, text: &str) -> Result<(), PortError>;
 
-    /// 将图像写入系统剪贴板。
+    /// 将图像所有权交给宿主并提交系统剪贴板写入。
     ///
     /// # Errors
     ///
-    /// 剪贴板服务不可用、图像尺寸非法或系统拒绝写入时返回 [`PortError`]。
-    fn write_image_clipboard(&self, image: &RgbaImage) -> Result<(), PortError>;
+    /// 写入任务无法提交时返回 [`PortError`]；成功仅表示宿主已受理，实际写入结果
+    /// 由宿主记录。
+    fn write_image_clipboard(&self, image: RgbaImage) -> Result<(), PortError>;
 
-    /// 读取系统剪贴板图像；没有图像内容时返回 `None`。
-    fn read_clipboard_image(&self) -> Option<RgbaImage>;
+    /// 读取后台轮询发布的最近剪贴板图像快照；没有图像内容时返回 `None`。
+    fn read_clipboard_image(&self) -> Option<Arc<RgbaImage>>;
 
-    /// 读取系统剪贴板文本；没有文本内容时返回 `None`。
+    /// 读取后台轮询发布的最近剪贴板文本快照；没有文本内容时返回 `None`。
     fn read_clipboard_text(&self) -> Option<String>;
 
     /// 在系统文件管理器中打开指定路径。
@@ -360,11 +364,11 @@ impl DesktopPort for NoopDesktop {
         Ok(())
     }
 
-    fn write_image_clipboard(&self, _image: &RgbaImage) -> Result<(), PortError> {
+    fn write_image_clipboard(&self, _image: RgbaImage) -> Result<(), PortError> {
         Ok(())
     }
 
-    fn read_clipboard_image(&self) -> Option<RgbaImage> {
+    fn read_clipboard_image(&self) -> Option<Arc<RgbaImage>> {
         None
     }
 
@@ -393,6 +397,7 @@ mod tests {
         let desktop = NoopDesktop;
         assert!(desktop.load_last_selection().is_none());
         assert!(desktop.write_text_clipboard("hello").is_ok());
+        assert!(desktop.write_image_clipboard(RgbaImage::new(1, 1)).is_ok());
         assert!(desktop.read_clipboard_text().is_none());
     }
 

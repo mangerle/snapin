@@ -12,82 +12,101 @@
 //! 通知任务与媒体任务共享同一运行时的并发名额；通知属于非关键提示，提交失败时
 //! 只记录警告，不会反向阻塞用户交互。
 
+use crate::clipboard_cache::{ClipboardCache, ClipboardContent};
 use crate::config::{config_snapshot, SharedConfig};
+use arc_swap::ArcSwap;
 use snapin_platform::{
-    open_path_in_file_manager, open_url, read_clipboard_image, read_clipboard_text,
-    send_desktop_notification, write_image_to_clipboard, write_text_to_clipboard,
+    open_path_in_file_manager, open_url, send_desktop_notification, write_image_to_clipboard,
+    write_text_to_clipboard,
 };
 use snapin_runtime::{TaskPool, TaskRuntime};
+use snapin_storage::ClipboardEntryKind;
 use snapin_storage::{load_last_selection, save_last_selection};
 use snapin_ui::snipper::Rect;
 use snapin_ui::{DesktopPort, PortError, PortErrorKind};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// 桌面副作用端口实现。
 pub(crate) struct AppDesktop {
     config: SharedConfig,
     runtime: TaskRuntime,
+    last_selection: ArcSwap<Option<Rect>>,
+    clipboard_cache: Arc<ClipboardCache>,
 }
 
 impl AppDesktop {
     /// 构建桌面端口。
-    pub(crate) fn new(config: SharedConfig, runtime: TaskRuntime) -> Self {
-        Self { config, runtime }
+    pub(crate) fn new(
+        config: SharedConfig,
+        runtime: TaskRuntime,
+        clipboard_cache: Arc<ClipboardCache>,
+    ) -> Self {
+        let last_selection = load_last_selection().map(|(x, y, width, height)| Rect {
+            x,
+            y,
+            width,
+            height,
+        });
+        Self {
+            config,
+            runtime,
+            last_selection: ArcSwap::from_pointee(last_selection),
+            clipboard_cache,
+        }
     }
 }
 
 impl DesktopPort for AppDesktop {
     fn load_last_selection(&self) -> Option<Rect> {
-        load_last_selection().map(|(x, y, width, height)| Rect {
-            x,
-            y,
-            width,
-            height,
-        })
+        **self.last_selection.load()
     }
 
     fn save_last_selection(&self, rect: Rect) {
-        save_last_selection((rect.x, rect.y, rect.width, rect.height));
+        self.last_selection.store(Arc::new(Some(rect)));
+        if let Err(error) = self.runtime.spawn_blocking_in(TaskPool::Io, move || {
+            save_last_selection((rect.x, rect.y, rect.width, rect.height));
+        }) {
+            tracing::warn!("提交历史选区写入任务失败: {error}");
+        }
     }
 
     fn write_text_clipboard(&self, text: &str) -> Result<(), PortError> {
-        write_text_to_clipboard(text).map_err(|error| {
-            PortError::with_kind(
-                PortErrorKind::Unavailable,
-                "写入系统剪贴板",
-                error.to_string(),
-            )
-        })
+        let text = text.to_string();
+        self.clipboard_cache.store(ClipboardContent::Text {
+            text: text.clone(),
+            kind: ClipboardEntryKind::Text,
+        });
+        self.runtime
+            .spawn_blocking_in(TaskPool::Io, move || {
+                if let Err(error) = write_text_to_clipboard(&text) {
+                    tracing::warn!("写入系统剪贴板失败: {error}");
+                }
+            })
+            .map(|_| ())
+            .map_err(clipboard_queue_error)
     }
 
-    fn write_image_clipboard(&self, image: &image::RgbaImage) -> Result<(), PortError> {
-        write_image_to_clipboard(image).map_err(|error| {
-            PortError::with_kind(
-                PortErrorKind::Unavailable,
-                "写入系统剪贴板",
-                error.to_string(),
-            )
-        })
+    fn write_image_clipboard(&self, image: image::RgbaImage) -> Result<(), PortError> {
+        let image = Arc::new(image);
+        self.clipboard_cache
+            .store(ClipboardContent::Image(image.clone()));
+        self.runtime
+            .spawn_blocking_in(TaskPool::Io, move || {
+                if let Err(error) = write_image_to_clipboard(&image) {
+                    tracing::warn!("写入剪贴板图像失败: {error}");
+                }
+            })
+            .map(|_| ())
+            .map_err(clipboard_queue_error)
     }
 
-    fn read_clipboard_image(&self) -> Option<image::RgbaImage> {
-        match read_clipboard_image() {
-            Ok(image) => image,
-            Err(error) => {
-                tracing::debug!("读取剪贴板图像失败: {error}");
-                None
-            }
-        }
+    fn read_clipboard_image(&self) -> Option<Arc<image::RgbaImage>> {
+        self.clipboard_cache.image()
     }
 
     fn read_clipboard_text(&self) -> Option<String> {
-        match read_clipboard_text() {
-            Ok(text) => text,
-            Err(error) => {
-                tracing::debug!("读取剪贴板文本失败: {error}");
-                None
-            }
-        }
+        self.clipboard_cache.text()
     }
 
     fn open_in_file_manager(&self, path: PathBuf) {
@@ -119,4 +138,12 @@ impl DesktopPort for AppDesktop {
             tracing::warn!("提交桌面通知任务失败: {error}");
         }
     }
+}
+
+fn clipboard_queue_error(error: snapin_runtime::TaskRuntimeError) -> PortError {
+    PortError::with_kind(
+        PortErrorKind::Unavailable,
+        "提交系统剪贴板写入任务",
+        error.to_string(),
+    )
 }

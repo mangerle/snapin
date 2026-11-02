@@ -134,7 +134,10 @@ fn initialize_daemon_platform(runtime: &tokio::runtime::Runtime, cfg: &Config) {
 fn initialize_services(cfg: &Config, handle: &tokio::runtime::Handle) -> Arc<AppServices> {
     let task_runtime = TaskRuntime::from_handle(handle.clone(), 8);
     let services = Arc::new(AppServices::with_runtime(cfg.clone(), task_runtime));
-    if let Err(error) = crate::run_clipboard_history_monitor(&services.runtime()) {
+    if let Err(error) = crate::clipboard_history::run_clipboard_history_monitor(
+        &services.runtime(),
+        services.clipboard_cache(),
+    ) {
         tracing::warn!("启动剪贴板历史监控失败: {error:#}");
     }
     services

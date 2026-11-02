@@ -4,6 +4,7 @@
 //! 创建线程或重复初始化 OCR/翻译服务。容器本身不依赖 GUI 事件循环，便于在
 //! 应用层集成测试中替换端口。
 
+use crate::clipboard_cache::ClipboardCache;
 use crate::config::{publish_config, shared_config, SharedConfig};
 use crate::desktop::AppDesktop;
 use crate::media::MediaService;
@@ -18,6 +19,7 @@ pub(crate) struct AppServices {
     runtime: TaskRuntime,
     desktop: Arc<AppDesktop>,
     media: Arc<MediaService>,
+    clipboard_cache: Arc<ClipboardCache>,
 }
 
 impl AppServices {
@@ -27,13 +29,19 @@ impl AppServices {
     /// 该构造函数让任务运行时与 GUI 线程的生命周期分离。
     pub(crate) fn with_runtime(config: Config, runtime: TaskRuntime) -> Self {
         let shared = shared_config(config);
-        let desktop = Arc::new(AppDesktop::new(shared.clone(), runtime.clone()));
+        let clipboard_cache = Arc::new(ClipboardCache::new());
+        let desktop = Arc::new(AppDesktop::new(
+            shared.clone(),
+            runtime.clone(),
+            clipboard_cache.clone(),
+        ));
         let media = Arc::new(MediaService::new(shared.clone(), runtime.clone()));
         Self {
             config: shared,
             runtime,
             desktop,
             media,
+            clipboard_cache,
         }
     }
 
@@ -60,5 +68,10 @@ impl AppServices {
     /// 获取统一后台任务运行时。
     pub(crate) fn runtime(&self) -> TaskRuntime {
         self.runtime.clone()
+    }
+
+    /// 获取后台剪贴板轮询发布的最近内容快照。
+    pub(crate) fn clipboard_cache(&self) -> Arc<ClipboardCache> {
+        self.clipboard_cache.clone()
     }
 }
