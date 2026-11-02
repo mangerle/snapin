@@ -20,6 +20,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 pub use types::{HexColor, Hotkey, HotkeyParseError, SecretString};
 
+/// 配置文件允许读取的最大字节数，防止异常文件一次性耗尽内存。
+const MAX_CONFIG_FILE_BYTES: usize = 1024 * 1024;
+
 /// 获取 Snapin 默认配置文件存储路径：优先 `$XDG_CONFIG_HOME/snapin/config.toml`，兜底 `~/.config/snapin/config.toml`
 pub fn get_default_config_path() -> Result<PathBuf, CoreError> {
     Ok(crate::paths::AppPaths::default_config_file())
@@ -52,10 +55,11 @@ pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreE
         return Ok(default_config);
     }
 
-    let content = fs::read_to_string(&target_path).map_err(|e| CoreError::IoError {
-        path: target_path.clone(),
-        source: e,
-    })?;
+    let content = snapin_foundation::read_utf8_file_limited(&target_path, MAX_CONFIG_FILE_BYTES)
+        .map_err(|e| CoreError::IoError {
+            path: target_path.clone(),
+            source: e,
+        })?;
 
     let file = match parse_config_file(&content) {
         Ok(file) => file,
@@ -501,6 +505,20 @@ provider = "deepl"
             .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
             .collect();
         assert!(temp_files.is_empty(), "原子写入后不得遗留临时文件");
+    }
+
+    #[test]
+    fn test_load_rejects_oversized_config_file() {
+        let dir = tempdir().expect("应可创建临时目录");
+        let config_file = dir.path().join("config.toml");
+        std::fs::write(
+            &config_file,
+            vec![b' '; MAX_CONFIG_FILE_BYTES.saturating_add(1)],
+        )
+        .expect("应可写入超限配置");
+
+        let error = load_or_create_config(Some(&config_file)).expect_err("超限配置必须被拒绝");
+        assert!(matches!(error, CoreError::IoError { .. }));
     }
 
     /// 导入解析不得改写源文件，且必须严格拒绝非法语义。
