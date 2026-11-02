@@ -212,7 +212,12 @@ fn capture_monitor_desktop(monitors: &[xcap::Monitor]) -> Result<RgbaImage, Plat
     let mut frames = Vec::with_capacity(monitors.len());
     for monitor in monitors {
         let (x, y, width, height) = capture_monitor_geometry(monitor)?;
-        bounds.include(x, y, width, height)?;
+        bounds.include(CaptureArea {
+            x,
+            y,
+            width,
+            height,
+        })?;
         let monitor_name = monitor.name().unwrap_or_else(|_| "未知显示器".to_string());
         let frame = monitor
             .capture_image()
@@ -276,6 +281,16 @@ impl Drop for TemporaryScreenshotFile {
     }
 }
 
+/// 单个显示器在虚拟桌面中的有符号坐标与像素尺寸。
+#[derive(Clone, Copy)]
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
+struct CaptureArea {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
 /// 多显示器虚拟桌面联合边界。
 #[derive(Default)]
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
@@ -289,16 +304,19 @@ struct DesktopBounds {
 
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
 impl DesktopBounds {
-    fn include(&mut self, x: i32, y: i32, width: u32, height: u32) -> Result<(), PlatformError> {
-        if width == 0 || height == 0 {
+    fn include(&mut self, area: CaptureArea) -> Result<(), PlatformError> {
+        if area.width == 0 || area.height == 0 {
             return Err(PlatformError::Capture {
-                message: format!("显示器尺寸非法，坐标: ({x}, {y})，尺寸: {width}x{height}"),
+                message: format!(
+                    "显示器尺寸非法，坐标: ({}, {})，尺寸: {}x{}",
+                    area.x, area.y, area.width, area.height
+                ),
             });
         }
-        let x = i64::from(x);
-        let y = i64::from(y);
-        let right = x + i64::from(width);
-        let bottom = y + i64::from(height);
+        let x = i64::from(area.x);
+        let y = i64::from(area.y);
+        let right = x + i64::from(area.width);
+        let bottom = y + i64::from(area.height);
         if !self.initialized {
             (self.min_x, self.min_y, self.max_x, self.max_y) = (x, y, right, bottom);
             self.initialized = true;
@@ -352,9 +370,23 @@ mod bounds_tests {
     fn test_desktop_bounds_rejects_empty_or_zero_sized_frames() {
         let mut bounds = DesktopBounds::default();
         assert!(bounds.compose(Vec::new()).is_err());
-        assert!(bounds.include(0, 0, 0, 100).is_err());
+        assert!(bounds
+            .include(CaptureArea {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 100,
+            })
+            .is_err());
 
-        bounds.include(-100, -50, 200, 100).expect("合法边界应接受");
+        bounds
+            .include(CaptureArea {
+                x: -100,
+                y: -50,
+                width: 200,
+                height: 100,
+            })
+            .expect("合法边界应接受");
         let frame = RgbaImage::new(1, 1);
         let combined = bounds
             .compose(vec![(-100, -50, frame)])
