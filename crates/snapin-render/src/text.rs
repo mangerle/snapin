@@ -66,6 +66,25 @@ pub struct StyledTextDrawOptions<'a> {
     pub style: TextStyleOptions<'a>,
 }
 
+/// 单行样式文本排版所需的文本、画布与样式。
+#[derive(Clone, Copy)]
+struct StyledShapeOptions<'a> {
+    text: &'a str,
+    width: f32,
+    height: f32,
+    font_size: f32,
+    style: TextStyleOptions<'a>,
+}
+
+/// 将已排版缓冲区混合到画布所需的参数。
+struct StyledBufferPaint<'a, 'p> {
+    pixmap: &'a mut PixmapMut<'p>,
+    buffer: &'a mut Buffer,
+    origin_x: f32,
+    origin_y: f32,
+    rgba: (u8, u8, u8, u8),
+}
+
 /// 输入框文本测量的字号、行高与可用画布范围。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TextMeasureOptions {
@@ -98,6 +117,25 @@ impl TextDrawOptions {
             rgba,
         }
     }
+}
+
+/// 将文本样式转换为 cosmic-text 属性。
+fn styled_attrs(style: TextStyleOptions<'_>) -> Attrs<'_> {
+    let mut attrs = Attrs::new();
+    if let Some(family) = style.font_family {
+        attrs = attrs.family(Family::Name(family));
+    }
+    attrs
+        .weight(if style.bold {
+            Weight::BOLD
+        } else {
+            Weight::NORMAL
+        })
+        .style(if style.italic {
+            Style::Italic
+        } else {
+            Style::Normal
+        })
 }
 
 impl TextRenderer {
@@ -134,60 +172,66 @@ impl TextRenderer {
         if text.is_empty() {
             return;
         }
+        let mut buffer = self.shape_styled_text(StyledShapeOptions {
+            text,
+            width: pixmap.width() as f32,
+            height: pixmap.height() as f32,
+            font_size: options.font_size,
+            style: options.style,
+        });
+        self.paint_styled_buffer(StyledBufferPaint {
+            pixmap,
+            buffer: &mut buffer,
+            origin_x: options.x,
+            origin_y: options.y,
+            rgba: options.rgba,
+        });
+    }
 
-        let StyledTextDrawOptions {
-            x,
-            y,
-            font_size,
-            rgba,
-            style,
-        } = options;
-        let metrics = Metrics::new(font_size, font_size * 1.25);
+    /// 按文本样式完成单行排版。
+    fn shape_styled_text(&mut self, options: StyledShapeOptions<'_>) -> Buffer {
+        let metrics = Metrics::new(options.font_size, options.font_size * 1.25);
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
-        buffer.set_size(
+        buffer.set_size(&mut self.font_system, options.width, options.height);
+        let attrs = styled_attrs(options.style);
+        buffer.set_text(
             &mut self.font_system,
-            pixmap.width() as f32,
-            pixmap.height() as f32,
+            options.text,
+            attrs,
+            Shaping::Advanced,
         );
-        let mut attrs = Attrs::new();
-        if let Some(family) = style.font_family {
-            attrs = attrs.family(Family::Name(family));
-        }
-        attrs = attrs
-            .weight(if style.bold {
-                Weight::BOLD
-            } else {
-                Weight::NORMAL
-            })
-            .style(if style.italic {
-                Style::Italic
-            } else {
-                Style::Normal
-            });
-        buffer.set_text(&mut self.font_system, text, attrs, Shaping::Advanced);
         buffer.shape_until_scroll(&mut self.font_system, false);
+        buffer
+    }
 
-        let c_color = CosmicColor::rgba(rgba.0, rgba.1, rgba.2, rgba.3);
+    /// 将排版缓冲区按画布边界混合到目标像素。
+    fn paint_styled_buffer(&mut self, paint: StyledBufferPaint<'_, '_>) {
+        let StyledBufferPaint {
+            pixmap,
+            buffer,
+            origin_x,
+            origin_y,
+            rgba,
+        } = paint;
         let width = pixmap.width() as i32;
         let height = pixmap.height() as i32;
-
         buffer.draw(
             &mut self.font_system,
             &mut self.swash_cache,
-            c_color,
-            |gx, gy, _w, _h, c| {
-                let px = x as i32 + gx;
-                let py = y as i32 + gy;
+            CosmicColor::rgba(rgba.0, rgba.1, rgba.2, rgba.3),
+            |gx, gy, _w, _h, color| {
+                let px = origin_x as i32 + gx;
+                let py = origin_y as i32 + gy;
                 if px >= 0 && px < width && py >= 0 && py < height {
-                    let idx = ((py as usize) * (width as usize) + (px as usize)) * 4;
+                    let index = ((py as usize) * (width as usize) + (px as usize)) * 4;
                     blend_glyph_rgba(
                         pixmap.data_mut(),
-                        idx,
+                        index,
                         GlyphPixel {
-                            red: c.r(),
-                            green: c.g(),
-                            blue: c.b(),
-                            alpha: c.a(),
+                            red: color.r(),
+                            green: color.g(),
+                            blue: color.b(),
+                            alpha: color.a(),
                         },
                     );
                 }
