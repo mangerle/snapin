@@ -33,10 +33,15 @@ impl AppPaths {
             .unwrap_or_else(|_| PathBuf::from("."));
 
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-        let base = std::env::var("XDG_CONFIG_HOME")
+        let base = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
-            .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".config")))
-            .unwrap_or_else(|_| PathBuf::from("."));
+            .filter(|path| path.is_absolute())
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .map(|home| home.join(".config"))
+            })
+            .unwrap_or_else(|| PathBuf::from("."));
 
         base.join("snapin")
     }
@@ -90,10 +95,15 @@ impl AppPaths {
             .unwrap_or_else(|_| PathBuf::from(".snapin-cache"));
 
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-        let base = std::env::var("XDG_CACHE_HOME")
+        let base = std::env::var_os("XDG_CACHE_HOME")
             .map(PathBuf::from)
-            .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".cache")))
-            .unwrap_or_else(|_| PathBuf::from("."))
+            .filter(|path| path.is_absolute())
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .map(|home| home.join(".cache"))
+            })
+            .unwrap_or_else(|| PathBuf::from("."))
             .join("snapin");
 
         base
@@ -106,8 +116,11 @@ impl AppPaths {
     pub fn runtime_dir() -> PathBuf {
         #[cfg(unix)]
         {
-            if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
-                return PathBuf::from(runtime_dir).join("snapin");
+            if let Some(runtime_dir) = std::env::var_os("XDG_RUNTIME_DIR")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+            {
+                return runtime_dir.join("snapin");
             }
 
             let uid = rustix::process::getuid().as_raw();
