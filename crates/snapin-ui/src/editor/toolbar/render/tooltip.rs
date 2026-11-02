@@ -53,14 +53,14 @@ pub(super) fn render_hover_tooltip(toolbar: &Toolbar, pixmap: &mut PixmapMut) {
     let prefer_above = toolbar
         .sub_rect
         .is_some_and(|sub_rect| sub_rect.y < toolbar.main_rect.y);
-    let Some(layout) = layout(
-        &message,
-        &button_rect,
-        toolbar.ui_scale,
-        pixmap.width() as f32,
-        pixmap.height() as f32,
+    let Some(layout) = layout(TooltipLayoutRequest {
+        message: &message,
+        button_rect: &button_rect,
+        ui_scale: toolbar.ui_scale,
+        screen_width: pixmap.width() as f32,
+        screen_height: pixmap.height() as f32,
         prefer_above,
-    ) else {
+    }) else {
         return;
     };
     draw(pixmap, &message, &layout);
@@ -178,15 +178,26 @@ fn compose_message(item: ToolbarItem, show_shortcut: bool) -> String {
     }
 }
 
-/// 计算提示胶囊布局：默认在按钮下方居中，越界时翻转或夹取。
-fn layout(
-    message: &str,
-    button_rect: &Rect,
+/// 提示胶囊布局请求。
+struct TooltipLayoutRequest<'a> {
+    message: &'a str,
+    button_rect: &'a Rect,
     ui_scale: f32,
-    screen_w: f32,
-    screen_h: f32,
+    screen_width: f32,
+    screen_height: f32,
     prefer_above: bool,
-) -> Option<TooltipLayout> {
+}
+
+/// 计算提示胶囊布局：默认在按钮下方居中，越界时翻转或夹取。
+fn layout(request: TooltipLayoutRequest<'_>) -> Option<TooltipLayout> {
+    let TooltipLayoutRequest {
+        message,
+        button_rect,
+        ui_scale,
+        screen_width: screen_w,
+        screen_height: screen_h,
+        prefer_above,
+    } = request;
     let scale = ui_scale.max(0.1);
     let font_size = (FONT_SIZE * scale).max(9.0);
     let padding_x = PADDING_X * scale;
@@ -299,8 +310,15 @@ mod tests {
     /// 默认位置应固定在按钮正下方，而不是跟随光标。
     #[test]
     fn test_layout_places_tooltip_below_button() {
-        let layout =
-            layout("撤销  Ctrl+Z", &button(), 1.0, 800.0, 600.0, false).expect("提示文本应可测量");
+        let layout = layout(TooltipLayoutRequest {
+            message: "撤销  Ctrl+Z",
+            button_rect: &button(),
+            ui_scale: 1.0,
+            screen_width: 800.0,
+            screen_height: 600.0,
+            prefer_above: false,
+        })
+        .expect("提示文本应可测量");
         assert!(layout.y > button().y + button().height);
         let button_center = button().x + button().width / 2.0;
         let tooltip_center = layout.x + layout.width / 2.0;
@@ -316,8 +334,15 @@ mod tests {
             width: 32.0,
             height: 32.0,
         };
-        let layout =
-            layout("保存  Ctrl+S", &low, 1.0, 800.0, 600.0, false).expect("提示文本应可测量");
+        let layout = layout(TooltipLayoutRequest {
+            message: "保存  Ctrl+S",
+            button_rect: &low,
+            ui_scale: 1.0,
+            screen_width: 800.0,
+            screen_height: 600.0,
+            prefer_above: false,
+        })
+        .expect("提示文本应可测量");
         assert!(layout.y + layout.height <= low.y);
     }
 
