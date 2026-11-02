@@ -51,13 +51,20 @@ fn desired_cursor_icon(state: &SnipperState) -> CursorIcon {
         return CursorIcon::Default;
     }
 
-    // 标注编辑优先于选区与绘制：已选中标注的手柄可拉伸，任意标注本体可整体拖动；
-    // 即使标注工具处于激活态也保持可编辑提示
+    // 标注编辑优先于选区与绘制：已选中标注的手柄可拉伸；默认可整体拖动的只有最新一条，
+    // 按住 Alt 悬停旧标注时同样给出可编辑提示，让"显式解锁"具备可发现性。
     if let Some(handle) = annotation_edit::hit_test_selected_handle(state, cx, cy) {
         return resize_cursor(handle);
     }
-    if state.annotations.hit_test((cx, cy)).is_some() {
+    let allow_locked_annotation = state.modifiers.alt_key();
+    if annotation_edit::hit_test_selected_body(state, cx, cy)
+        || annotation_edit::hit_test_editable(state, (cx, cy), allow_locked_annotation).is_some()
+    {
         return CursorIcon::Move;
+    }
+    // 锁定的旧标注在未激活绘制工具时不再暗示"可拖动选区"，避免误导点击结果。
+    if state.toolbar.active_tool.is_none() && annotation_edit::hit_test_locked(state, (cx, cy)) {
+        return CursorIcon::Default;
     }
 
     let tolerance = 8.0 * state.toolbar.ui_scale;

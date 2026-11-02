@@ -1,7 +1,11 @@
 //! 已提交标注的二次编辑：命中选中、整体拖动与包围盒手柄拉伸。
+//!
+//! 交互约定：默认只有文档最新一条标注可被选中编辑，历史标注处于锁定态，
+//! 让绘制工具可以继续在旧标注上方作画；按住 Alt 可显式解锁任意历史标注。
 
 use super::drag_calculator::calculate_drag;
 use super::events::SnipperState;
+use crate::model::ShapeId;
 use crate::snipper::selection::{hit_test_handle, DragMode, Rect, ResizeHandle};
 use snapin_core::annotation::AnnotationShape;
 
@@ -46,13 +50,59 @@ pub fn hit_test_selected_handle(state: &SnipperState, cx: f32, cy: f32) -> Optio
     hit_test_handle(&rect, cx, cy, 8.0 * state.toolbar.ui_scale)
 }
 
-/// 处理左键按下：优先命中已选中标注的手柄，其次命中任意标注并开始整体拖动。
+/// 命中当前允许编辑的标注：默认只允许最新一条，`allow_locked`（按住 Alt）时允许任意一条。
 ///
-/// 该判断不受标注工具激活状态影响：画完一个标注后工具通常仍处于激活态，
-/// 此时点击已有标注应当先选中并编辑，而不是在它上面叠画新图元。
-/// 返回 true 表示事件已被标注编辑消费；点击空白返回 false 并取消当前选中，
+/// 设计原理：绘制工具激活时，历史图元若整块包围盒都可点击，用户几乎无法在其上方继续绘制。
+/// 把默认可编辑范围收敛到最新一条，既保留"画完就能立刻微调"的体验，又让旧标注重新变成
+/// 可绘制的画布；需要修改旧标注时用 Alt 显式解锁，避免误拖。
+pub fn hit_test_editable(
+    state: &SnipperState,
+    point: (f32, f32),
+    allow_locked: bool,
+) -> Option<usize> {
+    if allow_locked {
+        return state.annotations.hit_test(point);
+    }
+    let latest = state.annotations.undo_stack().len().checked_sub(1)?;
+    let bounds = state.annotations.bounds_at(latest)?;
+    bounds.contains(point.0, point.1).then_some(latest)
+}
+
+/// 点击位置是否命中了被锁定的历史标注（非最新一条，且未按 Alt 解锁）。
+///
+/// 用于给出"按住 Alt 可编辑"的提示，并避免无绘制工具时点击旧标注被误判为移动选区。
+pub fn hit_test_locked(state: &SnipperState, point: (f32, f32)) -> bool {
+    let Some(index) = state.annotations.hit_test(point) else {
+        return false;
+    };
+    hit_test_editable(state, point, false) != Some(index)
+}
+
+/// 点击是否落在当前选中标注的本体上；用于继续拖动已选中的旧标注。
+pub fn hit_test_selected_body(state: &SnipperState, cx: f32, cy: f32) -> bool {
+    selected_bounds(state).is_some_and(|rect| rect.contains(cx, cy))
+}
+
+/// 把选中项切换到当前最新图元；文档为空时清除选中。
+///
+/// 新画完、撤销与重做之后都调用它，保证"当前可编辑的标注"始终是文档最后一条。
+pub fn select_latest(state: &mut SnipperState) {
+    state.annotation_drag = None;
+    state.selected_annotation = state
+        .annotations
+        .undo_stack()
+        .len()
+        .checked_sub(1)
+        .map(ShapeId::from);
+}
+
+/// 处理左键按下：优先命中已选中标注的手柄，其次命中当前允许编辑的标注并开始整体拖动。
+///
+/// 默认可编辑范围只有最新一条图元；按住 Alt 可显式选中任意历史图元。已经选中的标注
+/// （包括通过 Alt 选中的旧图元）在后续按下时仍可直接拖动，否则每次微调都要重复按 Alt。
+/// 返回 true 表示事件已被标注编辑消费；点击不可编辑区域返回 false 并取消当前选中，
 /// 让选区移动、重新框选与继续绘制逻辑执行。
-pub fn handle_press(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
+pub fn handle_press(state: &mut SnipperState, cx: f32, cy: f32, allow_locked: bool) -> bool {
     if let Some(handle) = hit_test_selected_handle(state, cx, cy) {
         let Some(index) = state.selected_annotation else {
             return false;
@@ -69,7 +119,20 @@ pub fn handle_press(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
         }
     }
 
-    if let Some(index) = state.annotations.hit_test((cx, cy)) {
+    // 已选中的标注（可能是 Alt 解锁的旧图元）允许继续拖动，不再要求重复按住 Alt。
+    if hit_test_selected_body(state, cx, cy) {
+        if let Some(index) = state.selected_annotation {
+            if let Some(original) = state.annotations.shape_at(index.get()).cloned() {
+                state.annotation_drag = Some(AnnotationDrag::Move {
+                    origin: (cx, cy),
+                    original,
+                });
+                return true;
+            }
+        }
+    }
+
+    if let Some(index) = hit_test_editable(state, (cx, cy), allow_locked) {
         state.selected_annotation = Some(index.into());
         if let Some(original) = state.annotations.shape_at(index).cloned() {
             state.annotation_drag = Some(AnnotationDrag::Move {
@@ -168,7 +231,7 @@ mod tests {
     fn test_press_and_drag_moves_annotation() {
         let mut state = state_with_rect();
 
-        assert!(handle_press(&mut state, 150.0, 150.0));
+        assert!(handle_press(&mut state, 150.0, 150.0, false));
         assert_eq!(state.selected_annotation, Some(0.into()));
         assert!(matches!(
             state.annotation_drag,
@@ -188,10 +251,10 @@ mod tests {
     #[test]
     fn test_resize_handle_scales_annotation() {
         let mut state = state_with_rect();
-        assert!(handle_press(&mut state, 150.0, 150.0));
+        assert!(handle_press(&mut state, 150.0, 150.0, false));
 
         // 右下角手柄位于 (300, 220)，向外拖到 (400, 320)
-        assert!(handle_press(&mut state, 300.0, 220.0));
+        assert!(handle_press(&mut state, 300.0, 220.0, false));
         assert!(matches!(
             state.annotation_drag,
             Some(AnnotationDrag::Resize { .. })
@@ -209,8 +272,8 @@ mod tests {
     #[test]
     fn test_press_blank_clears_selection() {
         let mut state = state_with_rect();
-        assert!(handle_press(&mut state, 150.0, 150.0));
-        assert!(!handle_press(&mut state, 600.0, 500.0));
+        assert!(handle_press(&mut state, 150.0, 150.0, false));
+        assert!(!handle_press(&mut state, 600.0, 500.0, false));
         assert!(state.selected_annotation.is_none());
         assert!(state.annotation_drag.is_none());
     }
@@ -220,11 +283,79 @@ mod tests {
     fn test_active_tool_still_allows_annotation_editing() {
         let mut state = state_with_rect();
         state.toolbar.active_tool = Some(Tool::Pen);
-        assert!(handle_press(&mut state, 150.0, 150.0));
+        assert!(handle_press(&mut state, 150.0, 150.0, false));
         assert_eq!(state.selected_annotation, Some(0.into()));
         assert!(matches!(
             state.annotation_drag,
             Some(AnnotationDrag::Move { .. })
         ));
+    }
+
+    /// 构造两个互不重叠的矩形，索引 1 为最新一条。
+    fn state_with_two_rects() -> SnipperState {
+        let mut state = state_with_rect();
+        state.annotations.push(AnnotationShape::Rect(RectAction {
+            rect: (300.0, 300.0, 100.0, 100.0),
+            color: (255, 0, 0, 255).into(),
+            stroke_width: 2.0,
+            is_filled: false,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
+        }));
+        state
+    }
+
+    /// 默认可编辑范围只有最新一条；旧标注必须按住 Alt 才能解锁。
+    #[test]
+    fn test_only_latest_annotation_is_editable_by_default() {
+        let mut state = state_with_two_rects();
+
+        // 最新的矩形可直接选中并进入拖动
+        assert!(handle_press(&mut state, 350.0, 350.0, false));
+        assert_eq!(state.selected_annotation, Some(1.into()));
+        assert!(matches!(
+            state.annotation_drag,
+            Some(AnnotationDrag::Move { .. })
+        ));
+
+        // 旧矩形默认锁定：不消费事件，也不留下选中状态
+        clear(&mut state);
+        assert!(!handle_press(&mut state, 150.0, 150.0, false));
+        assert!(state.selected_annotation.is_none());
+
+        // 按住 Alt 才能显式解锁旧标注
+        assert!(handle_press(&mut state, 150.0, 150.0, true));
+        assert_eq!(state.selected_annotation, Some(0.into()));
+        assert!(matches!(
+            state.annotation_drag,
+            Some(AnnotationDrag::Move { .. })
+        ));
+    }
+
+    /// Alt 选中的旧标注在后续按下时无需重复按住 Alt 即可继续拖动。
+    #[test]
+    fn test_selected_old_annotation_stays_draggable() {
+        let mut state = state_with_two_rects();
+        assert!(handle_press(&mut state, 150.0, 150.0, true));
+        assert!(handle_drag_release(&mut state));
+
+        assert!(handle_press(&mut state, 150.0, 150.0, false));
+        assert_eq!(state.selected_annotation, Some(0.into()));
+        assert!(matches!(
+            state.annotation_drag,
+            Some(AnnotationDrag::Move { .. })
+        ));
+    }
+
+    /// 历史变化后选中应重新落到文档最后一条；空文档则清除选中。
+    #[test]
+    fn test_select_latest_follows_document_tail() {
+        let mut state = state_with_two_rects();
+        select_latest(&mut state);
+        assert_eq!(state.selected_annotation, Some(1.into()));
+
+        state.annotations.clear();
+        select_latest(&mut state);
+        assert!(state.selected_annotation.is_none());
     }
 }

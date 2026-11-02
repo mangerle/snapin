@@ -265,3 +265,71 @@ fn test_normal_mode_does_not_auto_translate() {
         "普通模式不应产生翻译派发提示"
     );
 }
+
+/// 画完一个标注后应立刻选中、可直接拖动；画第二个后第一个回到锁定态，
+/// 点击旧标注变成继续绘制画布，按住 Alt 才能重新进入编辑。
+#[test]
+fn test_new_annotation_is_selected_and_old_ones_lock() {
+    use super::super::annotation_edit::{clear, AnnotationDrag};
+
+    let mut state = SnipperState::new();
+    state.toolbar.ui_scale = 1.0;
+    state.selection = SelectionState::Locked {
+        rect: Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 800.0,
+            height: 600.0,
+        },
+        active_drag: None,
+    };
+    state.toolbar.active_tool = Some(Tool::Rect);
+    let original = RgbaImage::new(800, 600);
+
+    // 画第一个矩形：松手后应立刻选中，可直接进入拖动
+    assert!(handle_left_press(&mut state, 100.0, 100.0, &original));
+    handle_cursor_move(&mut state, (200.0, 180.0), 800.0, 600.0);
+    assert!(handle_left_release(&mut state, 200.0, 180.0, &original));
+    assert_eq!(
+        state.selected_annotation,
+        Some(0.into()),
+        "新标注应自动选中"
+    );
+    assert!(handle_left_press(&mut state, 150.0, 140.0, &original));
+    assert!(
+        matches!(state.annotation_drag, Some(AnnotationDrag::Move { .. })),
+        "选中后可立即拖动"
+    );
+    handle_left_release(&mut state, 150.0, 140.0, &original);
+
+    // 画第二个矩形：新标注接管可编辑权
+    assert!(handle_left_press(&mut state, 400.0, 300.0, &original));
+    handle_cursor_move(&mut state, (500.0, 380.0), 800.0, 600.0);
+    assert!(handle_left_release(&mut state, 500.0, 380.0, &original));
+    assert_eq!(state.selected_annotation, Some(1.into()));
+
+    // 取消选中后点击旧标注：不再进入编辑，而是作为画布继续绘制新图元
+    clear(&mut state);
+    assert!(handle_left_press(&mut state, 150.0, 140.0, &original));
+    assert!(state.selected_annotation.is_none(), "旧标注默认锁定");
+    assert!(state.annotation_drag.is_none());
+    state.stroke.points.clear();
+
+    // 未激活绘制工具时点击旧标注只给出解锁提示，不误拖动选区
+    state.toolbar.active_tool = None;
+    assert!(handle_left_press(&mut state, 150.0, 140.0, &original));
+    assert!(state.selected_annotation.is_none());
+    assert!(state
+        .status_message
+        .as_deref()
+        .is_some_and(|message| message.contains("Alt")));
+
+    // 按住 Alt 才可显式解锁旧标注
+    state.modifiers = winit::keyboard::ModifiersState::ALT;
+    assert!(handle_left_press(&mut state, 150.0, 140.0, &original));
+    assert_eq!(state.selected_annotation, Some(0.into()));
+    assert!(matches!(
+        state.annotation_drag,
+        Some(AnnotationDrag::Move { .. })
+    ));
+}

@@ -207,11 +207,15 @@ pub(crate) fn window_at(pos: (f32, f32), windows: &[Rect]) -> Option<Rect> {
         .copied()
 }
 
-/// 提交并关闭当前文本输入会话
+/// 提交并关闭当前文本输入会话。
+///
+/// 文本图元同样遵守"最新一条可编辑"的约定：提交后立即把选中切到它，
+/// 使刚输入的文字可以马上拖动或用滚轮调字号。
 pub fn commit_active_text_input(state: &mut SnipperState) {
     if let Some(session) = state.active_text_input.take() {
         if let Some(action) = session.commit() {
             state.annotations.push(action);
+            super::annotation_edit::select_latest(state);
         }
     }
 }

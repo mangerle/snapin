@@ -17,9 +17,18 @@ pub fn dispatch_toolbar_action(
     original_rgba: &RgbaImage,
 ) -> bool {
     match action {
-        ToolbarAction::Undo => state.annotations.undo(),
+        ToolbarAction::Undo => {
+            let changed = state.annotations.undo();
+            // 历史变化后让新的文档最后一条接管可编辑权，避免选中停留在已被撤销的索引上。
+            super::super::annotation_edit::select_latest(state);
+            changed
+        }
         ToolbarAction::MouseThrough => true,
-        ToolbarAction::Redo => state.annotations.redo(),
+        ToolbarAction::Redo => {
+            let changed = state.annotations.redo();
+            super::super::annotation_edit::select_latest(state);
+            changed
+        }
         ToolbarAction::Copy => {
             handle_action_copy(state, original_rgba);
             true

@@ -23,10 +23,14 @@ impl<'a> AnnotationDraftParams<'a> {
 }
 
 /// 将当前暂存的笔触或图形提交为持久化标注图元。
+///
+/// 提交后立即把选中切到该图元：交互约定"刚画完的标注可以马上拖动/拉伸"，
+/// 同时随后的新图元会自然接管可编辑权，旧图元回到锁定状态。
 pub fn commit_annotation(state: &mut SnipperState) {
     if let Some(params) = AnnotationDraftParams::from_state(state) {
         if let Some(shape) = build_shape(&params) {
             state.annotations.push(shape);
+            super::annotation_edit::select_latest(state);
         }
     }
     state.stroke.points.clear();

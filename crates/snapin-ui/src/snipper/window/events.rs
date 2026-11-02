@@ -34,12 +34,15 @@ pub fn handle_key_input(
             false
         }
         Key::Character(c) if c.eq_ignore_ascii_case("z") && state.modifiers.control_key() => {
-            super::annotation_edit::clear(state);
-            state.annotations.undo()
+            let changed = state.annotations.undo();
+            // 撤销后新的文档最后一条接管可编辑权；文档为空则清除选中。
+            super::annotation_edit::select_latest(state);
+            changed
         }
         Key::Character(c) if c.eq_ignore_ascii_case("y") && state.modifiers.control_key() => {
-            super::annotation_edit::clear(state);
-            state.annotations.redo()
+            let changed = state.annotations.redo();
+            super::annotation_edit::select_latest(state);
+            changed
         }
         Key::Character(c) if c.eq_ignore_ascii_case("c") && state.modifiers.control_key() => {
             handle_action_copy(state, original_rgba);

@@ -190,9 +190,18 @@ fn handle_locked_press(
 
     commit_active_text_input(state);
 
-    // 已提交标注的编辑优先于新建文本与新图元：画完标注后工具通常仍处于激活态，
-    // 此时点击已有标注应当先选中拖动，而不是被迫在它上面叠画新图元
-    if super::annotation_edit::handle_press(state, cx, cy) {
+    // 已提交标注的编辑优先于新建文本与新图元：默认只允许编辑最新一条，
+    // 旧标注处于锁定态，让它们重新变成可绘制的画布；按住 Alt 可显式解锁旧标注。
+    let allow_locked_annotation = state.modifiers.alt_key();
+    if super::annotation_edit::handle_press(state, cx, cy, allow_locked_annotation) {
+        return true;
+    }
+
+    // 未激活绘制工具时点击旧标注：不应误拖动整个选区，改为提示 Alt 解锁方式。
+    if state.toolbar.active_tool.is_none()
+        && super::annotation_edit::hit_test_locked(state, (cx, cy))
+    {
+        state.set_status_message("旧标注已锁定，按住 Alt 点击可重新编辑");
         return true;
     }
 
