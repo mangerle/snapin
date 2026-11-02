@@ -20,16 +20,27 @@ pub(crate) struct SubLayoutOptions {
     pub mosaic_mode: MosaicMode,
 }
 
+/// 主工具栏自适应摆放参数。
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MainLayoutRequest<'a> {
+    pub selection: &'a Rect,
+    pub screen_width: f32,
+    pub screen_height: f32,
+    pub ui_scale: f32,
+    pub width: f32,
+}
+
 /// 根据选区与屏幕宽高重新计算主工具栏在屏幕上的自适应摆放位置。
 ///
 /// `width` 由调用方给出，因为主栏是否带拖动手柄只有 `Toolbar` 自身知道。
-pub(crate) fn calculate_main_layout(
-    selection: &Rect,
-    screen_w: f32,
-    screen_h: f32,
-    ui_scale: f32,
-    width: f32,
-) -> Rect {
+pub(crate) fn calculate_main_layout(request: MainLayoutRequest<'_>) -> Rect {
+    let MainLayoutRequest {
+        selection,
+        screen_width: screen_w,
+        screen_height: screen_h,
+        ui_scale,
+        width,
+    } = request;
     let s = ui_scale;
     let height = padding(s) * 2.0 + button_size(s);
 
@@ -98,19 +109,27 @@ impl EntryCursor<'_> {
 ///
 /// 每种工具只暴露与之相关的选项：几何形状提供矩形/椭圆、线型、填充与圆角；
 /// 序号提供底板样式；其余画笔类工具只保留线宽与颜色。
-fn build_entries(
+struct EntryBuildContext {
     active_tool: Tool,
     mosaic_mode: MosaicMode,
     origin_x: f32,
     center_y: f32,
-    s: f32,
-    entries: &mut Vec<SubEntry>,
-) -> f32 {
+    scale: f32,
+}
+
+fn build_entries(context: EntryBuildContext, entries: &mut Vec<SubEntry>) -> f32 {
+    let EntryBuildContext {
+        active_tool,
+        mosaic_mode,
+        origin_x,
+        center_y,
+        scale,
+    } = context;
     let mut cursor = EntryCursor {
         entries,
         x: origin_x,
         center_y,
-        scale: s,
+        scale,
     };
 
     let descriptor = tool_descriptor(active_tool);
@@ -123,7 +142,7 @@ fn build_entries(
     push_color_palette(&mut cursor, descriptor);
 
     // 末尾留出与内边距等宽的余量，避免最后一个色块贴边
-    cursor.x + 4.0 * s
+    cursor.x + 4.0 * scale
 }
 
 /// 追加几何形状与直线模式控件。
@@ -307,11 +326,13 @@ fn build_sub_panel(request: SubLayoutRequest<'_>, active_tool: Tool) -> (Rect, V
     let center_y = origin_y + height / 2.0;
     let mut entries = Vec::with_capacity(32);
     let end_x = build_entries(
-        active_tool,
-        request.options.mosaic_mode,
-        origin_x + 12.0 * scale,
-        center_y,
-        scale,
+        EntryBuildContext {
+            active_tool,
+            mosaic_mode: request.options.mosaic_mode,
+            origin_x: origin_x + 12.0 * scale,
+            center_y,
+            scale,
+        },
         &mut entries,
     );
     let width = (end_x - origin_x).max(120.0 * scale);

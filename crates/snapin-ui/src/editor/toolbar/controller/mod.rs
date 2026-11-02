@@ -6,11 +6,12 @@
 mod click;
 
 use super::layout::{
-    calculate_main_layout, calculate_sub_layout, SubLayout, SubLayoutOptions, SubLayoutRequest,
+    calculate_main_layout, calculate_sub_layout, MainLayoutRequest, SubLayout, SubLayoutOptions,
+    SubLayoutRequest,
 };
 use super::{Tool, Toolbar, ToolbarItem};
 
-use super::interaction::hit_test_main_items;
+use super::interaction::{hit_test_main_items, MainHitTestRequest};
 use super::metrics;
 use super::state::store_remembered_sub_options;
 use crate::geometry::Rect;
@@ -31,13 +32,13 @@ impl Toolbar {
         self.screen_size = (screen_w, screen_h);
         self.main_rect = match self.manual_pos {
             Some((x, y)) => self.clamped_main_rect(x, y),
-            None => calculate_main_layout(
+            None => calculate_main_layout(MainLayoutRequest {
                 selection,
-                screen_w,
-                screen_h,
-                self.ui_scale,
-                self.main_width(),
-            ),
+                screen_width: screen_w,
+                screen_height: screen_h,
+                ui_scale: self.ui_scale,
+                width: self.main_width(),
+            }),
         };
         self.update_sub_rect();
     }
@@ -231,7 +232,12 @@ impl Toolbar {
 
     /// 主栏命中测试 (自适应 HiDPI 缩放)
     pub fn hit_test_main(&self, px: f32, py: f32) -> Option<ToolbarItem> {
-        hit_test_main_items(&self.main_rect, self.main_items, self.ui_scale, px, py)
+        hit_test_main_items(MainHitTestRequest {
+            main_rect: &self.main_rect,
+            items: self.main_items,
+            ui_scale: self.ui_scale,
+            point: (px, py),
+        })
     }
 
     /// 检查指定坐标是否落在主栏、二级栏或展开的下拉菜单内（防止事件穿透到画布）

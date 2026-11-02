@@ -44,19 +44,25 @@ pub(crate) fn main_item_rects(
     rects
 }
 
+/// 主工具栏按钮命中测试参数。
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MainHitTestRequest<'a> {
+    pub main_rect: &'a Rect,
+    pub items: &'a [ToolbarItem],
+    pub ui_scale: f32,
+    pub point: (f32, f32),
+}
+
 /// 主工具栏按钮命中测试 (计算每个按钮的热区并进行点碰撞检测)
-pub(crate) fn hit_test_main_items(
-    main_rect: &Rect,
-    items: &[ToolbarItem],
-    ui_scale: f32,
-    px: f32,
-    py: f32,
-) -> Option<ToolbarItem> {
-    if !main_rect.contains(px, py) {
+pub(crate) fn hit_test_main_items(request: MainHitTestRequest<'_>) -> Option<ToolbarItem> {
+    if !request.main_rect.contains(request.point.0, request.point.1) {
         return None;
     }
 
-    main_item_rects(main_rect, items, ui_scale)
+    main_item_rects(request.main_rect, request.items, request.ui_scale)
         .into_iter()
-        .find_map(|(item, rect)| rect.contains(px, py).then_some(item))
+        .find_map(|(item, rect)| {
+            rect.contains(request.point.0, request.point.1)
+                .then_some(item)
+        })
 }

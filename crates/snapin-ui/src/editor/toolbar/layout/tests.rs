@@ -79,7 +79,13 @@ fn test_fullscreen_selection_toolbar_inside_screen() {
         height: 1080.0,
     };
     let width = main_toolbar_width(Toolbar::MAIN_ITEMS, 1.0);
-    let layout = calculate_main_layout(&selection, 1920.0, 1080.0, 1.0, width);
+    let layout = calculate_main_layout(MainLayoutRequest {
+        selection: &selection,
+        screen_width: 1920.0,
+        screen_height: 1080.0,
+        ui_scale: 1.0,
+        width,
+    });
 
     assert!(layout.x >= 8.0);
     assert!(layout.y >= 8.0);
