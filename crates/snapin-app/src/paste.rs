@@ -208,20 +208,35 @@ pub async fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
         return Ok(());
     }
     crate::daemon_client::ensure_daemon_running().await?;
+    let pixmap = decode_pin_file(path).await?;
+    let staged = stage_pin_pixmap(pixmap).await?;
+    request_staged_pin(staged, x, y).await
+}
 
-    let load_path = path.clone();
-    let pixmap = tokio::task::spawn_blocking(move || load_pixmap_from_file(&load_path))
+/// 已写入运行时目录、等待守护进程接收的贴图文件。
+struct StagedPinFile {
+    path: PathBuf,
+    width: u32,
+    height: u32,
+    title: String,
+}
+
+/// 在阻塞线程池中解码贴图文件。
+async fn decode_pin_file(path: PathBuf) -> Result<Pixmap> {
+    tokio::task::spawn_blocking(move || load_pixmap_from_file(&path))
         .await
         .context("贴图解码任务调度失败")?
-        .context("贴图解码失败")?;
+        .context("贴图解码失败")
+}
 
+/// 将位图写入受控运行时临时文件，并携带创建贴图所需元数据。
+async fn stage_pin_pixmap(pixmap: Pixmap) -> Result<StagedPinFile> {
     let uid = AppPaths::generate_unique_id();
     let title = format!("pin_{uid}");
     let width = pixmap.width();
     let height = pixmap.height();
     let raw_temp =
         AppPaths::generate_temp_path("paster_pin", "raw").context("创建贴图运行时临时路径失败")?;
-
     let raw_temp_for_write = raw_temp.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {
         match AppPaths::write_secure_file(&raw_temp_for_write, pixmap.data()) {
@@ -237,23 +252,32 @@ pub async fn run_pin_file(path: PathBuf, x: i32, y: i32) -> Result<()> {
     })
     .await
     .context("贴图临时像素写入任务调度失败")??;
-
-    let request = snapin_daemon::DaemonRequest::CreatePaster {
+    Ok(StagedPinFile {
+        path: raw_temp,
         width,
         height,
+        title,
+    })
+}
+
+/// 请求守护进程创建贴图；拒绝时清理本次临时像素文件。
+async fn request_staged_pin(staged: StagedPinFile, x: i32, y: i32) -> Result<()> {
+    let request = snapin_daemon::DaemonRequest::CreatePaster {
+        width: staged.width,
+        height: staged.height,
         x,
         y,
-        title,
-        raw_path: raw_temp.to_string_lossy().to_string(),
+        title: staged.title,
+        raw_path: staged.path.to_string_lossy().to_string(),
     };
-    if !matches!(
+    let accepted = matches!(
         snapin_daemon::send_command_to_daemon(&request).await,
         Ok(true)
-    ) {
-        let _ = tokio::fs::remove_file(&raw_temp).await;
+    );
+    if !accepted {
+        let _ = tokio::fs::remove_file(&staged.path).await;
         bail!("守护进程拒绝创建贴图，临时像素文件已清理");
     }
-
     Ok(())
 }
 
