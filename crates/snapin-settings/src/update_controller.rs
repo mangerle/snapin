@@ -92,85 +92,88 @@ pub(crate) fn register_update_callbacks(
     setup_install_callback(win, context);
 }
 
-/// 注册【检查更新】按钮回调
+/// 注册【检查更新】按钮回调。
 fn setup_check_callback(win: &SettingsWindow, context: UpdateContext) {
-    let UpdateContext {
-        runtime,
-        cancel,
-        config,
-        pending_update,
-        downloaded_update: _,
-    } = context;
     let win_weak = win.as_weak();
-    win.on_check_for_updates(move || {
-        let Some(window) = win_weak.upgrade() else {
-            return;
-        };
-        if update_is_busy(window.get_update_status()) {
-            return;
-        }
-        window.set_update_status(UpdateUiStatus::Checking as i32);
-        window.set_update_status_text(SharedString::from("正在连接更新服务器..."));
+    win.on_check_for_updates(move || handle_check_click(&win_weak, &context));
+}
 
-        let win_weak_async = win_weak.clone();
-        let update_holder = pending_update.clone();
-        let config_snapshot = config.clone();
-        let task_cancel = cancel.clone();
-        let reset_runtime = runtime.clone();
-        let reset_cancel = cancel.clone();
-        let spawn_result = runtime.spawn_blocking_in(TaskPool::Maintenance, move || {
-            let custom_url = config_snapshot.snapshot().general.custom_update_url.clone();
+/// 处理检查更新点击并提交维护任务。
+fn handle_check_click(weak: &slint::Weak<SettingsWindow>, context: &UpdateContext) {
+    let Some(window) = weak.upgrade() else {
+        return;
+    };
+    if update_is_busy(window.get_update_status()) {
+        return;
+    }
+    window.set_update_status(UpdateUiStatus::Checking as i32);
+    window.set_update_status_text(SharedString::from("正在连接更新服务器..."));
+    let weak_async = weak.clone();
+    let task_context = context.clone();
+    let spawn_result = context
+        .runtime
+        .spawn_blocking_in(TaskPool::Maintenance, move || {
+            let custom_url = task_context
+                .config
+                .snapshot()
+                .general
+                .custom_update_url
+                .clone();
             let result = snapin_updater::check_update(custom_url.as_deref());
-            if task_cancel.is_cancelled() {
+            if task_context.cancel.is_cancelled() {
                 return;
             }
             let _ = slint::invoke_from_event_loop(move || {
-                let Some(window) = win_weak_async.upgrade() else {
-                    return;
-                };
-                match result {
-                    Ok(Some(update)) => {
-                        let version = update.version();
-                        let notes = update.notes().unwrap_or_default();
-                        if let Ok(mut guard) = update_holder.lock() {
-                            *guard = Some(update);
-                        }
-                        window.set_update_status(UpdateUiStatus::Available as i32);
-                        window.set_update_version(SharedString::from(version));
-                        window.set_update_notes(SharedString::from(notes));
-                    }
-                    Ok(None) => {
-                        window.set_update_status(UpdateUiStatus::UpToDate as i32);
-                        schedule_status_reset(
-                            win_weak_async.clone(),
-                            reset_runtime.clone(),
-                            reset_cancel.clone(),
-                            UpdateUiStatus::UpToDate,
-                        );
-                    }
-                    Err(error) => {
-                        tracing::warn!("用户主动检查更新失败: {error}");
-                        window.set_update_status(UpdateUiStatus::Error as i32);
-                        window.set_update_status_text(SharedString::from(format!(
-                            "检查失败: {error}"
-                        )));
-                        schedule_status_reset(
-                            win_weak_async.clone(),
-                            reset_runtime.clone(),
-                            reset_cancel.clone(),
-                            UpdateUiStatus::Error,
-                        );
-                    }
+                if let Some(window) = weak_async.upgrade() {
+                    apply_check_result(&window, &weak_async, &task_context, result);
                 }
             });
         });
-        if let Err(error) = spawn_result {
-            window.set_update_status(UpdateUiStatus::Error as i32);
-            window.set_update_status_text(SharedString::from(format!(
-                "无法提交检查更新任务: {error}"
-            )));
+    if let Err(error) = spawn_result {
+        window.set_update_status(UpdateUiStatus::Error as i32);
+        window.set_update_status_text(SharedString::from(format!("无法提交检查更新任务: {error}")));
+    }
+}
+
+/// 将检查结果写回窗口并安排非错误状态复位。
+fn apply_check_result(
+    window: &SettingsWindow,
+    weak: &slint::Weak<SettingsWindow>,
+    context: &UpdateContext,
+    result: Result<Option<UpdateInfo>, snapin_updater::UpdaterError>,
+) {
+    match result {
+        Ok(Some(update)) => {
+            let version = update.version();
+            let notes = update.notes().unwrap_or_default();
+            if let Ok(mut guard) = context.pending_update.lock() {
+                *guard = Some(update);
+            }
+            window.set_update_status(UpdateUiStatus::Available as i32);
+            window.set_update_version(SharedString::from(version));
+            window.set_update_notes(SharedString::from(notes));
         }
-    });
+        Ok(None) => {
+            window.set_update_status(UpdateUiStatus::UpToDate as i32);
+            schedule_status_reset(
+                weak.clone(),
+                context.runtime.clone(),
+                context.cancel.clone(),
+                UpdateUiStatus::UpToDate,
+            );
+        }
+        Err(error) => {
+            tracing::warn!("用户主动检查更新失败: {error}");
+            window.set_update_status(UpdateUiStatus::Error as i32);
+            window.set_update_status_text(SharedString::from(format!("检查失败: {error}")));
+            schedule_status_reset(
+                weak.clone(),
+                context.runtime.clone(),
+                context.cancel.clone(),
+                UpdateUiStatus::Error,
+            );
+        }
+    }
 }
 
 /// 安排一次状态复位；窗口关闭或任务取消后不再回调 UI。
@@ -202,107 +205,124 @@ fn schedule_status_reset(
     }
 }
 
-/// 注册【立即下载更新】按钮回调
+/// 注册【立即下载更新】按钮回调。
 fn setup_download_callback(win: &SettingsWindow, context: UpdateContext) {
-    let UpdateContext {
-        runtime,
-        cancel,
-        config: _,
-        pending_update,
-        downloaded_update: downloaded_holder,
-    } = context;
     let win_weak = win.as_weak();
-    win.on_start_download_update(move || {
-        let Some(window) = win_weak.upgrade() else {
-            return;
-        };
-        if window.get_update_status() == UpdateUiStatus::Downloading as i32 {
+    win.on_start_download_update(move || handle_download_click(&win_weak, &context));
+}
+
+/// 处理下载点击，读取待更新实体并提交维护任务。
+fn handle_download_click(weak: &slint::Weak<SettingsWindow>, context: &UpdateContext) {
+    let Some(window) = weak.upgrade() else {
+        return;
+    };
+    if window.get_update_status() == UpdateUiStatus::Downloading as i32 {
+        return;
+    }
+    let update = context
+        .pending_update
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone());
+    let Some(update) = update else {
+        window.set_update_status(UpdateUiStatus::Error as i32);
+        window.set_update_status_text(SharedString::from("未找到待下载的更新实体"));
+        return;
+    };
+    window.set_update_status(UpdateUiStatus::Downloading as i32);
+    window.set_download_progress(0.0);
+    window.set_download_speed_text(SharedString::from("准备下载..."));
+    start_download_task(weak.clone(), context.clone(), update);
+}
+
+/// 在维护池中下载更新并持续回传进度。
+fn start_download_task(
+    weak: slint::Weak<SettingsWindow>,
+    context: UpdateContext,
+    update: UpdateInfo,
+) {
+    let runtime = context.runtime.clone();
+    let error_weak = weak.clone();
+    let spawn_result = runtime.spawn_blocking_in(TaskPool::Maintenance, move || {
+        let progress_weak = weak.clone();
+        let progress_cancel = context.cancel.clone();
+        let result = update.download_blocking(move |event| {
+            emit_download_event(&progress_weak, &progress_cancel, event);
+        });
+        if context.cancel.is_cancelled() {
             return;
         }
-        let update = match pending_update.lock() {
-            Ok(guard) => guard.clone(),
-            Err(_) => None,
-        };
-        let Some(update) = update else {
-            window.set_update_status(UpdateUiStatus::Error as i32);
-            window.set_update_status_text(SharedString::from("未找到待下载的更新实体"));
-            return;
-        };
-
-        window.set_update_status(UpdateUiStatus::Downloading as i32);
-        window.set_download_progress(0.0);
-        window.set_download_speed_text(SharedString::from("准备下载..."));
-
-        let win_weak_async = win_weak.clone();
-        let downloaded_holder_clone = downloaded_holder.clone();
-        let task_cancel = cancel.clone();
-        let spawn_result = runtime.spawn_blocking_in(TaskPool::Maintenance, move || {
-            let win_progress = win_weak_async.clone();
-            let progress_cancel = task_cancel.clone();
-            let download_res = update.download_blocking(move |event| {
-                if progress_cancel.is_cancelled() {
-                    return;
-                }
-                let win_clone = win_progress.clone();
-                match event {
-                    UpdateEvent::DownloadProgress {
-                        percent,
-                        speed_bytes_per_sec,
-                        ..
-                    } => {
-                        let text = format_download_speed(speed_bytes_per_sec, percent);
-                        let progress = percent.unwrap_or(0.0) / 100.0;
-                        let _ = slint::invoke_from_event_loop(move || {
-                            if let Some(window) = win_clone.upgrade() {
-                                window.set_download_progress(progress);
-                                window.set_download_speed_text(SharedString::from(text));
-                            }
-                        });
-                    }
-                    UpdateEvent::Stage(UpdateStage::VerifyingSignature) => {
-                        let _ = slint::invoke_from_event_loop(move || {
-                            if let Some(window) = win_clone.upgrade() {
-                                window.set_download_speed_text(SharedString::from(
-                                    "正在验证数字签名...",
-                                ));
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            });
-
-            if task_cancel.is_cancelled() {
-                return;
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(window) = weak.upgrade() {
+                apply_download_result(&window, &context, result);
             }
-            let _ = slint::invoke_from_event_loop(move || {
-                let Some(window) = win_weak_async.upgrade() else {
-                    return;
-                };
-                match download_res {
-                    Ok(downloaded) => {
-                        if let Ok(mut guard) = downloaded_holder_clone.lock() {
-                            *guard = Some(downloaded);
-                        }
-                        window.set_update_status(UpdateUiStatus::Downloaded as i32);
-                        window.set_download_progress(1.0);
-                        window.set_download_speed_text(SharedString::from("已就绪"));
-                    }
-                    Err(error) => {
-                        tracing::error!("下载或验签更新包失败: {error}");
-                        window.set_update_status(UpdateUiStatus::Error as i32);
-                        window.set_update_status_text(SharedString::from(format!(
-                            "下载失败: {error}"
-                        )));
-                    }
-                }
-            });
         });
-        if let Err(error) = spawn_result {
+    });
+    if let Err(error) = spawn_result {
+        if let Some(window) = error_weak.upgrade() {
             window.set_update_status(UpdateUiStatus::Error as i32);
             window.set_update_status_text(SharedString::from(format!("无法提交下载任务: {error}")));
         }
-    });
+    }
+}
+
+/// 将下载进度或验签阶段事件投影到 Slint 窗口。
+fn emit_download_event(
+    weak: &slint::Weak<SettingsWindow>,
+    cancel: &CancellationToken,
+    event: UpdateEvent,
+) {
+    if cancel.is_cancelled() {
+        return;
+    }
+    let weak = weak.clone();
+    match event {
+        UpdateEvent::DownloadProgress {
+            percent,
+            speed_bytes_per_sec,
+            ..
+        } => {
+            let text = format_download_speed(speed_bytes_per_sec, percent);
+            let progress = percent.unwrap_or(0.0) / 100.0;
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(window) = weak.upgrade() {
+                    window.set_download_progress(progress);
+                    window.set_download_speed_text(SharedString::from(text));
+                }
+            });
+        }
+        UpdateEvent::Stage(UpdateStage::VerifyingSignature) => {
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(window) = weak.upgrade() {
+                    window.set_download_speed_text(SharedString::from("正在验证数字签名..."));
+                }
+            });
+        }
+        _ => {}
+    }
+}
+
+/// 保存下载结果并更新窗口状态。
+fn apply_download_result(
+    window: &SettingsWindow,
+    context: &UpdateContext,
+    result: Result<DownloadedUpdate, snapin_updater::UpdaterError>,
+) {
+    match result {
+        Ok(downloaded) => {
+            if let Ok(mut guard) = context.downloaded_update.lock() {
+                *guard = Some(downloaded);
+            }
+            window.set_update_status(UpdateUiStatus::Downloaded as i32);
+            window.set_download_progress(1.0);
+            window.set_download_speed_text(SharedString::from("已就绪"));
+        }
+        Err(error) => {
+            tracing::error!("下载或验签更新包失败: {error}");
+            window.set_update_status(UpdateUiStatus::Error as i32);
+            window.set_update_status_text(SharedString::from(format!("下载失败: {error}")));
+        }
+    }
 }
 
 /// 重启升级后的守护进程：等待旧实例退出、用当前绝对路径派生新版并确认 IPC 就绪。
@@ -370,106 +390,109 @@ async fn daemon_is_online() -> bool {
     )
 }
 
-/// 注册【立即重启并安装】按钮回调
+/// 注册【立即重启并安装】按钮回调。
 fn setup_install_callback(win: &SettingsWindow, context: UpdateContext) {
-    let UpdateContext {
-        runtime,
-        cancel,
-        config: _,
-        pending_update: _,
-        downloaded_update: downloaded_holder,
-    } = context;
     let win_weak = win.as_weak();
-    win.on_restart_and_install(move || {
-        let Some(window) = win_weak.upgrade() else {
-            return;
-        };
-        let downloaded = match downloaded_holder.lock() {
-            Ok(mut guard) => guard.take(),
-            Err(_) => None,
-        };
-        let Some(downloaded) = downloaded else {
-            window.set_update_status(UpdateUiStatus::Error as i32);
-            window.set_update_status_text(SharedString::from("未找到已就绪的安装包"));
-            return;
-        };
+    win.on_restart_and_install(move || handle_install_click(&win_weak, &context));
+}
 
-        tracing::info!("准备应用更新并重启，目标版本: {}", downloaded.version());
+/// 处理安装点击，读取已下载更新并提交安装任务。
+fn handle_install_click(weak: &slint::Weak<SettingsWindow>, context: &UpdateContext) {
+    let Some(window) = weak.upgrade() else {
+        return;
+    };
+    let downloaded = context
+        .downloaded_update
+        .lock()
+        .ok()
+        .and_then(|mut guard| guard.take());
+    let Some(downloaded) = downloaded else {
+        window.set_update_status(UpdateUiStatus::Error as i32);
+        window.set_update_status_text(SharedString::from("未找到已就绪的安装包"));
+        return;
+    };
+    tracing::info!("准备应用更新并重启，目标版本: {}", downloaded.version());
+    start_install_task(weak.clone(), context.clone(), downloaded);
+}
 
-        let win_thread = win_weak.clone();
-        let install_cancel = cancel.clone();
-        let spawn_result = runtime.spawn(async move {
-            // 物理安装会阻塞，放入阻塞线程池；安装完成后回到异步上下文执行停机与重启。
-            let installed = tokio::task::spawn_blocking(move || {
-                downloaded.install(|event| {
-                    tracing::info!("更新包物理落地事件: {event:?}");
-                })
+/// 在阻塞池落地安装包，随后执行守护进程重启与窗口退出。
+fn start_install_task(
+    weak: slint::Weak<SettingsWindow>,
+    context: UpdateContext,
+    downloaded: DownloadedUpdate,
+) {
+    let runtime = context.runtime.clone();
+    let install_cancel = context.cancel.clone();
+    let error_weak = weak.clone();
+    let spawn_result = context.runtime.spawn(async move {
+        let installed = runtime
+            .run_blocking_in(TaskPool::Maintenance, move || {
+                install_downloaded(downloaded)
             })
             .await;
-
-            match installed {
-                Ok(Ok(())) => {}
-                Ok(Err(error)) => {
-                    tracing::error!("物理应用安装包失败: {error}");
-                    if install_cancel.is_cancelled() {
-                        return;
-                    }
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(window) = win_thread.upgrade() {
-                            window.set_update_status(UpdateUiStatus::Error as i32);
-                            window.set_update_status_text(SharedString::from(format!(
-                                "安装失败: {error}"
-                            )));
-                        }
-                    });
-                    return;
-                }
-                Err(error) => {
-                    tracing::error!("安装任务异常: {error}");
-                    if install_cancel.is_cancelled() {
-                        return;
-                    }
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(window) = win_thread.upgrade() {
-                            window.set_update_status(UpdateUiStatus::Error as i32);
-                            window.set_update_status_text(SharedString::from(
-                                "安装任务异常，请查看运行日志",
-                            ));
-                        }
-                    });
-                    return;
-                }
-            }
-
-            // 安装完成：先等待旧守护进程释放单实例锁，再用当前绝对路径拉起新版。
-            // 该流程不因设置窗口关闭而取消，否则可能留下“更新成功但服务已消失”的状态。
-            match restart_daemon_after_update().await {
-                Ok(()) => {
-                    let _ = slint::invoke_from_event_loop(|| {
-                        let _ = slint::quit_event_loop();
-                    });
-                }
-                Err(error) => {
-                    tracing::error!("更新安装完成但守护进程重启失败: {error}");
-                    if install_cancel.is_cancelled() {
-                        return;
-                    }
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(window) = win_thread.upgrade() {
-                            window.set_update_status(UpdateUiStatus::Error as i32);
-                            window.set_update_status_text(SharedString::from(format!(
-                                "更新已安装，但守护进程重启失败: {error}"
-                            )));
-                        }
-                    });
-                }
-            }
-        });
-        if let Err(error) = spawn_result {
+        if let Err(message) = flatten_install_result(installed) {
+            report_install_error(&weak, &install_cancel, message);
+            return;
+        }
+        finish_install(&weak, &install_cancel).await;
+    });
+    if let Err(error) = spawn_result {
+        if let Some(window) = error_weak.upgrade() {
             window.set_update_status(UpdateUiStatus::Error as i32);
             window.set_update_status_text(SharedString::from(format!("无法提交安装任务: {error}")));
         }
+    }
+}
+
+/// 执行阻塞安装；安装器事件只记录调试生命周期。
+fn install_downloaded(downloaded: DownloadedUpdate) -> Result<(), String> {
+    downloaded
+        .install(|event| tracing::info!("更新包物理落地事件: {event:?}"))
+        .map_err(|error| format!("安装失败: {error}"))
+}
+
+/// 将任务 Join 错误与安装错误统一为可展示消息。
+fn flatten_install_result(
+    result: Result<Result<(), String>, snapin_runtime::TaskRuntimeError>,
+) -> Result<(), String> {
+    result.map_err(|error| format!("安装任务异常: {error}"))?
+}
+
+/// 安装失败时在不取消窗口退出的前提下回填错误。
+fn report_install_error(
+    weak: &slint::Weak<SettingsWindow>,
+    cancel: &CancellationToken,
+    message: String,
+) {
+    tracing::error!("{message}");
+    if cancel.is_cancelled() {
+        return;
+    }
+    let weak = weak.clone();
+    let _ = slint::invoke_from_event_loop(move || {
+        if let Some(window) = weak.upgrade() {
+            window.set_update_status(UpdateUiStatus::Error as i32);
+            window.set_update_status_text(SharedString::from(message));
+        }
     });
+}
+
+/// 重启升级后的守护进程；该步骤不因设置窗口关闭而取消。
+async fn finish_install(weak: &slint::Weak<SettingsWindow>, cancel: &CancellationToken) {
+    match restart_daemon_after_update().await {
+        Ok(()) => {
+            let _ = slint::invoke_from_event_loop(|| {
+                let _ = slint::quit_event_loop();
+            });
+        }
+        Err(error) => {
+            report_install_error(
+                weak,
+                cancel,
+                format!("更新已安装，但守护进程重启失败: {error}"),
+            );
+        }
+    }
 }
 
 #[cfg(test)]
