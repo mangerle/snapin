@@ -4,14 +4,9 @@ use super::*;
 
 /// 处理截图会话中的鼠标滚轮事件 (连续动态调节当前标注与后续标注大小)
 pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> bool {
-    let delta_y = match delta {
-        MouseScrollDelta::LineDelta(_, y) => y,
-        MouseScrollDelta::PixelDelta(p) => p.y as f32 / 20.0,
-    };
-
-    if delta_y.abs() < 0.1 {
+    let Some(delta_y) = normalized_wheel_delta(delta) else {
         return false;
-    }
+    };
 
     if state.toolbar.active_tool == Some(Tool::Magnifier)
         && !state
@@ -42,6 +37,15 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
         adjust_stroke_wheel(state, delta_y);
     }
     true
+}
+
+/// 将平台滚轮事件归一化为可处理增量，过滤零值、非有限值和抖动。
+fn normalized_wheel_delta(delta: MouseScrollDelta) -> Option<f32> {
+    let delta_y = match delta {
+        MouseScrollDelta::LineDelta(_, y) => y,
+        MouseScrollDelta::PixelDelta(position) => position.y as f32 / 20.0,
+    };
+    (delta_y.is_finite() && delta_y.abs() >= 0.1).then_some(delta_y)
 }
 
 /// 连续调节文字字号并同步当前文字会话与最近文本图元。
@@ -138,4 +142,29 @@ fn sync_selected_magnifier_scale(state: &mut SnipperState) {
     );
     action.adjust_scale(state.toolbar.sub_options.magnifier_scale, Some(center));
     state.annotations.replace(index, shape);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalized_wheel_delta_rejects_invalid_values() {
+        assert_eq!(
+            normalized_wheel_delta(MouseScrollDelta::LineDelta(0.0, 1.0)),
+            Some(1.0)
+        );
+        assert_eq!(
+            normalized_wheel_delta(MouseScrollDelta::LineDelta(0.0, 0.0)),
+            None
+        );
+        assert_eq!(
+            normalized_wheel_delta(MouseScrollDelta::LineDelta(0.0, f32::NAN)),
+            None
+        );
+        assert_eq!(
+            normalized_wheel_delta(MouseScrollDelta::LineDelta(0.0, 0.05)),
+            None
+        );
+    }
 }
