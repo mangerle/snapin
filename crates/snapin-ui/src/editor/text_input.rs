@@ -301,57 +301,63 @@ struct InputBoxRect {
 
 /// 绘制文字输入过程中的黑色外边框与高对比度浅白背景衬底
 fn render_input_box(pixmap: &mut PixmapMut, input_box: InputBoxRect) {
-    let InputBoxRect {
-        x: box_x,
-        y: box_y,
-        width: box_w,
-        height: box_h,
-    } = input_box;
-    let mut pb = PathBuilder::new();
-    let r = 2.5;
-    pb.move_to(box_x + r, box_y);
-    pb.line_to(box_x + box_w - r, box_y);
-    pb.quad_to(box_x + box_w, box_y, box_x + box_w, box_y + r);
-    pb.line_to(box_x + box_w, box_y + box_h - r);
-    pb.quad_to(
-        box_x + box_w,
-        box_y + box_h,
-        box_x + box_w - r,
-        box_y + box_h,
+    let Some(path) = input_box_path(input_box) else {
+        return;
+    };
+
+    // 1. 半透明微白底色，确保在深色或复杂底图上文字和光标依然清晰
+    let mut background = Paint {
+        anti_alias: true,
+        ..Default::default()
+    };
+    background.set_color_rgba8(255, 255, 255, 210);
+    pixmap.fill_path(
+        &path,
+        &background,
+        tiny_skia::FillRule::Winding,
+        Transform::identity(),
+        None,
     );
-    pb.line_to(box_x + r, box_y + box_h);
-    pb.quad_to(box_x, box_y + box_h, box_x, box_y + box_h - r);
-    pb.line_to(box_x, box_y + r);
-    pb.quad_to(box_x, box_y, box_x + r, box_y);
-    pb.close();
 
-    if let Some(path) = pb.finish() {
-        // 1. 半透明微白底色，确保在深色或复杂底图上文字和光标依然清晰
-        let mut bg_paint = Paint {
-            anti_alias: true,
-            ..Default::default()
-        };
-        bg_paint.set_color_rgba8(255, 255, 255, 210);
-        pixmap.fill_path(
-            &path,
-            &bg_paint,
-            tiny_skia::FillRule::Winding,
-            Transform::identity(),
-            None,
-        );
-
-        // 2. 经典深黑外边框
-        let mut border_paint = Paint {
-            anti_alias: true,
-            ..Default::default()
-        };
-        border_paint.set_color_rgba8(15, 23, 42, 240);
-        let stroke = Stroke {
+    // 2. 经典深黑外边框
+    let mut border = Paint {
+        anti_alias: true,
+        ..Default::default()
+    };
+    border.set_color_rgba8(15, 23, 42, 240);
+    pixmap.stroke_path(
+        &path,
+        &border,
+        &Stroke {
             width: 1.5,
             ..Default::default()
-        };
-        pixmap.stroke_path(&path, &border_paint, &stroke, Transform::identity(), None);
-    }
+        },
+        Transform::identity(),
+        None,
+    );
+}
+
+/// 构造输入框的圆角矩形路径。
+fn input_box_path(input_box: InputBoxRect) -> Option<tiny_skia::Path> {
+    let InputBoxRect {
+        x,
+        y,
+        width,
+        height,
+    } = input_box;
+    let radius = 2.5;
+    let mut builder = PathBuilder::new();
+    builder.move_to(x + radius, y);
+    builder.line_to(x + width - radius, y);
+    builder.quad_to(x + width, y, x + width, y + radius);
+    builder.line_to(x + width, y + height - radius);
+    builder.quad_to(x + width, y + height, x + width - radius, y + height);
+    builder.line_to(x + radius, y + height);
+    builder.quad_to(x, y + height, x, y + height - radius);
+    builder.line_to(x, y + radius);
+    builder.quad_to(x, y, x + radius, y);
+    builder.close();
+    builder.finish()
 }
 
 /// 预编辑文本下划线参数。
