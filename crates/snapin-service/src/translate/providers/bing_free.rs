@@ -73,6 +73,20 @@ impl BingFreeTranslator {
 
     /// 抓取页面并解析出本次会话所需的 IG 与防滥用令牌
     async fn fetch_session(&self) -> Result<BingSession, ServiceError> {
+        let (html, endpoint, referer) = self.fetch_page().await?;
+        let (ig, key, token) = parse_session_tokens(&html)?;
+        Ok(BingSession {
+            client: self.client.clone(),
+            endpoint,
+            referer,
+            ig,
+            key,
+            token,
+        })
+    }
+
+    /// 抓取必应翻译页面并返回 HTML、区域端点和 Referer。
+    async fn fetch_page(&self) -> Result<(String, String, String), ServiceError> {
         let response = self
             .client
             .get(self.page.as_str())
@@ -89,49 +103,47 @@ impl BingFreeTranslator {
             provider: "bing_free".to_string(),
             message: format!("必应翻译页面不是合法 UTF-8: {error}"),
         })?;
+        Ok((html, endpoint, referer))
+    }
+}
 
-        let ig = extract_between(&html, "IG:\"", '"').ok_or_else(|| ServiceError::ApiError {
-            provider: "bing_free".to_string(),
-            code: "TOKEN_UNAVAILABLE".to_string(),
-            message: "未能从必应翻译页面解析出 IG 令牌，页面结构可能已变更".to_string(),
-        })?;
+/// 解析页面中的 IG 与防滥用 Key/Token。
+fn parse_session_tokens(html: &str) -> Result<(String, String, String), ServiceError> {
+    let ig = extract_between(html, "IG:\"", '"').ok_or_else(|| ServiceError::ApiError {
+        provider: "bing_free".to_string(),
+        code: "TOKEN_UNAVAILABLE".to_string(),
+        message: "未能从必应翻译页面解析出 IG 令牌，页面结构可能已变更".to_string(),
+    })?;
 
-        let helper =
-            extract_between(&html, "params_AbusePreventionHelper = [", ']').ok_or_else(|| {
-                ServiceError::ApiError {
-                    provider: "bing_free".to_string(),
-                    code: "TOKEN_UNAVAILABLE".to_string(),
-                    message: "未能从必应翻译页面解析出防滥用令牌".to_string(),
-                }
-            })?;
-
-        let mut parts = helper.split(',');
-        let key = parts
-            .next()
-            .map(|value| value.trim().trim_matches('"').to_string())
-            .unwrap_or_default();
-        let token = parts
-            .next()
-            .map(|value| value.trim().trim_matches('"').to_string())
-            .unwrap_or_default();
-        if key.is_empty() || token.is_empty() {
-            return Err(ServiceError::ApiError {
+    let helper =
+        extract_between(html, "params_AbusePreventionHelper = [", ']').ok_or_else(|| {
+            ServiceError::ApiError {
                 provider: "bing_free".to_string(),
                 code: "TOKEN_UNAVAILABLE".to_string(),
-                message: "必应防滥用令牌格式异常".to_string(),
-            });
-        }
+                message: "未能从必应翻译页面解析出防滥用令牌".to_string(),
+            }
+        })?;
 
-        Ok(BingSession {
-            client: self.client.clone(),
-            endpoint,
-            referer,
-            ig: ig.to_string(),
-            key,
-            token,
-        })
+    let mut parts = helper.split(',');
+    let key = parts
+        .next()
+        .map(|value| value.trim().trim_matches('"').to_string())
+        .unwrap_or_default();
+    let token = parts
+        .next()
+        .map(|value| value.trim().trim_matches('"').to_string())
+        .unwrap_or_default();
+    if key.is_empty() || token.is_empty() {
+        return Err(ServiceError::ApiError {
+            provider: "bing_free".to_string(),
+            code: "TOKEN_UNAVAILABLE".to_string(),
+            message: "必应防滥用令牌格式异常".to_string(),
+        });
     }
+    Ok((ig.to_string(), key, token))
+}
 
+impl BingFreeTranslator {
     /// 翻译单条文本
     async fn translate_one(
         session: &BingSession,
