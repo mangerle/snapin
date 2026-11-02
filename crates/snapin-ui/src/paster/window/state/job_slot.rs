@@ -8,27 +8,34 @@ use crate::ports::{JobCancel, JobId};
 /// 单任务槽状态。
 #[derive(Default)]
 pub(crate) struct PasterJobSlot {
-    job_id: Option<JobId>,
-    cancel: Option<JobCancel>,
+    pending: Option<PendingPasterJob>,
+}
+
+/// 一个已提交但尚未完成的贴图任务。
+struct PendingPasterJob {
+    id: JobId,
+    cancel: JobCancel,
 }
 
 impl PasterJobSlot {
     /// 是否有后台任务正在执行。
     pub(crate) fn has_pending(&self) -> bool {
-        self.job_id.is_some()
+        self.pending.is_some()
     }
 
     /// 记录新提交的任务与取消闭包。
     pub(crate) fn begin(&mut self, job_id: JobId, cancel: JobCancel) {
-        self.job_id = Some(job_id);
-        self.cancel = Some(cancel);
+        self.pending = Some(PendingPasterJob { id: job_id, cancel });
     }
 
     /// 结束匹配任务；过期任务返回 false，由调用方丢弃结果。
     pub(crate) fn finish(&mut self, job_id: JobId) -> bool {
-        if self.job_id == Some(job_id) {
-            self.job_id = None;
-            self.cancel = None;
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.id == job_id)
+        {
+            self.pending = None;
             true
         } else {
             false
@@ -37,9 +44,8 @@ impl PasterJobSlot {
 
     /// 取消当前任务并清空槽位。
     pub(crate) fn cancel(&mut self) {
-        if let Some(cancel) = self.cancel.take() {
-            cancel();
+        if let Some(pending) = self.pending.take() {
+            (pending.cancel)();
         }
-        self.job_id = None;
     }
 }
