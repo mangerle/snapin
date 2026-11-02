@@ -7,115 +7,153 @@ use super::mouse::{handle_cursor_move, handle_mouse_button, handle_mouse_wheel};
 use super::presenter::SnipperPresenter;
 use super::types::SnipperOutcome;
 use image::RgbaImage;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{Ime, WindowEvent};
 use winit::window::Window;
 
 /// 截图窗口事件分发器
 pub struct SnipperEventDispatcher;
 
+/// 单次窗口事件派发所需的运行时引用。
+pub(crate) struct SnipperDispatchContext<'a> {
+    pub window: &'a Window,
+    pub presenter: &'a mut SnipperPresenter,
+    pub state: &'a mut SnipperState,
+    pub bg_image: &'a RgbaImage,
+}
+
 impl SnipperEventDispatcher {
     /// 分发单一窗口事件并根据需要驱动界面重绘或安全退出
-    pub fn dispatch(
-        event: WindowEvent,
-        window: &Window,
-        presenter: &mut SnipperPresenter,
-        state: &mut SnipperState,
-        bg_image: &RgbaImage,
-    ) {
-        let screen_w = bg_image.width();
-        let screen_h = bg_image.height();
-
+    pub(crate) fn dispatch(event: WindowEvent, mut context: SnipperDispatchContext<'_>) {
         match event {
-            WindowEvent::RedrawRequested => {
-                if let Err(e) = presenter.render_and_present(state, bg_image) {
-                    tracing::error!("向屏幕刷新帧缓冲失败: {e}");
-                }
-            }
+            WindowEvent::RedrawRequested => render_frame(&mut context),
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                let s = scale_factor as f32;
-                state.editor.annotation.toolbar.ui_scale = s;
-                state.viewport.magnifier.ui_scale = s;
-                window.request_redraw();
+                apply_scale_factor(&mut context, scale_factor as f32);
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let need_redraw = handle_cursor_move(
-                    state,
-                    (position.x, position.y),
-                    screen_w as f32,
-                    screen_h as f32,
-                );
-                if need_redraw {
-                    window.request_redraw();
-                }
+                handle_cursor_position(&mut context, position);
             }
-            WindowEvent::MouseWheel { delta, .. } => {
-                if handle_mouse_wheel(state, delta) {
-                    window.request_redraw();
-                }
-            }
+            WindowEvent::MouseWheel { delta, .. } => handle_wheel(&mut context, delta),
             WindowEvent::MouseInput {
-                state: btn_state,
+                state: button_state,
                 button,
                 ..
-            } => {
-                let need_redraw = handle_mouse_button(state, button, btn_state, bg_image);
-                if need_redraw {
-                    window.request_redraw();
-                }
-            }
+            } => handle_pointer_button(&mut context, button, button_state),
             WindowEvent::KeyboardInput {
                 event: key_event, ..
-            } => {
-                let need_redraw =
-                    handle_key_input(state, &key_event.logical_key, key_event.state, bg_image);
-                if need_redraw {
-                    window.request_redraw();
-                }
-            }
-            WindowEvent::Ime(ime_event) => {
-                let need_redraw = match ime_event {
-                    Ime::Commit(text) => {
-                        if let Some(session) = &mut state.editor.annotation.active_text_input {
-                            session.push_commit(&text);
-                            true
-                        } else {
-                            false
-                        }
-                    }
-                    Ime::Preedit(text, _cursor) => {
-                        if let Some(session) = &mut state.editor.annotation.active_text_input {
-                            session.set_preedit(&text);
-                            true
-                        } else {
-                            false
-                        }
-                    }
-                    _ => false,
-                };
-                if need_redraw {
-                    if let Some(session) = &state.editor.annotation.active_text_input {
-                        window.set_ime_cursor_area(
-                            winit::dpi::PhysicalPosition::new(
-                                session.pos.x as i32,
-                                session.pos.y as i32,
-                            ),
-                            winit::dpi::PhysicalSize::new(24, session.font_size as u32),
-                        );
-                    }
-                    window.request_redraw();
-                }
-            }
-            WindowEvent::ModifiersChanged(mods) => {
-                state.viewport.modifiers = mods.state();
+            } => handle_keyboard(&mut context, &key_event),
+            WindowEvent::Ime(ime_event) => handle_ime(&mut context, ime_event),
+            WindowEvent::ModifiersChanged(modifiers) => {
+                context.state.viewport.modifiers = modifiers.state();
             }
             WindowEvent::CloseRequested => {
-                state.cancel_pending_job();
-                state.session.outcome = Some(SnipperOutcome::Cancelled);
+                context.state.cancel_pending_job();
+                context.state.session.outcome = Some(SnipperOutcome::Cancelled);
             }
             _ => {}
         }
 
         // 任意事件都可能改变选区、工具或光标位置，统一在此刷新系统光标形状
-        refresh_cursor(window, state);
+        refresh_cursor(context.window, context.state);
+    }
+}
+
+/// 执行一帧渲染并记录呈现失败。
+fn render_frame(context: &mut SnipperDispatchContext<'_>) {
+    if let Err(error) = context
+        .presenter
+        .render_and_present(context.state, context.bg_image)
+    {
+        tracing::error!("向屏幕刷新帧缓冲失败: {error}");
+    }
+}
+
+/// 同步 DPI 缩放并请求重绘。
+fn apply_scale_factor(context: &mut SnipperDispatchContext<'_>, scale_factor: f32) {
+    context.state.editor.annotation.toolbar.ui_scale = scale_factor;
+    context.state.viewport.magnifier.ui_scale = scale_factor;
+    context.window.request_redraw();
+}
+
+/// 将物理光标位置交给选区与标注交互状态机。
+fn handle_cursor_position(
+    context: &mut SnipperDispatchContext<'_>,
+    position: PhysicalPosition<f64>,
+) {
+    let screen_width = context.bg_image.width() as f32;
+    let screen_height = context.bg_image.height() as f32;
+    let need_redraw = handle_cursor_move(
+        context.state,
+        (position.x, position.y),
+        screen_width,
+        screen_height,
+    );
+    if need_redraw {
+        context.window.request_redraw();
+    }
+}
+
+/// 处理鼠标滚轮并请求重绘。
+fn handle_wheel(context: &mut SnipperDispatchContext<'_>, delta: winit::event::MouseScrollDelta) {
+    if handle_mouse_wheel(context.state, delta) {
+        context.window.request_redraw();
+    }
+}
+
+/// 处理鼠标按键并请求重绘。
+fn handle_pointer_button(
+    context: &mut SnipperDispatchContext<'_>,
+    button: winit::event::MouseButton,
+    button_state: winit::event::ElementState,
+) {
+    let need_redraw = handle_mouse_button(context.state, button, button_state, context.bg_image);
+    if need_redraw {
+        context.window.request_redraw();
+    }
+}
+
+/// 处理键盘输入并请求重绘。
+fn handle_keyboard(context: &mut SnipperDispatchContext<'_>, key_event: &winit::event::KeyEvent) {
+    let need_redraw = handle_key_input(
+        context.state,
+        &key_event.logical_key,
+        key_event.state,
+        context.bg_image,
+    );
+    if need_redraw {
+        context.window.request_redraw();
+    }
+}
+
+/// 应用输入法提交或预编辑文本，并同步 IME 光标区域。
+fn handle_ime(context: &mut SnipperDispatchContext<'_>, event: Ime) {
+    let need_redraw = apply_ime_text(context.state, event);
+    if !need_redraw {
+        return;
+    }
+    if let Some(session) = &context.state.editor.annotation.active_text_input {
+        context.window.set_ime_cursor_area(
+            PhysicalPosition::new(session.pos.x as i32, session.pos.y as i32),
+            PhysicalSize::new(24, session.font_size as u32),
+        );
+    }
+    context.window.request_redraw();
+}
+
+/// 将 IME 文本写入当前文本会话；无活动会话时忽略。
+fn apply_ime_text(state: &mut SnipperState, event: Ime) -> bool {
+    let Some(session) = &mut state.editor.annotation.active_text_input else {
+        return false;
+    };
+    match event {
+        Ime::Commit(text) => {
+            session.push_commit(&text);
+            true
+        }
+        Ime::Preedit(text, _cursor) => {
+            session.set_preedit(&text);
+            true
+        }
+        _ => false,
     }
 }

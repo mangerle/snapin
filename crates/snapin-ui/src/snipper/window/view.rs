@@ -9,7 +9,7 @@
 //!
 //! 视图不持有事件循环、不决定退出时机；宿主在每次事件后检查 [`SnipperView::take_outcome`]。
 
-use super::event_dispatcher::SnipperEventDispatcher;
+use super::event_dispatcher::{SnipperDispatchContext, SnipperEventDispatcher};
 use super::events::SnipperState;
 use super::jobs::{handle_job_outcome, SnipperJobKind, SnipperJobRuntime, SnipperJobSink};
 use super::presenter::SnipperPresenter;
@@ -171,10 +171,12 @@ impl SnipperView {
     pub fn dispatch(&mut self, event: WindowEvent) {
         SnipperEventDispatcher::dispatch(
             event,
-            &self.window,
-            &mut self.presenter,
-            &mut self.state,
-            &self.bg_image,
+            SnipperDispatchContext {
+                window: self.window.as_ref(),
+                presenter: &mut self.presenter,
+                state: &mut self.state,
+                bg_image: &self.bg_image,
+            },
         );
     }
 
