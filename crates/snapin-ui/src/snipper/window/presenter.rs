@@ -3,7 +3,7 @@
 use super::presenter_support::{covering_pixel_bounds, scale_pixmap_to, selected_annotation_view};
 use crate::error::UiError;
 use crate::snipper::canvas::SnipperCanvas;
-use crate::snipper::magnifier::Magnifier;
+use crate::snipper::magnifier::{Magnifier, MagnifierViewport};
 use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::window::events::SnipperState;
 use crate::surface::{
@@ -290,7 +290,12 @@ impl SnipperPresenter {
             state.viewport.cursor_pos.1 as i32,
         );
         let magnifier_rect = if state.viewport.cursor_ready {
-            state.viewport.magnifier.card_bounds(cx, cy, width, height)
+            state.viewport.magnifier.card_bounds(MagnifierViewport {
+                cursor_x: cx,
+                cursor_y: cy,
+                width,
+                height,
+            })
         } else {
             None
         };
@@ -436,7 +441,12 @@ impl SnipperPresenter {
         Some(OverlaySnapshot {
             hovered_window: state.viewport.hovered_window,
             magnifier_rect: if state.viewport.cursor_ready {
-                state.viewport.magnifier.card_bounds(cx, cy, width, height)
+                state.viewport.magnifier.card_bounds(MagnifierViewport {
+                    cursor_x: cx,
+                    cursor_y: cy,
+                    width,
+                    height,
+                })
             } else {
                 None
             },

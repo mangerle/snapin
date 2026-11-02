@@ -23,6 +23,19 @@ struct MagnifierLayout {
     margin: f32,
 }
 
+/// 放大镜计算所需的鼠标位置与视口尺寸。
+#[derive(Debug, Clone, Copy)]
+pub struct MagnifierViewport {
+    /// 鼠标横坐标
+    pub cursor_x: i32,
+    /// 鼠标纵坐标
+    pub cursor_y: i32,
+    /// 视口宽度
+    pub width: u32,
+    /// 视口高度
+    pub height: u32,
+}
+
 /// 放大镜控制器
 pub struct Magnifier {
     pub enabled: bool,
@@ -58,13 +71,7 @@ impl Magnifier {
     /// 计算放大镜卡片布局：采样网格尺寸、屏幕边界避让与底部色值条高度。
     ///
     /// 返回 `None` 表示放大镜被禁用，调用方无需绘制也无需计算脏区。
-    fn layout(
-        &self,
-        cursor_x: i32,
-        cursor_y: i32,
-        viewport_w: u32,
-        viewport_h: u32,
-    ) -> Option<MagnifierLayout> {
+    fn layout(&self, viewport: MagnifierViewport) -> Option<MagnifierLayout> {
         if !self.enabled {
             return None;
         }
@@ -77,13 +84,13 @@ impl Magnifier {
 
         // 动态偏移：防止放大镜挡住光标本身或超出屏幕边界
         let offset = 20.0 * s;
-        let mut target_x = cursor_x as f32 + offset;
-        let mut target_y = cursor_y as f32 + offset;
-        if target_x + box_w > viewport_w as f32 {
-            target_x = (cursor_x as f32 - box_w - offset).max(0.0);
+        let mut target_x = viewport.cursor_x as f32 + offset;
+        let mut target_y = viewport.cursor_y as f32 + offset;
+        if target_x + box_w > viewport.width as f32 {
+            target_x = (viewport.cursor_x as f32 - box_w - offset).max(0.0);
         }
-        if target_y + box_h + 30.0 * s > viewport_h as f32 {
-            target_y = (cursor_y as f32 - box_h - (offset + 20.0 * s)).max(0.0);
+        if target_y + box_h + 30.0 * s > viewport.height as f32 {
+            target_y = (viewport.cursor_y as f32 - box_h - (offset + 20.0 * s)).max(0.0);
         }
 
         Some(MagnifierLayout {
@@ -100,14 +107,8 @@ impl Magnifier {
     /// 返回放大镜卡片占据的像素矩形（含描边余量）。
     ///
     /// 供增量重绘精确抹除上一帧的放大镜像素，避免每帧整屏恢复底图。
-    pub fn card_bounds(
-        &self,
-        cursor_x: i32,
-        cursor_y: i32,
-        viewport_w: u32,
-        viewport_h: u32,
-    ) -> Option<Rect> {
-        let layout = self.layout(cursor_x, cursor_y, viewport_w, viewport_h)?;
+    pub fn card_bounds(&self, viewport: MagnifierViewport) -> Option<Rect> {
+        let layout = self.layout(viewport)?;
         Some(Rect {
             x: layout.target_x - layout.margin,
             y: layout.target_y - layout.margin,
@@ -117,15 +118,15 @@ impl Magnifier {
     }
 
     /// 在给定的目标 pixmap 上绘制跟随光标的放大镜卡片 (自适应 HiDPI 缩放)
-    pub fn render(&self, pixmap: &mut PixmapMut, img: &RgbaImage, cursor_x: i32, cursor_y: i32) {
-        let Some(layout) = self.layout(cursor_x, cursor_y, pixmap.width(), pixmap.height()) else {
+    pub fn render(&self, pixmap: &mut PixmapMut, img: &RgbaImage, viewport: MagnifierViewport) {
+        let Some(layout) = self.layout(viewport) else {
             return;
         };
         MagnifierRenderContext {
             magnifier: self,
             pixmap,
             image: img,
-            cursor: (cursor_x, cursor_y),
+            cursor: (viewport.cursor_x, viewport.cursor_y),
             layout: &layout,
         }
         .render();
@@ -288,7 +289,12 @@ mod tests {
 
         // 采样 15 格 x 每格 8 像素 = 120，偏移 20，描边余量 2，底部色值条 24
         let normal = mag
-            .card_bounds(100, 100, 1920, 1080)
+            .card_bounds(MagnifierViewport {
+                cursor_x: 100,
+                cursor_y: 100,
+                width: 1920,
+                height: 1080,
+            })
             .expect("启用时必须有布局");
         assert_eq!(normal.x, 118.0);
         assert_eq!(normal.y, 118.0);
@@ -297,7 +303,12 @@ mod tests {
 
         // 右下角空间不足时翻转到光标左上侧，且不得越出屏幕左/上边界
         let flipped = mag
-            .card_bounds(1900, 1070, 1920, 1080)
+            .card_bounds(MagnifierViewport {
+                cursor_x: 1900,
+                cursor_y: 1070,
+                width: 1920,
+                height: 1080,
+            })
             .expect("启用时必须有布局");
         assert_eq!(flipped.x, 1758.0);
         assert_eq!(flipped.y, 908.0);
@@ -307,6 +318,13 @@ mod tests {
             enabled: false,
             ..mag
         };
-        assert!(disabled.card_bounds(100, 100, 1920, 1080).is_none());
+        assert!(disabled
+            .card_bounds(MagnifierViewport {
+                cursor_x: 100,
+                cursor_y: 100,
+                width: 1920,
+                height: 1080
+            })
+            .is_none());
     }
 }

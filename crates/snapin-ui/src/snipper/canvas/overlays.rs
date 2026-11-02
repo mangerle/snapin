@@ -1,6 +1,7 @@
 //! 截图覆盖层的光标、检测预览、OCR 面板与状态提示绘制。
 
 use super::*;
+use crate::snipper::magnifier::MagnifierViewport;
 use crate::snipper::window::ocr_panel::{OcrPanelLayout, OcrPanelLine};
 use snapin_render::{TextDrawOptions, TextRenderer};
 
@@ -295,8 +296,12 @@ impl<'a> SnipperCanvas<'a> {
         self.magnifier.render(
             pixmap,
             self.original_rgba,
-            self.cursor_pos.0 as i32,
-            self.cursor_pos.1 as i32,
+            MagnifierViewport {
+                cursor_x: self.cursor_pos.0 as i32,
+                cursor_y: self.cursor_pos.1 as i32,
+                width: pixmap.width(),
+                height: pixmap.height(),
+            },
         );
     }
 
