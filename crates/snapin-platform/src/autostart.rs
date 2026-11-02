@@ -238,8 +238,9 @@ mod windows {
                 .status;
 
             if !status.success() {
-                return Err(PlatformError::Capture {
-                    message: format!("写入 Windows 注册表启动项失败，返回码: {status}"),
+                return Err(PlatformError::Autostart {
+                    platform: "Windows".to_string(),
+                    message: format!("写入 HKCU Run 注册表启动项失败，状态: {status}"),
                 });
             }
             tracing::info!("已在 Windows 注册表中配置自启动项: {APP_NAME}");

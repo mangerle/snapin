@@ -41,6 +41,10 @@ pub enum PlatformError {
     #[error("启动常驻守护进程失败，可执行文件: {executable}，原因: {message}")]
     ProcessStart { executable: String, message: String },
 
+    /// 平台自启动配置失败。
+    #[error("系统自启动配置失败，平台: {platform}，原因: {message}")]
+    Autostart { platform: String, message: String },
+
     /// systemd 用户服务控制失败
     #[error("systemd 用户服务{action}失败，服务: {service}，原因: {message}")]
     Systemd {
