@@ -6,7 +6,7 @@
 use super::super::items::Tool;
 use super::super::layout::{SubControl, SubDropdown};
 use super::super::Toolbar;
-use super::magnifier_controls::render_magnifier_sub_control;
+use super::magnifier_controls::{render_magnifier_sub_control, MagnifierControlSpec};
 use super::sub_bar_helpers::{
     is_badge_control, render_badge_control, render_caret, render_corner_radius_with_value,
     render_effect_strength_slider, render_fill_toggle, render_numeric, render_size_with_dot,
@@ -48,13 +48,15 @@ impl SubControlRenderer<'_, '_> {
         };
 
         if render_magnifier_sub_control(
-            self.toolbar,
-            control,
             self.pixmap,
-            &self.rect,
-            self.center_y,
-            self.scale,
-            self.highlight,
+            MagnifierControlSpec {
+                toolbar: self.toolbar,
+                control,
+                rect: &self.rect,
+                center_y: self.center_y,
+                scale: self.scale,
+                highlight: self.highlight,
+            },
         ) || is_badge_control(control)
         {
             if is_badge_control(control) {
