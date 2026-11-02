@@ -30,10 +30,13 @@ pub(super) async fn execute_job(
     if cancel.load(Ordering::Acquire) {
         return cancelled();
     }
+    let context = MediaTaskContext {
+        cache: &cache,
+        config: &config,
+        cancel: &cancel,
+    };
     match job {
-        MediaJob::Ocr { image, origin } => {
-            execute_ocr(&cache, image, origin, &config, &cancel).await
-        }
+        MediaJob::Ocr { image, origin } => execute_ocr(&context, image, origin).await,
         MediaJob::DecodeQr { image, origin } => execute_qr(image, origin, &cancel).await,
         MediaJob::Translate {
             image,
@@ -41,11 +44,9 @@ pub(super) async fn execute_job(
             cover_mode,
         } => {
             execute_translate(
-                &cache,
+                &context,
                 Arc::new(image),
-                &config,
                 TranslationPlacement { origin, cover_mode },
-                &cancel,
             )
             .await
         }
@@ -74,6 +75,14 @@ pub(super) async fn execute_job(
             execute_save_beautified(image, options, &config).await
         }
     }
+}
+
+/// OCR 与翻译执行器共享的缓存、配置和取消上下文。
+#[derive(Clone, Copy)]
+struct MediaTaskContext<'a> {
+    cache: &'a Arc<Mutex<OcrCache>>,
+    config: &'a Config,
+    cancel: &'a Arc<AtomicBool>,
 }
 
 /// 渲染美化截图并保存为当前默认输出格式。
@@ -201,24 +210,22 @@ async fn get_ocr_engine(
 
 /// 执行 OCR 并返回全文。
 async fn execute_ocr(
-    cache: &Arc<Mutex<OcrCache>>,
+    context: &MediaTaskContext<'_>,
     image: image::RgbaImage,
     origin: (u32, u32),
-    config: &Config,
-    cancel: &Arc<AtomicBool>,
 ) -> MediaJobOutcome {
-    if cancel.load(Ordering::Acquire) {
+    if context.cancel.load(Ordering::Acquire) {
         return cancelled();
     }
-    let engine = match get_ocr_engine(cache, config).await {
+    let engine = match get_ocr_engine(context.cache, context.config).await {
         Ok(engine) => engine,
         Err(message) => return MediaJobOutcome::Failed { message },
     };
-    if cancel.load(Ordering::Acquire) {
+    if context.cancel.load(Ordering::Acquire) {
         return cancelled();
     }
     let outcome = tokio::task::spawn_blocking(move || engine.recognize(&image)).await;
-    if cancel.load(Ordering::Acquire) {
+    if context.cancel.load(Ordering::Acquire) {
         return cancelled();
     }
     match outcome {
@@ -293,20 +300,18 @@ async fn execute_qr(
 
 /// 执行 OCR、逐段翻译并生成原位翻译图元。
 async fn execute_translate(
-    cache: &Arc<Mutex<OcrCache>>,
+    context: &MediaTaskContext<'_>,
     image: Arc<image::RgbaImage>,
-    config: &Config,
     placement: TranslationPlacement,
-    cancel: &Arc<AtomicBool>,
 ) -> MediaJobOutcome {
-    let ocr_result = match recognize_for_translation(cache, image.clone(), config, cancel).await {
+    let ocr_result = match recognize_for_translation(context, image.clone()).await {
         Ok(result) => result,
         Err(outcome) => return outcome,
     };
     if ocr_result.blocks.is_empty() {
         return MediaJobOutcome::Translated { items: Vec::new() };
     }
-    let translated = match translate_blocks(config, &ocr_result, cancel).await {
+    let translated = match translate_blocks(context, &ocr_result).await {
         Ok(translated) => translated,
         Err(outcome) => return outcome,
     };
@@ -315,22 +320,20 @@ async fn execute_translate(
 
 /// 在取消边界内执行 OCR，并将推理错误转换为最终任务回执。
 async fn recognize_for_translation(
-    cache: &Arc<Mutex<OcrCache>>,
+    context: &MediaTaskContext<'_>,
     image: Arc<image::RgbaImage>,
-    config: &Config,
-    cancel: &Arc<AtomicBool>,
 ) -> Result<OcrResult, MediaJobOutcome> {
-    if cancel.load(Ordering::Acquire) {
+    if context.cancel.load(Ordering::Acquire) {
         return Err(cancelled());
     }
-    let engine = get_ocr_engine(cache, config)
+    let engine = get_ocr_engine(context.cache, context.config)
         .await
         .map_err(|message| MediaJobOutcome::Failed { message })?;
-    if cancel.load(Ordering::Acquire) {
+    if context.cancel.load(Ordering::Acquire) {
         return Err(cancelled());
     }
     let result = tokio::task::spawn_blocking(move || engine.recognize(&image)).await;
-    if cancel.load(Ordering::Acquire) {
+    if context.cancel.load(Ordering::Acquire) {
         return Err(cancelled());
     }
     match result {
@@ -346,25 +349,28 @@ async fn recognize_for_translation(
 
 /// 提取 OCR 文本并调用配置的翻译服务。
 async fn translate_blocks(
-    config: &Config,
+    context: &MediaTaskContext<'_>,
     ocr_result: &OcrResult,
-    cancel: &Arc<AtomicBool>,
 ) -> Result<Vec<String>, MediaJobOutcome> {
     let mut texts = Vec::with_capacity(ocr_result.blocks.len());
     for block in &ocr_result.blocks {
         texts.push(block.text.clone());
     }
-    if cancel.load(Ordering::Acquire) {
+    if context.cancel.load(Ordering::Acquire) {
         return Err(cancelled());
     }
-    let translator = build_translator(config);
+    let translator = build_translator(context.config);
     let translated = translator
-        .translate_batch(&texts, "auto", config.translate.target_language.as_str())
+        .translate_batch(
+            &texts,
+            "auto",
+            context.config.translate.target_language.as_str(),
+        )
         .await
         .map_err(|error| MediaJobOutcome::Failed {
             message: error.to_string(),
         })?;
-    if cancel.load(Ordering::Acquire) {
+    if context.cancel.load(Ordering::Acquire) {
         return Err(cancelled());
     }
     Ok(translated)
