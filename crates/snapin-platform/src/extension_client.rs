@@ -43,7 +43,16 @@ fn default_window_scale() -> f64 {
 }
 
 /// 读取扩展启动时生成的进程间能力令牌，阻止同会话其他客户端调用特权方法。
-fn read_extension_token() -> Result<String, PlatformError> {
+async fn read_extension_token() -> Result<String, PlatformError> {
+    tokio::task::spawn_blocking(read_extension_token_blocking)
+        .await
+        .map_err(|error| PlatformError::DBus {
+            service: EXT_BUS_NAME.to_string(),
+            message: format!("等待 GNOME 扩展能力令牌读取任务失败: {error}"),
+        })?
+}
+
+fn read_extension_token_blocking() -> Result<String, PlatformError> {
     let path = AppPaths::runtime_dir().join(EXTENSION_TOKEN_FILE);
     let token = snapin_foundation::read_utf8_file_limited(&path, EXTENSION_TOKEN_MAX_BYTES)
         .map_err(|error| PlatformError::DBus {
@@ -141,7 +150,7 @@ fn is_unknown_method_error_name(name: &str) -> bool {
 /// 会话总线不可用、扩展未部署、方法调用超时或返回值解析失败时返回 [`PlatformError::DBus`]。
 pub async fn place_paster_window(title: &str, x: i32, y: i32) -> Result<bool, PlatformError> {
     tracing::debug!("正在请求 GNOME 扩展放置贴图窗口: {title}，坐标: ({x}, {y})");
-    let token = read_extension_token()?;
+    let token = read_extension_token().await?;
     let arguments = (token.as_str(), title, x, y);
     let (placed,): (bool,) = call_extension("PlaceWindowByTitle", &arguments).await?;
     Ok(placed)
@@ -154,7 +163,7 @@ pub async fn place_paster_window(title: &str, x: i32, y: i32) -> Result<bool, Pl
 /// 会话总线不可用、扩展未部署、方法调用超时或返回值解析失败时返回 [`PlatformError::DBus`]。
 pub async fn capture_fullscreen_extension(target_path: &str) -> Result<bool, PlatformError> {
     tracing::debug!("正在向 GNOME 扩展请求原生极速全屏截屏: {}", target_path);
-    let token = read_extension_token()?;
+    let token = read_extension_token().await?;
     let arguments = (token.as_str(), target_path);
     let (success,): (bool,) = call_extension("CaptureFullscreen", &arguments).await?;
     Ok(success)
@@ -179,7 +188,7 @@ pub async fn capture_fullscreen_extension_with_cursor(
         return capture_fullscreen_extension(target_path).await;
     }
 
-    let token = read_extension_token()?;
+    let token = read_extension_token().await?;
     let arguments = (token.as_str(), target_path, include_cursor);
     let (success,): (bool,) = match call_extension("CaptureFullscreenWithCursor", &arguments).await
     {
@@ -205,7 +214,7 @@ pub async fn capture_fullscreen_extension_with_cursor(
 ///
 /// 扩展未部署、D-Bus 调用超时或窗口 JSON 解析失败时返回 [`PlatformError::DBus`]。
 pub async fn list_windows() -> Result<Vec<WindowRect>, PlatformError> {
-    let token = read_extension_token()?;
+    let token = read_extension_token().await?;
     let (json,): (String,) = call_extension("ListWindows", &(token.as_str(),)).await?;
     parse_windows_json(&json)
 }
