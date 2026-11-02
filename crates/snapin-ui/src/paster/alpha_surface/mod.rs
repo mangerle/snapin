@@ -356,7 +356,7 @@ impl ArgbShmSurface {
 
     /// 将一帧预乘 RGBA 像素提交给合成器显示。
     ///
-    /// 合成器在 [`BUFFER_RELEASE_WAIT`] 内未归还可写缓冲区时返回
+    /// 合成器在固定等待上限内未归还可写缓冲区时返回
     /// [`PresentOutcome::Deferred`]，不阻塞 GUI 线程继续等待。
     ///
     /// # Errors
