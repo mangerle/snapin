@@ -8,10 +8,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 pub mod cli;
+mod instance_lock;
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use cli::{Cli, CommandRoute, Commands};
+use instance_lock::InstanceLock;
 use snapin_app::{
     clear_snip_history, ensure_daemon_running, exit_snapin_application, install_gnome_extension,
     run_cli_update, run_daemon_process, run_pin_file,
@@ -249,8 +251,20 @@ fn main() -> Result<()> {
             let config = config.context("守护进程启动缺少用户配置")?;
             run_daemon_process(config)
         }
-        CommandRoute::Preferences => run_preferences(),
+        CommandRoute::Preferences => {
+            let Some(lock) = InstanceLock::try_acquire("settings")? else {
+                tracing::info!("Snapin 设置中心已在运行，忽略重复启动");
+                return Ok(());
+            };
+            tracing::debug!("已获取设置中心单实例锁: {}", lock.path().display());
+            run_preferences()
+        }
         CommandRoute::ClipboardPanel => {
+            let Some(lock) = InstanceLock::try_acquire("clipboard-panel")? else {
+                tracing::info!("Snapin 剪贴板历史面板已在运行，忽略重复启动");
+                return Ok(());
+            };
+            tracing::debug!("已获取剪贴板历史面板单实例锁: {}", lock.path().display());
             run_clipboard_history_panel().context("启动剪贴板历史面板失败")
         }
         CommandRoute::InstallExtension => install_gnome_extension(),

@@ -5759,6 +5759,7 @@ dependencies = [
  "snapin-settings",
  "snapin-ui",
  "snapin-updater",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
