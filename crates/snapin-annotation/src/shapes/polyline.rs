@@ -20,6 +20,13 @@ pub struct PolylineAction {
     pub end_head: ArrowHeadStyle,
 }
 
+/// 折线端点箭头绘制参数。
+struct PolylineHeadDraw {
+    tip: Point,
+    direction: (f32, f32),
+    style: ArrowHeadStyle,
+}
+
 impl PolylineAction {
     pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         if self.points.len() < 2 {
@@ -50,10 +57,12 @@ impl PolylineAction {
         let first_next = self.points.get(1).copied().unwrap_or(last);
         self.draw_head(
             pixmap,
-            Point::new(first.x + offset_x, first.y + offset_y),
-            direction(first, first_next),
-            self.start_head,
             paint,
+            PolylineHeadDraw {
+                tip: Point::new(first.x + offset_x, first.y + offset_y),
+                direction: direction(first, first_next),
+                style: self.start_head,
+            },
         );
         let last_prev = self
             .points
@@ -62,21 +71,21 @@ impl PolylineAction {
             .unwrap_or(first);
         self.draw_head(
             pixmap,
-            Point::new(last.x + offset_x, last.y + offset_y),
-            direction(last_prev, last),
-            self.end_head,
             paint,
+            PolylineHeadDraw {
+                tip: Point::new(last.x + offset_x, last.y + offset_y),
+                direction: direction(last_prev, last),
+                style: self.end_head,
+            },
         );
     }
 
-    fn draw_head(
-        &self,
-        pixmap: &mut PixmapMut,
-        tip: Point,
-        direction: (f32, f32),
-        style: ArrowHeadStyle,
-        paint: &Paint,
-    ) {
+    fn draw_head(&self, pixmap: &mut PixmapMut, paint: &Paint, head: PolylineHeadDraw) {
+        let PolylineHeadDraw {
+            tip,
+            direction,
+            style,
+        } = head;
         if style == ArrowHeadStyle::None {
             return;
         }

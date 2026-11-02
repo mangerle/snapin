@@ -43,6 +43,13 @@ struct ArrowGeometry {
     head_half_w: f32,
 }
 
+/// 单个箭头端点绘制参数。
+struct ArrowHeadDraw {
+    tip: Point,
+    direction: (f32, f32),
+    style: ArrowHeadStyle,
+}
+
 impl ArrowAction {
     /// 计算箭头几何；过短的拖拽返回 `None`，避免头部倒退吞噬箭身
     fn geometry(&self) -> Option<ArrowGeometry> {
@@ -78,14 +85,12 @@ impl ArrowAction {
         })
     }
 
-    fn draw_head_style(
-        &self,
-        pixmap: &mut PixmapMut,
-        tip: Point,
-        direction: (f32, f32),
-        paint: &Paint,
-        style: ArrowHeadStyle,
-    ) {
+    fn draw_head_style(&self, pixmap: &mut PixmapMut, paint: &Paint, head: ArrowHeadDraw) {
+        let ArrowHeadDraw {
+            tip,
+            direction,
+            style,
+        } = head;
         let (ux, uy) = direction;
         let (vx, vy) = (-uy, ux);
         let head_len = (self.stroke_width * 3.5).clamp(8.0, 48.0);
@@ -236,12 +241,22 @@ impl ArrowAction {
         let direction = (dx / length, dy / length);
         self.draw_head_style(
             pixmap,
-            geometry.start,
-            (-direction.0, -direction.1),
             &paint,
-            self.start_head,
+            ArrowHeadDraw {
+                tip: geometry.start,
+                direction: (-direction.0, -direction.1),
+                style: self.start_head,
+            },
         );
-        self.draw_head_style(pixmap, geometry.end, direction, &paint, self.end_head);
+        self.draw_head_style(
+            pixmap,
+            &paint,
+            ArrowHeadDraw {
+                tip: geometry.end,
+                direction,
+                style: self.end_head,
+            },
+        );
     }
 
     pub(crate) fn adjust_size(&mut self, param: SizeParam) {
