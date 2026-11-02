@@ -66,7 +66,16 @@ impl<'a> SnipperCanvas<'a> {
                 let Some(line) = panel.lines.get(*line_index) else {
                     continue;
                 };
-                Self::render_ocr_row(pixmap, renderer, row, line, *line_index == panel.cursor, s);
+                Self::render_ocr_row(
+                    pixmap,
+                    renderer,
+                    OcrRowRenderSpec {
+                        row,
+                        line,
+                        focused: *line_index == panel.cursor,
+                        scale: s,
+                    },
+                );
             }
         });
     }
@@ -75,11 +84,14 @@ impl<'a> SnipperCanvas<'a> {
     fn render_ocr_row(
         pixmap: &mut PixmapMut,
         renderer: &mut TextRenderer,
-        row: &Rect,
-        line: &OcrPanelLine,
-        focused: bool,
-        s: f32,
+        spec: OcrRowRenderSpec<'_>,
     ) {
+        let OcrRowRenderSpec {
+            row,
+            line,
+            focused,
+            scale: s,
+        } = spec;
         if focused {
             let mut focus = Paint::default();
             focus.set_color_rgba8(37, 99, 235, 96);
@@ -362,4 +374,12 @@ impl<'a> SnipperCanvas<'a> {
             None,
         );
     }
+}
+
+/// OCR 面板行渲染参数。
+struct OcrRowRenderSpec<'a> {
+    row: &'a Rect,
+    line: &'a OcrPanelLine,
+    focused: bool,
+    scale: f32,
 }
