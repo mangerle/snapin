@@ -57,7 +57,7 @@ pub async fn ensure_portal_screenshot_permission() -> Result<(), PlatformError> 
     let mut failures: Vec<String> = Vec::with_capacity(PORTAL_PERMISSION_APP_IDS.len());
 
     for app_id in PORTAL_PERMISSION_APP_IDS {
-        let arguments = ("screenshot", true, "screenshot", *app_id, &["yes"]);
+        let arguments = permission_arguments(app_id);
         let call = connection.call_method(
             Some("org.freedesktop.impl.portal.PermissionStore"),
             "/org/freedesktop/impl/portal/PermissionStore",
@@ -82,6 +82,20 @@ pub async fn ensure_portal_screenshot_permission() -> Result<(), PlatformError> 
         service: "org.freedesktop.impl.portal.PermissionStore".to_string(),
         message: format!("预登记截屏授权失败: {}", failures.join("；")),
     })
+}
+
+/// 构造 PermissionStore `SetPermission` 的标准参数。
+///
+/// 权限列表必须使用拥有所有权的动态字符串数组；固定长度数组会被 zvariant 编码为
+/// 单元素结构体 `(s)`，与目标方法要求的 `as` 签名不匹配。
+fn permission_arguments(app_id: &str) -> (&'static str, bool, &'static str, &str, Vec<String>) {
+    (
+        "screenshot",
+        true,
+        "screenshot",
+        app_id,
+        vec![String::from("yes")],
+    )
 }
 
 /// 请求 XDG Desktop Portal 执行静默全屏截屏（非交互模式）。
@@ -360,6 +374,7 @@ pub async fn pick_config_export_path() -> Result<Option<PathBuf>, PlatformError>
 mod tests {
     use super::*;
     use std::collections::HashSet;
+    use zbus::zvariant::Type;
 
     /// 预登记授权只能针对明确应用标识，绝不能出现空 app_id 或重复项。
     #[test]
@@ -370,5 +385,15 @@ mod tests {
         for app_id in PORTAL_PERMISSION_APP_IDS {
             assert!(!app_id.trim().is_empty(), "app_id 不得为空");
         }
+    }
+
+    /// PermissionStore 调用体必须严格匹配 `SetPermission(sbssas)`。
+    #[test]
+    fn test_permission_arguments_signature_matches_permission_store() {
+        let signature = <(&str, bool, &str, &str, Vec<String>) as Type>::signature().to_string();
+        assert_eq!(
+            signature, "(sbssas)",
+            "PermissionStore 参数签名不得退化为固定结构体"
+        );
     }
 }
