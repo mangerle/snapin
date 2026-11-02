@@ -48,6 +48,46 @@ struct PixelRegion {
     height: usize,
 }
 
+/// 可分离盒式模糊的区域尺寸与半径。
+#[derive(Clone, Copy)]
+struct BlurRegionSpec {
+    width: usize,
+    height: usize,
+    radius: usize,
+}
+
+/// 单次模糊处理复用的中间缓冲。
+struct BlurBuffers<'a> {
+    current: &'a mut Vec<u8>,
+    scratch: &'a mut Vec<u8>,
+}
+
+/// 单方向模糊扫描的尺寸与方向。
+#[derive(Clone, Copy)]
+struct BlurPassSpec {
+    width: usize,
+    height: usize,
+    radius: usize,
+    horizontal: bool,
+}
+
+/// 一维滑动窗口的起点、采样数、步长与半径。
+#[derive(Clone, Copy)]
+struct BlurLineSpec {
+    start: usize,
+    count: usize,
+    stride: usize,
+    radius: usize,
+}
+
+/// 画笔模糊遮罩的画布尺寸与偏移。
+#[derive(Clone, Copy)]
+struct BrushMaskSpec {
+    width: u32,
+    height: u32,
+    offset: Point,
+}
+
 impl BlurAction {
     pub(crate) fn draw_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
         if !self.points.is_empty() {
@@ -58,19 +98,14 @@ impl BlurAction {
     }
 
     /// 计算图元矩形在当前画布中的有效像素范围。
-    fn pixel_region(
-        &self,
-        pixmap: &PixmapMut,
-        offset_x: f32,
-        offset_y: f32,
-    ) -> Option<PixelRegion> {
+    fn pixel_region(&self, pixmap: &PixmapMut, offset: Point) -> Option<PixelRegion> {
         let (rx, ry, rw, rh) = (self.rect.x, self.rect.y, self.rect.width, self.rect.height);
         let width = pixmap.width() as f32;
         let height = pixmap.height() as f32;
-        let left = (rx + offset_x).max(0.0).floor() as usize;
-        let top = (ry + offset_y).max(0.0).floor() as usize;
-        let right = (rx + rw + offset_x).min(width).ceil() as usize;
-        let bottom = (ry + rh + offset_y).min(height).ceil() as usize;
+        let left = (rx + offset.x).max(0.0).floor() as usize;
+        let top = (ry + offset.y).max(0.0).floor() as usize;
+        let right = (rx + rw + offset.x).min(width).ceil() as usize;
+        let bottom = (ry + rh + offset.y).min(height).ceil() as usize;
         let width = right.saturating_sub(left);
         let height = bottom.saturating_sub(top);
         (width > 0 && height > 0).then_some(PixelRegion {
@@ -83,7 +118,7 @@ impl BlurAction {
 
     /// 对矩形区域执行两轮可分离盒式模糊。
     fn draw_rect_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
-        let Some(region) = self.pixel_region(pixmap, offset_x, offset_y) else {
+        let Some(region) = self.pixel_region(pixmap, Point::new(offset_x, offset_y)) else {
             return;
         };
         let row_bytes = region.width * 4;
@@ -103,25 +138,33 @@ impl BlurAction {
             box_blur_rgba_with_scratch(
                 pixels,
                 blurred,
-                region.width,
-                region.height,
-                self.radius.clamp(1, 50) as usize,
-                current,
-                work,
+                BlurRegionSpec {
+                    width: region.width,
+                    height: region.height,
+                    radius: self.radius.clamp(1, 50) as usize,
+                },
+                BlurBuffers {
+                    current,
+                    scratch: work,
+                },
             );
             copy_rows_to_pixmap(pixmap, &region, blurred);
         });
     }
 
     fn draw_brush_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
-        let Some(region) = self.pixel_region(pixmap, offset_x, offset_y) else {
+        let offset = Point::new(offset_x, offset_y);
+        let Some(region) = self.pixel_region(pixmap, offset) else {
             return;
         };
         let Some(effect_pixmap) = self.build_blurred_region(pixmap, &region) else {
             return;
         };
-        let Some(mask) = self.build_brush_mask(pixmap.width(), pixmap.height(), offset_x, offset_y)
-        else {
+        let Some(mask) = self.build_brush_mask(BrushMaskSpec {
+            width: pixmap.width(),
+            height: pixmap.height(),
+            offset,
+        }) else {
             return;
         };
         pixmap.draw_pixmap(
@@ -162,42 +205,43 @@ impl BlurAction {
             box_blur_rgba_with_scratch(
                 pixels,
                 blurred,
-                region.width,
-                region.height,
-                self.radius.clamp(1, 50) as usize,
-                current,
-                work,
+                BlurRegionSpec {
+                    width: region.width,
+                    height: region.height,
+                    radius: self.radius.clamp(1, 50) as usize,
+                },
+                BlurBuffers {
+                    current,
+                    scratch: work,
+                },
             );
             target.copy_from_slice(blurred);
         });
         Some(effect)
     }
 
-    fn build_brush_mask(
-        &self,
-        width: u32,
-        height: u32,
-        offset_x: f32,
-        offset_y: f32,
-    ) -> Option<Mask> {
-        let mut mask_pixmap = Pixmap::new(width, height)?;
+    fn build_brush_mask(&self, spec: BrushMaskSpec) -> Option<Mask> {
+        let mut mask_pixmap = Pixmap::new(spec.width, spec.height)?;
         let mut paint = Paint::default();
         paint.set_color(tiny_skia::Color::WHITE);
         if self.points.len() == 1 {
             let point = self.points[0];
             let radius = self.brush_width.max(1.0) / 2.0;
             let rect = tiny_skia::Rect::from_xywh(
-                point.x + offset_x - radius,
-                point.y + offset_y - radius,
+                point.x + spec.offset.x - radius,
+                point.y + spec.offset.y - radius,
                 radius * 2.0,
                 radius * 2.0,
             )?;
             mask_pixmap.fill_rect(rect, &paint, Transform::identity(), None);
         } else {
             let mut builder = PathBuilder::new();
-            builder.move_to(self.points[0].x + offset_x, self.points[0].y + offset_y);
+            builder.move_to(
+                self.points[0].x + spec.offset.x,
+                self.points[0].y + spec.offset.y,
+            );
             for point in &self.points[1..] {
-                builder.line_to(point.x + offset_x, point.y + offset_y);
+                builder.line_to(point.x + spec.offset.x, point.y + spec.offset.y);
             }
             let path = builder.finish()?;
             let stroke = Stroke {
@@ -267,88 +311,108 @@ fn copy_rows_to_pixmap(pixmap: &mut PixmapMut, region: &PixelRegion, source: &[u
 fn box_blur_rgba_with_scratch(
     src: &[u8],
     dst: &mut [u8],
-    width: usize,
-    height: usize,
-    radius: usize,
-    current: &mut Vec<u8>,
-    scratch: &mut Vec<u8>,
+    spec: BlurRegionSpec,
+    buffers: BlurBuffers<'_>,
 ) {
     debug_assert_eq!(src.len(), dst.len());
-    if radius == 0 || width == 0 || height == 0 {
+    if spec.radius == 0 || spec.width == 0 || spec.height == 0 {
         dst.copy_from_slice(src);
         return;
     }
 
+    let BlurBuffers { current, scratch } = buffers;
     current.clear();
     current.extend_from_slice(src);
     scratch.clear();
     scratch.resize(src.len(), 0);
     for _ in 0..2 {
-        blur_pass(current, scratch, width, height, radius, true);
-        blur_pass(scratch, current, width, height, radius, false);
+        blur_pass(
+            current,
+            scratch,
+            BlurPassSpec {
+                width: spec.width,
+                height: spec.height,
+                radius: spec.radius,
+                horizontal: true,
+            },
+        );
+        blur_pass(
+            scratch,
+            current,
+            BlurPassSpec {
+                width: spec.width,
+                height: spec.height,
+                radius: spec.radius,
+                horizontal: false,
+            },
+        );
     }
     dst.copy_from_slice(current);
 }
 
 /// 单方向盒式模糊；`horizontal` 为 false 时按列处理。
-fn blur_pass(
-    src: &[u8],
-    dst: &mut [u8],
-    width: usize,
-    height: usize,
-    radius: usize,
-    horizontal: bool,
-) {
-    if horizontal {
-        for y in 0..height {
+fn blur_pass(src: &[u8], dst: &mut [u8], spec: BlurPassSpec) {
+    if spec.horizontal {
+        for y in 0..spec.height {
             blur_line(
                 src,
                 dst,
-                y * width * 4, // 起始字节偏移
-                width,
-                4, // 步长：相邻像素间隔
-                radius,
+                BlurLineSpec {
+                    start: y * spec.width * 4,
+                    count: spec.width,
+                    stride: 4,
+                    radius: spec.radius,
+                },
             );
         }
     } else {
-        for x in 0..width {
-            blur_line(src, dst, x * 4, height, width * 4, radius);
+        for x in 0..spec.width {
+            blur_line(
+                src,
+                dst,
+                BlurLineSpec {
+                    start: x * 4,
+                    count: spec.height,
+                    stride: spec.width * 4,
+                    radius: spec.radius,
+                },
+            );
         }
     }
 }
 
 /// 在一个一维序列上滑动盒式窗口，`stride` 为相邻采样点的字节间隔。
-fn blur_line(src: &[u8], dst: &mut [u8], start: usize, count: usize, stride: usize, radius: usize) {
-    if count == 0 {
+fn blur_line(src: &[u8], dst: &mut [u8], spec: BlurLineSpec) {
+    if spec.count == 0 {
         return;
     }
     let mut sums = [0u32; 4];
     let mut left = 0usize;
-    let mut right = radius.min(count - 1);
+    let mut right = spec.radius.min(spec.count - 1);
     for index in 0..=right {
-        add_pixel(&mut sums, &src[start + index * stride..]);
+        add_pixel(&mut sums, &src[spec.start + index * spec.stride..]);
     }
 
-    for index in 0..count {
+    for index in 0..spec.count {
         let weight = (right - left + 1) as u32;
-        let offset = start + index * stride;
+        let offset = spec.start + index * spec.stride;
         for channel in 0..4 {
             dst[offset + channel] = (sums[channel] / weight) as u8;
         }
 
         let next = index + 1;
-        if next >= count {
+        if next >= spec.count {
             break;
         }
-        let new_left = next.saturating_sub(radius);
+        let new_left = next.saturating_sub(spec.radius);
         while left < new_left {
-            subtract_pixel(&mut sums, &src[start + left * stride..]);
+            subtract_pixel(&mut sums, &src[spec.start + left * spec.stride..]);
             left += 1;
         }
-        let new_right = (next + radius).min(count - 1);
+        let new_right = (next + spec.radius).min(spec.count - 1);
         while right < new_right {
             right += 1;
-            add_pixel(&mut sums, &src[start + right * stride..]);
+            add_pixel(&mut sums, &src[spec.start + right * spec.stride..]);
         }
     }
 }
@@ -389,7 +453,19 @@ mod tests {
         let mut dst = vec![0u8; src.len()];
         let mut current = Vec::new();
         let mut scratch = Vec::new();
-        box_blur_rgba_with_scratch(&src, &mut dst, width, height, 2, &mut current, &mut scratch);
+        box_blur_rgba_with_scratch(
+            &src,
+            &mut dst,
+            BlurRegionSpec {
+                width,
+                height,
+                radius: 2,
+            },
+            BlurBuffers {
+                current: &mut current,
+                scratch: &mut scratch,
+            },
+        );
 
         assert!(
             dst[center] < 255,
