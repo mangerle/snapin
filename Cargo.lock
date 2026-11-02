@@ -5821,16 +5821,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "snapin-core"
-version = "1.2.0"
-dependencies = [
- "snapin-annotation",
- "snapin-config",
- "snapin-foundation",
- "snapin-render",
-]
-
-[[package]]
 name = "snapin-daemon"
 version = "1.2.0"
 dependencies = [

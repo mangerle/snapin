@@ -386,7 +386,6 @@ systemd 用户服务与第三方许可文件一并装入 deb 包。
 - `snapin-config`：强类型配置模型、迁移、语义校验与安全持久化。
 - `snapin-render`：文本测量、排版、光栅化与美化导出渲染。
 - `snapin-annotation`：标注图元、撤销重做历史与 Tiny-Skia 绘制实现。
-- `snapin-core`：核心能力聚合门面，仅用于同时需要多个核心领域的消费者。
 - `snapin-ui`：纯表现层，提供 winit 截图窗口、贴图工作区、工具栏、渲染与交互；通过 `ports` 请求宿主能力，不直接读写系统剪贴板、配置文件或网络服务。
 - `snapin-platform`：Portal、GNOME 扩展 D-Bus、剪贴板、热键、通知、窗口与自启动等桌面集成。
 - `snapin-service`：PP-OCRv6 推理与多服务商翻译。

@@ -3,7 +3,6 @@ members = [
     "crates/snapin-app",
     "crates/snapin-annotation",
     "crates/snapin-config",
-    "crates/snapin-core",
     "crates/snapin-daemon",
     "crates/snapin-foundation",
     "crates/snapin-platform",
@@ -33,7 +32,6 @@ repository = "https://github.com/mangerle/snapin"
 snapin-app = { path = "crates/snapin-app", version = "1.2.0" }
 snapin-annotation = { path = "crates/snapin-annotation", version = "1.2.0" }
 snapin-config = { path = "crates/snapin-config", version = "1.2.0" }
-snapin-core = { path = "crates/snapin-core", version = "1.2.0" }
 snapin-daemon = { path = "crates/snapin-daemon", version = "1.2.0" }
 snapin-foundation = { path = "crates/snapin-foundation", version = "1.2.0" }
 snapin-platform = { path = "crates/snapin-platform", version = "1.2.0" }
