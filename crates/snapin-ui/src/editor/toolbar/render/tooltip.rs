@@ -189,28 +189,54 @@ struct TooltipLayoutRequest<'a> {
     prefer_above: bool,
 }
 
+/// 提示胶囊测量后的尺寸与间距。
+#[derive(Clone, Copy)]
+struct TooltipMetrics {
+    width: f32,
+    height: f32,
+    font_size: f32,
+    scale: f32,
+    margin: f32,
+    gap: f32,
+}
+
 /// 计算提示胶囊布局：默认在按钮下方居中，越界时翻转或夹取。
 fn layout(request: TooltipLayoutRequest<'_>) -> Option<TooltipLayout> {
-    let TooltipLayoutRequest {
-        message,
-        button_rect,
-        ui_scale,
-        screen_width: screen_w,
-        screen_height: screen_h,
-        prefer_above,
-    } = request;
-    let scale = ui_scale.max(0.1);
+    let metrics = measure_tooltip(request)?;
+    let max_x = (request.screen_width - metrics.width - metrics.margin).max(metrics.margin);
+    let x = (request.button_rect.x + (request.button_rect.width - metrics.width) / 2.0)
+        .clamp(metrics.margin, max_x);
+    let y = tooltip_vertical_position(TooltipPlacement {
+        button_rect: request.button_rect,
+        screen_height: request.screen_height,
+        preferred_above: request.prefer_above,
+        margin: metrics.margin,
+        gap: metrics.gap,
+        height: metrics.height,
+    });
+    Some(TooltipLayout {
+        x,
+        y,
+        width: metrics.width,
+        height: metrics.height,
+        font_size: metrics.font_size,
+        scale: metrics.scale,
+    })
+}
+
+/// 测量提示文字并计算胶囊总尺寸。
+fn measure_tooltip(request: TooltipLayoutRequest<'_>) -> Option<TooltipMetrics> {
+    let scale = request.ui_scale.max(0.1);
     let font_size = (FONT_SIZE * scale).max(9.0);
     let padding_x = PADDING_X * scale;
     let padding_y = PADDING_Y * scale;
-
     let (text_width, _) = with_thread_local_text_renderer(|renderer| {
         renderer.measure_text_input(
-            message,
+            request.message,
             TextMeasureOptions {
                 font_size,
                 line_height: font_size * 1.3,
-                max_width: screen_w.max(1.0),
+                max_width: request.screen_width.max(1.0),
                 max_height: font_size * 1.6,
             },
         )
@@ -218,31 +244,13 @@ fn layout(request: TooltipLayoutRequest<'_>) -> Option<TooltipLayout> {
     if text_width <= 0.0 {
         return None;
     }
-
-    let width = text_width + padding_x * 2.0;
-    let height = font_size * 1.4 + padding_y * 2.0;
-    let margin = MARGIN * scale;
-    let gap = GAP * scale;
-
-    let max_x = (screen_w - width - margin).max(margin);
-    let x = (button_rect.x + (button_rect.width - width) / 2.0).clamp(margin, max_x);
-
-    let y = tooltip_vertical_position(TooltipPlacement {
-        button_rect,
-        screen_height: screen_h,
-        preferred_above: prefer_above,
-        margin,
-        gap,
-        height,
-    });
-
-    Some(TooltipLayout {
-        x,
-        y,
-        width,
-        height,
+    Some(TooltipMetrics {
+        width: text_width + padding_x * 2.0,
+        height: font_size * 1.4 + padding_y * 2.0,
         font_size,
         scale,
+        margin: MARGIN * scale,
+        gap: GAP * scale,
     })
 }
 
