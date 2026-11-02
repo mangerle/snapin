@@ -7,6 +7,7 @@
 use crate::paster::window::jobs::PasterJobRuntime;
 use crate::ports::DesktopPort;
 use snapin_config::config::Config;
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// 贴图窗口运行时依赖。
@@ -14,7 +15,7 @@ pub(crate) struct PasterServices {
     /// 当前配置快照
     pub(crate) config: Arc<Config>,
     /// 后台媒体任务执行器；测试环境可为空
-    pub(crate) job_runtime: Option<Arc<PasterJobRuntime>>,
+    pub(crate) job_runtime: Option<Rc<PasterJobRuntime>>,
     /// 桌面副作用端口
     pub(crate) desktop: Arc<dyn DesktopPort>,
 }

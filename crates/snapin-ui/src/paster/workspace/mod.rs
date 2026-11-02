@@ -28,6 +28,7 @@ use event_handler::{handle_workspace_user_event, handle_workspace_window_event};
 use paster_events::handle_workspace_about_to_wait;
 use snapin_config::config::Config;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 use winit::event::Event;
 use winit::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy};
@@ -73,7 +74,7 @@ pub(crate) struct WorkspaceRuntime {
     pub instances: HashMap<WindowId, PasterInstance>,
     pub manager: PasterManager,
     pub cfg: Arc<Config>,
-    pub jobs: Arc<PasterJobRuntime>,
+    pub jobs: Rc<PasterJobRuntime>,
     /// 桌面副作用端口
     pub desktop: Arc<dyn DesktopPort>,
     /// 运行时状态持久化端口
@@ -163,7 +164,7 @@ pub fn run_paster_workspace_loop(
 
     let event_proxy = event_loop.create_proxy();
     let proxy = PasterWorkspaceProxy::new(event_proxy.clone());
-    let jobs = Arc::new(PasterJobRuntime::new(media, proxy.clone()));
+    let jobs = Rc::new(PasterJobRuntime::new(media, proxy.clone()));
     let mut runtime = WorkspaceRuntime {
         instances: HashMap::new(),
         manager,
