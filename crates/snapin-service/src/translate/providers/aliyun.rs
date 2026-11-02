@@ -67,87 +67,111 @@ impl AliyunTranslator {
             .unwrap_or_default()
             .as_nanos()
             .to_string();
-
-        let mut params = vec![
-            ("AccessKeyId", self.access_key_id.as_str()),
-            ("Action", "TranslateGeneral"),
-            ("Format", "JSON"),
-            ("FormatType", "text"),
-            ("Scene", "general"),
-            ("SignatureMethod", "HMAC-SHA1"),
-            ("SignatureNonce", nonce.as_str()),
-            ("SignatureVersion", "1.0"),
-            ("SourceLanguage", source_lang),
-            ("SourceText", query),
-            ("TargetLanguage", target_lang),
-            ("Timestamp", timestamp.as_str()),
-            ("Version", "2018-10-12"),
-        ];
-
-        params.sort_by(|a, b| a.0.cmp(b.0));
-
-        let canonicalized_query_string = params
-            .iter()
-            .map(|(k, v)| format!("{}={}", percent_encode(k), percent_encode(v)))
-            .collect::<Vec<_>>()
-            .join("&");
-
-        let string_to_sign = format!("POST&%2F&{}", percent_encode(&canonicalized_query_string));
-
-        let secret_key = format!("{}&", self.access_key_secret);
-        let mut mac = HmacSha1::new_from_slice(secret_key.as_bytes()).map_err(|error| {
-            ServiceError::ApiError {
-                provider: "aliyun".to_string(),
-                code: "SIGNATURE_INIT".to_string(),
-                message: format!("初始化阿里云 HMAC-SHA1 签名器失败: {error}"),
-            }
-        })?;
-        mac.update(string_to_sign.as_bytes());
-        use base64::Engine;
-        let signature = base64::prelude::BASE64_STANDARD.encode(mac.finalize().into_bytes());
-
+        let request = AliyunParamInput {
+            access_key_id: &self.access_key_id,
+            query,
+            source_lang,
+            target_lang,
+            nonce: &nonce,
+            timestamp: &timestamp,
+        };
+        let mut params = build_params(request);
+        let signature = sign_params(&params, &self.access_key_secret)?;
         params.push(("Signature", signature.as_str()));
-
         let body =
             post_signed_form("aliyun", &self.client, self.endpoint.as_str(), &params).await?;
-        let res_data: AliyunResponse =
-            serde_json::from_slice(&body).map_err(|error| ServiceError::ResponseFormat {
-                provider: "aliyun".to_string(),
-                message: format!("无法解析阿里云翻译 JSON 响应: {error}"),
-            })?;
+        parse_response(&body, expected)
+    }
+}
 
-        if let Some(code) = res_data.code {
-            if code != "200" {
-                return Err(ServiceError::ApiError {
-                    provider: "aliyun".to_string(),
-                    code,
-                    message: res_data.message.unwrap_or_default(),
-                });
-            }
+/// 构造阿里云签名所需的请求字段。
+struct AliyunParamInput<'a> {
+    access_key_id: &'a str,
+    query: &'a str,
+    source_lang: &'a str,
+    target_lang: &'a str,
+    nonce: &'a str,
+    timestamp: &'a str,
+}
+
+/// 按阿里云 RPC 规范构造并排序待签名字段。
+fn build_params<'a>(input: AliyunParamInput<'a>) -> Vec<(&'a str, &'a str)> {
+    let mut params = vec![
+        ("AccessKeyId", input.access_key_id),
+        ("Action", "TranslateGeneral"),
+        ("Format", "JSON"),
+        ("FormatType", "text"),
+        ("Scene", "general"),
+        ("SignatureMethod", "HMAC-SHA1"),
+        ("SignatureNonce", input.nonce),
+        ("SignatureVersion", "1.0"),
+        ("SourceLanguage", input.source_lang),
+        ("SourceText", input.query),
+        ("TargetLanguage", input.target_lang),
+        ("Timestamp", input.timestamp),
+        ("Version", "2018-10-12"),
+    ];
+    params.sort_by(|left, right| left.0.cmp(right.0));
+    params
+}
+
+/// 按阿里云规范对排序后的参数执行 HMAC-SHA1 签名。
+fn sign_params(params: &[(&str, &str)], access_key_secret: &str) -> Result<String, ServiceError> {
+    let canonicalized_query = params
+        .iter()
+        .map(|(key, value)| format!("{}={}", percent_encode(key), percent_encode(value)))
+        .collect::<Vec<_>>()
+        .join("&");
+    let string_to_sign = format!("POST&%2F&{}", percent_encode(&canonicalized_query));
+    let secret_key = format!("{access_key_secret}&");
+    let mut mac = HmacSha1::new_from_slice(secret_key.as_bytes()).map_err(|error| {
+        ServiceError::ApiError {
+            provider: "aliyun".to_string(),
+            code: "SIGNATURE_INIT".to_string(),
+            message: format!("初始化阿里云 HMAC-SHA1 签名器失败: {error}"),
         }
+    })?;
+    mac.update(string_to_sign.as_bytes());
+    use base64::Engine;
+    Ok(base64::prelude::BASE64_STANDARD.encode(mac.finalize().into_bytes()))
+}
 
-        let translated = res_data
-            .data
+/// 解析阿里云响应并校验业务码、空结果和行数。
+fn parse_response(body: &[u8], expected: usize) -> Result<Vec<String>, ServiceError> {
+    let data: AliyunResponse =
+        serde_json::from_slice(body).map_err(|error| ServiceError::ResponseFormat {
+            provider: "aliyun".to_string(),
+            message: format!("无法解析阿里云翻译 JSON 响应: {error}"),
+        })?;
+    if let Some(code) = data.code {
+        if code != "200" {
+            return Err(ServiceError::ApiError {
+                provider: "aliyun".to_string(),
+                code,
+                message: data.message.unwrap_or_default(),
+            });
+        }
+    }
+    let translated =
+        data.data
             .and_then(|data| data.translated)
             .ok_or_else(|| ServiceError::ApiError {
                 provider: "aliyun".to_string(),
                 code: "EMPTY_RESULT".to_string(),
                 message: "阿里云翻译接口未返回译文".to_string(),
             })?;
-
-        let lines: Vec<String> = translated.lines().map(str::to_string).collect();
-        if lines.len() != expected {
-            return Err(ServiceError::ApiError {
-                provider: "aliyun".to_string(),
-                code: "RESULT_COUNT_MISMATCH".to_string(),
-                message: format!(
-                    "阿里云翻译返回 {} 条译文，与请求 {expected} 条不一致",
-                    lines.len()
-                ),
-            });
-        }
-        Ok(lines)
+    let lines: Vec<String> = translated.lines().map(str::to_string).collect();
+    if lines.len() != expected {
+        return Err(ServiceError::ApiError {
+            provider: "aliyun".to_string(),
+            code: "RESULT_COUNT_MISMATCH".to_string(),
+            message: format!(
+                "阿里云翻译返回 {} 条译文，与请求 {expected} 条不一致",
+                lines.len()
+            ),
+        });
     }
+    Ok(lines)
 }
 
 #[derive(Deserialize)]
