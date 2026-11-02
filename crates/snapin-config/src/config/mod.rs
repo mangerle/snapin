@@ -246,6 +246,12 @@ fn tighten_config_permissions(path: &Path) {
 
 /// 将内存配置结构体持久化写入指定的 TOML 文件
 pub fn save_config(config: &Config, target_path: &Path) -> Result<(), CoreError> {
+    if target_path == crate::paths::AppPaths::default_config_file() {
+        crate::paths::AppPaths::ensure_config_dir().map_err(|source| CoreError::IoError {
+            path: crate::paths::AppPaths::config_dir(),
+            source,
+        })?;
+    }
     let toml_string = serialize_config(config)?;
     write_config_atomically(target_path, toml_string.as_bytes())
 }
