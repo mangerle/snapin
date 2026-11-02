@@ -95,69 +95,71 @@ fn adjust_stroke_wheel(state: &mut SnipperState, delta_y: f32) {
 
 /// 根据光标是否位于放大原区域或放大图像内，调整倍率或边框粗细。
 fn adjust_magnifier_wheel(state: &mut SnipperState, delta_y: f32) -> bool {
-    let index = state
-        .editor
-        .selected_annotation
-        .map(ShapeId::get)
-        .or_else(|| state.editor.annotations.undo_stack().len().checked_sub(1));
-    let point = (
-        state.viewport.cursor_pos.0 as f32,
-        state.viewport.cursor_pos.1 as f32,
-    );
-    let mut over_magnifier = false;
-    if let Some(index) = index {
-        if let Some(AnnotationShape::Magnifier(action)) = state.editor.annotations.shape_at(index) {
-            let source = action.source;
-            let dest = action.dest;
-            over_magnifier = source.contains(point.0, point.1) || dest.contains(point.0, point.1);
-        }
-    }
-
-    if over_magnifier {
+    let index = selected_annotation_index(state);
+    if cursor_over_magnifier(state, index) {
         let step = if delta_y > 0.0 { 0.25 } else { -0.25 };
         state.editor.annotation.toolbar.sub_options.magnifier_scale =
             (state.editor.annotation.toolbar.sub_options.magnifier_scale + step).clamp(1.0, 8.0);
         sync_selected_magnifier_scale(state);
     } else {
-        let step = if delta_y > 0.0 { 1.0 } else { -1.0 };
-        state
-            .editor
-            .annotation
-            .toolbar
-            .sub_options
-            .custom_stroke_width = (state
-            .editor
-            .annotation
-            .toolbar
-            .sub_options
-            .custom_stroke_width
-            + step)
-            .clamp(1.0, 48.0);
-        if let Some(index) = index {
-            if let Some(mut shape) = state.editor.annotations.shape_at(index).cloned() {
-                shape.adjust_size(snapin_annotation::shapes::SizeParam::Stroke(
-                    state
-                        .editor
-                        .annotation
-                        .toolbar
-                        .sub_options
-                        .custom_stroke_width,
-                ));
-                state.editor.annotations.replace(index, shape);
-            }
-        }
+        adjust_magnifier_border(state, index, delta_y);
     }
     true
 }
 
-/// 将工具栏倍率同步到当前选中的放大镜图元。
-fn sync_selected_magnifier_scale(state: &mut SnipperState) {
-    let Some(index) = state
+/// 返回当前选中的标注索引，未选中时回退到最近一条历史图元。
+fn selected_annotation_index(state: &SnipperState) -> Option<usize> {
+    state
         .editor
         .selected_annotation
         .map(ShapeId::get)
         .or_else(|| state.editor.annotations.undo_stack().len().checked_sub(1))
-    else {
+}
+
+/// 判断光标是否位于放大镜源区域或目标区域内。
+fn cursor_over_magnifier(state: &SnipperState, index: Option<usize>) -> bool {
+    let Some(index) = index else {
+        return false;
+    };
+    let Some(AnnotationShape::Magnifier(action)) = state.editor.annotations.shape_at(index) else {
+        return false;
+    };
+    let point = (
+        state.viewport.cursor_pos.0 as f32,
+        state.viewport.cursor_pos.1 as f32,
+    );
+    action.source.contains(point.0, point.1) || action.dest.contains(point.0, point.1)
+}
+
+/// 调整放大镜边框粗细并同步当前选中图元。
+fn adjust_magnifier_border(state: &mut SnipperState, index: Option<usize>, delta_y: f32) {
+    let step = if delta_y > 0.0 { 1.0 } else { -1.0 };
+    let width = state
+        .editor
+        .annotation
+        .toolbar
+        .sub_options
+        .custom_stroke_width;
+    let width = (width + step).clamp(1.0, 48.0);
+    state
+        .editor
+        .annotation
+        .toolbar
+        .sub_options
+        .custom_stroke_width = width;
+    let Some(index) = index else {
+        return;
+    };
+    let Some(mut shape) = state.editor.annotations.shape_at(index).cloned() else {
+        return;
+    };
+    shape.adjust_size(snapin_annotation::shapes::SizeParam::Stroke(width));
+    state.editor.annotations.replace(index, shape);
+}
+
+/// 将工具栏倍率同步到当前选中的放大镜图元。
+fn sync_selected_magnifier_scale(state: &mut SnipperState) {
+    let Some(index) = selected_annotation_index(state) else {
         return;
     };
     let Some(mut shape) = state.editor.annotations.shape_at(index).cloned() else {
