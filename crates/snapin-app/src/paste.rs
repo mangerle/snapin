@@ -18,13 +18,22 @@ const MAX_PASTER_IMAGE_SIDE: u32 = 16_384;
 
 /// 从剪贴板提取图像或文本生成 PasterItem 数据项
 pub fn create_paster_item_from_clipboard() -> Result<Option<PasterItem>> {
-    if let Ok(Some(img)) = read_clipboard_image() {
-        if let Some(mut pixmap) = Pixmap::new(img.width(), img.height()) {
-            pixmap.data_mut().copy_from_slice(img.as_raw());
+    match read_clipboard_image() {
+        Ok(Some(img)) => {
+            let mut pixmap = Pixmap::new(img.width(), img.height()).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "分配剪贴板图像缓冲区失败，尺寸: {}x{}",
+                    img.width(),
+                    img.height()
+                )
+            })?;
+            write_rgba_into(&mut pixmap, img.as_raw())?;
             let uid = AppPaths::generate_unique_id();
             let item = PasterItem::new(uid, format!("clip_img_{uid}"), pixmap, (200, 200));
             return Ok(Some(item));
         }
+        Ok(None) => {}
+        Err(error) => return Err(error).context("读取系统剪贴板图像失败"),
     }
 
     if let Ok(Some(text)) = read_clipboard_text() {
