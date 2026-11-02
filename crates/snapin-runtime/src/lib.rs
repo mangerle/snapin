@@ -9,8 +9,8 @@
 //! - 所有任务挂在同一个 [`TaskTracker`] 上，退出时可以等待全部完成；
 //! - 用固定容量的 [`Semaphore`] 做准入控制，队列满时快速失败而不是无界积压；
 //! - 通过 [`CancellationToken`] 发布取消信号，任务自行决定检查点；
-//! - 若调用方已有 Tokio 运行时则复用，否则由 [`TaskRuntime::shared`] 持有唯一的
-//!   进程级运行时，避免每个功能各建一座运行时。
+//! - 调用方已有 Tokio 上下文时用 [`TaskRuntime::current`] 复用；没有上下文时可用
+//!   [`TaskRuntime::shared`] 获取唯一的进程级运行时，避免每个功能各建一座运行时。
 //!
 //! # 代价与权衡
 //!
@@ -175,31 +175,37 @@ impl TaskRuntime {
     /// 获取进程级共享任务运行时；首次调用时创建并常驻。
     ///
     /// 共享实例使用固定的分池容量（默认 16、媒体 8、通知 4、进程 8、维护 2、
-    /// 独立 I/O 4），
-    /// 避免不同模块按各自参数竞争首次初始化而得到不可预测的契约。用于没有
-    /// Tokio 上下文的平台适配代码（例如同步的系统命令派生）。创建失败时返回
-    /// `None`，调用方应降级为同步执行或记录警告。
+    /// 独立 I/O 4），避免不同模块按各自参数竞争首次初始化而得到不可预测的契约。
+    /// 用于没有 Tokio 上下文的平台适配代码；已有运行时上下文的调用方应优先使用
+    /// [`Self::current`]。创建失败时返回 `None`，调用方应降级并记录警告。
     pub fn shared() -> Option<&'static Self> {
-        static SHARED: OnceLock<Option<TaskRuntime>> = OnceLock::new();
+        Self::try_shared().ok()
+    }
+
+    /// 获取进程级共享任务运行时，并保留构建失败原因。
+    ///
+    /// # Errors
+    ///
+    /// 进程级 Tokio 运行时构建失败时返回 [`TaskRuntimeError::RuntimeBuild`]。
+    pub fn try_shared() -> Result<&'static Self, TaskRuntimeError> {
+        static SHARED: OnceLock<Result<TaskRuntime, String>> = OnceLock::new();
         SHARED
             .get_or_init(|| {
-                let runtime = Builder::new_multi_thread()
+                Builder::new_multi_thread()
                     .worker_threads(2)
                     .thread_name("snapin-shared")
                     .enable_all()
-                    .build();
-                match runtime {
-                    Ok(runtime) => {
+                    .build()
+                    .map(|runtime| {
                         let handle = runtime.handle().clone();
-                        Some(Self::from_handle_inner(handle, 16, Some(runtime)))
-                    }
-                    Err(error) => {
-                        tracing::error!("创建进程级后台任务运行时失败: {error}");
-                        None
-                    }
-                }
+                        Self::from_handle_inner(handle, 16, Some(runtime))
+                    })
+                    .map_err(|error| error.to_string())
             })
             .as_ref()
+            .map_err(|reason| TaskRuntimeError::RuntimeBuild {
+                reason: reason.clone(),
+            })
     }
 
     /// 由已有 Tokio 句柄构造任务运行时。
@@ -701,5 +707,13 @@ mod tests {
 
         let _ = release_tx.send(());
         assert!(runtime.shutdown(Duration::from_secs(1)).await);
+    }
+
+    /// 共享运行时构建结果必须可被调用方显式观察，而不是只得到一个无原因的 None。
+    #[test]
+    fn test_try_shared_returns_cached_runtime() {
+        let first = TaskRuntime::try_shared().expect("共享运行时首次构建应成功");
+        let second = TaskRuntime::try_shared().expect("共享运行时后续应直接复用");
+        assert!(std::ptr::eq(first, second));
     }
 }
