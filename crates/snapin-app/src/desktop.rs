@@ -38,8 +38,13 @@ const DESKTOP_WRITE_QUEUE_CAPACITY: usize = 8;
 
 /// 一次串行执行的剪贴板任务。
 struct ClipboardTask {
+    request: ClipboardRequest,
+    completion: ClipboardCompletion,
+}
+
+/// 剪贴板任务的完成回执守卫；析构时兜底上报异常退出。
+struct ClipboardCompletion {
     id: ClipboardJobId,
-    request: Option<ClipboardRequest>,
     sink: Option<ClipboardSink>,
 }
 
@@ -53,8 +58,11 @@ enum ClipboardRequest {
 
 impl ClipboardTask {
     /// 在阻塞线程中执行请求，并向唯一等待方回传真实结果。
-    fn execute(mut self) {
-        let request = self.request.take().expect("剪贴板任务请求在执行前必须存在");
+    fn execute(self) {
+        let Self {
+            request,
+            mut completion,
+        } = self;
         let result = match request {
             ClipboardRequest::Write(ClipboardWrite::Text(text)) => write_text_to_clipboard(&text)
                 .map(|()| ClipboardResult::Written)
@@ -66,15 +74,16 @@ impl ClipboardTask {
             }
             ClipboardRequest::Read => read_current_clipboard(),
         };
-        self.complete(result);
+        completion.complete(result);
     }
 
     /// 任务未被队列接收时解除析构兜底，避免宿主已拒绝提交却回传伪完成事件。
     fn disarm(&mut self) {
-        self.request = None;
-        self.sink = None;
+        self.completion.sink = None;
     }
+}
 
+impl ClipboardCompletion {
     /// 一次性完成回调；重复调用和正常完成后析构均为无操作。
     fn complete(&mut self, result: Result<ClipboardResult, PortError>) {
         if let Some(sink) = self.sink.take() {
@@ -83,7 +92,7 @@ impl ClipboardTask {
     }
 }
 
-impl Drop for ClipboardTask {
+impl Drop for ClipboardCompletion {
     fn drop(&mut self) {
         self.complete(Err(PortError::with_kind(
             PortErrorKind::Other,
@@ -169,9 +178,11 @@ impl AppDesktop {
     ) -> Result<ClipboardJobId, PortError> {
         let id = ClipboardJobId::new(self.next_clipboard_job_id.fetch_add(1, Ordering::Relaxed));
         let task = ClipboardTask {
-            id,
-            request: Some(request),
-            sink: Some(sink),
+            request,
+            completion: ClipboardCompletion {
+                id,
+                sink: Some(sink),
+            },
         };
         match self.clipboard_tx.try_send(task) {
             Ok(()) => Ok(id),
@@ -341,16 +352,15 @@ mod tests {
     fn test_clipboard_task_drop_reports_internal_failure() {
         let received = Arc::new(Mutex::new(None));
         let sink_received = received.clone();
-        let task = ClipboardTask {
+        let completion = ClipboardCompletion {
             id: ClipboardJobId::new(7),
-            request: None,
             sink: Some(Box::new(move |_, result| {
                 *sink_received
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(result);
             })),
         };
-        drop(task);
+        drop(completion);
 
         let result = received
             .lock()
@@ -366,11 +376,13 @@ mod tests {
         let count = Arc::new(AtomicU64::new(0));
         let sink_count = count.clone();
         let mut task = ClipboardTask {
-            id: ClipboardJobId::new(9),
-            request: None,
-            sink: Some(Box::new(move |_, _| {
-                sink_count.fetch_add(1, Ordering::Relaxed);
-            })),
+            request: ClipboardRequest::Read,
+            completion: ClipboardCompletion {
+                id: ClipboardJobId::new(9),
+                sink: Some(Box::new(move |_, _| {
+                    sink_count.fetch_add(1, Ordering::Relaxed);
+                })),
+            },
         };
         task.disarm();
         drop(task);
@@ -383,15 +395,14 @@ mod tests {
     fn test_clipboard_task_completes_once() {
         let count = Arc::new(AtomicU64::new(0));
         let sink_count = count.clone();
-        let mut task = ClipboardTask {
+        let mut completion = ClipboardCompletion {
             id: ClipboardJobId::new(8),
-            request: None,
             sink: Some(Box::new(move |_, _| {
                 sink_count.fetch_add(1, Ordering::Relaxed);
             })),
         };
-        task.complete(Ok(ClipboardResult::Written));
-        drop(task);
+        completion.complete(Ok(ClipboardResult::Written));
+        drop(completion);
 
         assert_eq!(count.load(Ordering::Relaxed), 1);
     }
