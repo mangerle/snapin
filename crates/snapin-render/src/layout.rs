@@ -99,6 +99,15 @@ impl TextRenderer {
             max_extent,
             rgba,
         } = options;
+        let color = CosmicColor::rgba(rgba.0, rgba.1, rgba.2, rgba.3);
+        let mut buffer = self.shape_centered_bold_text(text, font_size, max_extent);
+        let bounds = self.measure_visible_glyph_bounds(&mut buffer, color);
+        let offset = centered_offset(bounds, font_size, (cx, cy));
+        self.paint_centered_buffer(pixmap, &mut buffer, CenteredPaint { offset, color });
+    }
+
+    /// 按居中文本参数完成粗体排版。
+    fn shape_centered_bold_text(&mut self, text: &str, font_size: f32, max_extent: f32) -> Buffer {
         let metrics = Metrics::new(font_size, font_size * 1.25);
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
         buffer.set_size(&mut self.font_system, max_extent, max_extent);
@@ -109,8 +118,15 @@ impl TextRenderer {
             Shaping::Advanced,
         );
         buffer.shape_until_scroll(&mut self.font_system, false);
+        buffer
+    }
 
-        // 先预计算所有字形包围盒，确保精准几何光学居中
+    /// 预计算所有可见字形的包围盒，确保精准几何光学居中。
+    fn measure_visible_glyph_bounds(
+        &mut self,
+        buffer: &mut Buffer,
+        color: CosmicColor,
+    ) -> Option<GlyphBounds> {
         let mut min_gx = f32::MAX;
         let mut max_gx = f32::MIN;
         let mut min_gy = f32::MAX;
@@ -120,7 +136,7 @@ impl TextRenderer {
         buffer.draw(
             &mut self.font_system,
             &mut self.swash_cache,
-            CosmicColor::rgba(rgba.0, rgba.1, rgba.2, rgba.3),
+            color,
             |gx, gy, w, h, _c| {
                 if w > 0 && h > 0 {
                     has_glyphs = true;
@@ -131,25 +147,30 @@ impl TextRenderer {
                 }
             },
         );
+        has_glyphs.then_some(GlyphBounds {
+            min_x: min_gx,
+            max_x: max_gx,
+            min_y: min_gy,
+            max_y: max_gy,
+        })
+    }
 
-        let (offset_x, offset_y) = if has_glyphs {
-            let text_center_x = (min_gx + max_gx) / 2.0;
-            let text_center_y = (min_gy + max_gy) / 2.0;
-            (cx - text_center_x, cy - text_center_y)
-        } else {
-            (cx - font_size * 0.3, cy - font_size * 0.5)
-        };
-
+    /// 按字形包围盒中心将排版结果落笔到目标画布。
+    fn paint_centered_buffer(
+        &mut self,
+        pixmap: &mut PixmapMut,
+        buffer: &mut Buffer,
+        paint: CenteredPaint,
+    ) {
         let width = pixmap.width() as i32;
         let height = pixmap.height() as i32;
-
         buffer.draw(
             &mut self.font_system,
             &mut self.swash_cache,
-            CosmicColor::rgba(rgba.0, rgba.1, rgba.2, rgba.3),
+            paint.color,
             |gx, gy, _w, _h, c| {
-                let px = offset_x as i32 + gx;
-                let py = offset_y as i32 + gy;
+                let px = paint.offset.0 as i32 + gx;
+                let py = paint.offset.1 as i32 + gy;
                 if px >= 0 && px < width && py >= 0 && py < height {
                     let idx = ((py as usize) * (width as usize) + (px as usize)) * 4;
                     blend_glyph_rgba(pixmap.data_mut(), idx, c.r(), c.g(), c.b(), c.a());
@@ -157,4 +178,30 @@ impl TextRenderer {
             },
         );
     }
+}
+
+/// 居中文本的最终落笔偏移与颜色。
+#[derive(Debug, Clone, Copy)]
+struct CenteredPaint {
+    offset: (f32, f32),
+    color: CosmicColor,
+}
+
+/// 可见字形的设备像素包围盒。
+#[derive(Debug, Clone, Copy)]
+struct GlyphBounds {
+    min_x: f32,
+    max_x: f32,
+    min_y: f32,
+    max_y: f32,
+}
+
+/// 根据字形包围盒计算相对目标中心的偏移。
+fn centered_offset(bounds: Option<GlyphBounds>, font_size: f32, center: (f32, f32)) -> (f32, f32) {
+    let Some(bounds) = bounds else {
+        return (center.0 - font_size * 0.3, center.1 - font_size * 0.5);
+    };
+    let text_center_x = (bounds.min_x + bounds.max_x) / 2.0;
+    let text_center_y = (bounds.min_y + bounds.max_y) / 2.0;
+    (center.0 - text_center_x, center.1 - text_center_y)
 }
