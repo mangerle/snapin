@@ -5853,6 +5853,7 @@ name = "snapin-platform"
 version = "1.2.0"
 dependencies = [
  "arboard",
+ "arc-swap",
  "ashpd 0.13.13",
  "global-hotkey",
  "image",

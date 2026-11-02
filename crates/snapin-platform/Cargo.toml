@@ -11,6 +11,7 @@ description = "Snapin Linux Wayland 平台底层驱动：Portal截屏、GNOME Sh
 snapin-config.workspace = true
 snapin-foundation.workspace = true
 snapin-runtime.workspace = true
+arc-swap.workspace = true
 arboard.workspace = true
 tokio.workspace = true
 tracing.workspace = true

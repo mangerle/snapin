@@ -7,7 +7,8 @@
 
 #[cfg(target_os = "linux")]
 use crate::dbus_session::get_session_connection;
-use std::sync::{Arc, OnceLock, RwLock};
+use arc_swap::ArcSwapOption;
+use std::sync::{Arc, OnceLock};
 #[cfg(target_os = "linux")]
 use std::time::Duration;
 
@@ -98,43 +99,37 @@ fn xml_declares_snapin_interface(xml: &str) -> bool {
     xml.contains("org.gnome.Shell.Extensions.Snapin")
 }
 
-static GLOBAL_CAPABILITIES: OnceLock<RwLock<Arc<PlatformCapabilities>>> = OnceLock::new();
+static GLOBAL_CAPABILITIES: OnceLock<ArcSwapOption<PlatformCapabilities>> = OnceLock::new();
 
-/// 初始化或获取全局平台能力快照（异步）
+/// 初始化或获取全局平台能力快照（异步）。
+///
+/// 能力快照是典型读多写极少的发布数据，使用 `ArcSwapOption` 原子替换指针。
+/// 业务读取路径只做一次无锁快照加载，不会与探测或刷新流程争用全局读写锁。
 pub async fn init_platform_capabilities() -> Arc<PlatformCapabilities> {
     let caps = Arc::new(PlatformCapabilities::detect().await);
-    let cell = GLOBAL_CAPABILITIES.get_or_init(|| RwLock::new(caps.clone()));
-    *cell
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = caps.clone();
+    GLOBAL_CAPABILITIES
+        .get_or_init(ArcSwapOption::empty)
+        .store(Some(caps.clone()));
     caps
 }
 
-/// 重新刷新平台能力快照（例如用户在设置中心重新部署或重载了扩展后调用）
+/// 重新刷新平台能力快照（例如用户在设置中心重新部署或重载了扩展后调用）。
 pub async fn refresh_platform_capabilities() -> Arc<PlatformCapabilities> {
     let caps = Arc::new(PlatformCapabilities::detect().await);
-    if let Some(cell) = GLOBAL_CAPABILITIES.get() {
-        *cell
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = caps.clone();
-    } else {
-        let _ = GLOBAL_CAPABILITIES.set(RwLock::new(caps.clone()));
-    }
+    GLOBAL_CAPABILITIES
+        .get_or_init(ArcSwapOption::empty)
+        .store(Some(caps.clone()));
     caps
 }
 
-/// 获取当前已缓存的全局平台能力快照
+/// 获取当前已缓存的全局平台能力快照。
 ///
-/// 若尚未显式初始化，将执行同步快速启发式推断作为兜底
+/// 若尚未显式初始化，将执行同步快速启发式推断作为兜底。
 pub fn get_platform_capabilities() -> Arc<PlatformCapabilities> {
-    if let Some(cell) = GLOBAL_CAPABILITIES.get() {
-        return cell
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone();
-    }
-
-    Arc::new(fallback_capabilities())
+    GLOBAL_CAPABILITIES
+        .get()
+        .and_then(|cell| cell.load_full())
+        .unwrap_or_else(|| Arc::new(fallback_capabilities()))
 }
 
 /// 构建未初始化时的同步兜底能力快照。
