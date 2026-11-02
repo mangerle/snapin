@@ -18,6 +18,11 @@
 //! 又把 memfd 创建压缩到窗口生命周期内的极少数几次（仅尺寸变化时重建）。
 
 mod buffer;
+mod dispatch;
+mod ping_pong;
+
+use self::dispatch::ShmState;
+use self::ping_pong::PingPongState;
 
 /// 单次等待合成器归还缓冲区的上限。
 ///
@@ -31,136 +36,14 @@ use super::PresentOutcome;
 use crate::error::UiError;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
 use rustix::event::{poll, PollFd, PollFlags};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tiny_skia::Pixmap;
 use wayland_client::backend::{Backend, ObjectId};
-use wayland_client::globals::{registry_queue_init, GlobalListContents};
-use wayland_client::protocol::{
-    wl_buffer, wl_compositor, wl_region, wl_registry, wl_shm, wl_shm_pool, wl_surface,
-};
-use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle};
+use wayland_client::globals::registry_queue_init;
+use wayland_client::protocol::{wl_compositor, wl_shm, wl_surface};
+use wayland_client::{Connection, EventQueue, Proxy, QueueHandle};
 use winit::window::Window;
-
-/// 贴图 ARGB 表面自有事件队列的派发状态。
-///
-/// 该状态不持有字段：`wl_buffer` 的归还标志通过缓冲区自身的 `Arc<AtomicBool>` 用户数据传递，
-/// 其余对象（registry / shm / pool）的回调只需吞掉事件，避免在派发路径上引入额外状态。
-struct ShmState;
-
-impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for ShmState {
-    fn event(
-        _state: &mut Self,
-        _proxy: &wl_registry::WlRegistry,
-        _event: wl_registry::Event,
-        _data: &GlobalListContents,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-    ) {
-        // 连接建立后新通告的全局对象与贴图呈现无关（本表面在初始化时已绑定所需全局），直接忽略
-    }
-}
-
-impl Dispatch<wl_shm::WlShm, ()> for ShmState {
-    fn event(
-        _state: &mut Self,
-        _proxy: &wl_shm::WlShm,
-        _event: wl_shm::Event,
-        _data: &(),
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-    ) {
-        // wl_shm 的 format 事件仅用于通告可用像素格式；
-        // Argb8888 是协议强制要求支持的格式，无需动态判断，直接忽略
-    }
-}
-
-impl Dispatch<wl_shm_pool::WlShmPool, ()> for ShmState {
-    fn event(
-        _state: &mut Self,
-        _proxy: &wl_shm_pool::WlShmPool,
-        _event: wl_shm_pool::Event,
-        _data: &(),
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-    ) {
-        // 当前协议版本的 wl_shm_pool 没有任何事件，此实现仅为满足 Dispatch 契约
-    }
-}
-
-impl Dispatch<wl_compositor::WlCompositor, ()> for ShmState {
-    fn event(
-        _state: &mut Self,
-        _proxy: &wl_compositor::WlCompositor,
-        _event: wl_compositor::Event,
-        _data: &(),
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-    ) {
-        // wl_compositor 没有事件，此实现仅为满足 Dispatch 契约
-    }
-}
-
-impl Dispatch<wl_region::WlRegion, ()> for ShmState {
-    fn event(
-        _state: &mut Self,
-        _proxy: &wl_region::WlRegion,
-        _event: wl_region::Event,
-        _data: &(),
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-    ) {
-        // wl_region 没有事件，此实现仅为满足 Dispatch 契约
-    }
-}
-
-impl Dispatch<wl_buffer::WlBuffer, Arc<AtomicBool>> for ShmState {
-    fn event(
-        _state: &mut Self,
-        _proxy: &wl_buffer::WlBuffer,
-        event: wl_buffer::Event,
-        released: &Arc<AtomicBool>,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-    ) {
-        if let wl_buffer::Event::Release = event {
-            // Release 表示合成器已归还本缓冲区内存的所有权，可以安全覆写
-            released.store(true, Ordering::Release);
-        }
-    }
-}
-
-/// 双缓冲乒乓候选槽位状态机（纯逻辑，不含任何 Wayland 代理与共享内存句柄，便于单元测试）。
-///
-/// 维护“下一次写入哪块缓冲区”的候选槽位，并在每次提交后于 0/1 之间互换。
-/// 判定可写性的依据（两块缓冲区当前的 `release` 标志）由调用方传入，
-/// 因此该状态机可以脱离真实合成器连接被完整验证。
-#[derive(Debug, Clone, Copy, Default)]
-struct PingPongState {
-    /// 下一次呈现的候选写入槽位（0 或 1）
-    candidate: usize,
-}
-
-impl PingPongState {
-    /// 判定当前候选槽位是否可写。
-    ///
-    /// 仅当候选槽位对应的缓冲区已被合成器归还（收到 `wl_buffer.release`）时返回 `Some(槽位)`；
-    /// 即便另一槽位空闲也不退而求其次：那一块是最近一次已 attach 的缓冲区，
-    /// 更可能仍在被合成器读取，写入它会引发内容撕裂甚至让合成器读到未写完的帧。
-    fn acquire_writable(&self, released: [bool; 2]) -> Option<usize> {
-        if released[self.candidate] {
-            Some(self.candidate)
-        } else {
-            None
-        }
-    }
-
-    /// 本次提交完成后翻转候选槽位，下一次呈现将写入另一块缓冲区。
-    fn mark_committed(&mut self) {
-        self.candidate ^= 1;
-    }
-}
 
 /// 贴图窗口的 ARGB8888 `wl_shm` 呈现表面。
 ///
