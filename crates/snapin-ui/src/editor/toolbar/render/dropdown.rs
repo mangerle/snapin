@@ -16,6 +16,23 @@ use snapin_annotation::{
 use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
+/// 下拉菜单单行的几何与文字颜色。
+#[derive(Clone, Copy)]
+struct DropdownRowContext {
+    rect: Rect,
+    center_y: f32,
+    scale: f32,
+    ink: Color,
+}
+
+/// 下拉行背景的当前选中、悬停与缩放状态。
+#[derive(Clone, Copy)]
+struct DropdownRowBackground {
+    context: DropdownRowContext,
+    current: bool,
+    hovered: bool,
+}
+
 /// 绘制展开的下拉菜单面板与选项预览
 pub(super) fn render_dropdown(
     pixmap: &mut PixmapMut,
@@ -30,15 +47,22 @@ pub(super) fn render_dropdown(
         let Some((is_current, preview)) = preview_for_row(dropdown.kind, index, toolbar) else {
             continue;
         };
+        let center_y = row.y + row.height / 2.0;
+        let context = DropdownRowContext {
+            rect: *row,
+            center_y,
+            scale: s,
+            ink,
+        };
         render_row_background(
             pixmap,
-            *row,
-            s,
-            is_current,
-            toolbar.dropdown_hover == Some(index),
+            DropdownRowBackground {
+                context,
+                current: is_current,
+                hovered: toolbar.dropdown_hover == Some(index),
+            },
         );
-        let center_y = row.y + row.height / 2.0;
-        render_preview(pixmap, *row, center_y, s, ink, preview);
+        render_preview(pixmap, context, preview);
         if is_current {
             fill_circle(
                 pixmap,
@@ -55,9 +79,15 @@ pub(super) fn render_dropdown(
 
 /// 绘制下拉面板的柔影、白色底板与边框。
 fn render_panel(pixmap: &mut PixmapMut, rect: Rect, s: f32) {
-    let mut shadow_pb = PathBuilder::new();
+    draw_dropdown_shadow(pixmap, rect, s);
+    draw_dropdown_body(pixmap, rect, s);
+}
+
+/// 绘制下拉面板的柔影。
+fn draw_dropdown_shadow(pixmap: &mut PixmapMut, rect: Rect, s: f32) {
+    let mut builder = PathBuilder::new();
     add_round_rect(
-        &mut shadow_pb,
+        &mut builder,
         RoundRect {
             x: rect.x + 1.0 * s,
             y: rect.y + 2.0 * s,
@@ -66,7 +96,7 @@ fn render_panel(pixmap: &mut PixmapMut, rect: Rect, s: f32) {
             radius: 8.0 * s,
         },
     );
-    if let Some(path) = shadow_pb.finish() {
+    if let Some(path) = builder.finish() {
         pixmap.fill_path(
             &path,
             &make_paint(Color::from_rgba8(0, 0, 0, 36)),
@@ -75,10 +105,13 @@ fn render_panel(pixmap: &mut PixmapMut, rect: Rect, s: f32) {
             None,
         );
     }
+}
 
-    let mut pb = PathBuilder::new();
+/// 绘制下拉面板的白色底板与边框。
+fn draw_dropdown_body(pixmap: &mut PixmapMut, rect: Rect, s: f32) {
+    let mut builder = PathBuilder::new();
     add_round_rect(
-        &mut pb,
+        &mut builder,
         RoundRect {
             x: rect.x,
             y: rect.y,
@@ -87,26 +120,26 @@ fn render_panel(pixmap: &mut PixmapMut, rect: Rect, s: f32) {
             radius: 8.0 * s,
         },
     );
-    if let Some(path) = pb.finish() {
-        pixmap.fill_path(
-            &path,
-            &make_paint(Color::from_rgba8(255, 255, 255, 255)),
-            tiny_skia::FillRule::Winding,
-            Transform::identity(),
-            None,
-        );
-        let border = Stroke {
+    let Some(path) = builder.finish() else {
+        return;
+    };
+    pixmap.fill_path(
+        &path,
+        &make_paint(Color::from_rgba8(255, 255, 255, 255)),
+        tiny_skia::FillRule::Winding,
+        Transform::identity(),
+        None,
+    );
+    pixmap.stroke_path(
+        &path,
+        &make_paint(Color::from_rgba8(218, 224, 233, 255)),
+        &Stroke {
             width: 1.0 * s,
             ..Default::default()
-        };
-        pixmap.stroke_path(
-            &path,
-            &make_paint(Color::from_rgba8(218, 224, 233, 255)),
-            &border,
-            Transform::identity(),
-            None,
-        );
-    }
+        },
+        Transform::identity(),
+        None,
+    );
 }
 
 /// 解析当前行对应的选项状态与预览类型。
@@ -222,14 +255,15 @@ fn preview_for_row(
 }
 
 /// 绘制当前选中或悬停行的底色。
-fn render_row_background(pixmap: &mut PixmapMut, row: Rect, s: f32, current: bool, hovered: bool) {
-    let color = if current {
+fn render_row_background(pixmap: &mut PixmapMut, spec: DropdownRowBackground) {
+    let color = if spec.current {
         Color::from_rgba8(37, 99, 235, 28)
-    } else if hovered {
+    } else if spec.hovered {
         Color::from_rgba8(148, 163, 184, 34)
     } else {
         return;
     };
+    let row = spec.context.rect;
     let mut builder = PathBuilder::new();
     add_round_rect(
         &mut builder,
@@ -238,7 +272,7 @@ fn render_row_background(pixmap: &mut PixmapMut, row: Rect, s: f32, current: boo
             y: row.y,
             width: row.width,
             height: row.height,
-            radius: 5.0 * s,
+            radius: 5.0 * spec.context.scale,
         },
     );
     if let Some(path) = builder.finish() {
@@ -253,16 +287,13 @@ fn render_row_background(pixmap: &mut PixmapMut, row: Rect, s: f32, current: boo
 }
 
 /// 按预览类别分派到图形或文本绘制。
-fn render_preview(
-    pixmap: &mut PixmapMut,
-    row: Rect,
-    center_y: f32,
-    s: f32,
-    ink: Color,
-    preview: DropdownPreview,
-) {
+fn render_preview(pixmap: &mut PixmapMut, context: DropdownRowContext, preview: DropdownPreview) {
+    let row = context.rect;
+    let center_y = context.center_y;
+    let s = context.scale;
+    let ink = context.ink;
     match preview {
-        DropdownPreview::Line(style) => render_line_preview(pixmap, row, center_y, s, ink, style),
+        DropdownPreview::Line(style) => render_line_preview(pixmap, context, style),
         DropdownPreview::Badge(style) => {
             render_badge_style_icon(
                 pixmap,
@@ -320,54 +351,54 @@ fn render_preview(
             );
         }
         DropdownPreview::FontSize(font_size) => {
-            render_text_preview(pixmap, row, center_y, s, &format!("{font_size:.0} px"));
+            render_text_preview(pixmap, context, &format!("{font_size:.0} px"));
         }
         DropdownPreview::BadgeSequence(sequence) => render_text_preview(
             pixmap,
-            row,
-            center_y,
-            s,
+            context,
             &format!("{}  {}", sequence.label(1), sequence.label(2)),
         ),
         DropdownPreview::Text(label) => {
-            render_text_preview(pixmap, row, center_y, s, snapin_foundation::i18n::tr(label));
+            render_text_preview(pixmap, context, snapin_foundation::i18n::tr(label));
         }
     }
 }
 
 /// 绘制线型示例。
-fn render_line_preview(
-    pixmap: &mut PixmapMut,
-    row: Rect,
-    center_y: f32,
-    s: f32,
-    ink: Color,
-    style: LineStyle,
-) {
+fn render_line_preview(pixmap: &mut PixmapMut, context: DropdownRowContext, style: LineStyle) {
+    let row = context.rect;
+    let scale = context.scale;
     stroke_sample(
         pixmap,
         LineSampleSpec {
-            x0: row.x + 10.0 * s,
-            x1: row.x + row.width - 24.0 * s,
-            y: center_y,
-            width: 2.0 * s,
+            x0: row.x + 10.0 * scale,
+            x1: row.x + row.width - 24.0 * scale,
+            y: context.center_y,
+            width: 2.0 * scale,
             style,
-            color: ink,
+            color: context.ink,
         },
     );
 }
 
 /// 绘制文本型预览。
-fn render_text_preview(pixmap: &mut PixmapMut, row: Rect, center_y: f32, s: f32, label: &str) {
+fn render_text_preview(pixmap: &mut PixmapMut, context: DropdownRowContext, label: &str) {
+    let ink = context.ink;
+    let rgba = (
+        (ink.red() * 255.0).round() as u8,
+        (ink.green() * 255.0).round() as u8,
+        (ink.blue() * 255.0).round() as u8,
+        (ink.alpha() * 255.0).round() as u8,
+    );
     with_thread_local_text_renderer(|renderer| {
         renderer.draw_text_rgba(
             pixmap,
             label,
             TextDrawOptions::new(
-                row.x + 12.0 * s,
-                center_y - 8.0 * s,
-                14.0 * s,
-                (45, 48, 56, 255),
+                context.rect.x + 12.0 * context.scale,
+                context.center_y - 8.0 * context.scale,
+                14.0 * context.scale,
+                rgba,
             ),
         );
     });
