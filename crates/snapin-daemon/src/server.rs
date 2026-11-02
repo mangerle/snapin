@@ -85,68 +85,94 @@ impl IpcListener {
         let mut connections = JoinSet::new();
 
         #[cfg(unix)]
-        loop {
-            tokio::select! {
-                _ = shutdown.changed() => break,
-                result = connections.join_next(), if !connections.is_empty() => {
-                    if let Some(Err(error)) = result {
-                        tracing::warn!("IPC 连接任务异常退出: {error}");
-                    }
-                }
-                accepted = this.listener.accept() => {
-                    match accepted {
-                        Ok((stream, _addr)) => {
-                            spawn_connection_handler(stream, cmd_sender.clone(), &mut connections).await;
-                        }
-                        Err(e) => {
-                            tracing::warn!("IPC 连接接入异常: {e}");
-                        }
-                    }
-                }
-            }
-        }
+        run_unix_loop(&this.listener, cmd_sender, &mut shutdown, &mut connections).await;
 
         #[cfg(windows)]
-        {
-            let mut current_server = this.initial_server.take();
-            loop {
-                let server = match current_server.take() {
-                    Some(s) => s,
-                    None => match tokio::net::windows::named_pipe::ServerOptions::new()
-                        .create(&this.pipe_name)
-                    {
-                        Ok(s) => s,
-                        Err(e) => {
-                            tracing::error!("创建命名管道实例失败: {e}");
-                            break;
-                        }
-                    },
-                };
-
-                tokio::select! {
-                    _ = shutdown.changed() => break,
-                    result = connections.join_next(), if !connections.is_empty() => {
-                        if let Some(Err(error)) = result {
-                            tracing::warn!("IPC 连接任务异常退出: {error}");
-                        }
-                        current_server = Some(server);
-                    }
-                    connected = server.connect() => {
-                        match connected {
-                            Ok(()) => {
-                                spawn_connection_handler(server, cmd_sender.clone(), &mut connections).await;
-                            }
-                            Err(e) => {
-                                tracing::warn!("命名管道连接接入异常: {e}");
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        this.run_windows_loop(cmd_sender, &mut shutdown, &mut connections)
+            .await;
 
         connections.shutdown().await;
         tracing::info!("IPC 监听循环已退出");
+    }
+}
+
+/// 记录已完成连接任务的异常退出。
+fn log_connection_exit(result: Option<Result<(), tokio::task::JoinError>>) {
+    if let Some(Err(error)) = result {
+        tracing::warn!("IPC 连接任务异常退出: {error}");
+    }
+}
+
+/// 运行 Unix Domain Socket 监听循环。
+#[cfg(unix)]
+async fn run_unix_loop(
+    listener: &UnixListener,
+    cmd_sender: Sender<IpcInvocation>,
+    shutdown: &mut watch::Receiver<bool>,
+    connections: &mut JoinSet<()>,
+) {
+    loop {
+        tokio::select! {
+            _ = shutdown.changed() => break,
+            result = connections.join_next(), if !connections.is_empty() => {
+                log_connection_exit(result);
+            }
+            accepted = listener.accept() => {
+                match accepted {
+                    Ok((stream, _addr)) => {
+                        spawn_connection_handler(stream, cmd_sender.clone(), connections).await;
+                    }
+                    Err(error) => {
+                        tracing::warn!("IPC 连接接入异常: {error}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+impl IpcListener {
+    /// 运行 Windows 命名管道监听循环。
+    async fn run_windows_loop(
+        &mut self,
+        cmd_sender: Sender<IpcInvocation>,
+        shutdown: &mut watch::Receiver<bool>,
+        connections: &mut JoinSet<()>,
+    ) {
+        let mut current_server = self.initial_server.take();
+        loop {
+            let server = match current_server.take() {
+                Some(server) => server,
+                None => match tokio::net::windows::named_pipe::ServerOptions::new()
+                    .create(&self.pipe_name)
+                {
+                    Ok(server) => server,
+                    Err(error) => {
+                        tracing::error!("创建命名管道实例失败: {error}");
+                        break;
+                    }
+                },
+            };
+
+            tokio::select! {
+                _ = shutdown.changed() => break,
+                result = connections.join_next(), if !connections.is_empty() => {
+                    log_connection_exit(result);
+                    current_server = Some(server);
+                }
+                connected = server.connect() => {
+                    match connected {
+                        Ok(()) => {
+                            spawn_connection_handler(server, cmd_sender.clone(), connections).await;
+                        }
+                        Err(error) => {
+                            tracing::warn!("命名管道连接接入异常: {error}");
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
