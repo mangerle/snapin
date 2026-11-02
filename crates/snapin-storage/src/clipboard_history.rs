@@ -35,7 +35,11 @@ struct HistoryLock {
 
 impl HistoryLock {
     fn acquire(operation: &str) -> Result<Self, StorageError> {
-        let path = AppPaths::config_dir().join("clipboard-history.lock");
+        let config_dir = AppPaths::ensure_config_dir().map_err(|source| StorageError::Io {
+            path: AppPaths::config_dir().display().to_string(),
+            source,
+        })?;
+        let path = config_dir.join("clipboard-history.lock");
         Self::acquire_at(&path, HISTORY_LOCK_TIMEOUT, operation)
     }
 
