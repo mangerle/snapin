@@ -57,7 +57,7 @@ fn handle_paster_event(inst: &mut PasterInstance, event: WindowEvent) -> bool {
         WindowEvent::Ime(ime_event) => handle_ime_event(inst, ime_event),
         WindowEvent::ModifiersChanged(modifiers) => {
             inst.state.modifiers = modifiers.state();
-            false
+            inst.state.should_close
         }
         WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
             handle_scale_factor_event(inst, scale_factor)
