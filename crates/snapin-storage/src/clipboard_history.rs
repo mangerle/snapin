@@ -4,11 +4,12 @@
 //! 不加密；所有文件位于 Snapin 私有配置目录。
 
 use crate::error::StorageError;
+use crate::raw_image::MAX_RAW_PIXELS;
 use image::{ImageOutputFormat, RgbaImage};
 use serde::{Deserialize, Serialize};
 use snapin_foundation::AppPaths;
 use std::fs::OpenOptions;
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Cursor, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -18,6 +19,10 @@ pub const CLIPBOARD_HISTORY_LIMIT: usize = 10;
 pub const CLIPBOARD_HISTORY_TTL_SECS: u64 = 24 * 60 * 60;
 /// 剪贴板历史索引允许读取的最大字节数。
 const MAX_CLIPBOARD_INDEX_BYTES: usize = 1024 * 1024;
+/// 单张剪贴板历史图像允许读取的最大字节数。
+const MAX_CLIPBOARD_IMAGE_FILE_BYTES: usize = 64 * 1024 * 1024;
+/// 剪贴板历史图像允许的最大宽度与高度。
+const MAX_CLIPBOARD_IMAGE_SIDE: u32 = 16_384;
 
 /// 剪贴板条目类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +109,13 @@ pub fn append_clipboard_image(image: &RgbaImage) -> Result<Vec<ClipboardEntry>, 
 
 /// 读取条目对应的图像文件。
 pub fn load_clipboard_image(entry: &ClipboardEntry) -> Result<RgbaImage, StorageError> {
+    load_clipboard_image_from(&clipboard_history_dir(), entry)
+}
+
+fn load_clipboard_image_from(
+    dir: &Path,
+    entry: &ClipboardEntry,
+) -> Result<RgbaImage, StorageError> {
     let file_name = entry
         .image_file
         .as_deref()
@@ -111,12 +123,29 @@ pub fn load_clipboard_image(entry: &ClipboardEntry) -> Result<RgbaImage, Storage
             path: "<missing>".to_string(),
             message: "图像历史缺少文件名".to_string(),
         })?;
-    let path = validated_image_path(&clipboard_history_dir(), file_name)?;
-    image::open(&path)
+    let path = validated_image_path(dir, file_name)?;
+    let bytes = snapin_foundation::read_file_limited(&path, MAX_CLIPBOARD_IMAGE_FILE_BYTES)
+        .map_err(|source| StorageError::Io {
+            path: path.display().to_string(),
+            source,
+        })?;
+    let mut reader = image::io::Reader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|error| StorageError::Io {
+            path: path.display().to_string(),
+            source: std::io::Error::other(format!("识别剪贴板图像格式失败: {error}")),
+        })?;
+    let mut limits = image::io::Limits::default();
+    limits.max_image_width = Some(MAX_CLIPBOARD_IMAGE_SIDE);
+    limits.max_image_height = Some(MAX_CLIPBOARD_IMAGE_SIDE);
+    limits.max_alloc = Some(MAX_RAW_PIXELS.saturating_mul(4));
+    reader.limits(limits);
+    reader
+        .decode()
         .map(|image| image.to_rgba8())
         .map_err(|error| StorageError::Io {
             path: path.display().to_string(),
-            source: std::io::Error::other(format!("读取剪贴板图像失败: {error}")),
+            source: std::io::Error::other(format!("解码剪贴板图像失败: {error}")),
         })
 }
 
@@ -391,5 +420,40 @@ mod tests {
 
         let error = load_and_prune(dir.path().to_path_buf()).expect_err("超限索引必须被拒绝");
         assert!(matches!(error, StorageError::Io { .. }));
+    }
+
+    #[test]
+    fn test_load_rejects_oversized_clipboard_image_dimensions() {
+        let dir = tempfile::tempdir().expect("应可创建测试目录");
+        let image =
+            RgbaImage::from_pixel(1, MAX_CLIPBOARD_IMAGE_SIDE + 1, image::Rgba([0, 0, 0, 255]));
+        let (id, file_name) = save_clipboard_image(dir.path(), &image).expect("图像应可保存");
+        let entry = ClipboardEntry {
+            id,
+            kind: ClipboardEntryKind::Image,
+            text: None,
+            image_file: Some(file_name),
+            created_at: now_secs(),
+        };
+
+        assert!(load_clipboard_image_from(dir.path(), &entry).is_err());
+    }
+
+    #[test]
+    fn test_load_rejects_oversized_clipboard_image_file() {
+        let dir = tempfile::tempdir().expect("应可创建测试目录");
+        let path = dir.path().join("huge.png");
+        let file = std::fs::File::create(&path).expect("应可创建测试文件");
+        file.set_len((MAX_CLIPBOARD_IMAGE_FILE_BYTES as u64).saturating_add(1))
+            .expect("应可扩展测试文件");
+        let entry = ClipboardEntry {
+            id: 1,
+            kind: ClipboardEntryKind::Image,
+            text: None,
+            image_file: Some("huge.png".to_string()),
+            created_at: now_secs(),
+        };
+
+        assert!(load_clipboard_image_from(dir.path(), &entry).is_err());
     }
 }
