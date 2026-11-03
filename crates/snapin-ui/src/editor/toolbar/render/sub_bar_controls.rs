@@ -312,12 +312,14 @@ impl SubControlRenderer<'_, '_> {
                 self.render_active_shape(active, false);
             }
             SubControl::SpotlightOpacity => {
-                self.render_icon_numeric(
+                let focused =
+                    self.toolbar.focused_sub_control == Some(SubControl::SpotlightOpacity);
+                self.render_icon_value(
                     &format!(
                         "{}%",
                         spotlight_opacity_percent(self.toolbar.sub_options.spotlight_intensity)
                     ),
-                    true,
+                    focused,
                     render_opacity_icon,
                 );
             }
@@ -342,18 +344,19 @@ impl SubControlRenderer<'_, '_> {
         }
     }
 
-    pub(super) fn render_icon_numeric(
+    /// 绘制带当前数值的属性图标；数值可显示，图形负责表达属性语义。
+    pub(super) fn render_icon_value(
         &mut self,
         value: &str,
-        active: bool,
+        focused: bool,
         draw_icon: impl FnOnce(&mut PixmapMut, SubBarIconSpec),
     ) {
-        self.highlight_if_active(active);
+        self.highlight_if_active(focused);
         let spec = SubBarIconSpec {
             center_x: self.rect.x + 11.0 * self.scale,
             center_y: self.center_y,
             scale: self.scale,
-            color: self.icon_color(active),
+            color: self.icon_color(focused),
         };
         draw_icon(self.pixmap, spec);
         with_thread_local_text_renderer(|renderer| {
@@ -361,10 +364,10 @@ impl SubControlRenderer<'_, '_> {
                 self.pixmap,
                 value,
                 TextDrawOptions::new(
-                    self.rect.x + 22.0 * self.scale,
+                    self.rect.x + 21.0 * self.scale,
                     self.center_y - 6.0 * self.scale,
                     10.5 * self.scale,
-                    icon_rgba(self.icon_color(active)),
+                    icon_rgba(self.icon_color(focused)),
                 ),
             );
         });

@@ -169,7 +169,7 @@ fn push_mosaic_entries(
     }
     let editable = mosaic_mode != MosaicMode::SmartRedact;
     if editable {
-        cursor.push_scaled(Some(SubControl::Size), 40.0);
+        cursor.push_scaled(Some(SubControl::Size), 36.0);
     }
     cursor.push_scaled(Some(SubControl::MosaicMode), 48.0);
     if editable {
@@ -200,7 +200,7 @@ fn push_spotlight_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescrip
     cursor.push_scaled(Some(SubControl::SpotlightShapeRect), 30.0);
     cursor.push_scaled(Some(SubControl::SpotlightShapeEllipse), 30.0);
     cursor.separator();
-    cursor.push_scaled(Some(SubControl::SpotlightOpacity), 48.0);
+    cursor.push_scaled(Some(SubControl::SpotlightOpacity), 42.0);
     cursor.push_scaled(Some(SubControl::SpotlightOutline), 30.0);
 }
 
@@ -212,7 +212,7 @@ fn push_magnifier_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescrip
     cursor.push_scaled(Some(SubControl::MagnifierShapeRect), 30.0);
     cursor.push_scaled(Some(SubControl::MagnifierShapeEllipse), 30.0);
     cursor.separator();
-    cursor.push_scaled(Some(SubControl::MagnifierScale), 84.0);
+    cursor.push_scaled(Some(SubControl::MagnifierScale), 78.0);
     cursor.push_scaled(Some(SubControl::MagnifierSmooth), 30.0);
     cursor.push_scaled(Some(SubControl::MagnifierConnector), 46.0);
     cursor.push_scaled(Some(SubControl::MagnifierShadow), 30.0);
@@ -228,7 +228,7 @@ fn push_standard_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescript
         cursor.push_scaled(Some(SubControl::LineStyle), 48.0);
     }
     if descriptor.stroke_width && !descriptor.mosaic_mode {
-        cursor.push_scaled(Some(SubControl::Size), 40.0);
+        cursor.push_scaled(Some(SubControl::Size), 36.0);
     }
     if descriptor.font_size {
         cursor.push_scaled(Some(SubControl::FontSize), 44.0);
@@ -237,7 +237,7 @@ fn push_standard_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescript
         push_text_style_entries(cursor);
     }
     if descriptor.corner_radius {
-        cursor.push_scaled(Some(SubControl::CornerRadius), 44.0);
+        cursor.push_scaled(Some(SubControl::CornerRadius), 38.0);
     }
     if descriptor.badge_style {
         cursor.push_scaled(Some(SubControl::BadgeStyle), 44.0);
@@ -267,8 +267,8 @@ fn push_text_style_entries(cursor: &mut EntryCursor<'_>) {
     cursor.push_scaled(Some(SubControl::TextStroke), 30.0);
     cursor.push_scaled(Some(SubControl::TextBackground), 30.0);
     cursor.push_scaled(Some(SubControl::TextBackgroundOpacity), 46.0);
-    cursor.push_scaled(Some(SubControl::TextBackgroundPadding), 46.0);
-    cursor.push_scaled(Some(SubControl::TextBackgroundCornerRadius), 46.0);
+    cursor.push_scaled(Some(SubControl::TextBackgroundPadding), 36.0);
+    cursor.push_scaled(Some(SubControl::TextBackgroundCornerRadius), 38.0);
     cursor.push_scaled(Some(SubControl::FontFamily), 44.0);
 }
 

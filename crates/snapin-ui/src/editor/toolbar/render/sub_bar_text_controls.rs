@@ -117,18 +117,20 @@ impl SubControlRenderer<'_, '_> {
                 self.render_caret();
             }
             SubControl::TextBackgroundOpacity => {
-                let active = self.toolbar.sub_options.text_background_enabled;
-                self.render_icon_numeric(
+                let focused =
+                    self.toolbar.focused_sub_control == Some(SubControl::TextBackgroundOpacity);
+                self.render_icon_value(
                     &format!("{}%", self.toolbar.sub_options.text_background_opacity),
-                    active,
+                    focused,
                     render_opacity_icon,
                 );
             }
             SubControl::TextBackgroundPadding => {
-                let active = self.toolbar.sub_options.text_background_enabled;
-                self.render_icon_numeric(
+                let focused =
+                    self.toolbar.focused_sub_control == Some(SubControl::TextBackgroundPadding);
+                self.render_icon_value(
                     &format!("{:.0}", self.toolbar.sub_options.text_background_padding),
-                    active,
+                    focused,
                     render_padding_icon,
                 );
             }
@@ -138,7 +140,8 @@ impl SubControlRenderer<'_, '_> {
                     self.pixmap,
                     geometry,
                     self.toolbar.sub_options.text_background_corner_radius,
-                    self.toolbar.sub_options.text_background_enabled,
+                    self.toolbar.focused_sub_control
+                        == Some(SubControl::TextBackgroundCornerRadius),
                 );
             }
             _ => unreachable!("文字背景组收到错误控件"),

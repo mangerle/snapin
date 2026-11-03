@@ -6,6 +6,7 @@
 use super::super::items::ToolbarItem;
 use super::super::layout::SubControl;
 use super::super::Toolbar;
+use super::sub_bar_helpers::spotlight_opacity_percent;
 use crate::drawing::{add_round_rect, RoundRect};
 use crate::geometry::Rect;
 use snapin_render::{with_thread_local_text_renderer, TextDrawOptions, TextMeasureOptions};
@@ -109,7 +110,7 @@ fn sub_control_numeric_message(
         }
         SubControl::SpotlightOpacity => format!(
             "{label}：{}%",
-            (u16::from(options.spotlight_intensity) * 100 / 255) as u8
+            spotlight_opacity_percent(options.spotlight_intensity)
         ),
         SubControl::MagnifierScale => format!("{label}：{:.1}x", options.magnifier_scale),
         _ => return None,

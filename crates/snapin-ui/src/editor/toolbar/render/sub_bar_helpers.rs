@@ -91,7 +91,9 @@ pub(super) fn render_caret(pixmap: &mut PixmapMut, cx: f32, cy: f32, s: f32) {
     }
 }
 
-/// 绘制“单圆点 + 数值”的尺寸控件，圆点直径随数值同步缩放。
+/// 绘制“圆点 + 数值”的线宽控件，圆点直径随数值同步缩放。
+///
+/// 圆点与数值共同构成紧凑图标，数值不是语义标签，可直接展示当前线宽。
 pub(super) fn render_size_with_dot(
     pixmap: &mut PixmapMut,
     geometry: SubBarGeometry,
@@ -106,7 +108,7 @@ pub(super) fn render_size_with_dot(
     fill_circle(
         pixmap,
         CircleSpec {
-            center_x: rect.x + 10.0 * s,
+            center_x: rect.x + 9.0 * s,
             center_y,
             radius: dot_radius,
             color: Color::from_rgba8(45, 48, 56, 255),
@@ -117,7 +119,7 @@ pub(super) fn render_size_with_dot(
             pixmap,
             &format!("{value:.0}"),
             TextDrawOptions::new(
-                rect.x + 20.0 * s,
+                rect.x + 18.0 * s,
                 center_y - 6.0 * s,
                 11.0 * s,
                 (45, 48, 56, 255),
@@ -126,7 +128,9 @@ pub(super) fn render_size_with_dot(
     });
 }
 
-/// 绘制“圆角图标 + 数值”的控件，数值由聚焦后的滚轮连续调整。
+/// 绘制“圆角图标 + 数值”的控件，圆角轮廓随当前值变化。
+///
+/// 数值直接表达圆角大小，图形只负责建立属性语义，热区按内容收紧。
 pub(super) fn render_corner_radius_with_value(
     pixmap: &mut PixmapMut,
     geometry: SubBarGeometry,
@@ -151,7 +155,7 @@ pub(super) fn render_corner_radius_with_value(
             pixmap,
             &format!("{value:.0}"),
             TextDrawOptions::new(
-                rect.x + 21.0 * s,
+                rect.x + 20.0 * s,
                 center_y - 6.0 * s,
                 11.0 * s,
                 (45, 48, 56, 255),
@@ -273,9 +277,9 @@ pub(super) fn render_magnifier_scale_slider(
             geometry.scale,
         );
     }
-    draw_magnifier_scale_label(pixmap, geometry, scale);
-    let left = geometry.rect.x + 43.0 * geometry.scale;
-    let right = geometry.rect.x + geometry.rect.width - 12.0 * geometry.scale;
+    draw_magnifier_scale_value(pixmap, geometry, scale);
+    let left = geometry.rect.x + 44.0 * geometry.scale;
+    let right = geometry.rect.x + geometry.rect.width - 10.0 * geometry.scale;
     let ratio = ((scale.clamp(1.0, 8.0) - 1.0) / 7.0).clamp(0.0, 1.0);
     draw_magnifier_scale_track(
         pixmap,
@@ -289,8 +293,8 @@ pub(super) fn render_magnifier_scale_slider(
     );
 }
 
-/// 绘制倍率图标与当前倍率数值。
-fn draw_magnifier_scale_label(pixmap: &mut PixmapMut, geometry: SubBarGeometry, scale: f32) {
+/// 绘制倍率滑块左侧的放大镜图标与当前倍率。
+fn draw_magnifier_scale_value(pixmap: &mut PixmapMut, geometry: SubBarGeometry, scale: f32) {
     render_magnifier_smooth_icon(
         pixmap,
         SubBarIconSpec {

@@ -469,10 +469,9 @@ fn test_compact_sub_control_widths() {
         );
     };
 
-    for control in [SubControl::LineStyle, SubControl::CornerRadius] {
-        assert_max(Tool::Rect, control, 48.0);
-    }
-    assert_max(Tool::Rect, SubControl::Size, 40.0);
+    assert_max(Tool::Rect, SubControl::LineStyle, 48.0);
+    assert_max(Tool::Rect, SubControl::CornerRadius, 38.0);
+    assert_max(Tool::Rect, SubControl::Size, 36.0);
     for control in [SubControl::BadgeStyle, SubControl::BadgeSequence] {
         assert_max(Tool::Badge, control, 44.0);
     }
@@ -485,20 +484,19 @@ fn test_compact_sub_control_widths() {
     assert_max(Tool::Mosaic, SubControl::MosaicMode, 48.0);
     assert_max(Tool::Mosaic, SubControl::MosaicBrush, 28.0);
     assert_max(Tool::Mosaic, SubControl::MosaicRectangle, 28.0);
+    assert_max(Tool::Spotlight, SubControl::SpotlightOpacity, 42.0);
     assert_max(Tool::Spotlight, SubControl::SpotlightOutline, 30.0);
+    assert_max(Tool::Magnifier, SubControl::MagnifierScale, 78.0);
     assert_max(Tool::Magnifier, SubControl::MagnifierSmooth, 30.0);
     assert_max(Tool::Magnifier, SubControl::MagnifierShadow, 30.0);
     for control in [SubControl::TextStroke, SubControl::TextBackground] {
         assert_max(Tool::Text, control, 30.0);
     }
-    for control in [
-        SubControl::TextBackgroundOpacity,
-        SubControl::TextBackgroundPadding,
-        SubControl::TextBackgroundCornerRadius,
-        SubControl::FontFamily,
-        SubControl::FontSize,
-    ] {
-        assert_max(Tool::Text, control, 46.0);
+    assert_max(Tool::Text, SubControl::TextBackgroundOpacity, 46.0);
+    assert_max(Tool::Text, SubControl::TextBackgroundPadding, 36.0);
+    assert_max(Tool::Text, SubControl::TextBackgroundCornerRadius, 38.0);
+    for control in [SubControl::FontFamily, SubControl::FontSize] {
+        assert_max(Tool::Text, control, 44.0);
     }
 }
 
