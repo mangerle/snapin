@@ -5747,7 +5747,7 @@ dependencies = [
 
 [[package]]
 name = "snapin"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5763,7 +5763,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-annotation"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5777,7 +5777,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-app"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -5805,7 +5805,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-config"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "serde",
  "serde_ignored",
@@ -5818,7 +5818,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-daemon"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5833,7 +5833,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-foundation"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "rustix 0.38.44",
  "serde",
@@ -5846,7 +5846,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-platform"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "arboard",
  "arc-swap",
@@ -5873,7 +5873,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-render"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "cosmic-text",
  "serde",
@@ -5883,7 +5883,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-runtime"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "thiserror 1.0.69",
  "tokio",
@@ -5893,7 +5893,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-service"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5922,7 +5922,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-settings"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "arc-swap",
  "slint",
@@ -5942,7 +5942,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-storage"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "chrono",
  "image",
@@ -5957,7 +5957,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-ui"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "image",
  "memmap2",
@@ -5979,7 +5979,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-updater"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "shipup",
  "tempfile",
