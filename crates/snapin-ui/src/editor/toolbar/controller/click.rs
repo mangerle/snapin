@@ -313,7 +313,7 @@ impl Toolbar {
             SubControl::MagnifierScale => {
                 if let Some(ratio) = self.slider_ratio(SliderInteraction {
                     control: SubControl::MagnifierScale,
-                    left_inset: 42.0,
+                    left_inset: 43.0,
                     right_inset: 12.0,
                     pointer_x: px,
                 }) {

@@ -3,12 +3,15 @@
 use super::super::icons::{add_round_rect, make_paint, RoundRect};
 use super::super::layout::{SubControl, SubDropdown};
 use super::super::Toolbar;
+use super::sub_bar_icons::{
+    render_badge_sequence_icon, render_magnifier_smooth_icon, SubBarIconSpec,
+};
 use super::widgets::{
     fill_button_highlight, fill_circle, render_badge_style_icon, render_corner_radius_icon,
     BadgeStyleIconSpec, CircleSpec, CornerRadiusIconSpec,
 };
 use crate::geometry::Rect;
-use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
+use snapin_render::{with_thread_local_text_renderer, CenteredTextOptions, TextDrawOptions};
 use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 二级栏控件的共享几何与高亮状态。
@@ -23,59 +26,41 @@ pub(super) struct SubBarGeometry {
     pub(super) highlight: Color,
 }
 
-pub(super) fn render_toggle_text(
+pub(super) fn render_toggle_glyph(
     pixmap: &mut PixmapMut,
     geometry: SubBarGeometry,
-    label: &'static str,
+    glyph: &'static str,
     active: bool,
 ) {
-    let (rect, s) = (&geometry.rect, geometry.scale);
+    let rect = geometry.rect;
+    let color = if active {
+        Color::from_rgba8(37, 99, 235, 255)
+    } else {
+        Color::from_rgba8(45, 48, 56, 255)
+    };
     if active {
-        fill_button_highlight(pixmap, rect, Color::from_rgba8(37, 99, 235, 45), s);
-    }
-    with_thread_local_text_renderer(|renderer| {
-        renderer.draw_text_rgba(
+        fill_button_highlight(
             pixmap,
-            snapin_foundation::i18n::tr(label),
-            TextDrawOptions::new(
-                rect.x + 7.0 * s,
-                rect.y + 5.0 * s,
-                12.0 * s,
-                if active {
-                    (37, 99, 235, 255)
-                } else {
-                    (45, 48, 56, 255)
-                },
-            ),
+            &rect,
+            Color::from_rgba8(37, 99, 235, 45),
+            geometry.scale,
         );
-    });
-}
-
-/// 绘制数值控件；尺寸与透明度均通过点击循环、滚轮连续调节。
-pub(super) fn render_numeric(
-    pixmap: &mut PixmapMut,
-    geometry: SubBarGeometry,
-    label: &str,
-    active: bool,
-) {
-    let (rect, center_y, s) = (&geometry.rect, geometry.center_y, geometry.scale);
-    if active {
-        fill_button_highlight(pixmap, rect, Color::from_rgba8(37, 99, 235, 36), s);
     }
     with_thread_local_text_renderer(|renderer| {
-        renderer.draw_text_rgba(
+        renderer.draw_centered_bold_text(
             pixmap,
-            label,
-            TextDrawOptions::new(
-                rect.x + 7.0 * s,
-                center_y - 6.0 * s,
-                11.0 * s,
-                if active {
-                    (37, 99, 235, 255)
-                } else {
-                    (45, 48, 56, 255)
-                },
-            ),
+            glyph,
+            CenteredTextOptions {
+                center: (rect.x + rect.width / 2.0, geometry.center_y),
+                font_size: 12.0 * geometry.scale,
+                max_extent: rect.width.max(1.0),
+                rgba: (
+                    (color.red() * 255.0).round() as u8,
+                    (color.green() * 255.0).round() as u8,
+                    (color.blue() * 255.0).round() as u8,
+                    (color.alpha() * 255.0).round() as u8,
+                ),
+            },
         );
     });
 }
@@ -121,7 +106,7 @@ pub(super) fn render_size_with_dot(
     fill_circle(
         pixmap,
         CircleSpec {
-            center_x: rect.x + 8.0 * s,
+            center_x: rect.x + 10.0 * s,
             center_y,
             radius: dot_radius,
             color: Color::from_rgba8(45, 48, 56, 255),
@@ -132,7 +117,7 @@ pub(super) fn render_size_with_dot(
             pixmap,
             &format!("{value:.0}"),
             TextDrawOptions::new(
-                rect.x + 24.0 * s,
+                rect.x + 20.0 * s,
                 center_y - 6.0 * s,
                 11.0 * s,
                 (45, 48, 56, 255),
@@ -166,7 +151,7 @@ pub(super) fn render_corner_radius_with_value(
             pixmap,
             &format!("{value:.0}"),
             TextDrawOptions::new(
-                rect.x + 24.0 * s,
+                rect.x + 21.0 * s,
                 center_y - 6.0 * s,
                 11.0 * s,
                 (45, 48, 56, 255),
@@ -263,6 +248,16 @@ fn draw_effect_slider_knobs(pixmap: &mut PixmapMut, slider: EffectSliderGeometry
     );
 }
 
+/// 放大镜倍率滑块的轨道几何。
+#[derive(Clone, Copy)]
+struct MagnifierScaleGeometry {
+    left: f32,
+    right: f32,
+    center_y: f32,
+    scale: f32,
+    knob_x: f32,
+}
+
 /// 绘制放大镜倍率滑块，范围固定为 1.0 到 8.0。
 pub(super) fn render_magnifier_scale_slider(
     pixmap: &mut PixmapMut,
@@ -270,35 +265,66 @@ pub(super) fn render_magnifier_scale_slider(
     scale: f32,
     focused: bool,
 ) {
-    let (rect, center_y, s) = (&geometry.rect, geometry.center_y, geometry.scale);
     if focused {
-        fill_button_highlight(pixmap, rect, Color::from_rgba8(37, 99, 235, 36), s);
+        fill_button_highlight(
+            pixmap,
+            &geometry.rect,
+            Color::from_rgba8(37, 99, 235, 36),
+            geometry.scale,
+        );
     }
+    draw_magnifier_scale_label(pixmap, geometry, scale);
+    let left = geometry.rect.x + 43.0 * geometry.scale;
+    let right = geometry.rect.x + geometry.rect.width - 12.0 * geometry.scale;
+    let ratio = ((scale.clamp(1.0, 8.0) - 1.0) / 7.0).clamp(0.0, 1.0);
+    draw_magnifier_scale_track(
+        pixmap,
+        MagnifierScaleGeometry {
+            left,
+            right,
+            center_y: geometry.center_y,
+            scale: geometry.scale,
+            knob_x: left + (right - left) * ratio,
+        },
+    );
+}
+
+/// 绘制倍率图标与当前倍率数值。
+fn draw_magnifier_scale_label(pixmap: &mut PixmapMut, geometry: SubBarGeometry, scale: f32) {
+    render_magnifier_smooth_icon(
+        pixmap,
+        SubBarIconSpec {
+            center_x: geometry.rect.x + 10.0 * geometry.scale,
+            center_y: geometry.center_y,
+            scale: geometry.scale,
+            color: Color::from_rgba8(45, 48, 56, 255),
+        },
+    );
     with_thread_local_text_renderer(|renderer| {
         renderer.draw_text_rgba(
             pixmap,
             &format!("{scale:.1}x"),
             TextDrawOptions::new(
-                rect.x + 7.0 * s,
-                center_y - 6.0 * s,
-                10.5 * s,
+                geometry.rect.x + 20.0 * geometry.scale,
+                geometry.center_y - 6.0 * geometry.scale,
+                10.5 * geometry.scale,
                 (45, 48, 56, 255),
             ),
         );
     });
-    let left = rect.x + 42.0 * s;
-    let right = rect.x + rect.width - 12.0 * s;
-    let ratio = ((scale.clamp(1.0, 8.0) - 1.0) / 7.0).clamp(0.0, 1.0);
-    let knob_x = left + (right - left) * ratio;
+}
+
+/// 绘制倍率滑块轨道与当前滑块。
+fn draw_magnifier_scale_track(pixmap: &mut PixmapMut, slider: MagnifierScaleGeometry) {
     let mut path = PathBuilder::new();
-    path.move_to(left, center_y);
-    path.line_to(right, center_y);
+    path.move_to(slider.left, slider.center_y);
+    path.line_to(slider.right, slider.center_y);
     if let Some(path) = path.finish() {
         pixmap.stroke_path(
             &path,
             &make_paint(Color::from_rgba8(165, 170, 182, 255)),
             &Stroke {
-                width: 2.0 * s,
+                width: 2.0 * slider.scale,
                 line_cap: tiny_skia::LineCap::Round,
                 ..Default::default()
             },
@@ -309,9 +335,9 @@ pub(super) fn render_magnifier_scale_slider(
     fill_circle(
         pixmap,
         CircleSpec {
-            center_x: knob_x,
-            center_y,
-            radius: 5.0 * s,
+            center_x: slider.knob_x,
+            center_y: slider.center_y,
+            radius: 5.0 * slider.scale,
             color: Color::from_rgba8(37, 99, 235, 255),
         },
     );
@@ -325,7 +351,7 @@ pub(super) fn render_fill_toggle(
     color: Color,
 ) {
     let (cx, cy, s) = (
-        geometry.rect.x + 12.0 * geometry.scale,
+        geometry.rect.x + geometry.rect.width / 2.0,
         geometry.center_y,
         geometry.scale,
     );
@@ -373,7 +399,7 @@ pub(super) fn render_sub_shape_rect(
     is_active: bool,
 ) {
     let (cx, cy, s) = (
-        geometry.rect.x + 12.0 * geometry.scale,
+        geometry.rect.x + geometry.rect.width / 2.0,
         geometry.center_y,
         geometry.scale,
     );
@@ -410,7 +436,7 @@ pub(super) fn render_sub_shape_ellipse(
     is_active: bool,
 ) {
     let (cx, cy, s) = (
-        geometry.rect.x + 12.0 * geometry.scale,
+        geometry.rect.x + geometry.rect.width / 2.0,
         geometry.center_y,
         geometry.scale,
     );
@@ -468,28 +494,26 @@ pub(super) fn render_badge_control(
             render_badge_style_icon(
                 pixmap,
                 BadgeStyleIconSpec {
-                    center_x: rect.x + 12.0 * s,
+                    center_x: rect.x + 13.0 * s,
                     center_y,
                     scale: s,
                     style: toolbar.sub_options.badge_style,
                     color: toolbar.sub_options.color,
                 },
             );
-            render_caret(pixmap, rect.x + rect.width - 8.0 * s, center_y, s);
+            render_caret(pixmap, rect.x + rect.width - 9.0 * s, center_y, s);
         }
         SubControl::BadgeSequence => {
-            with_thread_local_text_renderer(|renderer| {
-                renderer.draw_text_rgba(
-                    pixmap,
-                    snapin_foundation::i18n::tr("序号"),
-                    TextDrawOptions::new(
-                        rect.x + 7.0 * s,
-                        rect.y + 5.0 * s,
-                        12.0 * s,
-                        (45, 48, 56, 255),
-                    ),
-                );
-            });
+            render_badge_sequence_icon(
+                pixmap,
+                SubBarIconSpec {
+                    center_x: rect.x + 13.0 * s,
+                    center_y,
+                    scale: s,
+                    color: Color::from_rgba8(45, 48, 56, 255),
+                },
+                toolbar.sub_options.badge_sequence,
+            );
             render_caret(pixmap, rect.x + rect.width - 9.0 * s, center_y, s);
         }
         _ => {}

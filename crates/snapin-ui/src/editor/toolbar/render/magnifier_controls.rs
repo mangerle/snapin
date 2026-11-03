@@ -4,7 +4,10 @@ use super::super::layout::{SubControl, SubDropdown};
 use super::super::Toolbar;
 use super::sub_bar_helpers::{
     render_caret, render_magnifier_scale_slider, render_sub_shape_ellipse, render_sub_shape_rect,
-    render_toggle_text, SubBarGeometry,
+    SubBarGeometry,
+};
+use super::sub_bar_icons::{
+    render_magnifier_shadow_icon, render_magnifier_smooth_icon, SubBarIconSpec,
 };
 use super::widgets::{
     fill_button_highlight, render_magnifier_connector_preview, MagnifierConnectorPreviewSpec,
@@ -40,19 +43,15 @@ pub(super) fn render_magnifier_sub_control(
             spec.toolbar.sub_options.magnifier_scale,
             spec.toolbar.focused_sub_control == Some(SubControl::MagnifierScale),
         ),
-        SubControl::MagnifierSmooth => render_toggle_text(
-            pixmap,
-            spec.geometry,
-            "抗锯齿",
-            spec.toolbar.sub_options.magnifier_smooth,
-        ),
+        SubControl::MagnifierSmooth => {
+            let active = spec.toolbar.sub_options.magnifier_smooth;
+            render_toggle_icon(pixmap, &spec, active, render_magnifier_smooth_icon);
+        }
         SubControl::MagnifierConnector => render_connector_control(pixmap, &spec),
-        SubControl::MagnifierShadow => render_toggle_text(
-            pixmap,
-            spec.geometry,
-            "阴影",
-            spec.toolbar.sub_options.magnifier_shadow,
-        ),
+        SubControl::MagnifierShadow => {
+            let active = spec.toolbar.sub_options.magnifier_shadow;
+            render_toggle_icon(pixmap, &spec, active, render_magnifier_shadow_icon);
+        }
         _ => return false,
     }
     true
@@ -109,4 +108,35 @@ fn render_connector_control(pixmap: &mut PixmapMut, spec: &MagnifierControlSpec<
         spec.geometry.center_y,
         spec.geometry.scale,
     );
+}
+
+/// 绘制放大镜布尔开关的居中图标与选中底色。
+fn render_toggle_icon(
+    pixmap: &mut PixmapMut,
+    spec: &MagnifierControlSpec<'_>,
+    active: bool,
+    draw_icon: impl FnOnce(&mut PixmapMut, SubBarIconSpec),
+) {
+    if active {
+        fill_button_highlight(
+            pixmap,
+            &spec.geometry.rect,
+            spec.geometry.highlight,
+            spec.geometry.scale,
+        );
+    }
+    draw_icon(pixmap, icon_spec(spec.geometry, active));
+}
+
+fn icon_spec(geometry: SubBarGeometry, active: bool) -> SubBarIconSpec {
+    SubBarIconSpec {
+        center_x: geometry.rect.x + geometry.rect.width / 2.0,
+        center_y: geometry.center_y,
+        scale: geometry.scale,
+        color: if active {
+            Color::from_rgba8(37, 99, 235, 255)
+        } else {
+            Color::from_rgba8(45, 48, 56, 255)
+        },
+    }
 }

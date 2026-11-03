@@ -101,7 +101,7 @@ impl EntryCursor<'_> {
 
     /// 追加一个与现有视觉节奏一致的控件间隔。
     fn separator(&mut self) {
-        self.push_scaled(None, 14.0);
+        self.push_scaled(None, 12.0);
     }
 }
 
@@ -153,7 +153,7 @@ fn push_geometry_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescript
         cursor.separator();
     }
     if descriptor.line_mode {
-        cursor.push_scaled(Some(SubControl::LineMode), 54.0);
+        cursor.push_scaled(Some(SubControl::LineMode), 30.0);
         cursor.separator();
     }
 }
@@ -169,13 +169,13 @@ fn push_mosaic_entries(
     }
     let editable = mosaic_mode != MosaicMode::SmartRedact;
     if editable {
-        cursor.push_scaled(Some(SubControl::Size), 50.0);
+        cursor.push_scaled(Some(SubControl::Size), 40.0);
     }
-    cursor.push_scaled(Some(SubControl::MosaicMode), 78.0);
+    cursor.push_scaled(Some(SubControl::MosaicMode), 48.0);
     if editable {
-        cursor.push_scaled(Some(SubControl::MosaicBrush), 48.0);
-        cursor.push_scaled(Some(SubControl::MosaicRectangle), 48.0);
-        cursor.push_scaled(Some(SubControl::EffectStrength), 92.0);
+        cursor.push_scaled(Some(SubControl::MosaicBrush), 28.0);
+        cursor.push_scaled(Some(SubControl::MosaicRectangle), 28.0);
+        cursor.push_scaled(Some(SubControl::EffectStrength), 82.0);
     }
     cursor.separator();
 }
@@ -183,12 +183,12 @@ fn push_mosaic_entries(
 /// 追加荧光笔与橡皮擦专属控件。
 fn push_marker_and_eraser_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescriptor) {
     if descriptor.marker_mode {
-        cursor.push_scaled(Some(SubControl::MarkerShape), 54.0);
-        cursor.push_scaled(Some(SubControl::MarkerBlendMode), 62.0);
+        cursor.push_scaled(Some(SubControl::MarkerShape), 44.0);
+        cursor.push_scaled(Some(SubControl::MarkerBlendMode), 44.0);
         cursor.separator();
     }
     if descriptor.eraser_mode {
-        cursor.push_scaled(Some(SubControl::EraserMode), 54.0);
+        cursor.push_scaled(Some(SubControl::EraserMode), 30.0);
     }
 }
 
@@ -200,8 +200,8 @@ fn push_spotlight_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescrip
     cursor.push_scaled(Some(SubControl::SpotlightShapeRect), 30.0);
     cursor.push_scaled(Some(SubControl::SpotlightShapeEllipse), 30.0);
     cursor.separator();
-    cursor.push_scaled(Some(SubControl::SpotlightOpacity), 64.0);
-    cursor.push_scaled(Some(SubControl::SpotlightOutline), 50.0);
+    cursor.push_scaled(Some(SubControl::SpotlightOpacity), 48.0);
+    cursor.push_scaled(Some(SubControl::SpotlightOutline), 30.0);
 }
 
 /// 追加放大镜形状、倍率、平滑、连接与阴影控件。
@@ -212,51 +212,51 @@ fn push_magnifier_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescrip
     cursor.push_scaled(Some(SubControl::MagnifierShapeRect), 30.0);
     cursor.push_scaled(Some(SubControl::MagnifierShapeEllipse), 30.0);
     cursor.separator();
-    cursor.push_scaled(Some(SubControl::MagnifierScale), 104.0);
-    cursor.push_scaled(Some(SubControl::MagnifierSmooth), 54.0);
-    cursor.push_scaled(Some(SubControl::MagnifierConnector), 64.0);
-    cursor.push_scaled(Some(SubControl::MagnifierShadow), 48.0);
+    cursor.push_scaled(Some(SubControl::MagnifierScale), 84.0);
+    cursor.push_scaled(Some(SubControl::MagnifierSmooth), 30.0);
+    cursor.push_scaled(Some(SubControl::MagnifierConnector), 46.0);
+    cursor.push_scaled(Some(SubControl::MagnifierShadow), 30.0);
     cursor.separator();
 }
 
 /// 按描述元数据追加通用样式控件。
 fn push_standard_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescriptor) {
     if descriptor.fill_toggle {
-        cursor.push_scaled(Some(SubControl::FillToggle), 32.0);
+        cursor.push_scaled(Some(SubControl::FillToggle), 30.0);
     }
     if descriptor.line_style {
-        cursor.push_scaled(Some(SubControl::LineStyle), 56.0);
+        cursor.push_scaled(Some(SubControl::LineStyle), 48.0);
     }
     if descriptor.stroke_width && !descriptor.mosaic_mode {
-        cursor.push_scaled(Some(SubControl::Size), 50.0);
+        cursor.push_scaled(Some(SubControl::Size), 40.0);
     }
     if descriptor.font_size {
-        cursor.push_scaled(Some(SubControl::FontSize), 66.0);
+        cursor.push_scaled(Some(SubControl::FontSize), 44.0);
     }
     if descriptor.text_style {
         push_text_style_entries(cursor);
     }
     if descriptor.corner_radius {
-        cursor.push_scaled(Some(SubControl::CornerRadius), 54.0);
+        cursor.push_scaled(Some(SubControl::CornerRadius), 44.0);
     }
     if descriptor.badge_style {
-        cursor.push_scaled(Some(SubControl::BadgeStyle), 82.0);
+        cursor.push_scaled(Some(SubControl::BadgeStyle), 44.0);
     }
     if descriptor.badge_sequence {
-        cursor.push_scaled(Some(SubControl::BadgeSequence), 68.0);
+        cursor.push_scaled(Some(SubControl::BadgeSequence), 44.0);
     }
     if descriptor.arrow_style {
-        cursor.push_scaled(Some(SubControl::ArrowStyle), 58.0);
+        cursor.push_scaled(Some(SubControl::ArrowStyle), 48.0);
     }
     if descriptor.arrow_toggle {
-        cursor.push_scaled(Some(SubControl::ArrowEnabled), 54.0);
+        cursor.push_scaled(Some(SubControl::ArrowEnabled), 30.0);
     }
     if descriptor.arrow_heads {
-        cursor.push_scaled(Some(SubControl::StartArrow), 52.0);
-        cursor.push_scaled(Some(SubControl::EndArrow), 52.0);
+        cursor.push_scaled(Some(SubControl::StartArrow), 44.0);
+        cursor.push_scaled(Some(SubControl::EndArrow), 44.0);
     }
     if descriptor.eraser_mode {
-        cursor.push_scaled(Some(SubControl::ClearAnnotations), 54.0);
+        cursor.push_scaled(Some(SubControl::ClearAnnotations), 30.0);
     }
 }
 
@@ -264,12 +264,12 @@ fn push_standard_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescript
 fn push_text_style_entries(cursor: &mut EntryCursor<'_>) {
     cursor.push_scaled(Some(SubControl::Bold), 28.0);
     cursor.push_scaled(Some(SubControl::Italic), 28.0);
-    cursor.push_scaled(Some(SubControl::TextStroke), 42.0);
-    cursor.push_scaled(Some(SubControl::TextBackground), 46.0);
-    cursor.push_scaled(Some(SubControl::TextBackgroundOpacity), 58.0);
-    cursor.push_scaled(Some(SubControl::TextBackgroundPadding), 64.0);
-    cursor.push_scaled(Some(SubControl::TextBackgroundCornerRadius), 64.0);
-    cursor.push_scaled(Some(SubControl::FontFamily), 92.0);
+    cursor.push_scaled(Some(SubControl::TextStroke), 30.0);
+    cursor.push_scaled(Some(SubControl::TextBackground), 30.0);
+    cursor.push_scaled(Some(SubControl::TextBackgroundOpacity), 46.0);
+    cursor.push_scaled(Some(SubControl::TextBackgroundPadding), 46.0);
+    cursor.push_scaled(Some(SubControl::TextBackgroundCornerRadius), 46.0);
+    cursor.push_scaled(Some(SubControl::FontFamily), 44.0);
 }
 
 /// 追加预设颜色调色板。
@@ -371,7 +371,7 @@ fn build_dropdown_layout(
     let rows = dropdown_row_count(kind);
     let row_height = 28.0 * scale;
     let panel_height = rows as f32 * row_height + 8.0 * scale;
-    let panel_width = 116.0 * scale;
+    let panel_width = 108.0 * scale;
     let origin = dropdown_origin(anchor_rect, sub_rect, panel_height, request);
     let panel = Rect {
         x: origin.0,
@@ -438,7 +438,7 @@ fn dropdown_origin(
     request: SubLayoutRequest<'_>,
 ) -> (f32, f32) {
     let scale = request.ui_scale;
-    let panel_width = 116.0 * scale;
+    let panel_width = 108.0 * scale;
     let mut y = sub_rect.y + sub_rect.height + 4.0 * scale;
     if y + panel_height > request.screen_height - 8.0 * scale {
         y = (sub_rect.y - panel_height - 4.0 * scale).max(8.0 * scale);

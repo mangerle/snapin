@@ -451,3 +451,68 @@ fn test_dropdown_rows_stay_inside_panel() {
     }
     assert!(layout.dropdown_row_hit(dropdown.rows[1].x + 2.0, dropdown.rows[1].y + 2.0) == Some(1));
 }
+
+/// 关闭态图标与下拉框必须使用紧凑宽度，避免单图标占据过长热区。
+#[test]
+fn test_compact_sub_control_widths() {
+    let main = main_rect();
+    let layout =
+        |tool| layout_for(&main, Some(tool), (1920.0, 1080.0), 1.0).expect("工具应生成二级栏");
+    let assert_max = |tool: Tool, control: SubControl, max_width: f32| {
+        let width = layout(tool)
+            .rect_of(control)
+            .unwrap_or_else(|| panic!("{tool:?} 缺少 {control:?}"))
+            .width;
+        assert!(
+            width <= max_width,
+            "{tool:?} 的 {control:?} 宽度 {width} 超过紧凑上限 {max_width}"
+        );
+    };
+
+    for control in [SubControl::LineStyle, SubControl::CornerRadius] {
+        assert_max(Tool::Rect, control, 48.0);
+    }
+    assert_max(Tool::Rect, SubControl::Size, 40.0);
+    for control in [SubControl::BadgeStyle, SubControl::BadgeSequence] {
+        assert_max(Tool::Badge, control, 44.0);
+    }
+    for control in [SubControl::LineMode, SubControl::ArrowEnabled] {
+        assert_max(Tool::Line, control, 30.0);
+    }
+    for control in [SubControl::MarkerShape, SubControl::MarkerBlendMode] {
+        assert_max(Tool::Marker, control, 44.0);
+    }
+    assert_max(Tool::Mosaic, SubControl::MosaicMode, 48.0);
+    assert_max(Tool::Mosaic, SubControl::MosaicBrush, 28.0);
+    assert_max(Tool::Mosaic, SubControl::MosaicRectangle, 28.0);
+    assert_max(Tool::Spotlight, SubControl::SpotlightOutline, 30.0);
+    assert_max(Tool::Magnifier, SubControl::MagnifierSmooth, 30.0);
+    assert_max(Tool::Magnifier, SubControl::MagnifierShadow, 30.0);
+    for control in [SubControl::TextStroke, SubControl::TextBackground] {
+        assert_max(Tool::Text, control, 30.0);
+    }
+    for control in [
+        SubControl::TextBackgroundOpacity,
+        SubControl::TextBackgroundPadding,
+        SubControl::TextBackgroundCornerRadius,
+        SubControl::FontFamily,
+        SubControl::FontSize,
+    ] {
+        assert_max(Tool::Text, control, 46.0);
+    }
+}
+
+/// 马赛克画笔与矩形是两个紧邻的图标选择，不应留下大段文字控件宽度。
+#[test]
+fn test_mosaic_shape_choices_are_adjacent_compact_icons() {
+    let layout = layout_for(&main_rect(), Some(Tool::Mosaic), (1920.0, 1080.0), 1.0)
+        .expect("马赛克工具应生成二级栏");
+    let brush = layout
+        .rect_of(SubControl::MosaicBrush)
+        .expect("应包含画笔模式");
+    let rectangle = layout
+        .rect_of(SubControl::MosaicRectangle)
+        .expect("应包含矩形模式");
+    assert!((brush.x + brush.width - rectangle.x).abs() <= f32::EPSILON);
+    assert_eq!(brush.width, rectangle.width);
+}

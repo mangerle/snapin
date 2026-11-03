@@ -9,6 +9,8 @@ mod main_bar;
 mod sub_bar;
 mod sub_bar_controls;
 mod sub_bar_helpers;
+mod sub_bar_icons;
+mod sub_bar_text_controls;
 mod tooltip;
 mod widgets;
 

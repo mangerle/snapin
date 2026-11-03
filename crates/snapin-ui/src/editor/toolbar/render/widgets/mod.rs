@@ -177,18 +177,26 @@ pub(super) fn render_active_bottom_bar(pixmap: &mut PixmapMut, rect: &Rect, s: f
     }
 }
 
-/// 绘制垂直细分隔线
-pub(super) fn render_divider(pixmap: &mut PixmapMut, x: f32, y: f32, s: f32) {
-    let mut pb = PathBuilder::new();
-    pb.move_to(x, y + 5.0 * s);
-    pb.line_to(x, y + 27.0 * s);
-    if let Some(path) = pb.finish() {
-        let paint = make_paint(Color::from_rgba8(0, 0, 0, 26));
-        let stroke = Stroke {
-            width: 1.0 * s,
-            ..Default::default()
-        };
-        pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+/// 按控件中心线绘制垂直分隔线。
+///
+/// `center_y` 是控件垂直中心而不是控件顶边；分隔线向上下对称延伸，
+/// 避免主栏与二级栏因各自高度不同而出现偏下或不可辨认的问题。
+pub(super) fn render_divider(pixmap: &mut PixmapMut, x: f32, center_y: f32, scale: f32) {
+    let mut builder = PathBuilder::new();
+    builder.move_to(x, center_y - 10.0 * scale);
+    builder.line_to(x, center_y + 10.0 * scale);
+    if let Some(path) = builder.finish() {
+        pixmap.stroke_path(
+            &path,
+            &make_paint(Color::from_rgba8(100, 116, 139, 190)),
+            &Stroke {
+                width: (1.25 * scale).max(1.0),
+                line_cap: tiny_skia::LineCap::Round,
+                ..Default::default()
+            },
+            Transform::identity(),
+            None,
+        );
     }
 }
 
@@ -437,5 +445,26 @@ fn draw_connector_cross(
             Transform::identity(),
             None,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tiny_skia::Pixmap;
+
+    /// 二级栏分隔线必须可见且围绕控件垂直中心展开，不能贴到底部。
+    #[test]
+    fn test_divider_is_visible_and_vertically_centered() {
+        let mut pixmap = Pixmap::new(20, 40).expect("测试位图应可分配");
+        pixmap.fill(Color::TRANSPARENT);
+        render_divider(&mut pixmap.as_mut(), 10.0, 20.0, 1.0);
+
+        let center = pixmap.pixel(10, 20).expect("中心像素应存在");
+        let upper = pixmap.pixel(10, 12).expect("上部像素应存在");
+        let below = pixmap.pixel(10, 8).expect("边界外像素应存在");
+        assert!(center.alpha() > 0, "分隔线中心必须可见");
+        assert!(upper.alpha() > 0, "分隔线必须向上对称延伸");
+        assert_eq!(below.alpha(), 0, "分隔线不得溢出到控件外");
     }
 }

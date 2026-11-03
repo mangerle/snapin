@@ -9,9 +9,12 @@ use super::super::Toolbar;
 use super::magnifier_controls::{render_magnifier_sub_control, MagnifierControlSpec};
 use super::sub_bar_helpers::{
     is_badge_control, render_badge_control, render_caret, render_corner_radius_with_value,
-    render_effect_strength_slider, render_fill_toggle, render_numeric, render_size_with_dot,
-    render_sub_shape_ellipse, render_sub_shape_rect, render_toggle_text, spotlight_opacity_percent,
-    SubBarGeometry,
+    render_effect_strength_slider, render_fill_toggle, render_size_with_dot,
+    render_sub_shape_ellipse, render_sub_shape_rect, render_toggle_glyph,
+    spotlight_opacity_percent, SubBarGeometry,
+};
+use super::sub_bar_icons::{
+    render_font_size_icon, render_opacity_icon, render_spotlight_outline_icon, SubBarIconSpec,
 };
 use super::widgets::{
     fill_button_highlight, fill_circle, render_arrow_head_preview, render_arrow_preview,
@@ -38,7 +41,7 @@ pub(super) struct SubControlRenderer<'a, 'p> {
 
 impl SubControlRenderer<'_, '_> {
     /// 提取当前控件共享的几何与高亮状态。
-    fn geometry(&self) -> SubBarGeometry {
+    pub(super) fn geometry(&self) -> SubBarGeometry {
         SubBarGeometry {
             rect: self.rect,
             center_y: self.center_y,
@@ -52,8 +55,8 @@ impl SubControlRenderer<'_, '_> {
         let Some(control) = control else {
             render_divider(
                 self.pixmap,
-                self.rect.x + 8.0 * self.scale,
-                self.rect.y + 8.0 * self.scale,
+                self.rect.x + self.rect.width / 2.0,
+                self.center_y,
                 self.scale,
             );
             return;
@@ -258,7 +261,7 @@ impl SubControlRenderer<'_, '_> {
         let Some(preset) = self.presets.get(index) else {
             return;
         };
-        let cx = self.rect.x + 8.0 * self.scale;
+        let cx = self.rect.x + self.rect.width / 2.0;
         let circle = CircleSpec {
             center_x: cx,
             center_y: self.center_y,
@@ -294,101 +297,8 @@ impl SubControlRenderer<'_, '_> {
     fn render_font_size(&mut self) {
         let open = self.toolbar.open_dropdown == Some(SubDropdown::FontSize);
         self.highlight_if_open(open);
-        let label = format!("A {}", self.toolbar.sub_options.font_size.round() as u32);
-        self.render_text(&label, 12.0);
+        render_font_size_icon(self.pixmap, self.dropdown_icon_spec(open));
         self.render_caret();
-    }
-
-    fn render_text_or_mode(&mut self, control: SubControl) {
-        match control {
-            SubControl::Bold
-            | SubControl::Italic
-            | SubControl::TextStroke
-            | SubControl::TextBackground => self.render_text_style(control),
-            SubControl::MarkerShape => self.render_dropdown_label(
-                SubDropdown::MarkerShape,
-                snapin_foundation::i18n::tr(self.toolbar.sub_options.marker_shape.label()),
-            ),
-            SubControl::MarkerBlendMode => self.render_dropdown_label(
-                SubDropdown::MarkerBlendMode,
-                snapin_foundation::i18n::tr(self.toolbar.sub_options.marker_blend_mode.label()),
-            ),
-            SubControl::EraserMode => self.toggle_text(
-                if self.toolbar.sub_options.eraser_rectangle_mode {
-                    "框选"
-                } else {
-                    "画笔"
-                },
-                true,
-            ),
-            SubControl::ClearAnnotations => self.toggle_text("清空", false),
-            SubControl::LineMode => {
-                self.toggle_text(self.toolbar.sub_options.line_mode.label(), true)
-            }
-            SubControl::ArrowEnabled => {
-                self.toggle_text("箭头", self.toolbar.sub_options.line_arrow_enabled)
-            }
-            SubControl::MosaicBrush => {
-                self.toggle_text("画笔", self.toolbar.sub_options.mosaic_brush_mode)
-            }
-            SubControl::MosaicRectangle => {
-                self.toggle_text("矩形", !self.toolbar.sub_options.mosaic_brush_mode)
-            }
-            SubControl::MosaicMode => self.render_dropdown_label(
-                SubDropdown::MosaicMode,
-                snapin_foundation::i18n::tr(self.toolbar.sub_options.mosaic_mode.label()),
-            ),
-            SubControl::FontFamily
-            | SubControl::TextBackgroundOpacity
-            | SubControl::TextBackgroundPadding
-            | SubControl::TextBackgroundCornerRadius => self.render_text_background(control),
-            _ => unreachable!("文本或模式组收到错误控件"),
-        }
-    }
-
-    /// 文本粗体、斜体、描边与背景开关。
-    fn render_text_style(&mut self, control: SubControl) {
-        match control {
-            SubControl::Bold => self.toggle_text("B", self.toolbar.sub_options.text_bold),
-            SubControl::Italic => self.toggle_text("I", self.toolbar.sub_options.text_italic),
-            SubControl::TextStroke => {
-                self.toggle_text("描边", self.toolbar.sub_options.text_stroke_width > 0.0)
-            }
-            SubControl::TextBackground => {
-                self.toggle_text("背景", self.toolbar.sub_options.text_background_enabled)
-            }
-            _ => unreachable!("文本样式组收到错误控件"),
-        }
-    }
-
-    /// 字体族与文字背景数值控件。
-    fn render_text_background(&mut self, control: SubControl) {
-        match control {
-            SubControl::FontFamily => {
-                let family = self
-                    .toolbar
-                    .sub_options
-                    .font_family
-                    .map(snapin_foundation::i18n::tr)
-                    .unwrap_or_else(|| snapin_foundation::i18n::tr("系统默认"));
-                self.render_dropdown_label_with_size(SubDropdown::FontFamily, family, 11.0);
-            }
-            SubControl::TextBackgroundOpacity => self.render_numeric_enabled(&format!(
-                "{}%",
-                self.toolbar.sub_options.text_background_opacity
-            )),
-            SubControl::TextBackgroundPadding => self.render_numeric_enabled(&format!(
-                "{} {:.0}",
-                snapin_foundation::i18n::tr("边距"),
-                self.toolbar.sub_options.text_background_padding
-            )),
-            SubControl::TextBackgroundCornerRadius => self.render_numeric_enabled(&format!(
-                "{} {:.0}",
-                snapin_foundation::i18n::tr("圆角"),
-                self.toolbar.sub_options.text_background_corner_radius
-            )),
-            _ => unreachable!("文字背景组收到错误控件"),
-        }
     }
 
     fn render_spotlight(&mut self, control: SubControl) {
@@ -402,19 +312,19 @@ impl SubControlRenderer<'_, '_> {
                 self.render_active_shape(active, false);
             }
             SubControl::SpotlightOpacity => {
-                let geometry = self.geometry();
-                render_numeric(
-                    self.pixmap,
-                    geometry,
+                self.render_icon_numeric(
                     &format!(
                         "{}%",
                         spotlight_opacity_percent(self.toolbar.sub_options.spotlight_intensity)
                     ),
                     true,
+                    render_opacity_icon,
                 );
             }
             SubControl::SpotlightOutline => {
-                self.toggle_text("描边", self.toolbar.sub_options.spotlight_outline)
+                let active = self.toolbar.sub_options.spotlight_outline;
+                self.highlight_if_active(active);
+                render_spotlight_outline_icon(self.pixmap, self.icon_spec(active));
             }
             _ => unreachable!("聚光灯组收到错误控件"),
         }
@@ -432,56 +342,76 @@ impl SubControlRenderer<'_, '_> {
         }
     }
 
-    fn render_numeric_enabled(&mut self, text: &str) {
-        let geometry = self.geometry();
-        render_numeric(
-            self.pixmap,
-            geometry,
-            text,
-            self.toolbar.sub_options.text_background_enabled,
-        );
-    }
-
-    fn render_dropdown_label(&mut self, dropdown: SubDropdown, label: &str) {
-        self.render_dropdown_label_with_size(dropdown, label, 12.0);
-    }
-
-    fn render_dropdown_label_with_size(
+    pub(super) fn render_icon_numeric(
         &mut self,
-        dropdown: SubDropdown,
-        label: &str,
-        font_size: f32,
+        value: &str,
+        active: bool,
+        draw_icon: impl FnOnce(&mut PixmapMut, SubBarIconSpec),
     ) {
-        let open = self.toolbar.open_dropdown == Some(dropdown);
-        self.highlight_if_open(open);
-        self.render_text(label, font_size);
-        self.render_caret();
-    }
-
-    fn render_text(&mut self, text: &str, font_size: f32) {
-        let x = self.rect.x + 7.0 * self.scale;
-        let y = self.rect.y + 5.0 * self.scale;
+        self.highlight_if_active(active);
+        let spec = SubBarIconSpec {
+            center_x: self.rect.x + 11.0 * self.scale,
+            center_y: self.center_y,
+            scale: self.scale,
+            color: self.icon_color(active),
+        };
+        draw_icon(self.pixmap, spec);
         with_thread_local_text_renderer(|renderer| {
             renderer.draw_text_rgba(
                 self.pixmap,
-                text,
-                TextDrawOptions::new(x, y, font_size * self.scale, (45, 48, 56, 255)),
+                value,
+                TextDrawOptions::new(
+                    self.rect.x + 22.0 * self.scale,
+                    self.center_y - 6.0 * self.scale,
+                    10.5 * self.scale,
+                    icon_rgba(self.icon_color(active)),
+                ),
             );
         });
     }
 
-    fn highlight_if_open(&mut self, open: bool) {
-        if open {
+    pub(super) fn icon_spec(&self, active: bool) -> SubBarIconSpec {
+        SubBarIconSpec {
+            center_x: self.rect.x + self.rect.width / 2.0,
+            center_y: self.center_y,
+            scale: self.scale,
+            color: self.icon_color(active),
+        }
+    }
+
+    pub(super) fn dropdown_icon_spec(&self, active: bool) -> SubBarIconSpec {
+        SubBarIconSpec {
+            center_x: self.rect.x + 13.0 * self.scale,
+            center_y: self.center_y,
+            scale: self.scale,
+            color: self.icon_color(active),
+        }
+    }
+
+    pub(super) fn icon_color(&self, active: bool) -> Color {
+        if active {
+            Color::from_rgba8(37, 99, 235, 255)
+        } else {
+            Color::from_rgba8(45, 48, 56, 255)
+        }
+    }
+
+    pub(super) fn highlight_if_active(&mut self, active: bool) {
+        if active {
             fill_button_highlight(self.pixmap, &self.rect, self.highlight, self.scale);
         }
     }
 
-    fn toggle_text(&mut self, text: &'static str, active: bool) {
-        let geometry = self.geometry();
-        render_toggle_text(self.pixmap, geometry, text, active);
+    pub(super) fn highlight_if_open(&mut self, open: bool) {
+        self.highlight_if_active(open);
     }
 
-    fn render_caret(&mut self) {
+    pub(super) fn toggle_glyph(&mut self, glyph: &'static str, active: bool) {
+        let geometry = self.geometry();
+        render_toggle_glyph(self.pixmap, geometry, glyph, active);
+    }
+
+    pub(super) fn render_caret(&mut self) {
         self.render_caret_with_inset(9.0);
     }
 
@@ -493,4 +423,13 @@ impl SubControlRenderer<'_, '_> {
             self.scale,
         );
     }
+}
+
+fn icon_rgba(color: Color) -> (u8, u8, u8, u8) {
+    (
+        (color.red() * 255.0).round() as u8,
+        (color.green() * 255.0).round() as u8,
+        (color.blue() * 255.0).round() as u8,
+        (color.alpha() * 255.0).round() as u8,
+    )
 }

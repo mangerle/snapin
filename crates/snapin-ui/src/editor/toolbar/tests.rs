@@ -455,23 +455,16 @@ fn test_dropdown_closes_when_clicking_other_tool() {
     tb.handle_click(line_btn.x + 2.0, line_btn.y + 2.0);
     assert!(tb.open_dropdown.is_some());
 
-    // 点击画笔工具
-    let pen_index = tb
-        .main_items
-        .iter()
-        .position(|item| *item == ToolbarItem::Tool(Tool::Pen))
-        .expect("主栏应包含画笔");
-    let pen_x = tb.main_rect.x
-        + super::metrics::padding(tb.ui_scale)
-        + pen_index as f32
-            * (super::metrics::button_size(tb.ui_scale) + super::metrics::spacing(tb.ui_scale));
-    tb.handle_click(
-        pen_x + 2.0,
-        tb.main_rect.y + super::metrics::padding(tb.ui_scale) + 2.0,
-    );
+    // 点击未被下拉层覆盖的序号工具；使用真实按钮热区，避免手工推算漏掉分隔线占位。
+    let badge_rect = interaction::main_item_rects(&tb.main_rect, tb.main_items, tb.ui_scale)
+        .into_iter()
+        .find(|(item, _)| *item == ToolbarItem::Tool(Tool::Badge))
+        .map(|(_, rect)| rect)
+        .expect("主栏应包含序号工具");
+    tb.handle_click(badge_rect.x + 2.0, badge_rect.y + 2.0);
 
     assert!(tb.open_dropdown.is_none(), "切换工具后下拉菜单应收起");
-    assert_eq!(tb.active_tool, Some(Tool::Pen));
+    assert_eq!(tb.active_tool, Some(Tool::Badge));
 }
 
 /// 箭头样式下拉：实线/虚线/锥形三选一，选中后写回并收起菜单
