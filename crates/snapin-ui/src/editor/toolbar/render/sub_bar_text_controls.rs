@@ -40,10 +40,15 @@ impl SubControlRenderer<'_, '_> {
                 );
                 self.render_caret();
             }
-            SubControl::EraserMode => {
+            SubControl::EraserBrush => {
+                let active = !self.toolbar.sub_options.eraser_rectangle_mode;
+                self.highlight_if_active(active);
+                render_eraser_mode_icon(self.pixmap, self.icon_spec(active), false);
+            }
+            SubControl::EraserRectangle => {
                 let active = self.toolbar.sub_options.eraser_rectangle_mode;
                 self.highlight_if_active(active);
-                render_eraser_mode_icon(self.pixmap, self.icon_spec(active), active);
+                render_eraser_mode_icon(self.pixmap, self.icon_spec(active), true);
             }
             SubControl::ClearAnnotations => {
                 if self.toolbar.hovered_sub_control == Some(SubControl::ClearAnnotations) {

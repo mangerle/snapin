@@ -132,33 +132,48 @@ fn test_eraser_clear_annotations_is_separated_and_clickable() {
         height: 300.0,
     };
     tb.update_layout(&selection, 1920.0, 1080.0);
-    let layout = tb.sub_layout().expect("橡皮擦二级栏应存在");
-    let controls = layout
-        .entries
-        .iter()
-        .filter_map(|entry| entry.control)
-        .collect::<Vec<_>>();
+    let (controls, rectangle, brush, clear, separated_from_clear) = {
+        let layout = tb.sub_layout().expect("橡皮擦二级栏应存在");
+        let clear_index = layout
+            .entries
+            .iter()
+            .position(|entry| entry.control == Some(SubControl::ClearAnnotations))
+            .expect("应包含清空全部标注动作");
+        (
+            layout
+                .entries
+                .iter()
+                .filter_map(|entry| entry.control)
+                .collect::<Vec<_>>(),
+            layout
+                .rect_of(SubControl::EraserRectangle)
+                .expect("应包含框选擦除模式"),
+            layout
+                .rect_of(SubControl::EraserBrush)
+                .expect("应包含画笔擦除模式"),
+            layout
+                .rect_of(SubControl::ClearAnnotations)
+                .expect("清空动作热区应存在"),
+            layout.entries[clear_index - 1].control.is_none(),
+        )
+    };
     assert_eq!(
         controls,
         vec![
-            SubControl::EraserMode,
+            SubControl::EraserBrush,
+            SubControl::EraserRectangle,
             SubControl::Size,
             SubControl::ClearAnnotations,
         ]
     );
-    let clear_index = layout
-        .entries
-        .iter()
-        .position(|entry| entry.control == Some(SubControl::ClearAnnotations))
-        .expect("应包含清空全部标注动作");
-    assert_eq!(
-        layout.entries[clear_index - 1].control,
-        None,
-        "清空动作前必须有独立分隔线"
+    tb.handle_click(
+        rectangle.x + rectangle.width / 2.0,
+        rectangle.y + rectangle.height / 2.0,
     );
-    let clear = layout
-        .rect_of(SubControl::ClearAnnotations)
-        .expect("清空动作热区应存在");
+    assert!(tb.sub_options.eraser_rectangle_mode);
+    tb.handle_click(brush.x + brush.width / 2.0, brush.y + brush.height / 2.0);
+    assert!(!tb.sub_options.eraser_rectangle_mode);
+    assert!(separated_from_clear, "清空动作前必须有独立分隔线");
     assert_eq!(
         tb.handle_click(clear.x + clear.width / 2.0, clear.y + clear.height / 2.0),
         Some(ToolbarAction::ClearAnnotations)

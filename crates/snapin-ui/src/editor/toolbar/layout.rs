@@ -211,11 +211,12 @@ fn push_marker_and_eraser_entries(cursor: &mut EntryCursor<'_>, descriptor: &Too
         cursor.separator();
     }
     if descriptor.eraser_mode {
-        cursor.push_scaled(Some(SubControl::EraserMode), 30.0);
+        cursor.push_scaled(Some(SubControl::EraserBrush), 28.0);
+        cursor.push_scaled(Some(SubControl::EraserRectangle), 28.0);
     }
 }
 
-/// 追加聚光灯形状、透明度与描边控件。
+/// 追加聚光灯形状、遮罩强度与描边控件。
 fn push_spotlight_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescriptor) {
     if !descriptor.spotlight_style {
         return;
@@ -223,7 +224,7 @@ fn push_spotlight_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescrip
     cursor.push_scaled(Some(SubControl::SpotlightShapeRect), 30.0);
     cursor.push_scaled(Some(SubControl::SpotlightShapeEllipse), 30.0);
     cursor.separator();
-    cursor.push_scaled(Some(SubControl::SpotlightOpacity), 42.0);
+    cursor.push_scaled(Some(SubControl::SpotlightIntensity), 42.0);
     cursor.push_scaled(Some(SubControl::SpotlightOutline), 30.0);
 }
 

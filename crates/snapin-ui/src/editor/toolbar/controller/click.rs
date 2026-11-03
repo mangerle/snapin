@@ -151,7 +151,7 @@ impl Toolbar {
             }
             SubControl::SpotlightShapeRect
             | SubControl::SpotlightShapeEllipse
-            | SubControl::SpotlightOpacity
+            | SubControl::SpotlightIntensity
             | SubControl::SpotlightOutline => self.apply_spotlight_control(control),
             SubControl::MagnifierShapeRect
             | SubControl::MagnifierShapeEllipse
@@ -159,9 +159,10 @@ impl Toolbar {
             | SubControl::MagnifierSmooth
             | SubControl::MagnifierShadow
             | SubControl::MagnifierConnector => self.apply_magnifier_control(control, px),
-            SubControl::MarkerShape | SubControl::MarkerBlendMode | SubControl::EraserMode => {
-                self.apply_marker_control(control);
-            }
+            SubControl::MarkerShape
+            | SubControl::MarkerBlendMode
+            | SubControl::EraserBrush
+            | SubControl::EraserRectangle => self.apply_marker_control(control),
             SubControl::ClearAnnotations => unreachable!("清空动作已在上方提前返回"),
         }
 
@@ -279,7 +280,7 @@ impl Toolbar {
         }
     }
 
-    /// 聚光灯形状、透明度与描边。
+    /// 聚光灯形状、遮罩强度与描边。
     fn apply_spotlight_control(&mut self, control: SubControl) {
         match control {
             SubControl::SpotlightShapeRect => {
@@ -288,7 +289,7 @@ impl Toolbar {
             SubControl::SpotlightShapeEllipse => {
                 self.sub_options.spotlight_shape = SpotlightShape::Ellipse;
             }
-            SubControl::SpotlightOpacity => {
+            SubControl::SpotlightIntensity => {
                 self.sub_options.spotlight_intensity = next_u8(
                     self.sub_options.spotlight_intensity,
                     &[64, 96, 128, 160, 192, 224],
@@ -336,9 +337,8 @@ impl Toolbar {
         match control {
             SubControl::MarkerShape => self.show_dropdown(SubDropdown::MarkerShape),
             SubControl::MarkerBlendMode => self.show_dropdown(SubDropdown::MarkerBlendMode),
-            SubControl::EraserMode => {
-                self.sub_options.eraser_rectangle_mode = !self.sub_options.eraser_rectangle_mode;
-            }
+            SubControl::EraserBrush => self.sub_options.eraser_rectangle_mode = false,
+            SubControl::EraserRectangle => self.sub_options.eraser_rectangle_mode = true,
             _ => unreachable!("画笔组收到错误控件"),
         }
     }

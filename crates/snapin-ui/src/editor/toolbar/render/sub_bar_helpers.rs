@@ -65,8 +65,8 @@ pub(super) fn render_toggle_glyph(
     });
 }
 
-/// 将 0 到 255 的压暗 alpha 显示为 0% 到 100%。
-pub(super) fn spotlight_opacity_percent(intensity: u8) -> u8 {
+/// 将 0 到 255 的聚光灯遮罩 alpha 显示为 0% 到 100%。
+pub(super) fn spotlight_intensity_percent(intensity: u8) -> u8 {
     ((u16::from(intensity) * 100 + 127) / 255) as u8
 }
 

@@ -2,7 +2,7 @@
 
 use super::primitives::{add_ellipse, add_round_rect, make_paint, Ellipse, RoundRect};
 use super::IconPainter;
-use tiny_skia::{PathBuilder, PixmapMut, Transform};
+use tiny_skia::{Color, PathBuilder, PixmapMut, Transform};
 
 /// 图标: 纯椭圆几何造型
 pub(super) fn render_icon_ellipse(pixmap: &mut PixmapMut, painter: &IconPainter) {
@@ -89,34 +89,46 @@ pub(super) fn render_icon_arrow(pixmap: &mut PixmapMut, painter: &IconPainter) {
     }
 }
 
-/// 图标 3: 斜置铅笔 (圆角笔身 + 尾端束线，笔尖指向左下)
+/// 铅笔图标：六边形笔身、木质笔尖与尾端金属箍。
 pub(super) fn render_icon_pen(pixmap: &mut PixmapMut, painter: &IconPainter) {
     let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
     let (paint, stroke) = (&painter.paint, &painter.stroke);
-    let length = 15.5 * s;
-    let width = 3.4 * s;
     let mut pb = PathBuilder::new();
-    add_round_rect(
-        &mut pb,
-        RoundRect {
-            x: cx - length / 2.0,
-            y: cy - width / 2.0,
-            width: length,
-            height: width,
-            radius: width / 2.0,
-        },
-    );
-    // 尾端束线：分隔笔尾与笔身，两端圆头恰好收在笔身轮廓内
-    let band_x = cx + length / 2.0 - 2.5 * s;
-    pb.move_to(band_x, cy - width / 2.0);
-    pb.line_to(band_x, cy + width / 2.0);
+    let (tip_x, tip_y) = (cx - 7.5 * s, cy + 7.5 * s);
+    let (left_shoulder_x, left_shoulder_y) = (cx - 4.5 * s, cy + 2.7 * s);
+    let (tail_left_x, tail_left_y) = (cx + 4.8 * s, cy - 6.2 * s);
+    let (tail_right_x, tail_right_y) = (cx + 7.0 * s, cy - 4.0 * s);
+    let (right_shoulder_x, right_shoulder_y) = (cx - 2.2 * s, cy + 5.0 * s);
+    pb.move_to(tip_x, tip_y);
+    pb.line_to(left_shoulder_x, left_shoulder_y);
+    pb.line_to(tail_left_x, tail_left_y);
+    pb.line_to(tail_right_x, tail_right_y);
+    pb.line_to(right_shoulder_x, right_shoulder_y);
+    pb.close();
+
+    // 笔尖分隔线与尾端金属箍让铅笔轮廓不再像普通胶囊形工具。
+    pb.move_to(left_shoulder_x, left_shoulder_y);
+    pb.line_to(right_shoulder_x, right_shoulder_y);
+    let (band_start_x, band_start_y) = (cx + 2.2 * s, cy - 3.6 * s);
+    let (band_end_x, band_end_y) = (cx + 4.4 * s, cy - 1.4 * s);
+    pb.move_to(band_start_x, band_start_y);
+    pb.line_to(band_end_x, band_end_y);
     if let Some(path) = pb.finish() {
-        // 水平笔身绕按钮中心旋转 -45 度，得到从左下指向右上的斜置造型
-        pixmap.stroke_path(
+        pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
+    }
+
+    // 实心笔尖强化“铅笔”识别度。
+    let mut tip = PathBuilder::new();
+    tip.move_to(tip_x, tip_y);
+    tip.line_to(left_shoulder_x, left_shoulder_y);
+    tip.line_to(right_shoulder_x, right_shoulder_y);
+    tip.close();
+    if let Some(path) = tip.finish() {
+        pixmap.fill_path(
             &path,
             paint,
-            stroke,
-            Transform::from_rotate_at(-45.0, cx, cy),
+            tiny_skia::FillRule::Winding,
+            Transform::identity(),
             None,
         );
     }
@@ -171,21 +183,48 @@ pub(super) fn render_icon_magnifier(pixmap: &mut PixmapMut, painter: &IconPainte
     }
 }
 
-/// 图标 4: 荧光记号笔 (倒梯形宽笔头 + 笔身)
+/// 荧光笔图标：宽笔头、笔身、金属箍与底部荧光笔迹。
 pub(super) fn render_icon_marker(pixmap: &mut PixmapMut, painter: &IconPainter) {
     let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
     let (paint, stroke) = (&painter.paint, &painter.stroke);
+
+    // 底部荧光笔迹是最容易与普通铅笔区分开的视觉特征。
+    let mut swash = PathBuilder::new();
+    add_round_rect(
+        &mut swash,
+        RoundRect {
+            x: cx - 7.0 * s,
+            y: cy + 5.0 * s,
+            width: 14.0 * s,
+            height: 2.8 * s,
+            radius: 1.4 * s,
+        },
+    );
+    if let Some(path) = swash.finish() {
+        pixmap.fill_path(
+            &path,
+            &make_paint(Color::from_rgba8(250, 204, 21, 115)),
+            tiny_skia::FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+    }
+
     let mut pb = PathBuilder::new();
-    pb.move_to(cx - 6.5 * s, cy + 4.5 * s);
-    pb.line_to(cx - 3.5 * s, cy + 7.5 * s);
-    pb.line_to(cx - 1.0 * s, cy + 5.0 * s);
-    pb.line_to(cx - 4.0 * s, cy + 2.0 * s);
+    // 斜置宽笔头。
+    pb.move_to(cx - 6.8 * s, cy + 4.6 * s);
+    pb.line_to(cx - 4.2 * s, cy + 0.8 * s);
+    pb.line_to(cx - 1.0 * s, cy + 3.3 * s);
+    pb.line_to(cx - 3.6 * s, cy + 7.0 * s);
     pb.close();
-    pb.move_to(cx - 2.0 * s, cy + 3.0 * s);
-    pb.line_to(cx + 5.5 * s, cy - 4.5 * s);
-    pb.line_to(cx + 7.5 * s, cy - 2.5 * s);
-    pb.line_to(cx, cy + 5.0 * s);
+    // 较宽的记号笔笔身与笔帽分界。
+    pb.move_to(cx - 3.5 * s, cy + 1.7 * s);
+    pb.line_to(cx + 4.1 * s, cy - 5.8 * s);
+    pb.line_to(cx + 7.0 * s, cy - 3.0 * s);
+    pb.line_to(cx - 0.2 * s, cy + 4.4 * s);
     pb.close();
+    pb.move_to(cx + 2.7 * s, cy - 4.2 * s);
+    pb.line_to(cx + 5.3 * s, cy - 1.5 * s);
     if let Some(path) = pb.finish() {
         pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
     }

@@ -11,7 +11,7 @@ use super::sub_bar_helpers::{
     is_badge_control, render_badge_control, render_caret, render_corner_radius_with_value,
     render_effect_strength_slider, render_fill_toggle, render_size_with_dot,
     render_sub_shape_ellipse, render_sub_shape_rect, render_toggle_glyph,
-    spotlight_opacity_percent, SubBarGeometry,
+    spotlight_intensity_percent, SubBarGeometry,
 };
 use super::sub_bar_icons::{
     render_font_size_icon, render_opacity_icon, render_spotlight_outline_icon, SubBarIconSpec,
@@ -102,7 +102,8 @@ impl SubControlRenderer<'_, '_> {
             | SubControl::TextBackground
             | SubControl::MarkerShape
             | SubControl::MarkerBlendMode
-            | SubControl::EraserMode
+            | SubControl::EraserBrush
+            | SubControl::EraserRectangle
             | SubControl::ClearAnnotations
             | SubControl::LineMode
             | SubControl::ArrowEnabled
@@ -115,7 +116,7 @@ impl SubControlRenderer<'_, '_> {
             | SubControl::TextBackgroundCornerRadius => self.render_text_or_mode(control),
             SubControl::SpotlightShapeRect
             | SubControl::SpotlightShapeEllipse
-            | SubControl::SpotlightOpacity
+            | SubControl::SpotlightIntensity
             | SubControl::SpotlightOutline => self.render_spotlight(control),
             SubControl::MagnifierShapeRect
             | SubControl::MagnifierShapeEllipse
@@ -311,13 +312,13 @@ impl SubControlRenderer<'_, '_> {
                 let active = self.toolbar.sub_options.spotlight_shape == SpotlightShape::Ellipse;
                 self.render_active_shape(active, false);
             }
-            SubControl::SpotlightOpacity => {
+            SubControl::SpotlightIntensity => {
                 let focused =
-                    self.toolbar.focused_sub_control == Some(SubControl::SpotlightOpacity);
+                    self.toolbar.focused_sub_control == Some(SubControl::SpotlightIntensity);
                 self.render_icon_value(
                     &format!(
                         "{}%",
-                        spotlight_opacity_percent(self.toolbar.sub_options.spotlight_intensity)
+                        spotlight_intensity_percent(self.toolbar.sub_options.spotlight_intensity)
                     ),
                     focused,
                     render_opacity_icon,

@@ -6,7 +6,7 @@
 use super::super::items::ToolbarItem;
 use super::super::layout::SubControl;
 use super::super::Toolbar;
-use super::sub_bar_helpers::spotlight_opacity_percent;
+use super::sub_bar_helpers::spotlight_intensity_percent;
 use crate::drawing::{add_round_rect, RoundRect};
 use crate::geometry::Rect;
 use snapin_render::{with_thread_local_text_renderer, TextDrawOptions, TextMeasureOptions};
@@ -108,9 +108,9 @@ fn sub_control_numeric_message(
         SubControl::TextBackgroundCornerRadius => {
             format!("{label}：{:.0}", options.text_background_corner_radius)
         }
-        SubControl::SpotlightOpacity => format!(
+        SubControl::SpotlightIntensity => format!(
             "{label}：{}%",
-            spotlight_opacity_percent(options.spotlight_intensity)
+            spotlight_intensity_percent(options.spotlight_intensity)
         ),
         SubControl::MagnifierScale => format!("{label}：{:.1}x", options.magnifier_scale),
         _ => return None,
@@ -144,14 +144,6 @@ fn sub_control_style_message(
             "{label}：{}",
             snapin_foundation::i18n::tr(options.marker_blend_mode.label())
         ),
-        SubControl::EraserMode => {
-            let mode = if options.eraser_rectangle_mode {
-                "框选"
-            } else {
-                "画笔"
-            };
-            format!("{label}：{mode}")
-        }
         SubControl::MosaicMode => {
             format!(
                 "{label}：{}",
@@ -474,14 +466,24 @@ mod tests {
             ..Toolbar::default()
         };
         eraser_toolbar.update_layout(&selection, 1920.0, 1080.0);
-        let eraser_mode = eraser_toolbar
+        let eraser_brush = eraser_toolbar
             .sub_layout()
-            .and_then(|layout| layout.rect_of(SubControl::EraserMode))
-            .expect("橡皮擦二级栏应包含模式控件");
-        eraser_toolbar.handle_mouse_move(eraser_mode.x + 2.0, eraser_mode.y + 2.0);
+            .and_then(|layout| layout.rect_of(SubControl::EraserBrush))
+            .expect("橡皮擦二级栏应包含画笔模式");
+        eraser_toolbar.handle_mouse_move(eraser_brush.x + 2.0, eraser_brush.y + 2.0);
         assert_eq!(
             tooltip_target(&eraser_toolbar).map(|(message, _)| message),
-            Some("橡皮擦模式：画笔".to_string())
+            Some("橡皮擦画笔".to_string())
+        );
+
+        let eraser_rectangle = eraser_toolbar
+            .sub_layout()
+            .and_then(|layout| layout.rect_of(SubControl::EraserRectangle))
+            .expect("橡皮擦二级栏应包含框选模式");
+        eraser_toolbar.handle_mouse_move(eraser_rectangle.x + 2.0, eraser_rectangle.y + 2.0);
+        assert_eq!(
+            tooltip_target(&eraser_toolbar).map(|(message, _)| message),
+            Some("橡皮擦框选".to_string())
         );
 
         let clear = eraser_toolbar
@@ -492,6 +494,21 @@ mod tests {
         assert_eq!(
             tooltip_target(&eraser_toolbar).map(|(message, _)| message),
             Some("清空全部标注".to_string())
+        );
+
+        let mut spotlight_toolbar = Toolbar {
+            active_tool: Some(super::super::super::items::Tool::Spotlight),
+            ..Toolbar::default()
+        };
+        spotlight_toolbar.update_layout(&selection, 1920.0, 1080.0);
+        let intensity = spotlight_toolbar
+            .sub_layout()
+            .and_then(|layout| layout.rect_of(SubControl::SpotlightIntensity))
+            .expect("聚光灯二级栏应包含遮罩强度");
+        spotlight_toolbar.handle_mouse_move(intensity.x + 2.0, intensity.y + 2.0);
+        assert_eq!(
+            tooltip_target(&spotlight_toolbar).map(|(message, _)| message),
+            Some("遮罩强度：63%".to_string())
         );
     }
 }

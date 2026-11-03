@@ -92,6 +92,18 @@ fn handle_locked_cursor(
         update_selection_drag(state, rect, drag, frame);
         return true;
     }
+    if state
+        .editor
+        .annotation
+        .toolbar
+        .contains_point(frame.x, frame.y)
+    {
+        return state
+            .editor
+            .annotation
+            .toolbar
+            .handle_mouse_move(frame.x, frame.y);
+    }
     if state.editor.annotation.toolbar.active_tool == Some(Tool::Eraser) {
         let point = clamped_cursor_point(rect, frame);
         eraser::handle_drag_move(state, (point.x, point.y));

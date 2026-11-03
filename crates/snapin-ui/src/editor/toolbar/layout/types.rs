@@ -61,7 +61,10 @@ pub(crate) enum SubControl {
     BadgeSequence,
     MarkerShape,
     MarkerBlendMode,
-    EraserMode,
+    /// 橡皮擦画笔模式
+    EraserBrush,
+    /// 橡皮擦框选模式
+    EraserRectangle,
     ClearAnnotations,
     /// 直线与折线模式
     LineMode,
@@ -85,8 +88,8 @@ pub(crate) enum SubControl {
     SpotlightShapeRect,
     /// 聚光灯椭圆聚焦区域
     SpotlightShapeEllipse,
-    /// 聚光灯透明度
-    SpotlightOpacity,
+    /// 聚光灯外围遮罩强度
+    SpotlightIntensity,
     /// 聚光灯描边开关
     SpotlightOutline,
     /// 放大镜矩形区域
@@ -128,7 +131,8 @@ impl SubControl {
             Self::TextBackground => "文字背景",
             Self::BadgeSequence => "数字形态",
             Self::MarkerShape => "绘制模式",
-            Self::EraserMode => "橡皮擦模式",
+            Self::EraserBrush => "橡皮擦画笔",
+            Self::EraserRectangle => "橡皮擦框选",
             Self::MosaicBrush => "画笔模式",
             Self::MosaicRectangle => "矩形模式",
             Self::MarkerBlendMode => "混合模式",
@@ -139,7 +143,7 @@ impl SubControl {
             Self::FontFamily => "字体",
             Self::TextBackgroundOpacity => "背景不透明度",
             Self::TextBackgroundPadding => "背景内边距",
-            Self::SpotlightOpacity => "透明度",
+            Self::SpotlightIntensity => "遮罩强度",
             Self::SpotlightOutline => "描边",
             Self::MagnifierScale => "放大倍率",
             Self::MagnifierSmooth => "抗锯齿",

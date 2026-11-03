@@ -327,7 +327,7 @@ fn test_reference_toolbar_controls_are_complete() {
     for expected in [
         SubControl::SpotlightShapeRect,
         SubControl::SpotlightShapeEllipse,
-        SubControl::SpotlightOpacity,
+        SubControl::SpotlightIntensity,
         SubControl::SpotlightOutline,
         SubControl::LineStyle,
         SubControl::Size,
@@ -350,7 +350,8 @@ fn test_reference_toolbar_controls_are_complete() {
 
     let eraser = controls(Tool::Eraser);
     for expected in [
-        SubControl::EraserMode,
+        SubControl::EraserBrush,
+        SubControl::EraserRectangle,
         SubControl::Size,
         SubControl::ClearAnnotations,
     ] {
@@ -514,10 +515,13 @@ fn test_compact_sub_control_widths() {
     for control in [SubControl::MarkerShape, SubControl::MarkerBlendMode] {
         assert_max(Tool::Marker, control, 44.0);
     }
+    for control in [SubControl::EraserBrush, SubControl::EraserRectangle] {
+        assert_max(Tool::Eraser, control, 28.0);
+    }
     assert_max(Tool::Mosaic, SubControl::MosaicMode, 48.0);
     assert_max(Tool::Mosaic, SubControl::MosaicBrush, 28.0);
     assert_max(Tool::Mosaic, SubControl::MosaicRectangle, 28.0);
-    assert_max(Tool::Spotlight, SubControl::SpotlightOpacity, 42.0);
+    assert_max(Tool::Spotlight, SubControl::SpotlightIntensity, 42.0);
     assert_max(Tool::Spotlight, SubControl::SpotlightOutline, 30.0);
     assert_max(Tool::Magnifier, SubControl::MagnifierScale, 78.0);
     assert_max(Tool::Magnifier, SubControl::MagnifierSmooth, 30.0);

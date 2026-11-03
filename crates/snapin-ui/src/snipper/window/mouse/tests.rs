@@ -2,7 +2,9 @@
 
 use super::super::types::SnipMode;
 use super::*;
-use crate::editor::toolbar::{MosaicMode, StrokeWidthLevel, ToolbarAction, ToolbarItem};
+use crate::editor::toolbar::{
+    MosaicMode, StrokeWidthLevel, SubControl, ToolbarAction, ToolbarItem,
+};
 use crate::geometry::Point;
 use crate::ports::OcrTextItem;
 use crate::snipper::window::ocr_menu::OcrMenuAction;
@@ -45,6 +47,49 @@ fn test_idle_cursor_move_skips_redraw_without_magnifier() {
         1080.0
     ));
     assert!(state.viewport.cursor_ready);
+}
+
+/// 橡皮擦激活时鼠标移到二级栏仍必须更新控件悬停，保证悬浮提示正常出现。
+#[test]
+fn test_eraser_sub_bar_hover_updates_tooltip_target() {
+    let mut state = SnipperState::new();
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 500.0,
+        height: 300.0,
+    };
+    state.viewport.selection = SelectionState::Locked {
+        rect: selection,
+        active_drag: None,
+    };
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Eraser);
+    state
+        .editor
+        .annotation
+        .toolbar
+        .update_layout(&selection, 1920.0, 1080.0);
+    let brush = state
+        .editor
+        .annotation
+        .toolbar
+        .sub_layout()
+        .and_then(|layout| layout.rect_of(SubControl::EraserBrush))
+        .expect("橡皮擦二级栏应包含画笔模式");
+
+    assert!(handle_cursor_move(
+        &mut state,
+        (
+            (brush.x + brush.width / 2.0) as f64,
+            (brush.y + brush.height / 2.0) as f64,
+        ),
+        1920.0,
+        1080.0,
+    ));
+    assert_eq!(
+        state.editor.annotation.toolbar.hovered_sub_control,
+        Some(SubControl::EraserBrush)
+    );
 }
 
 #[test]

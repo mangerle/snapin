@@ -173,7 +173,7 @@ pub(in crate::editor::toolbar::render) fn render_text_background_icon(
     stroke_builder(pixmap, glyph, spec, 1.5);
 }
 
-/// 绘制透明度图标，使用明暗对半的圆表示混合程度。
+/// 绘制遮罩强度图标，使用明暗对半的圆表示明暗对比程度。
 pub(in crate::editor::toolbar::render) fn render_opacity_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,

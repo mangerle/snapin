@@ -161,7 +161,7 @@ impl Toolbar {
             control,
             SubControl::EffectStrength
                 | SubControl::TextBackgroundOpacity
-                | SubControl::SpotlightOpacity
+                | SubControl::SpotlightIntensity
         ) {
             self.adjust_u8_control(control, direction);
             return true;
@@ -216,7 +216,7 @@ impl Toolbar {
                     255,
                 );
             }
-            SubControl::SpotlightOpacity => {
+            SubControl::SpotlightIntensity => {
                 self.sub_options.spotlight_intensity = add_signed_u8(
                     self.sub_options.spotlight_intensity,
                     if direction > 0.0 { 8 } else { -8 },
@@ -240,7 +240,7 @@ fn is_numeric_control(control: SubControl) -> bool {
             | SubControl::TextBackgroundOpacity
             | SubControl::TextBackgroundPadding
             | SubControl::TextBackgroundCornerRadius
-            | SubControl::SpotlightOpacity
+            | SubControl::SpotlightIntensity
             | SubControl::MagnifierScale
     )
 }
