@@ -3,234 +3,709 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Snapin - 纯 Rust 原生 Wayland 截图与贴图工具</title>
-<meta name="description" content="Snapin 是专为 Linux Wayland 打造的纯 Rust 截图、贴图、OCR 与翻译工具。">
-<link rel="icon" href="snapin.svg">
+<title>Snapin - 截图、标注、识别一气呵成</title>
+<meta name="description" content="Snapin 是纯 Rust 构建的跨平台截图工具。框选、标注、本地 OCR、翻译和贴图集中在一条工作流中，支持 Linux、Windows 与 macOS。">
+<meta name="theme-color" content="#080d19">
+<meta name="robots" content="index,follow">
+<link rel="canonical" href="https://mangerle.github.io/snapin/">
+<link rel="icon" href="snapin.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:title" content="Snapin - 截图、标注、识别一气呵成">
+<meta property="og:description" content="从框选到贴图，从文字识别到全文编辑。">
+<meta property="og:url" content="https://mangerle.github.io/snapin/">
+<meta property="og:image" content="https://mangerle.github.io/snapin/assets/previews/hero-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Snapin - 截图、标注、识别一气呵成">
+<meta name="twitter:description" content="从框选到贴图，从文字识别到全文编辑。">
+<meta name="twitter:image" content="https://mangerle.github.io/snapin/assets/previews/hero-preview.png">
 <style>
+@font-face{font-family:"Manrope";src:url("assets/fonts/manrope-400.ttf") format("truetype");font-style:normal;font-weight:400;font-display:swap}
+@font-face{font-family:"Manrope";src:url("assets/fonts/manrope-500.ttf") format("truetype");font-style:normal;font-weight:500;font-display:swap}
+@font-face{font-family:"Manrope";src:url("assets/fonts/manrope-600.ttf") format("truetype");font-style:normal;font-weight:600;font-display:swap}
 :root{
-  --bg:#070a12;--fg:#f2f5fc;--mute:#9aa6bf;
-  --glass:rgba(255,255,255,.055);--glass-hi:rgba(255,255,255,.1);--line:rgba(255,255,255,.12);
-  --acc:#5b9dff;--acc2:#a78bfa;--acc3:#22d3ee;
-  --shadow:0 1px 0 rgba(255,255,255,.08) inset,0 20px 50px -12px rgba(0,0,0,.6),0 8px 16px -8px rgba(0,0,0,.5);
+  --bg:#080d19;--surface-1:#0d1424;--surface-2:#111a2c;--surface-3:#172238;--surface-4:#22304a;
+  --text:#f4f7fd;--muted:#9aa8c2;--line:rgba(148,163,184,.18);--accent:#4f8cff;--accent-ink:#07101f;
+  --violet:#a78bfa;--cyan:#22d3ee;--blue-deep:#2563eb;--radius-sm:8px;--radius-md:12px;--radius-lg:16px;--radius-xl:24px;
+  --curve:cubic-bezier(.22,1,.36,1);--shadow:0 28px 80px -32px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.06)
 }
 *{box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{margin:0;font:16px/1.7 system-ui,"Noto Sans SC","PingFang SC",sans-serif;background:var(--bg);color:var(--fg);overflow-x:hidden}
+html,body{height:100%;overflow:hidden}
+body{
+  margin:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;
+  color:var(--text);background:var(--bg);
+  font:400 16px/1.5 "Manrope","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility
+}
+body::before{
+  content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;
+  background:
+    radial-gradient(80% 65% at 50% -15%,rgba(35,71,143,.42),transparent 68%),
+    radial-gradient(40% 34% at 96% 10%,rgba(124,58,237,.18),transparent 70%),
+    radial-gradient(38% 30% at 55% 75%,rgba(8,145,178,.1),transparent 72%)
+}
+body::after{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.16;
+  background-image:linear-gradient(rgba(148,163,184,.16) 1px,transparent 1px),linear-gradient(90deg,rgba(148,163,184,.16) 1px,transparent 1px);
+  background-size:64px 64px;-webkit-mask-image:radial-gradient(80% 60% at 50% 12%,#000,transparent 86%);mask-image:radial-gradient(80% 60% at 50% 12%,#000,transparent 86%)
+}
 a{color:inherit;text-decoration:none}
-.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
-.grad{background:linear-gradient(110deg,var(--acc),var(--acc2) 50%,var(--acc3));background-size:200% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:flow 6s linear infinite}
-@keyframes flow{to{background-position:200% center}}
+button{font:inherit}
+img{display:block;max-width:100%;height:auto;object-fit:contain;image-rendering:auto}
+button,a{-webkit-tap-highlight-color:transparent}
+::selection{background:var(--accent);color:#fff}
+.skip-link{position:fixed;left:16px;top:-80px;z-index:100;padding:8px 12px;border-radius:var(--radius-sm);background:var(--accent);color:#fff}
+.skip-link:focus{top:12px}
+.container{width:min(1180px,calc(100% - 40px));margin-inline:auto}
+.icon{width:24px;height:24px;fill:currentColor;flex:none}
+.sprite{position:absolute;width:0;height:0;overflow:hidden}
+.heading-1{font-size:56px;line-height:1.05;font-weight:600;letter-spacing:-.045em}
+.heading-2{font-size:44px;line-height:1.08;font-weight:600;letter-spacing:-.04em}
+.heading-3{font-size:38px;line-height:1.12;font-weight:600;letter-spacing:-.035em}
+.heading-4{font-size:20px;line-height:1.35;font-weight:600;letter-spacing:-.015em}
+.body-lg{font-size:17px;line-height:1.75;color:var(--muted)}
+.body-md{font-size:15px;line-height:1.7;color:var(--muted)}
+.body-sm{font-size:13px;line-height:1.65;color:var(--muted)}
+.caption{font-size:12px;line-height:1.4;font-weight:500;color:var(--muted)}
+.kicker{display:inline-flex;align-items:center;gap:8px;color:var(--accent);font-size:12px;line-height:16px;font-weight:600;letter-spacing:.02em}
+.kicker::before{content:"";width:7px;height:7px;border-radius:999px;background:currentColor}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;width:max-content;padding:6px 10px;border:1px solid rgba(147,197,253,.24);border-radius:999px;background:rgba(37,99,235,.09);color:#bfdbfe;font-size:12px;line-height:16px;font-weight:500}
+.eyebrow::before{content:"";width:7px;height:7px;border-radius:999px;background:#34d399;box-shadow:0 0 12px rgba(52,211,153,.9)}
+.button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 18px;border:1px solid transparent;border-radius:12px;font-size:14px;line-height:20px;font-weight:600;cursor:pointer;transition:transform .25s var(--curve),background-color .25s,box-shadow .25s}
+.button:hover{transform:translateY(-1px)}
+.button:active{transform:translateY(0) scale(.99)}
+.button-primary{background:linear-gradient(135deg,#5b8fff,#7c6cff);color:#fff;box-shadow:0 12px 28px -12px rgba(91,143,255,.9),inset 0 1px 0 rgba(255,255,255,.12)}
+.button-primary:hover{box-shadow:0 18px 36px -14px rgba(91,143,255,1),inset 0 1px 0 rgba(255,255,255,.16)}
+.button-secondary{background:rgba(255,255,255,.045);border-color:var(--line);color:var(--text)}
+.button-secondary:hover{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.24)}
+:focus-visible{outline:2px solid #93c5fd;outline-offset:3px}
 
-/* 极光背景 */
-.aurora{position:fixed;inset:0;z-index:-2;overflow:hidden}
-.aurora i{position:absolute;border-radius:50%;filter:blur(90px);opacity:.5;animation:drift 22s ease-in-out infinite alternate}
-.aurora i:nth-child(1){width:520px;height:520px;left:-6%;top:-8%;background:#2563eb}
-.aurora i:nth-child(2){width:460px;height:460px;right:-5%;top:6%;background:#7c3aed;animation-delay:-7s}
-.aurora i:nth-child(3){width:420px;height:420px;left:35%;top:45%;background:#0891b2;opacity:.28;animation-delay:-14s}
-@keyframes drift{to{transform:translate(70px,50px) scale(1.15)}}
-.grid-bg{position:fixed;inset:0;z-index:-1;pointer-events:none;
-  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
-  background-size:64px 64px;opacity:.35;
-  -webkit-mask-image:radial-gradient(70% 60% at 50% 20%,#000,transparent);mask-image:radial-gradient(70% 60% at 50% 20%,#000,transparent)}
+.site-header{position:relative;z-index:50;padding:14px 0 8px;background:linear-gradient(to bottom,var(--bg) 0,var(--bg) 70%,rgba(8,13,25,.84) 70%,rgba(8,13,25,0) 100%)}
+.nav-bar{height:64px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:0 10px 0 20px;border:1px solid var(--line);border-radius:18px;background:rgba(8,13,25,.92);box-shadow:var(--shadow);backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%)}
+.brand{display:flex;align-items:center;gap:9px;font-size:16px;line-height:24px;font-weight:600;letter-spacing:-.02em}
+.brand img{width:32px;height:32px}
+.nav-links{display:flex;align-items:center;gap:24px}
+.nav-link{position:relative;padding:7px 0;border:0;background:none;color:var(--muted);font-size:13px;line-height:18px;font-weight:500;cursor:pointer;transition:color .2s}
+.nav-link:hover,.nav-link:focus-visible{color:var(--text)}
+.nav-link[aria-current="page"]{color:var(--text)}
+.nav-link[aria-current="page"]::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:var(--accent)}
+.nav-actions{display:flex;align-items:center;gap:8px}
+.nav-icon{display:grid;place-items:center;width:40px;height:40px;border-radius:10px;color:var(--muted);transition:color .2s,background-color .2s}
+.nav-icon:hover{color:var(--text);background:rgba(255,255,255,.06)}
+.menu-toggle{display:none;position:relative;place-items:center;width:40px;height:40px;padding:0;border:0;border-radius:10px;background:transparent;color:var(--text);cursor:pointer}
+.menu-toggle span{position:absolute;width:19px;height:2px;background:currentColor;transition:transform .35s var(--curve),opacity .2s}
+.menu-toggle span:first-child{transform:translateY(-6px)}
+.menu-toggle span:last-child{transform:translateY(6px)}
+body.menu-open .menu-toggle span:first-child{transform:rotate(45deg)}
+body.menu-open .menu-toggle span:nth-child(2){opacity:0}
+body.menu-open .menu-toggle span:last-child{transform:rotate(-45deg)}
+.mobile-menu{position:fixed;inset:0;z-index:45;display:none;padding:104px 24px 32px;background:rgba(8,13,25,.98);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);opacity:0;visibility:hidden;transition:opacity .35s,visibility .35s}
+.mobile-menu button{display:block;width:100%;padding:14px 0;border:0;background:none;color:var(--muted);text-align:left;font-size:28px;line-height:1.35;font-weight:500;opacity:0;transform:translateY(18px);transition:opacity .4s var(--curve),transform .4s var(--curve),color .2s;transition-delay:calc(var(--i) * 45ms)}
+body.menu-open .mobile-menu{opacity:1;visibility:visible}
+body.menu-open .mobile-menu button{opacity:1;transform:none}
 
-/* 导航 */
-nav{position:sticky;top:14px;z-index:10;margin:14px auto 0;max-width:1000px;padding:0 20px;border-radius:999px;
-  background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:var(--shadow)}
-nav .in{display:flex;align-items:center;justify-content:space-between;height:56px}
-.brand{display:flex;align-items:center;gap:10px;font-weight:700}
-.brand img{width:26px;height:26px;filter:drop-shadow(0 0 8px rgba(91,157,255,.6))}
-nav .links{display:flex;gap:28px;color:var(--mute);font-size:.94rem}
-nav .links a{transition:color .15s}nav .links a:hover{color:var(--fg)}
-.gh{display:flex;color:var(--mute);transition:color .15s,transform .2s}.gh:hover{color:var(--fg);transform:rotate(-8deg) scale(1.1)}
+.deck{position:relative;min-height:0;overflow:hidden;isolation:isolate;outline:none}
+.slide{position:absolute;inset:0;display:block;padding:8px 0 20px;overflow-y:auto;overscroll-behavior:contain;opacity:0;visibility:hidden;transform:translateY(34px);pointer-events:none;transition:opacity .48s var(--curve),transform .62s var(--curve),visibility .48s}
+.slide.is-before{transform:translateY(-34px)}
+.slide.is-active{opacity:1;visibility:visible;transform:none;pointer-events:auto}
+.slide-inner{width:min(1180px,calc(100% - 40px));min-height:100%;margin-inline:auto;display:flex;flex-direction:column;justify-content:center}
+.hero-layout{display:grid;grid-template-columns:minmax(0,.9fr) minmax(500px,1.1fr);grid-template-areas:"copy visual" "stats stats";align-items:center;gap:28px 56px}
+.hero-copy{grid-area:copy;max-width:540px}
+.hero-copy h1{max-width:560px;margin:18px 0 0;text-wrap:balance}
+.gradient-text{display:block;background:linear-gradient(100deg,#f4f7fd,#88b3ff 45%,#b8a7ff 70%,#67e8f9);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero-copy .body-lg{max-width:560px;margin:18px 0 0}
+.hero-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px}
+.proof-line{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:18px;color:var(--muted);font-size:13px;line-height:20px}
+.proof-item{display:flex;align-items:center;gap:7px}
+.proof-item .icon{width:17px;height:17px;color:var(--accent)}
+.hero-visual{grid-area:visual;padding:8px;border:1px solid rgba(124,174,255,.28);border-radius:22px;background:rgba(17,26,44,.72);box-shadow:0 34px 80px -38px rgba(0,0,0,.95),inset 0 1px 0 rgba(255,255,255,.06)}
+.hero-visual img{width:100%;height:auto;border-radius:14px}
+.visual-caption{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 8px 2px;color:var(--muted);font-size:12px;line-height:16px}
+.stat-strip{grid-area:stats;display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);border-radius:18px;background:rgba(13,20,36,.78);box-shadow:inset 0 1px 0 rgba(255,255,255,.05);overflow:hidden}
+.stat{padding:14px 20px;border-right:1px solid var(--line)}
+.stat:last-child{border-right:0}
+.stat strong{display:block;font-size:20px;line-height:28px;font-weight:600}
+.stat span{display:block;margin-top:2px;color:var(--muted);font-size:12px;line-height:18px}
+.section-layout{gap:30px}
+.section-heading{display:flex;flex-direction:column;gap:12px;max-width:720px}
+.section-heading h2{margin:0}
+.section-heading p{margin:0;max-width:680px}
+.benefit-grid,.workflow-grid,.platform-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.benefit-card,.workflow-card,.platform-card{padding:24px;border:1px solid var(--line);border-radius:20px;background:linear-gradient(145deg,rgba(255,255,255,.055),rgba(255,255,255,.022)),rgba(13,20,36,.72);box-shadow:inset 0 1px 0 rgba(255,255,255,.045)}
+.benefit-top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px}
+.icon-box{display:grid;place-items:center;width:46px;height:46px;border:1px solid rgba(124,174,255,.18);border-radius:12px;background:rgba(79,140,255,.12);color:var(--accent)}
+.icon-box.violet{color:var(--violet);border-color:rgba(167,139,250,.2);background:rgba(167,139,250,.11)}
+.icon-box.cyan{color:var(--cyan);border-color:rgba(34,211,238,.2);background:rgba(34,211,238,.09)}
+.index-pill{display:inline-flex;align-items:center;justify-content:center;min-width:38px;height:24px;padding:0 8px;border:1px solid currentColor;border-radius:999px;color:var(--accent);font-size:12px;line-height:16px;font-weight:600;letter-spacing:.08em;opacity:.8}
+.index-pill.violet{color:var(--violet)}.index-pill.cyan{color:var(--cyan)}
+.benefit-card h3,.workflow-card h3,.platform-card h3{margin:0;font-size:18px;line-height:1.45;font-weight:600}
+.benefit-card p,.workflow-card p,.platform-card p{margin:10px 0 0;color:var(--muted);font-size:14px;line-height:1.75}
+.workflow-card{position:relative;padding-top:22px}
+.workflow-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:28px}
+.step-number{color:var(--accent);font-size:30px;line-height:32px;font-weight:600;letter-spacing:-.03em}
+.workflow-card:nth-child(2) .step-number{color:var(--violet)}
+.workflow-card:nth-child(3) .step-number{color:var(--cyan)}
+.workflow-card .caption{display:block;margin-top:16px;color:var(--accent)}
+.workflow-card:nth-child(2) .caption{color:var(--violet)}.workflow-card:nth-child(3) .caption{color:var(--cyan)}
+.workflow-note{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 18px;border:1px solid var(--line);border-radius:14px;background:rgba(13,20,36,.62);color:var(--muted);font-size:13px;line-height:20px}
+.workflow-note strong{color:var(--text);font-weight:500}
+.feature-layout{display:grid;grid-template-columns:minmax(0,.8fr) minmax(540px,1.2fr);gap:56px;align-items:center}
+.feature-layout.reverse{grid-template-columns:minmax(540px,1.2fr) minmax(0,.8fr)}
+.feature-layout.reverse .feature-copy{order:2}
+.feature-layout.reverse .media-card{order:1}
+.feature-meta{display:flex;align-items:center;gap:10px}
+.feature-meta .caption::after{content:"";display:inline-block;width:36px;height:1px;margin-left:10px;vertical-align:middle;background:var(--line)}
+.feature-copy h2{margin:16px 0 0}
+.feature-copy .body-lg{margin:16px 0 0}
+.feature-list{display:grid;gap:10px;margin:20px 0 0;padding:0;list-style:none}
+.feature-list li{display:flex;align-items:flex-start;gap:10px;color:var(--muted);font-size:14px;line-height:20px}
+.feature-list .icon{width:18px;height:18px;margin-top:1px;color:var(--accent)}
+.media-card{display:grid;place-items:center;min-width:0;padding:18px;border:1px solid var(--line);border-radius:22px;background:radial-gradient(85% 90% at 20% 0%,rgba(37,99,235,.17),transparent 60%),radial-gradient(90% 90% at 100% 100%,rgba(124,58,237,.13),transparent 58%),rgba(10,17,31,.92);box-shadow:0 28px 70px -38px rgba(0,0,0,.95),inset 0 1px 0 rgba(255,255,255,.04);overflow:hidden}
+.media-card img{width:auto;max-width:100%;max-height:min(55svh,500px);height:auto;border-radius:10px;filter:drop-shadow(0 22px 38px rgba(2,6,23,.42))}
+.media-card.compact{min-height:220px;padding:28px}
+.media-card.compact img{width:min(100%,754px);max-height:none}
+.ocr-media{place-items:stretch;padding:18px}
+.ocr-demo{width:100%;max-width:700px;margin:auto;border:1px solid rgba(148,163,184,.22);border-radius:15px;background:#f4f7fb;box-shadow:0 28px 54px -28px rgba(0,0,0,.82);overflow:hidden;color:#1f2937;font-size:13px;line-height:1.6}
+.ocr-titlebar{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:42px;padding:0 14px;border-bottom:1px solid #dbe3ef;background:#e9eef6;color:#64748b;font-size:11px;line-height:16px}
+.window-dots{display:flex;align-items:center;gap:5px}
+.window-dots i{display:block;width:8px;height:8px;border-radius:999px;background:#fb7185}
+.window-dots i:nth-child(2){background:#fbbf24}.window-dots i:nth-child(3){background:#34d399}
+.ocr-title{font-weight:500;color:#475569}
+.ocr-local-state{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border:1px solid #bbf7d0;border-radius:999px;background:#f0fdf4;color:#15803d;font-size:10px;font-weight:600}
+.ocr-local-state::before{content:"";width:6px;height:6px;border-radius:999px;background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.12)}
+.ocr-body{display:grid;grid-template-columns:minmax(150px,.38fr) minmax(0,.62fr);min-height:350px}
+.ocr-source{position:relative;padding:16px;border-right:1px solid #dbe3ef;background:linear-gradient(145deg,#dce8f6,#cfdaeb);overflow:hidden}
+.ocr-source-head{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#64748b;font-size:10px;line-height:16px;font-weight:600}
+.ocr-source-doc{position:relative;margin-top:15px;padding:16px 14px;border:1px solid rgba(148,163,184,.34);border-radius:8px;background:#fff;box-shadow:0 12px 24px -18px rgba(15,23,42,.45);overflow:hidden}
+.source-tag{display:inline-flex;padding:2px 6px;border-radius:4px;background:#dbeafe;color:#2563eb;font-size:9px;line-height:14px;font-weight:600}
+.ocr-source-doc strong{display:block;margin-top:9px;color:#1e293b;font-size:12px;line-height:18px;font-weight:600}
+.source-line{display:block;height:5px;margin-top:8px;border-radius:999px;background:#dbe3ef}
+.source-line.w86{width:86%}.source-line.w72{width:72%}.source-line.w92{width:92%}
+.source-scan{position:absolute;left:8px;right:8px;top:32%;height:2px;border-radius:999px;background:linear-gradient(90deg,transparent,#22d3ee,transparent);box-shadow:0 0 16px rgba(34,211,238,.7)}
+.source-scan::before{content:"";position:absolute;inset:-7px 0;background:linear-gradient(to bottom,transparent,rgba(34,211,238,.12),transparent)}
+.ocr-source-meta{display:flex;gap:6px;margin-top:14px;color:#64748b;font-size:9px;line-height:14px}
+.ocr-source-meta span{padding:2px 5px;border:1px solid rgba(100,116,139,.2);border-radius:4px;background:rgba(255,255,255,.48)}
+.ocr-editor{display:flex;flex-direction:column;min-width:0;background:#fff}
+.ocr-editor-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px 12px;border-bottom:1px solid #edf1f7}
+.ocr-editor-head strong{color:#334155;font-size:12px;line-height:18px;font-weight:600}
+.ocr-editor-head span{color:#94a3b8;font-size:9px;line-height:14px}
+.ocr-text{flex:1;padding:18px 20px;color:#334155;font-size:13px;line-height:1.9}
+.ocr-text p{margin:0}
+.ocr-text p+p{margin-top:14px}
+.ocr-text strong{color:#1e293b;font-weight:600}
+.ocr-caret{display:inline-block;width:1px;height:15px;margin-left:2px;vertical-align:-2px;background:#3b82f6;animation:caret 1s steps(1) infinite}
+@keyframes caret{50%{opacity:0}}
+.ocr-editor-actions{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid #edf1f7;background:#f8fafc}
+.ocr-action{display:inline-flex;align-items:center;gap:5px;padding:5px 8px;border:1px solid #dbe3ef;border-radius:6px;color:#64748b;font-size:9px;line-height:14px;font-weight:500}
+.ocr-action .icon{width:12px;height:12px}
+.ocr-action-primary{margin-left:auto;border-color:#2563eb;background:#2563eb;color:#fff}
+.ocr-statusbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 14px;border-top:1px solid #dbe3ef;background:#eef3fa;color:#64748b;font-size:9px;line-height:14px}
+.platform-card{padding:22px}
+.platform-head{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.platform-icon{display:grid;place-items:center;width:44px;height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface-3)}
+.platform-icon.linux{color:#f5c451}.platform-icon.windows{color:#64c8ff}.platform-icon.macos{color:#d8c7ff}
+.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:18px}
+.chip{padding:3px 7px;border:1px solid rgba(255,255,255,.08);border-radius:7px;background:rgba(255,255,255,.045);color:#aab7cc;font-size:11px;line-height:18px}
+.platform-note{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 18px;border:1px solid var(--line);border-radius:14px;background:rgba(13,20,36,.62);color:var(--muted);font-size:13px;line-height:20px}
+.platform-note .chips{margin:0}
+.faq-layout{display:grid;grid-template-columns:minmax(0,.86fr) minmax(0,1.14fr);gap:20px;align-items:center}
+.cta-panel{position:relative;display:flex;flex-direction:column;justify-content:center;padding:34px;border:1px solid rgba(147,197,253,.25);border-radius:22px;background:radial-gradient(85% 150% at 5% 0%,rgba(37,99,235,.28),transparent 56%),radial-gradient(85% 150% at 100% 100%,rgba(124,58,237,.26),transparent 58%),rgba(14,23,41,.9);box-shadow:var(--shadow);overflow:hidden}
+.cta-panel::after{content:"";position:absolute;width:220px;height:220px;right:-80px;top:-120px;border:1px solid rgba(255,255,255,.07);border-radius:50%;box-shadow:0 0 0 42px rgba(255,255,255,.018),0 0 0 84px rgba(255,255,255,.012);pointer-events:none}
+.cta-panel h2{position:relative;z-index:1;margin:12px 0 0}
+.cta-panel p{position:relative;z-index:1;margin:14px 0 0;color:var(--muted);font-size:15px;line-height:1.75}
+.cta-actions{position:relative;z-index:1;display:flex;flex-wrap:wrap;gap:10px;margin-top:24px}
+.cta-meta{position:relative;z-index:1;display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:18px;color:var(--muted);font-size:12px;line-height:18px}
+.cta-meta span{display:flex;align-items:center;gap:6px}
+.cta-meta .icon{width:15px;height:15px;color:var(--accent)}
+.faq-panel{padding:14px;border:1px solid var(--line);border-radius:22px;background:linear-gradient(145deg,rgba(255,255,255,.045),rgba(255,255,255,.018)),rgba(10,17,31,.72);box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
+.faq-list{display:grid;gap:8px;align-content:center}
+.faq-list details{padding:14px 18px;border:1px solid var(--line);border-radius:12px;background:rgba(13,20,36,.72)}
+.faq-list summary{display:flex;align-items:center;justify-content:space-between;gap:16px;color:var(--text);font-size:14px;line-height:20px;font-weight:500;cursor:pointer;list-style:none}
+.faq-list summary::-webkit-details-marker{display:none}
+.faq-list summary::after{content:"+";color:var(--accent);font-size:18px;line-height:1;transition:transform .25s}
+.faq-list details[open] summary::after{transform:rotate(45deg)}
+.faq-list p{margin:10px 0 0;color:var(--muted);font-size:13px;line-height:1.7}
 
-/* Hero */
-.hero{text-align:center;padding:96px 0 24px}
-.pill{display:inline-flex;align-items:center;gap:8px;padding:6px 16px;border-radius:999px;background:var(--glass);border:1px solid var(--line);color:var(--mute);font-size:.85rem;backdrop-filter:blur(10px)}
-.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:#34d399;box-shadow:0 0 10px #34d399}
-.hero h1{font-size:clamp(2.6rem,6.5vw,4.8rem);line-height:1.12;margin:24px 0 20px;letter-spacing:-.03em;font-weight:800}
-.hero p{max-width:620px;margin:0 auto 36px;color:var(--mute);font-size:1.15rem}
-.btn{position:relative;display:inline-block;padding:13px 30px;margin:5px;border-radius:999px;font-weight:600;overflow:hidden;transition:transform .2s,box-shadow .2s}
-.btn:hover{transform:translateY(-3px)}
-.btn.pri{background:linear-gradient(110deg,var(--acc),var(--acc2));color:#fff;box-shadow:0 10px 30px -6px rgba(124,92,255,.7),0 1px 0 rgba(255,255,255,.4) inset}
-.btn.pri::after{content:"";position:absolute;top:0;left:-60%;width:40%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.45),transparent);transform:skewX(-20deg);animation:shine 3.5s ease-in-out infinite}
-@keyframes shine{60%,100%{left:130%}}
-.btn.sec{background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(10px);box-shadow:var(--shadow)}
-.btn.sec:hover{background:var(--glass-hi)}
-.badges{margin-top:26px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
-.badges span{font-size:.8rem;padding:4px 14px;border-radius:999px;background:var(--glass);border:1px solid var(--line);color:var(--mute)}
+.site-footer{position:relative;z-index:50;padding:9px 0;border-top:1px solid var(--line);background:rgba(8,13,25,.94);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+.footer-inner{height:34px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+.footer-brand{color:#8190a8;font-size:12px;line-height:18px}
+.footer-hint{color:var(--muted);font-size:12px;line-height:18px}
+.deck-controls{display:flex;align-items:center;gap:8px}
+.icon-button{display:grid;place-items:center;width:30px;height:30px;padding:0;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.035);color:var(--muted);cursor:pointer;transition:color .2s,border-color .2s,background-color .2s}
+.icon-button:hover:not(:disabled){color:var(--text);border-color:rgba(147,197,253,.35);background:rgba(255,255,255,.07)}
+.icon-button:disabled{opacity:.32;cursor:default}
+.icon-button .icon{width:16px;height:16px}
+.icon-button.prev .icon{transform:rotate(-90deg)}
+.icon-button.next .icon{transform:rotate(90deg)}
+.slide-counter{min-width:76px;color:var(--muted);text-align:center;font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}
+.slide-counter strong{color:var(--text);font-size:14px;font-weight:600}
+.progress-rail{position:absolute;left:0;right:0;top:-1px;height:2px;background:rgba(148,163,184,.1)}
+.progress-bar{display:block;width:100%;height:100%;background:linear-gradient(90deg,#5b8fff,#7c6cff,#22d3ee);transform:scaleX(.1111);transform-origin:left;transition:transform .55s var(--curve)}
 
-/* 示意界面:模拟桌面上的玻璃窗口 */
-.stage{position:relative;margin:72px auto 0;max-width:880px;perspective:1400px}
-.stage::before{content:"";position:absolute;inset:8% 6% -10%;background:linear-gradient(110deg,var(--acc),var(--acc2));filter:blur(70px);opacity:.35;z-index:-1}
-.desk{position:relative;height:420px;border-radius:20px;overflow:hidden;border:1px solid var(--line);box-shadow:var(--shadow),0 40px 80px -20px rgba(0,0,0,.7);
-  background:linear-gradient(140deg,#1b2a4e,#2e2370 55%,#4a1d7a);transform:rotateX(6deg);transition:transform .6s}
-.stage:hover .desk{transform:rotateX(0)}
-.topbar{position:absolute;left:0;right:0;top:0;height:26px;background:rgba(0,0,0,.35);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:11px;color:#cbd5e8}
-.topbar b{width:8px;height:8px;border-radius:50%;background:var(--acc);box-shadow:0 0 8px var(--acc)}
-.app{position:absolute;left:6%;top:15%;width:50%;height:62%;border-radius:12px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(14px);padding:14px}
-.app i{display:block;height:9px;margin-bottom:12px;border-radius:5px;background:rgba(255,255,255,.22)}
-.app i:nth-child(1){width:40%;background:linear-gradient(90deg,var(--acc),var(--acc2))}.app i:nth-child(3){width:75%}.app i:nth-child(5){width:55%}
-.sel{position:absolute;left:12%;top:24%;width:46%;height:46%;border:2px solid var(--acc);border-radius:3px;background:rgba(91,157,255,.1);
-  box-shadow:0 0 0 999px rgba(0,0,0,.5),0 0 24px rgba(91,157,255,.6);animation:sel 4s ease-in-out infinite}
-.sel b{position:absolute;width:11px;height:11px;background:#fff;border:2px solid var(--acc);border-radius:3px}
-.sel b:nth-child(1){left:-7px;top:-7px}.sel b:nth-child(2){right:-7px;top:-7px}.sel b:nth-child(3){left:-7px;bottom:-7px}.sel b:nth-child(4){right:-7px;bottom:-7px}
-.sel em{position:absolute;left:-2px;top:-32px;font:12px/24px ui-monospace,monospace;color:#fff;background:var(--acc);padding:0 10px;border-radius:6px;font-style:normal}
-@keyframes sel{50%{width:50%;height:50%}}
-.tools{position:absolute;left:12%;top:78%;display:flex;gap:8px;padding:8px 12px;border-radius:12px;background:rgba(15,20,35,.75);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.18);box-shadow:0 12px 30px rgba(0,0,0,.5)}
-.tools span{width:24px;height:24px;border-radius:7px;background:rgba(255,255,255,.16)}
-.tools span:nth-child(3){background:var(--acc);box-shadow:0 0 12px var(--acc)}
-.pin{position:absolute;right:6%;top:22%;width:26%;height:40%;border-radius:12px;padding:14px;background:rgba(255,255,255,.95);
-  box-shadow:0 30px 60px -10px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,.4);transform:rotate(5deg);animation:float 5s ease-in-out infinite}
-.pin i{display:block;height:8px;margin-bottom:10px;border-radius:4px;background:#d9deea}
-.pin i:first-child{width:60%;background:linear-gradient(90deg,var(--acc),var(--acc2))}
-@keyframes float{50%{transform:rotate(5deg) translateY(-12px)}}
-
-/* 功能卡片:玻璃 + 鼠标跟随聚光 */
-section{padding:110px 0 0}
-h2{text-align:center;font-size:clamp(1.8rem,4vw,2.5rem);margin:0 0 10px;letter-spacing:-.02em}
-.sub{text-align:center;color:var(--mute);margin:0 0 48px}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:20px}
-.card{position:relative;border-radius:20px;padding:30px;background:var(--glass);border:1px solid var(--line);
-  backdrop-filter:blur(16px) saturate(150%);-webkit-backdrop-filter:blur(16px) saturate(150%);box-shadow:var(--shadow);overflow:hidden;
-  transition:transform .3s cubic-bezier(.2,.8,.2,1),border-color .3s}
-.card::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .3s;
-  background:radial-gradient(360px circle at var(--mx,50%) var(--my,50%),rgba(120,160,255,.2),transparent 60%)}
-.card:hover{transform:translateY(-6px);border-color:rgba(130,170,255,.5)}
-.card:hover::before{opacity:1}
-.ico{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;font-size:1.1rem;font-weight:700;margin-bottom:18px;color:#fff;
-  background:linear-gradient(135deg,var(--acc),var(--acc2));box-shadow:0 8px 20px -4px rgba(124,92,255,.6),0 1px 0 rgba(255,255,255,.4) inset}
-.card h3{margin:0 0 12px;font-size:1.2rem}
-.card ul{margin:0;padding:0;list-style:none;color:var(--mute);font-size:.95rem}
-.card li{padding-left:20px;position:relative;margin-bottom:2px}
-.card li::before{content:"";position:absolute;left:3px;top:.75em;width:6px;height:6px;border-radius:50%;background:var(--acc);box-shadow:0 0 8px var(--acc)}
-.dl .card{display:block}.dl .ico{font-size:.85rem}
-.dl .card.rec{border-color:rgba(130,170,255,.7);box-shadow:var(--shadow),0 0 0 1px rgba(130,170,255,.4),0 0 40px -8px rgba(91,157,255,.5)}
-.go{display:inline-block;margin-top:16px;font-weight:600;color:var(--acc);transition:transform .2s}.card:hover .go{transform:translateX(6px)}
-.steps .card{text-align:center}
-.steps .ico{margin-left:auto;margin-right:auto}
-.steps .card li{padding-left:0}.steps .card li::before{display:none}
-.note{text-align:center;color:var(--mute);margin-top:28px;font-size:.92rem}
-footer{margin-top:110px;border-top:1px solid var(--line);padding:36px 0;text-align:center;color:var(--mute);font-size:.9rem}
-footer a:hover{color:var(--fg)}
-
-/* 滚动入场 */
-.rv{opacity:0;transform:translateY(28px);transition:opacity .7s,transform .7s cubic-bezier(.2,.8,.2,1)}
-.rv.on{opacity:1;transform:none}
-.cards .rv:nth-child(2){transition-delay:.08s}.cards .rv:nth-child(3){transition-delay:.16s}
-.cards .rv:nth-child(5){transition-delay:.08s}.cards .rv:nth-child(6){transition-delay:.16s}
-@media (max-width:640px){nav .links{display:none}.desk{height:320px}}
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.rv{opacity:1;transform:none}}
+@media(max-width:1024px){
+  .nav-links{gap:18px}
+  .hero-layout{grid-template-columns:minmax(0,.9fr) minmax(440px,1.1fr);gap:24px 40px}
+  .feature-layout,.feature-layout.reverse{grid-template-columns:minmax(0,.82fr) minmax(460px,1.18fr);gap:36px}
+  .feature-layout.reverse{grid-template-columns:minmax(460px,1.18fr) minmax(0,.82fr)}
+  .benefit-card,.workflow-card,.platform-card{padding:20px}
+}
+@media(max-width:860px){
+  .nav-links,.nav-actions>.button,.nav-actions>.nav-icon{display:none}
+  .menu-toggle{display:grid}
+  .mobile-menu{display:block}
+  .heading-1{font-size:44px;line-height:1.07}
+  .heading-2{font-size:38px;line-height:1.1}
+  .heading-3{font-size:34px;line-height:1.14}
+  .hero-layout{grid-template-columns:minmax(0,.88fr) minmax(360px,1.12fr);gap:20px 24px}
+  .hero-copy,.hero-visual{max-width:none}
+  .hero-copy .body-lg{font-size:15px;line-height:1.65}
+  .feature-layout,.feature-layout.reverse{grid-template-columns:minmax(0,.86fr) minmax(340px,1.14fr);gap:28px}
+  .feature-layout.reverse{grid-template-columns:minmax(340px,1.14fr) minmax(0,.86fr)}
+  .faq-layout{grid-template-columns:1fr;gap:14px}
+  .faq-list{grid-template-columns:repeat(2,1fr)}
+  .ocr-body{grid-template-columns:1fr;min-height:320px}
+  .ocr-source{display:none}
+  .footer-hint{display:none}
+}
+@media(max-width:640px){
+  .container,.slide-inner{width:min(100% - 28px,1180px)}
+  .site-header{padding-top:8px}
+  .nav-bar{height:58px;border-radius:16px;padding-left:14px}
+  .brand img{width:29px;height:29px}
+  .heading-1{font-size:36px;line-height:1.08}
+  .heading-2{font-size:31px;line-height:1.12}
+  .heading-3{font-size:28px;line-height:1.16}
+  .body-lg{font-size:15px;line-height:1.68}
+  .slide{padding-top:4px;padding-bottom:10px}
+  .slide-inner{justify-content:flex-start}
+  .hero-layout{grid-template-columns:1fr;grid-template-areas:"copy" "visual" "stats";gap:14px}
+  .feature-layout,.feature-layout.reverse{grid-template-columns:1fr;gap:18px}
+  .feature-layout.reverse .feature-copy,.feature-layout.reverse .media-card{order:initial}
+  .hero-copy h1{margin-top:12px}
+  .hero-copy .body-lg{margin-top:12px}
+  .hero-actions{margin-top:16px}
+  .hero-actions .button{width:100%}
+  .proof-line{gap:8px 14px;margin-top:14px}
+  .hero-visual{padding:6px;border-radius:17px}
+  .visual-caption{font-size:11px;padding-top:7px}
+  .stat-strip{grid-template-columns:repeat(3,1fr)}
+  .stat{padding:10px 8px;text-align:center}
+  .stat strong{font-size:16px;line-height:22px}
+  .stat span{font-size:10px;line-height:14px}
+  .section-layout{gap:18px}
+  .benefit-grid,.workflow-grid,.platform-grid{grid-template-columns:1fr;gap:8px}
+  .benefit-card,.workflow-card,.platform-card{padding:13px 15px;border-radius:14px}
+  .benefit-top,.workflow-head{margin-bottom:10px}
+  .icon-box{width:36px;height:36px;border-radius:10px}
+  .icon-box .icon{width:20px;height:20px}
+  .benefit-card p,.workflow-card p,.platform-card p{margin-top:6px;font-size:12px;line-height:1.55}
+  .workflow-card{padding-top:13px}
+  .step-number{font-size:22px;line-height:24px}
+  .workflow-card .caption{margin-top:4px}
+  .workflow-note,.platform-note{display:none}
+  .feature-copy h2{margin-top:10px}
+  .feature-copy .body-lg{margin-top:10px}
+  .feature-list{margin-top:12px;gap:6px}
+  .feature-list li{font-size:12px;line-height:17px}
+  .media-card{padding:10px;border-radius:16px}
+  .media-card img{max-height:34svh;border-radius:8px}
+  .media-card.compact{min-height:140px;padding:18px 10px}
+  .faq-layout{gap:10px}
+  .faq-list{grid-template-columns:1fr;gap:6px}
+  .faq-list details{padding:10px 12px}
+  .faq-list summary{font-size:12px;line-height:18px}
+  .faq-list p{font-size:11px;line-height:1.55}
+  .cta-panel{padding:20px}
+  .cta-panel h2{font-size:26px;line-height:1.16}
+  .cta-panel p{font-size:13px;line-height:1.6;margin-top:8px}
+  .cta-actions{margin-top:14px}
+  .cta-actions .button{width:100%}
+  .cta-meta{margin-top:12px;font-size:10px}
+  .site-footer{padding:6px 0}
+  .footer-inner{height:30px;gap:10px}
+  .footer-brand{font-size:10px;line-height:14px}
+  .slide-counter{min-width:64px;font-size:10px}
+  .slide-counter strong{font-size:12px}
+  .icon-button{width:28px;height:28px}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}
+}
 </style>
 </head>
 <body>
-<div class="aurora"><i></i><i></i><i></i></div>
-<div class="grid-bg"></div>
+<a class="skip-link" href="#overview">跳到第一个介绍</a>
+<svg class="sprite" aria-hidden="true">
+  <symbol id="ph-crop" viewBox="0 0 256 256"><path d="M240,192a8,8,0,0,1-8,8H200v32a8,8,0,0,1-16,0V200H64a8,8,0,0,1-8-8V72H24a8,8,0,0,1,0-16H56V24a8,8,0,0,1,16,0V184H232A8,8,0,0,1,240,192ZM96,72h88v88a8,8,0,0,0,16,0V64a8,8,0,0,0-8-8H96a8,8,0,0,0,0,16Z"/></symbol>
+  <symbol id="ph-pencil" viewBox="0 0 256 256"><path d="M227.31,73.37,182.63,28.68a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM92.69,208H48V163.31l88-88L180.69,120ZM192,108.68,147.31,64l24-24L216,84.68Z"/></symbol>
+  <symbol id="ph-text" viewBox="0 0 256 256"><path d="M208,56V88a8,8,0,0,1-16,0V64H136V192h24a8,8,0,0,1,0,16H96a8,8,0,0,1,0-16h24V64H64V88a8,8,0,0,1-16,0V56a8,8,0,0,1,8-8H200A8,8,0,0,1,208,56Z"/></symbol>
+  <symbol id="ph-pin" viewBox="0 0 256 256"><path d="M235.32,81.37,174.63,20.69a16,16,0,0,0-22.63,0L98.37,74.49c-10.66-3.34-35-7.37-60.4,13.14a16,16,0,0,0-1.29,23.78L85,159.71,42.34,202.34a8,8,0,0,0,11.32,11.32L96.29,171l48.29,48.29A16,16,0,0,0,155.9,224c.38,0,.75,0,1.13,0a15.93,15.93,0,0,0,11.64-6.33c19.64-26.1,17.75-47.32,13.19-60L235.33,104A16,16,0,0,0,235.32,81.37ZM224,92.69h0l-57.27,57.46a8,8,0,0,0-1.49,9.22c9.46,18.93-1.8,38.59-9.34,48.62L48,100.08c12.08-9.74,23.64-12.31,32.48-12.31A40.13,40.13,0,0,1,96.81,91a8,8,0,0,0,9.25-1.51L163.32,32,224,92.68Z"/></symbol>
+  <symbol id="ph-scan" viewBox="0 0 256 256"><path d="M224,40V80a8,8,0,0,1-16,0V48H176a8,8,0,0,1,0-16h40A8,8,0,0,1,224,40ZM80,208H48V176a8,8,0,0,0-16,0v40a8,8,0,0,0,8,8H80a8,8,0,0,0,0-16Zm136-40a8,8,0,0,0-8,8v32H176a8,8,0,0,0,0,16h40a8,8,0,0,0,8-8V176A8,8,0,0,0,216,168ZM40,88a8,8,0,0,0,8-8V48H80a8,8,0,0,0,0-16H40a8,8,0,0,0-8,8V80A8,8,0,0,0,40,88ZM80,72h96a8,8,0,0,1,8,8v96a8,8,0,0,1-8,8H80a8,8,0,0,1-8-8V80A8,8,0,0,1,80,72Zm8,96h80V88H88Z"/></symbol>
+  <symbol id="ph-shield" viewBox="0 0 256 256"><path d="M208,40H48A16,16,0,0,0,32,56v56c0,52.72,25.52,84.67,46.93,102.19,23.06,18.86,46,25.26,47,25.53a8,8,0,0,0,4.2,0c1-.27,23.91-6.67,47-25.53C198.48,196.67,224,164.72,224,112V56A16,16,0,0,0,208,40Zm0,72c0,37.07-13.66,67.16-40.6,89.42A129.3,129.3,0,0,1,128,223.62a128.25,128.25,0,0,1-38.92-21.81C61.82,179.51,48,149.3,48,112l0-56,160,0ZM82.34,141.66a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32l-56,56a8,8,0,0,1-11.32,0Z"/></symbol>
+  <symbol id="ph-stack" viewBox="0 0 256 256"><path d="M230.91,172A8,8,0,0,1,228,182.91l-96,56a8,8,0,0,1-8.06,0l-96-56A8,8,0,0,1,36,169.09l92,53.65,92-53.65A8,8,0,0,1,230.91,172ZM220,121.09l-92,53.65L36,121.09A8,8,0,0,0,28,134.91l96,56a8,8,0,0,0,8.06,0l96-56A8,8,0,1,0,220,121.09ZM24,80a8,8,0,0,1,4-6.91l96-56a8,8,0,0,1,8.06,0l96,56a8,8,0,0,1,0,13.82l-96,56a8,8,0,0,1-8.06,0l-96-56A8,8,0,0,1,24,80Zm23.88,0L128,126.74,208.12,80,128,33.26Z"/></symbol>
+  <symbol id="ph-keyboard" viewBox="0 0 256 256"><path d="M224,48H32A16,16,0,0,0,16,64V192a16,16,0,0,0,16,16H224a16,16,0,0,0,16-16V64A16,16,0,0,0,224,48Zm0,144H32V64H224V192Zm-16-64a8,8,0,0,1-8,8H56a8,8,0,0,1,0-16H200A8,8,0,0,1,208,128Zm0-32a8,8,0,0,1-8,8H56a8,8,0,0,1,0-16H200A8,8,0,0,1,208,96ZM72,160a8,8,0,0,1-8,8H56a8,8,0,0,1,0-16h8A8,8,0,0,1,72,160Zm96,0a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h64A8,8,0,0,1,168,160Zm40,0a8,8,0,0,1-8,8h-8a8,8,0,0,1,0-16h8A8,8,0,0,1,208,160Z"/></symbol>
+  <symbol id="ph-monitor" viewBox="0 0 256 256"><path d="M208,40H48A24,24,0,0,0,24,64V176a24,24,0,0,0,24,24H208a24,24,0,0,0,24-24V64A24,24,0,0,0,208,40Zm8,136a8,8,0,0,1-8,8H48a8,8,0,0,1-8-8V64a8,8,0,0,1,8-8H208a8,8,0,0,1,8,8Zm-48,48a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h64A8,8,0,0,1,168,224Z"/></symbol>
+  <symbol id="ph-arrow" viewBox="0 0 256 256"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></symbol>
+  <symbol id="ph-check" viewBox="0 0 256 256"><path d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"/></symbol>
+  <symbol id="ph-github" viewBox="0 0 256 256"><path d="M208.31,75.68A59.78,59.78,0,0,0,202.93,28,8,8,0,0,0,196,24a59.75,59.75,0,0,0-48,24H124A59.75,59.75,0,0,0,76,24a8,8,0,0,0-6.93,4,59.78,59.78,0,0,0-5.38,47.68A58.14,58.14,0,0,0,56,104v8a56.06,56.06,0,0,0,48.44,55.47A39.8,39.8,0,0,0,96,192v8H72a24,24,0,0,1-24-24A40,40,0,0,0,8,136a8,8,0,0,0,0,16,24,24,0,0,1,24,24,40,40,0,0,0,40,40H96v16a8,8,0,0,0,16,0V192a24,24,0,0,1,48,0v40a8,8,0,0,0,16,0V192a39.8,39.8,0,0,0-8.44-24.53A56.06,56.06,0,0,0,216,112v-8A58.14,58.14,0,0,0,208.31,75.68ZM200,112a40,40,0,0,1-40,40H112a40,40,0,0,1-40-40v-8a41.74,41.74,0,0,1,6.9-22.48A8,8,0,0,0,80,73.83a43.81,43.81,0,0,1,.79-33.58,43.88,43.88,0,0,1,32.32,20.06A8,8,0,0,0,119.82,64h32.35a8,8,0,0,0,6.74-3.69,43.87,43.87,0,0,1,32.32-20.06A43.81,43.81,0,0,1,192,73.83a8.09,8.09,0,0,0,1,7.65A41.72,41.72,0,0,1,200,104Z"/></symbol>
+  <symbol id="ph-download" viewBox="0 0 256 256"><path d="M224,144v64a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V144a8,8,0,0,1,16,0v56H208V144a8,8,0,0,1,16,0Zm-101.66,5.66a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,124.69V32a8,8,0,0,0-16,0v92.69L93.66,98.34a8,8,0,0,0-11.32,11.32Z"/></symbol>
+  <symbol id="ph-list" viewBox="0 0 256 256"><path d="M224,128a8,8,0,0,1-8,8H40a8,8,0,0,1,0-16H216A8,8,0,0,1,224,128ZM40,72H216a8,8,0,0,0,0-16H40a8,8,0,0,0,0,16ZM216,184H40a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16Z"/></symbol>
+  <symbol id="ph-x" viewBox="0 0 256 256"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></symbol>
+  <symbol id="ph-sparkle" viewBox="0 0 256 256"><path d="M197.58,129.06,146,110l-19-51.62a15.92,15.92,0,0,0-29.88,0L78,110l-51.62,19a15.92,15.92,0,0,0,0,29.88L78,178l19,51.62a15.92,15.92,0,0,0,29.88,0L146,178l51.62-19a15.92,15.92,0,0,0,0-29.88ZM137,164.22a8,8,0,0,0-4.74,4.74L112,223.85,91.78,169A8,8,0,0,0,87,164.22L32.15,144,87,123.78A8,8,0,0,0,91.78,119L112,64.15,132.22,119a8,8,0,0,0,4.74,4.74L191.85,144ZM144,40a8,8,0,0,1,8-8h16V16a8,8,0,0,1,16,0V32h16a8,8,0,0,1,0,16H184V64a8,8,0,0,1-16,0V48H152A8,8,0,0,1,144,40ZM248,88a8,8,0,0,1-8,8h-8v8a8,8,0,0,1-16,0V96h-8a8,8,0,0,1,0-16h8V72a8,8,0,0,1,16,0v8h8A8,8,0,0,1,248,88Z"/></symbol>
+  <symbol id="ph-target" viewBox="0 0 256 256"><path d="M221.87,83.16A104.1,104.1,0,1,1,195.67,49l22.67-22.68a8,8,0,0,1,11.32,11.32l-96,96a8,8,0,0,1-11.32-11.32l27.72-27.72a40,40,0,1,0,17.87,31.09,8,8,0,1,1,16-.9,56,56,0,1,1-22.38-41.65L184.3,60.39a87.88,87.88,0,1,0,23.13,29.67,8,8,0,0,1,14.44-6.9Z"/></symbol>
+  <symbol id="ph-translate" viewBox="0 0 256 256"><path d="M247.15,212.42l-56-112a8,8,0,0,0-14.31,0l-21.71,43.43A88,88,0,0,1,108,126.93,103.65,103.65,0,0,0,135.69,64H160a8,8,0,0,0,0-16H104V32a8,8,0,0,0-16,0V48H32a8,8,0,0,0,0,16h87.63A87.76,87.76,0,0,1,96,116.35a87.74,87.74,0,0,1-19-31,8,8,0,1,0-15.08,5.34A103.63,103.63,0,0,0,84,127a87.55,87.55,0,0,1-52,17,8,8,0,0,0,0,16,103.46,103.46,0,0,0,64-22.08,104.18,104.18,0,0,0,51.44,21.31l-26.6,53.19a8,8,0,0,0,14.31,7.16L148.94,192h70.11l13.79,27.58A8,8,0,0,0,240,224a8,8,0,0,0,7.15-11.58ZM156.94,176,184,121.89,211.05,176Z"/></symbol>
+  <symbol id="ph-textbox" viewBox="0 0 256 256"><path d="M112,40a8,8,0,0,0-8,8V64H24A16,16,0,0,0,8,80v96a16,16,0,0,0,16,16h80v16a8,8,0,0,0,16,0V48A8,8,0,0,0,112,40ZM24,176V80h80v96ZM248,80v96a16,16,0,0,1-16,16H144a8,8,0,0,1,0-16h88V80H144a8,8,0,0,1,0-16h88A16,16,0,0,1,248,80ZM88,112a8,8,0,0,1-8,8H72v24a8,8,0,0,1-16,0V120H48a8,8,0,0,1,0-16H80A8,8,0,0,1,88,112Z"/></symbol>
+  <symbol id="ph-cursor" viewBox="0 0 256 256"><path d="M88,24V16a8,8,0,0,1,16,0v8a8,8,0,0,1-16,0ZM16,104h8a8,8,0,0,0,0-16H16a8,8,0,0,0,0,16ZM124.42,39.16a8,8,0,0,0,10.74-3.58l8-16a8,8,0,0,0-14.31-7.16l-8,16A8,8,0,0,0,124.42,39.16Zm-96,81.69-16,8a8,8,0,0,0,7.16,14.31l16-8a8,8,0,1,0-7.16-14.31ZM219.31,184a16,16,0,0,1,0,22.63l-12.68,12.68a16,16,0,0,1-22.63,0L132.7,168,115,214.09c0,.1-.08.21-.13.32a15.83,15.83,0,0,1-14.6,9.59l-.79,0a15.83,15.83,0,0,1-14.41-11L32.8,52.92A16,16,0,0,1,52.92,32.8L213,85.07a16,16,0,0,1,1.41,29.8l-.32.13L168,132.69ZM208,195.31,156.69,144h0a16,16,0,0,1,4.93-26l.32-.14,45.95-17.64L48,48l52.2,159.86,17.65-46c0-.11.08-.22.13-.33a16,16,0,0,1,11.69-9.34,16.72,16.72,0,0,1,3-.28,16,16,0,0,1,11.3,4.69L195.31,208Z"/></symbol>
+  <symbol id="ph-images" viewBox="0 0 256 256"><path d="M216,40H72A16,16,0,0,0,56,56V72H40A16,16,0,0,0,24,88V200a16,16,0,0,0,16,16H184a16,16,0,0,0,16-16V184h16a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40ZM72,56H216v62.75l-10.07-10.06a16,16,0,0,0-22.63,0l-20,20-44-44a16,16,0,0,0-22.62,0L72,109.37ZM184,200H40V88H56v80a16,16,0,0,0,16,16H184Zm32-32H72V132l36-36,49.66,49.66a8,8,0,0,0,11.31,0L194.63,120,216,141.38V168ZM160,84a12,12,0,1,1,12,12A12,12,0,0,1,160,84Z"/></symbol>
+  <symbol id="ph-linux" viewBox="0 0 256 256"><path d="M229,214.25A8,8,0,0,1,217.76,213C216.39,211.27,184,169.86,184,88A56,56,0,0,0,72,88c0,81.86-32.37,123.27-33.75,125a8,8,0,0,1-12.51-10c.15-.2,7.69-9.9,15.13-28.74C47.77,156.8,56,127.64,56,88a72,72,0,0,1,144,0c0,39.64,8.23,68.8,15.13,86.28,7.48,18.94,15.06,28.64,15.14,28.74A8,8,0,0,1,229,214.25ZM100,88a12,12,0,1,0,12,12A12,12,0,0,0,100,88Zm68,12a12,12,0,1,0-12,12A12,12,0,0,0,168,100ZM99.58,128.84a8,8,0,0,0-7.15,14.31l32,16a7.94,7.94,0,0,0,7.15,0l32-16a8,8,0,0,0-7.16-14.31L128,143.05ZM128,176a54.07,54.07,0,0,0-47,28.11,8,8,0,1,0,14,7.78,37.35,37.35,0,0,1,66,0,8,8,0,0,0,14-7.78A54.07,54.07,0,0,0,128,176Z"/></symbol>
+  <symbol id="ph-windows" viewBox="0 0 256 256"><path d="M208,136H128a8,8,0,0,0-8,8v57.45a8,8,0,0,0,6.57,7.88l80,14.54A7.61,7.61,0,0,0,208,224a8,8,0,0,0,8-8V144A8,8,0,0,0,208,136Zm-8,70.41-64-11.63V152h64ZM96,136H32a8,8,0,0,0-8,8v40a8,8,0,0,0,6.57,7.87l64,11.64a8.54,8.54,0,0,0,1.43.13,8,8,0,0,0,8-8V144A8,8,0,0,0,96,136Zm-8,50.05-48-8.73V152H88ZM213.13,33.86a8,8,0,0,0-6.56-1.73l-80,14.55A8,8,0,0,0,120,54.55V112a8,8,0,0,0,8,8h80a8,8,0,0,0,8-8V40A8,8,0,0,0,213.13,33.86ZM200,104H136V61.22l64-11.63ZM101.13,54.22a8,8,0,0,0-6.56-1.73l-64,11.64A8,8,0,0,0,24,72v40a8,8,0,0,0,8,8H96a8,8,0,0,0,8-8V60.36A8,8,0,0,0,101.13,54.22ZM88,104H40V78.68L88,70Z"/></symbol>
+  <symbol id="ph-apple" viewBox="0 0 256 256"><path d="M223.3,169.59a8.07,8.07,0,0,0-2.8-3.4C203.53,154.53,200,134.64,200,120c0-17.67,13.47-33.06,21.5-40.67a8,8,0,0,0,0-11.62C208.82,55.74,187.82,48,168,48a72.2,72.2,0,0,0-40,12.13,71.56,71.56,0,0,0-90.71,9.09A74.63,74.63,0,0,0,16,123.4a127.06,127.06,0,0,0,40.14,89.73A39.8,39.8,0,0,0,83.59,224h87.68a39.84,39.84,0,0,0,29.12-12.57,125,125,0,0,0,17.82-24.6C225.23,174,224.33,172,223.3,169.59Zm-34.63,30.94a23.76,23.76,0,0,1-17.4,7.47H83.59a23.82,23.82,0,0,1-16.44-6.51A111.14,111.14,0,0,1,32,123,58.5,58.5,0,0,1,48.65,80.47,54.81,54.81,0,0,1,88,64h.78A55.45,55.45,0,0,1,123,76.28a8,8,0,0,0,10,0A55.44,55.44,0,0,1,168,64a70.64,70.64,0,0,1,36,10.35c-13,14.52-20,30.47-20,45.65,0,23.77,7.64,42.73,22.18,55.3A105.82,105.82,0,0,1,188.67,200.53ZM128.23,30A40,40,0,0,1,167,0h1a8,8,0,0,1,0,16h-1a24,24,0,0,0-23.24,18,8,8,0,1,1-15.5-4Z"/></symbol>
+</svg>
 
-<nav><div class="in">
-  <a class="brand" href="#"><img src="snapin.svg" alt="">Snapin</a>
-  <div class="links"><a href="#features">功能</a><a href="#download">下载</a><a href="#start">快速开始</a></div>
-  <a class="gh" href="https://github.com/mangerle/snapin" aria-label="GitHub"><svg viewBox="0 0 16 16" width="22" height="22" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
-</div></nav>
-
-<header class="hero"><div class="wrap">
-  <span class="pill">纯 Rust 打造 &middot; Linux / Windows / macOS</span>
-  <h1>让截图,<br>一步变成<span class="grad">桌面贴图</span></h1>
-  <p>跨平台截图与贴图。离线 OCR,图上原位翻译。轻量、稳定、开源。</p>
-  <a class="btn pri" id="dl-main" href="#download">立即下载</a>
-  <a class="btn sec" href="https://github.com/mangerle/snapin">查看源码</a>
-  <div class="badges"><span>Linux</span><span>Windows</span><span>macOS</span><span>Apache-2.0</span></div>
-
-  <div class="stage" aria-hidden="true"><div class="desk">
-    <div class="topbar"><b></b><span>Snapin</span></div>
-    <div class="app"><i></i><i></i><i></i><i></i><i></i></div>
-    <div class="sel"><em>960 x 540</em><b></b><b></b><b></b><b></b></div>
-    <div class="tools"><span></span><span></span><span></span><span></span><span></span></div>
-    <div class="pin"><i></i><i></i><i></i><i></i></div>
-  </div></div>
-</div></header>
-
-<section id="features"><div class="wrap">
-  <h2 class="rv">功能一览</h2>
-  <p class="sub rv">从截取、标注到贴图、识别,一条龙完成</p>
-  <div class="cards">
-    <div class="card rv"><div class="ico">截</div><h3>截图</h3><ul>
-      <li>区域框选、8 锚点缩放、历史选区回溯</li>
-      <li>Linux 零白闪原生截图,自动降级 Portal;Windows / macOS 通过 xcap 截屏</li>
-      <li>像素放大镜与 HEX / RGB / HSL 取色</li>
-      <li>窗口吸附、整屏截图、延时截图(Linux 需 GNOME 扩展)</li></ul></div>
-    <div class="card rv"><div class="ico">注</div><h3>标注</h3><ul>
-      <li>矩形、椭圆、箭头、画笔、荧光笔</li>
-      <li>文字、序号、马赛克、局部模糊、聚光灯</li>
-      <li>撤销 / 重做,复制、保存、贴图</li></ul></div>
-    <div class="card rv"><div class="ico">贴</div><h3>贴图</h3><ul>
-      <li>剪贴板图像、文本、颜色一键置顶</li>
-      <li>滚轮缩放、旋转、翻转、透明度</li>
-      <li>Linux Wayland 真透明 ARGB8888 呈现,其他平台回退 softbuffer</li>
-      <li>多窗口工作区与分组管理</li></ul></div>
-    <div class="card rv"><div class="ico">文</div><h3>OCR 与翻译</h3><ul>
-      <li>内置 PP-OCRv6 模型,离线识别不上传图像</li>
-      <li>谷歌、必应、百度、有道、阿里云</li>
-      <li>图上原位翻译,多种背景覆盖模式</li></ul></div>
-    <div class="card rv"><div class="ico">集</div><h3>系统集成</h3><ul>
-      <li>[Linux] 配套 GNOME Shell 扩展</li>
-      <li>5 个可自定义全局快捷键</li>
-      <li>[Linux] systemd 用户服务,开机自启;Windows / macOS 托盘常驻</li>
-      <li>设置中心保存后热重载守护进程配置</li></ul></div>
-    <div class="card rv"><div class="ico">Rs</div><h3>纯 Rust</h3><ul>
-      <li>winit + tiny-skia 软件光栅化,Linux / Windows / macOS 同源代码</li>
-      <li>轻量稳定,三大平台同源代码</li>
-      <li>Apache-2.0 开源</li></ul></div>
+<header class="site-header">
+  <div class="container nav-bar">
+    <a class="brand" href="#overview" data-go="0"><img src="snapin.svg" width="32" height="32" alt="">Snapin</a>
+    <nav class="nav-links" aria-label="主导航">
+      <button class="nav-link" type="button" data-go="0" data-range="0" aria-current="page">概览</button>
+      <button class="nav-link" type="button" data-go="1" data-range="1">优势</button>
+      <button class="nav-link" type="button" data-go="2" data-range="2">流程</button>
+      <button class="nav-link" type="button" data-go="3" data-range="3-6">功能</button>
+      <button class="nav-link" type="button" data-go="7" data-range="7">平台</button>
+      <button class="nav-link" type="button" data-go="8" data-range="8">常见问题</button>
+    </nav>
+    <div class="nav-actions">
+      <a class="nav-icon" href="https://github.com/mangerle/snapin" aria-label="GitHub 仓库"><svg class="icon"><use href="#ph-github"/></svg></a>
+      <a class="button button-primary" href="https://github.com/mangerle/snapin/releases/latest">下载 Snapin</a>
+      <button class="menu-toggle" type="button" aria-label="打开导航" aria-expanded="false"><span></span><span></span><span></span></button>
+    </div>
   </div>
-</div></section>
+</header>
 
-<section id="download"><div class="wrap">
-  <h2 class="rv">下载 Snapin</h2>
-  <p class="sub rv">选择你的平台,前往 Releases 获取最新版本</p>
-  <div class="cards dl">
-    <a class="card rv" data-os="linux" href="https://github.com/mangerle/snapin/releases/latest"><div class="ico">Linux</div><h3>Linux</h3><ul><li>deb 安装包 (x64 / arm64)</li><li>rpm 安装包 (x64 / arm64)</li><li>AppImage 免安装版</li></ul><span class="go">前往下载</span></a>
-    <a class="card rv" data-os="windows" href="https://github.com/mangerle/snapin/releases/latest"><div class="ico">Win</div><h3>Windows</h3><ul><li>exe 向导安装包 (x64 / arm64)</li><li>zip 绿色便携版</li></ul><span class="go">前往下载</span></a>
-    <a class="card rv" data-os="macos" href="https://github.com/mangerle/snapin/releases/latest"><div class="ico">Mac</div><h3>macOS</h3><ul><li>dmg 镜像包</li><li>拖拽安装</li></ul><span class="go">前往下载</span></a>
+<nav class="mobile-menu" aria-label="移动导航">
+  <button type="button" data-go="0" style="--i:0">概览</button>
+  <button type="button" data-go="1" style="--i:1">核心优势</button>
+  <button type="button" data-go="2" style="--i:2">三步流程</button>
+  <button type="button" data-go="3" style="--i:3">标注工具</button>
+  <button type="button" data-go="4" style="--i:4">文字识别</button>
+  <button type="button" data-go="5" style="--i:5">智能打码</button>
+  <button type="button" data-go="6" style="--i:6">贴图工作区</button>
+  <button type="button" data-go="7" style="--i:7">平台支持</button>
+  <button type="button" data-go="8" style="--i:8">常见问题</button>
+</nav>
+
+<main class="deck" id="main" tabindex="-1">
+  <section class="slide hero-slide is-active" id="overview" aria-label="Snapin 概览">
+    <div class="slide-inner hero-layout">
+      <div class="hero-copy">
+        <span class="eyebrow">纯 Rust · 跨平台</span>
+        <h1 class="heading-1">截图之后，<span class="gradient-text">马上拿到可用结果</span></h1>
+        <p class="body-lg">Snapin 把框选、标注、本地 OCR、翻译和贴图放在同一条工作流里。支持 Linux、Windows 与 macOS，无需注册。</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="https://github.com/mangerle/snapin/releases/latest"><svg class="icon" style="width:19px;height:19px"><use href="#ph-download"/></svg>下载 Snapin</a>
+          <a class="button button-secondary" href="https://github.com/mangerle/snapin"><svg class="icon" style="width:19px;height:19px"><use href="#ph-github"/></svg>查看源码</a>
+        </div>
+        <div class="proof-line"><span class="proof-item"><svg class="icon"><use href="#ph-shield"/></svg>离线 OCR</span><span class="proof-item"><svg class="icon"><use href="#ph-monitor"/></svg>三平台支持</span><span class="proof-item"><svg class="icon"><use href="#ph-check"/></svg>Apache 2.0 开源</span></div>
+      </div>
+      <div class="hero-visual">
+        <img src="assets/previews/hero-preview.png" width="1600" height="1000" alt="Snapin 截图、标注、识别与贴图工作界面">
+        <div class="visual-caption"><span>截图、标注、识别与贴图在同一界面完成</span><span>实际界面渲染</span></div>
+      </div>
+      <div class="stat-strip" aria-label="Snapin 关键信息">
+        <div class="stat"><strong>3</strong><span>桌面平台</span></div>
+        <div class="stat"><strong>本地</strong><span>文字识别运行方式</span></div>
+        <div class="stat"><strong>0 次</strong><span>使用 OCR 时的图像上传</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="benefits" aria-label="核心优势" aria-hidden="true">
+    <div class="slide-inner section-layout">
+      <div class="section-heading"><span class="kicker">核心优势</span><h2 class="heading-2">少切换一次工具，就多保留一段注意力</h2><p class="body-md">高频截图流程不需要在浏览器、编辑器和 OCR 工具之间来回搬运内容。</p></div>
+      <div class="benefit-grid">
+        <article class="benefit-card"><div class="benefit-top"><span class="icon-box"><svg class="icon"><use href="#ph-crop"/></svg></span><span class="index-pill">01</span></div><h3>框选后立即编辑</h3><p>不用先保存、再打开编辑器。选区确定后，标注、文字、序号和隐私遮挡工具已经准备好。</p></article>
+        <article class="benefit-card"><div class="benefit-top"><span class="icon-box violet"><svg class="icon"><use href="#ph-textbox"/></svg></span><span class="index-pill violet">02</span></div><h3>识别结果拿来即用</h3><p>左键识别后直接复制并关闭；右键进入全文编辑。文字背景、字体与字号都可继续调整。</p></article>
+        <article class="benefit-card"><div class="benefit-top"><span class="icon-box cyan"><svg class="icon"><use href="#ph-stack"/></svg></span><span class="index-pill cyan">03</span></div><h3>截图可以继续工作</h3><p>图片、文字与颜色都能固定到贴图工作区，支持分组、缩放、旋转、翻转与透明度调整。</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="workflow" aria-label="三步工作流" aria-hidden="true">
+    <div class="slide-inner section-layout">
+      <div class="section-heading"><span class="kicker">三步完成</span><h2 class="heading-2">从按下快捷键，到得到可用内容</h2><p class="body-md">框选、处理、输出都集中在同一个界面，减少重复操作和上下文切换。</p></div>
+      <div class="workflow-grid">
+        <article class="workflow-card"><div class="workflow-head"><span class="step-number">01</span><span class="icon-box"><svg class="icon"><use href="#ph-crop"/></svg></span></div><h3>框选屏幕内容</h3><p>拖动框选、吸附窗口或截取全屏。放大镜与取色器跟随光标显示像素信息。</p><span class="caption">区域、窗口与全屏</span></article>
+        <article class="workflow-card"><div class="workflow-head"><span class="step-number">02</span><span class="icon-box violet"><svg class="icon"><use href="#ph-pencil"/></svg></span></div><h3>完成标注或识别</h3><p>使用图形与文字工具编辑画面，或直接执行离线 OCR、智能打码和原位翻译。</p><span class="caption">标注、识别与隐私处理</span></article>
+        <article class="workflow-card"><div class="workflow-head"><span class="step-number">03</span><span class="icon-box cyan"><svg class="icon"><use href="#ph-stack"/></svg></span></div><h3>复制、保存或贴图</h3><p>把结果写入剪贴板、保存为文件，或固定到贴图工作区继续对照查看。</p><span class="caption">复制、导出与贴图</span></article>
+      </div>
+      <div class="workflow-note"><span><strong>一条完整工作流</strong>，不需要额外打开图片编辑器或文字识别网站。</span><span>Ctrl+C 复制 · Ctrl+S 保存 · 快捷键可自定义</span></div>
+    </div>
+  </section>
+
+  <section class="slide" id="annotation" aria-label="标注工具" aria-hidden="true">
+    <div class="slide-inner feature-layout">
+      <div class="feature-copy">
+        <div class="feature-meta"><strong class="index-pill">01</strong><span class="caption">标注工具</span></div>
+        <h2 class="heading-3">文字与图形属性集中在一条工具栏</h2>
+        <p class="body-lg">字形、描边、背景、不透明度、字体和字号集中显示。数值支持滚轮微调，选中状态与图标始终居中对应。</p>
+        <ul class="feature-list"><li><svg class="icon"><use href="#ph-check"/></svg>矩形、椭圆、箭头、直线、画笔、荧光笔与橡皮擦。</li><li><svg class="icon"><use href="#ph-check"/></svg>线型、填充、圆角、起止箭头与文字背景参数。</li><li><svg class="icon"><use href="#ph-check"/></svg>所有属性共享同一份布局、命中与渲染结果。</li></ul>
+      </div>
+      <div class="media-card compact"><img src="assets/previews/toolbar-text.png" width="754" height="95" alt="Snapin 文字标注工具栏预览"></div>
+    </div>
+  </section>
+
+  <section class="slide" id="ocr" aria-label="离线文字识别" aria-hidden="true">
+    <div class="slide-inner feature-layout reverse">
+      <div class="feature-copy">
+        <div class="feature-meta"><strong class="index-pill violet">02</strong><span class="caption">离线 OCR</span></div>
+        <h2 class="heading-3">全文进入编辑框，而不是逐行勾选</h2>
+        <p class="body-lg">识别完成后保留全部文字。直接复制会关闭截图窗口；需要修改时，右键进入编辑文字，按 Ctrl+Enter 复制编辑结果。</p>
+        <ul class="feature-list"><li><svg class="icon"><use href="#ph-shield"/></svg>本地 OCR 模型运行，不上传原始截图。</li><li><svg class="icon"><use href="#ph-textbox"/></svg>完整文本编辑，支持输入法与换行。</li><li><svg class="icon"><use href="#ph-translate"/></svg>可继续执行原位翻译，支持多个翻译提供方。</li></ul>
+      </div>
+      <div class="media-card ocr-media">
+        <div class="ocr-demo" role="img" aria-label="Snapin 离线识别后进入全文编辑框的界面示意">
+          <div class="ocr-titlebar"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="ocr-title">Snapin 文字识别</span><span class="ocr-local-state">本地模型</span></div>
+          <div class="ocr-body">
+            <div class="ocr-source">
+              <div class="ocr-source-head"><span>原始截图</span><span>96%</span></div>
+              <div class="ocr-source-doc"><span class="source-tag">产品说明</span><strong>Snapin 离线文字识别</strong><span class="source-line w92"></span><span class="source-line w86"></span><span class="source-line w72"></span><span class="source-line w92"></span><span class="source-line w72"></span><span class="source-scan" aria-hidden="true"></span></div>
+              <div class="ocr-source-meta"><span>简体中文</span><span>2 段</span><span>46 字</span></div>
+            </div>
+            <div class="ocr-editor">
+              <div class="ocr-editor-head"><strong>编辑识别文字</strong><span>识别完成 · 46 字</span></div>
+              <div class="ocr-text"><p><strong>Snapin 离线文字识别</strong></p><p>识别结果会完整进入编辑框，可以直接修改、换行，再复制到剪贴板。</p><p>原始截图不会被上传到网络。<span class="ocr-caret" aria-hidden="true"></span></p></div>
+              <div class="ocr-editor-actions"><span class="ocr-action"><svg class="icon"><use href="#ph-translate"/></svg>翻译全文</span><span class="ocr-action"><svg class="icon"><use href="#ph-textbox"/></svg>重新识别</span><span class="ocr-action ocr-action-primary"><svg class="icon"><use href="#ph-check"/></svg>复制文字</span></div>
+            </div>
+          </div>
+          <div class="ocr-statusbar"><span>Esc 取消</span><span>Ctrl+Enter 复制并关闭</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="redaction" aria-label="智能打码" aria-hidden="true">
+    <div class="slide-inner feature-layout">
+      <div class="feature-copy">
+        <div class="feature-meta"><strong class="index-pill cyan">03</strong><span class="caption">隐私处理</span></div>
+        <h2 class="heading-3">识别敏感信息，一次同步调整全部打码</h2>
+        <p class="body-lg">智能打码会识别文字区域，并把当前批次作为一个整体调整。尺寸与效果强度映射到同一颗粒度，避免每个区域出现不同效果。</p>
+        <ul class="feature-list"><li><svg class="icon"><use href="#ph-scan"/></svg>自动定位选区内的文字行。</li><li><svg class="icon"><use href="#ph-target"/></svg>滚轮与滑块同步全部打码区域。</li><li><svg class="icon"><use href="#ph-check"/></svg>仍可逐区域切换是否保留打码。</li></ul>
+      </div>
+      <div class="media-card"><img src="assets/previews/smart-redaction.png" width="1200" height="720" alt="Snapin 智能打码预览"></div>
+    </div>
+  </section>
+
+  <section class="slide" id="paster" aria-label="贴图工作区" aria-hidden="true">
+    <div class="slide-inner feature-layout reverse">
+      <div class="feature-copy">
+        <div class="feature-meta"><strong class="index-pill">04</strong><span class="caption">贴图工作区</span></div>
+        <h2 class="heading-3">把截图变成桌面上可继续使用的素材</h2>
+        <p class="body-lg">集中管理工作区中的图片、文字与颜色贴图。分组、显隐、缩放、旋转、翻转和透明度调整都在同一处完成。</p>
+        <ul class="feature-list"><li><svg class="icon"><use href="#ph-stack"/></svg>集中管理多个贴图窗口。</li><li><svg class="icon"><use href="#ph-images"/></svg>图片、文字与颜色都可以生成贴图。</li><li><svg class="icon"><use href="#ph-keyboard"/></svg>托盘、快捷键与配置热重载配合使用。</li></ul>
+      </div>
+      <div class="media-card"><img src="assets/previews/paster-workspace.png" width="1200" height="720" alt="Snapin 贴图工作区预览"></div>
+    </div>
+  </section>
+
+  <section class="slide" id="platforms" aria-label="平台支持" aria-hidden="true">
+    <div class="slide-inner section-layout">
+      <div class="section-heading"><span class="kicker">平台支持</span><h2 class="heading-2">同一套工作流，运行在三个桌面平台</h2><p class="body-md">针对不同系统的捕获能力和权限模型分别适配，同时保持一致的标注、识别与贴图体验。</p></div>
+      <div class="platform-grid">
+        <article class="platform-card"><div class="platform-head"><h3>Linux</h3><span class="platform-icon linux"><svg class="icon"><use href="#ph-linux"/></svg></span></div><p>推荐 Wayland 会话与 GNOME 45 至 51。配套扩展提供原生捕获与精确贴图定位。</p><div class="chips"><span class="chip">DEB</span><span class="chip">RPM</span><span class="chip">AppImage</span><span class="chip">x64 与 arm64</span></div></article>
+        <article class="platform-card"><div class="platform-head"><h3>Windows</h3><span class="platform-icon windows"><svg class="icon"><use href="#ph-windows"/></svg></span></div><p>支持 Windows 10 及以上。提供原生屏幕捕获、全局热键、托盘常驻和向导式安装。</p><div class="chips"><span class="chip">EXE</span><span class="chip">ZIP</span><span class="chip">x64 与 arm64</span></div></article>
+        <article class="platform-card"><div class="platform-head"><h3>macOS</h3><span class="platform-icon macos"><svg class="icon"><use href="#ph-apple"/></svg></span></div><p>提供原生屏幕捕获、全局热键与托盘常驻。首次使用需要授权屏幕录制。</p><div class="chips"><span class="chip">DMG</span><span class="chip">App</span><span class="chip">Apple Silicon 与 Intel</span></div></article>
+      </div>
+      <div class="platform-note"><span>无需账户，OCR 与图像处理在本机完成。</span><div class="chips"><span class="chip">Apache 2.0</span><span class="chip">离线优先</span><span class="chip">可自行审计</span></div></div>
+    </div>
+  </section>
+
+  <section class="slide" id="faq" aria-label="常见问题与下载" aria-hidden="true">
+    <div class="slide-inner faq-layout">
+      <div class="cta-panel">
+        <span class="kicker">准备开始</span>
+        <h2 class="heading-2">下一次截图，直接得到可用结果</h2>
+        <p>下载 Snapin，在 Linux、Windows 或 macOS 上开始使用。无需注册，也没有隐藏的云端处理。</p>
+        <div class="cta-actions"><a class="button button-primary" href="https://github.com/mangerle/snapin/releases/latest"><svg class="icon" style="width:19px;height:19px"><use href="#ph-download"/></svg>下载 Snapin</a><a class="button button-secondary" href="https://github.com/mangerle/snapin"><svg class="icon" style="width:19px;height:19px"><use href="#ph-github"/></svg>查看源码</a></div>
+        <div class="cta-meta"><span><svg class="icon"><use href="#ph-shield"/></svg>本地 OCR，不上传截图</span><span><svg class="icon"><use href="#ph-check"/></svg>Apache 2.0 开源</span></div>
+      </div>
+      <div class="faq-panel">
+        <div class="faq-list">
+          <details open><summary>Linux 完整功能需要什么环境？</summary><p>推荐 Wayland 会话与 GNOME 45 至 51。扩展不可用时会降级到 XDG Desktop Portal，但精确贴图定位等能力可能受限。</p></details>
+          <details><summary>OCR 会上传我的截图吗？</summary><p>不会。文字识别在本机模型上运行，原始截图不会发送到网络。</p></details>
+          <details><summary>左键 OCR 和右键菜单有什么区别？</summary><p>左键识别后直接复制文字并关闭窗口；右键可以进入全文编辑，再决定复制内容。</p></details>
+          <details><summary>智能打码会只修改最后一个区域吗？</summary><p>不会。当前批次的全部打码区域会同步调整，也可以单独切换某个区域是否保留打码。</p></details>
+          <details><summary>macOS 第一次截图没有画面怎么办？</summary><p>请在系统设置中允许 Snapin 使用屏幕录制权限，然后重新启动应用。</p></details>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="progress-rail" aria-hidden="true"><i class="progress-bar" id="progressBar"></i></div>
+  <div class="container footer-inner">
+    <span class="footer-brand">Snapin · Apache 2.0 · 本地优先</span>
+    <span class="footer-hint">滚轮或方向键切换介绍</span>
+    <div class="deck-controls">
+      <button class="icon-button prev" id="prevSlide" type="button" aria-label="上一个介绍"><svg class="icon"><use href="#ph-arrow"/></svg></button>
+      <span class="slide-counter"><strong id="currentSlide">01</strong> / <span id="totalSlides">09</span></span>
+      <button class="icon-button next" id="nextSlide" type="button" aria-label="下一个介绍"><svg class="icon"><use href="#ph-arrow"/></svg></button>
+    </div>
   </div>
-</div></section>
-
-<section id="start"><div class="wrap">
-  <h2 class="rv">快速开始</h2>
-  <p class="sub rv">三步即可使用,全程图形界面</p>
-  <div class="cards steps">
-    <div class="card rv"><div class="ico">1</div><h3>下载安装</h3><ul><li>按平台下载对应安装包</li><li>双击安装,或解压便携版</li></ul></div>
-    <div class="card rv"><div class="ico">2</div><h3>初次设置</h3><ul><li>Linux 需注销并重新登录一次</li><li>以加载 GNOME 配套扩展</li></ul></div>
-    <div class="card rv"><div class="ico">3</div><h3>开始使用</h3><ul><li>从托盘打开设置中心</li><li>自定义快捷键后即可截图、贴图</li></ul></div>
-  </div>
-  <p class="note">Linux 完整功能需 Wayland 会话(推荐 GNOME 45-51),X11 未做适配不保证可用。Windows 10+,macOS 需授权屏幕录制。</p>
-</div></section>
-
-<footer>Snapin &middot; <a href="https://github.com/mangerle/snapin">GitHub</a> &middot; Apache-2.0</footer>
+</footer>
 
 <script>
-// 鼠标跟随聚光:把指针相对卡片的坐标写入 CSS 变量
-document.querySelectorAll('.card').forEach(function (card) {
-  card.addEventListener('pointermove', function (e) {
-    var r = card.getBoundingClientRect();
-    card.style.setProperty('--mx', (e.clientX - r.left) + 'px');
-    card.style.setProperty('--my', (e.clientY - r.top) + 'px');
+(function(){
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var deck = document.getElementById('main');
+  var progressBar = document.getElementById('progressBar');
+  var currentLabel = document.getElementById('currentSlide');
+  var totalLabel = document.getElementById('totalSlides');
+  var prevButton = document.getElementById('prevSlide');
+  var nextButton = document.getElementById('nextSlide');
+  var navLinks = Array.prototype.slice.call(document.querySelectorAll('.nav-link'));
+  var goButtons = Array.prototype.slice.call(document.querySelectorAll('[data-go]'));
+  var menuButton = document.querySelector('.menu-toggle');
+  var mobileMenu = document.querySelector('.mobile-menu');
+  var current = 0;
+  var wheelTotal = 0;
+  var wheelLocked = false;
+  var wheelIdleTimer = 0;
+  var touchStartY = 0;
+  var touchStartX = 0;
+
+  totalLabel.textContent = String(slides.length).padStart(2,'0');
+  slides.forEach(function(slide,index){
+    slide.setAttribute('aria-hidden',String(index !== 0));
+    slide.inert = index !== 0;
   });
-});
-// 识别访问者系统:高亮对应下载卡片,并更新首屏按钮文案
-(function () {
-  var ua = navigator.userAgent, os = /Windows/.test(ua) ? 'windows' : /Mac/.test(ua) ? 'macos' : /Linux|X11/.test(ua) ? 'linux' : null;
-  var names = { linux: 'Linux', windows: 'Windows', macos: 'macOS' };
-  var card = os && document.querySelector('.dl [data-os="' + os + '"]');
-  if (!card) return;
-  card.classList.add('rec');
-  document.getElementById('dl-main').textContent = '下载 ' + names[os] + ' 版';
+
+  function activeRangeMatches(range,index){
+    if(!range) return false;
+    if(range.indexOf('-') !== -1){
+      var parts = range.split('-');
+      return index >= Number(parts[0]) && index <= Number(parts[1]);
+    }
+    return Number(range) === index;
+  }
+
+  function updateNavigation(){
+    navLinks.forEach(function(link){
+      if(activeRangeMatches(link.getAttribute('data-range'),current)) link.setAttribute('aria-current','page');
+      else link.removeAttribute('aria-current');
+    });
+    currentLabel.textContent = String(current + 1).padStart(2,'0');
+    progressBar.style.transform = 'scaleX(' + ((current + 1) / slides.length) + ')';
+    prevButton.disabled = current === 0;
+    nextButton.disabled = current === slides.length - 1;
+  }
+
+  function goTo(index, focusDeck){
+    var target = Math.max(0,Math.min(slides.length - 1,index));
+    if(target === current) return false;
+    slides[current].classList.remove('is-active');
+    slides[current].classList.add('is-before');
+    slides[current].setAttribute('aria-hidden','true');
+    slides[current].inert = true;
+    current = target;
+    slides[current].classList.remove('is-before');
+    slides[current].classList.add('is-active');
+    slides[current].setAttribute('aria-hidden','false');
+    slides[current].inert = false;
+    slides[current].scrollTop = 0;
+    updateNavigation();
+    if(focusDeck) deck.focus({preventScroll:true});
+    return true;
+  }
+
+  function closeMenu(){
+    document.body.classList.remove('menu-open');
+    menuButton.setAttribute('aria-expanded','false');
+    menuButton.setAttribute('aria-label','打开导航');
+    mobileMenu.setAttribute('aria-hidden','true');
+  }
+
+  menuButton.addEventListener('click',function(){
+    var open = !document.body.classList.contains('menu-open');
+    document.body.classList.toggle('menu-open',open);
+    menuButton.setAttribute('aria-expanded',String(open));
+    menuButton.setAttribute('aria-label',open ? '关闭导航' : '打开导航');
+    mobileMenu.setAttribute('aria-hidden',String(!open));
+  });
+
+  goButtons.forEach(function(button){
+    button.addEventListener('click',function(event){
+      event.preventDefault();
+      goTo(Number(button.getAttribute('data-go')),true);
+      closeMenu();
+    });
+  });
+
+  prevButton.addEventListener('click',function(){ goTo(current - 1,true); });
+  nextButton.addEventListener('click',function(){ goTo(current + 1,true); });
+
+  function slideCanScroll(direction){
+    var slide = slides[current];
+    if(slide.scrollHeight <= slide.clientHeight + 2) return false;
+    if(direction > 0) return slide.scrollTop + slide.clientHeight < slide.scrollHeight - 2;
+    return slide.scrollTop > 2;
+  }
+
+  deck.addEventListener('wheel',function(event){
+    if(wheelLocked){ event.preventDefault(); return; }
+    if(slideCanScroll(event.deltaY)) return;
+    event.preventDefault();
+    wheelTotal += event.deltaY;
+    window.clearTimeout(wheelIdleTimer);
+    wheelIdleTimer = window.setTimeout(function(){ wheelTotal = 0; },160);
+    if(Math.abs(wheelTotal) < 42) return;
+    var direction = wheelTotal > 0 ? 1 : -1;
+    goTo(current + direction,false);
+    wheelTotal = 0;
+    wheelLocked = true;
+    window.setTimeout(function(){ wheelLocked = false; },220);
+  },{passive:false});
+
+  document.addEventListener('keydown',function(event){
+    if(event.key === 'Escape' && document.body.classList.contains('menu-open')){ closeMenu(); return; }
+    if(document.body.classList.contains('menu-open')) return;
+    if(['ArrowDown','PageDown',' '].indexOf(event.key) !== -1){ event.preventDefault(); goTo(current + 1,false); }
+    else if(['ArrowUp','PageUp'].indexOf(event.key) !== -1){ event.preventDefault(); goTo(current - 1,false); }
+    else if(event.key === 'Home'){ event.preventDefault(); goTo(0,false); }
+    else if(event.key === 'End'){ event.preventDefault(); goTo(slides.length - 1,false); }
+  });
+
+  deck.addEventListener('touchstart',function(event){
+    if(event.touches.length !== 1) return;
+    touchStartY = event.touches[0].clientY;
+    touchStartX = event.touches[0].clientX;
+  },{passive:true});
+
+  deck.addEventListener('touchend',function(event){
+    if(event.changedTouches.length !== 1) return;
+    var deltaY = touchStartY - event.changedTouches[0].clientY;
+    var deltaX = touchStartX - event.changedTouches[0].clientX;
+    if(Math.abs(deltaY) < 56 || Math.abs(deltaY) <= Math.abs(deltaX)) return;
+    if(slideCanScroll(deltaY)) return;
+    goTo(current + (deltaY > 0 ? 1 : -1),false);
+  },{passive:true});
+
+  updateNavigation();
 })();
-// 滚动入场:元素进入视口后加上 on 类
-var io = new IntersectionObserver(function (entries) {
-  entries.forEach(function (en) {
-    if (en.isIntersecting) { en.target.classList.add('on'); io.unobserve(en.target); }
-  });
-}, { threshold: 0.15 });
-document.querySelectorAll('.rv').forEach(function (el) { io.observe(el); });
+</script>
+
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@type":"SoftwareApplication",
+  "name":"Snapin",
+  "applicationCategory":"UtilityApplication",
+  "operatingSystem":"Linux, Windows, macOS",
+  "description":"纯 Rust 构建的跨平台截图、标注、本地 OCR、翻译与贴图工具。",
+  "url":"https://mangerle.github.io/snapin/",
+  "downloadUrl":"https://github.com/mangerle/snapin/releases/latest",
+  "license":"https://github.com/mangerle/snapin/blob/master/LICENSE",
+  "offers":{"@type":"Offer","price":"0","priceCurrency":"CNY"}
+}
 </script>
 </body>
 </html>
