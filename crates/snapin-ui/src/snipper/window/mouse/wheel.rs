@@ -27,6 +27,11 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
         state.viewport.cursor_pos.1 as f32,
         delta_y,
     ) {
+        if state.editor.annotation.toolbar.focused_sub_control() == Some(SubControl::CornerRadius) {
+            state.editor.annotations.adjust_last_corner_radius(
+                state.editor.annotation.toolbar.sub_options.corner_radius,
+            );
+        }
         if let Some(session) = &mut state.editor.annotation.active_text_input {
             session.font_size = state.editor.annotation.toolbar.sub_options.font_size;
         }

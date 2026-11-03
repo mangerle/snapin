@@ -167,6 +167,63 @@ fn test_mouse_wheel_text_mode_font_size_adjust() {
     );
 }
 
+/// 圆角控件滚轮必须同时更新后续参数和当前已绘制的矩形图元。
+#[test]
+fn test_corner_radius_wheel_updates_current_rectangle() {
+    let mut state = SnipperState::new();
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 600.0,
+        height: 400.0,
+    };
+    state.viewport.selection = SelectionState::Locked {
+        rect: selection,
+        active_drag: None,
+    };
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Rect);
+    state
+        .editor
+        .annotation
+        .toolbar
+        .update_layout(&selection, 1920.0, 1080.0);
+    state
+        .editor
+        .annotations
+        .push(AnnotationShape::Rect(RectAction {
+            rect: Rect::new(150.0, 150.0, 240.0, 120.0),
+            color: (255, 0, 0, 255).into(),
+            stroke_width: 4.0,
+            is_filled: false,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
+        }));
+    let corner = state
+        .editor
+        .annotation
+        .toolbar
+        .sub_layout()
+        .and_then(|layout| layout.rect_of(SubControl::CornerRadius))
+        .expect("矩形二级栏应包含圆角控件");
+    state.viewport.cursor_pos = (
+        (corner.x + corner.width / 2.0) as f64,
+        (corner.y + corner.height / 2.0) as f64,
+    );
+
+    assert!(handle_mouse_wheel(
+        &mut state,
+        MouseScrollDelta::LineDelta(0.0, 1.0)
+    ));
+    assert_eq!(
+        state.editor.annotation.toolbar.sub_options.corner_radius,
+        2.0
+    );
+    let Some(AnnotationShape::Rect(action)) = state.editor.annotations.shape_at(0) else {
+        panic!("当前图元必须是矩形");
+    };
+    assert_eq!(action.corner_radius, 2.0);
+}
+
 fn state_with_magnifier_wheel_target() -> SnipperState {
     let mut state = SnipperState::new();
     state.editor.annotation.toolbar.active_tool = Some(Tool::Magnifier);

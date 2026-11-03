@@ -128,6 +128,18 @@ pub fn handle_paster_scroll(
         state.viewport.cursor_pos.1,
         delta_y,
     ) {
+        if state.interaction.annotation.toolbar.focused_sub_control()
+            == Some(crate::editor::toolbar::SubControl::CornerRadius)
+        {
+            state.document.annotations.adjust_last_corner_radius(
+                state
+                    .interaction
+                    .annotation
+                    .toolbar
+                    .sub_options
+                    .corner_radius,
+            );
+        }
         return true;
     }
 
