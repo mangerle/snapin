@@ -108,15 +108,6 @@ impl TextInputSession {
         self.background_corner_radius = options.text_background_corner_radius;
     }
 
-    /// 结束输入并返回已确认文本与未提交预编辑拼接后的完整内容。
-    pub fn finish_text(mut self) -> String {
-        if !self.preedit.is_empty() {
-            self.text.push_str(&self.preedit);
-            self.preedit.clear();
-        }
-        self.text
-    }
-
     /// 将当前会话转换为持久化标注动作
     pub fn commit(mut self) -> Option<AnnotationShape> {
         if !self.preedit.is_empty() {

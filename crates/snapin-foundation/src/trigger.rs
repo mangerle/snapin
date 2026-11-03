@@ -34,7 +34,7 @@ pub enum PostCaptureAction {
     Qr,
     /// 进入美化导出
     Beautify,
-    /// 打开 OCR 结果面板
+    /// 打开 OCR 全文编辑框
     OcrPanel,
 }
 

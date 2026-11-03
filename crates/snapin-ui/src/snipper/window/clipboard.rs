@@ -12,6 +12,8 @@ pub(crate) enum SnipperClipboardAction {
     CopyImage,
     /// 复制取色结果并退出截图会话。
     PickColor(String),
+    /// 复制 OCR 全文并退出截图会话。
+    CopyText(String),
     /// 复制辅助文本，只展示成功提示并保持截图会话打开。
     TransientStatus {
         /// 真实写入成功后展示的提示。
@@ -27,6 +29,7 @@ impl SnipperClipboardAction {
         match self {
             Self::CopyImage => "复制选区图像",
             Self::PickColor(_) => "复制颜色值",
+            Self::CopyText(_) => "复制识别文字",
             Self::TransientStatus { failure_label, .. } => failure_label,
         }
     }
@@ -121,6 +124,9 @@ impl SnipperState {
                 SnipperClipboardAction::PickColor(color) => {
                     self.session.outcome = Some(SnipperOutcome::CopiedColor(color));
                 }
+                SnipperClipboardAction::CopyText(text) => {
+                    self.session.outcome = Some(SnipperOutcome::CopiedText(text));
+                }
                 SnipperClipboardAction::TransientStatus {
                     success_message, ..
                 } => {
@@ -183,5 +189,22 @@ mod tests {
 
         assert!(state.session.outcome.is_none());
         assert_eq!(state.session.status_message.as_deref(), Some("文本已复制"));
+    }
+
+    /// OCR 全文复制必须等真实写入成功后再结束截图会话。
+    #[test]
+    fn test_copy_text_closes_after_real_write() {
+        let mut state = SnipperState::new();
+        assert!(state.submit_clipboard_text(
+            "识别文字".to_string(),
+            SnipperClipboardAction::CopyText("识别文字".to_string())
+        ));
+        assert!(state.session.outcome.is_none());
+        let job_id = state.pending_clipboard_id().expect("应登记在途剪贴板任务");
+        assert!(state.handle_clipboard_finished(job_id, Ok(ClipboardResult::Written)));
+        assert!(matches!(
+            state.session.outcome,
+            Some(SnipperOutcome::CopiedText(ref text)) if text == "识别文字"
+        ));
     }
 }

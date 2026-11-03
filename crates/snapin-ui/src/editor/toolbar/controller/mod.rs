@@ -29,6 +29,13 @@ impl Toolbar {
         self.focused_sub_control
     }
 
+    /// 返回主栏指定按钮当前屏幕矩形，供右键菜单等浮层锚定。
+    pub(crate) fn main_item_rect(&self, item: ToolbarItem) -> Option<Rect> {
+        super::interaction::main_item_rects(&self.main_rect, self.main_items, self.ui_scale)
+            .into_iter()
+            .find_map(|(candidate, rect)| (candidate == item).then_some(rect))
+    }
+
     /// 根据选区与屏幕宽高重新计算工具栏摆放位置 (自适应 HiDPI 缩放)。
     ///
     /// 用户拖动过主栏后保持其手动位置（仅夹取到屏幕内），避免调整选区时工具栏又跳回遮挡处；

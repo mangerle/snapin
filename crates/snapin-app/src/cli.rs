@@ -27,7 +27,7 @@ pub struct SnipOptions {
     pub qr: bool,
     /// 截图后进行美化导出。
     pub beautify: bool,
-    /// 截图后打开 OCR 结果面板。
+    /// 截图后打开 OCR 全文编辑框。
     pub ocr_panel: bool,
     /// 截图前延时秒数。
     pub delay_seconds: u32,

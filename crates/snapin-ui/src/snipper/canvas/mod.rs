@@ -12,12 +12,12 @@ use crate::ports::QrCodeItem;
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::window::annotation_builder::{render_draft_preview, AnnotationDraftParams};
-use crate::snipper::window::ocr_panel::OcrPanelState;
+use crate::snipper::window::ocr_editor::OcrTextEditorState;
+use crate::snipper::window::ocr_menu::OcrContextMenuState;
 use crate::snipper::window::redaction::{is_redaction_applied, RedactionPreview};
 use crate::status_badge;
 use image::RgbaImage;
 use snapin_annotation::AnnotationHistory;
-use snapin_render::{with_thread_local_text_renderer, TextBoxOptions};
 use tiny_skia::{
     Paint, PathBuilder, Pixmap, PixmapMut, Rect as SkiaRect, Stroke, StrokeDash, Transform,
 };
@@ -71,8 +71,10 @@ pub struct SnipperCanvas<'a> {
     pub redaction_preview: Option<&'a RedactionPreview>,
     /// 最近一次二维码识别结果的包围盒
     pub qr_codes: Option<&'a [QrCodeItem]>,
-    /// OCR 结果面板
-    pub ocr_panel: Option<&'a OcrPanelState>,
+    /// 文字识别主按钮右键菜单
+    pub ocr_menu: Option<&'a OcrContextMenuState>,
+    /// 文字识别全文编辑框
+    pub ocr_editor: Option<&'a OcrTextEditorState>,
 }
 
 impl<'a> SnipperCanvas<'a> {
@@ -110,9 +112,6 @@ impl<'a> SnipperCanvas<'a> {
         if let Some(history) = self.annotations {
             history.replay_all(pixmap);
         }
-        if let Some(panel) = self.ocr_panel {
-            self.render_ocr_panel(pixmap, panel);
-        }
         if let Some(text_session) = self.active_text_input {
             text_session.render(pixmap);
         }
@@ -137,6 +136,12 @@ impl<'a> SnipperCanvas<'a> {
             if let Some(toolbar) = self.toolbar {
                 toolbar.render(pixmap);
             }
+        }
+        if let Some(menu) = self.ocr_menu {
+            menu.render(pixmap);
+        }
+        if let Some(editor) = self.ocr_editor {
+            editor.render(pixmap, self.ui_scale);
         }
     }
 }

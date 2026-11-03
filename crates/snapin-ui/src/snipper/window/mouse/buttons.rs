@@ -17,6 +17,12 @@ pub fn handle_mouse_button(
         state.viewport.cursor_pos.1 as f32,
     );
 
+    if let Some(handled) =
+        super::ocr::handle_ocr_overlay_press(state, button, button_state, cx, cy, original_rgba)
+    {
+        return handled;
+    }
+
     if button == MouseButton::Left {
         let hit_region = state
             .ocr
@@ -66,21 +72,6 @@ pub(super) fn handle_left_press(
     cy: f32,
     original_rgba: &RgbaImage,
 ) -> bool {
-    if state.ocr.panel.is_some() {
-        let scale = state.editor.annotation.toolbar.ui_scale;
-        let handled = state.ocr.panel.as_mut().is_some_and(|panel| {
-            panel.handle_click(crate::snipper::window::ocr_panel::OcrPanelClickRequest {
-                point: (cx, cy),
-                screen_size: (original_rgba.width() as f32, original_rgba.height() as f32),
-                scale,
-            })
-        });
-        if handled {
-            commit_active_text_input(state);
-            return true;
-        }
-    }
-
     if let SelectionState::Locked { rect, .. } = state.viewport.selection {
         return handle_locked_press(state, rect, Point::new(cx, cy), original_rgba);
     }
@@ -435,7 +426,7 @@ fn apply_auto_mode(state: &mut SnipperState, original_rgba: &RgbaImage) {
                 );
             }
             snapin_foundation::PostCaptureAction::OcrPanel => {
-                crate::snipper::window::actions::handle_action_ocr(state, original_rgba);
+                crate::snipper::window::actions::handle_action_ocr_edit(state, original_rgba);
             }
         }
     } else if state.session.mode == SnipMode::AutoCopy {

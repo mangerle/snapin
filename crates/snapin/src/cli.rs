@@ -44,7 +44,7 @@ pub enum Commands {
         /// 框选后进入美化导出
         #[arg(long, conflicts_with_all = ["auto_copy", "custom", "translate", "fullscreen", "redact", "qr", "ocr_panel"])]
         beautify: bool,
-        /// 框选后自动 OCR 并打开结果面板
+        /// 框选后自动 OCR 并打开全文编辑框
         #[arg(long, conflicts_with_all = ["auto_copy", "custom", "translate", "fullscreen", "redact", "qr", "beautify"])]
         ocr_panel: bool,
         /// 截图前等待的秒数（0 表示立即截图，最大 60 秒）

@@ -157,12 +157,35 @@ fn handle_ime(context: &mut SnipperDispatchContext<'_>, event: Ime) {
             PhysicalPosition::new(session.pos.x as i32, session.pos.y as i32),
             PhysicalSize::new(24, session.font_size as u32),
         );
+    } else if let Some(editor) = &context.state.ocr.editor {
+        let layout = editor.layout(
+            context.bg_image.width() as f32,
+            context.bg_image.height() as f32,
+            context.state.editor.annotation.toolbar.ui_scale,
+        );
+        context.window.set_ime_cursor_area(
+            PhysicalPosition::new(layout.body.x as i32, layout.body.y as i32),
+            PhysicalSize::new(layout.body.width as u32, 24),
+        );
     }
     context.window.request_redraw();
 }
 
 /// 将 IME 文本写入当前文本会话；无活动会话时忽略。
 fn apply_ime_text(state: &mut SnipperState, event: Ime) -> bool {
+    if let Some(editor) = &mut state.ocr.editor {
+        match event {
+            Ime::Commit(text) => {
+                editor.push_commit(&text);
+                return true;
+            }
+            Ime::Preedit(text, _cursor) => {
+                editor.set_preedit(&text);
+                return true;
+            }
+            _ => return false,
+        }
+    }
     let Some(session) = &mut state.editor.annotation.active_text_input else {
         return false;
     };

@@ -27,7 +27,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// OCR 识别出的单个文本行，供结果面板和智能打码等表现层功能使用。
+/// OCR 识别出的单个文本行，供文字识别编辑框和智能打码等表现层功能使用。
 #[derive(Debug, Clone, PartialEq)]
 pub struct OcrTextItem {
     /// 识别出的文本内容

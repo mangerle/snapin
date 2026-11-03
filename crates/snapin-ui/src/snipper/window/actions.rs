@@ -5,7 +5,7 @@ use super::events::SnipperState;
 use super::jobs::SnipperJobKind;
 use super::types::SnipperOutcome;
 use crate::model::PasterItem;
-use crate::ports::{MediaJob, OcrExportFormat};
+use crate::ports::MediaJob;
 use crate::snipper::selection::{Rect, SelectionState};
 use image::{GenericImageView, RgbaImage};
 
@@ -185,8 +185,18 @@ fn color_text_at_cursor(state: &SnipperState, img: &RgbaImage) -> String {
         .format_color(pixel[0], pixel[1], pixel[2])
 }
 
-/// 执行选区 OCR 文字识别并静默复制全文至系统剪贴板
+/// 执行选区 OCR，成功写入剪贴板后关闭截图窗口。
 pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    dispatch_ocr_job(state, original_rgba, SnipperJobKind::Ocr);
+}
+
+/// 执行选区 OCR，并在完成后打开包含全部文字的多行编辑框。
+pub fn handle_action_ocr_edit(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    dispatch_ocr_job(state, original_rgba, SnipperJobKind::OcrEdit);
+}
+
+/// 按目标交互模式提交同一个 OCR 媒体任务。
+fn dispatch_ocr_job(state: &mut SnipperState, original_rgba: &RgbaImage, kind: SnipperJobKind) {
     state.clear_status_message();
     if state.has_pending_job() {
         state.set_status_message(snapin_foundation::i18n::tr("请等待当前任务完成"));
@@ -204,7 +214,7 @@ pub fn handle_action_ocr(state: &mut SnipperState, original_rgba: &RgbaImage) {
             });
             dispatch_job(
                 state,
-                SnipperJobKind::Ocr,
+                kind,
                 MediaJob::Ocr {
                     image: cropped,
                     origin,
@@ -256,37 +266,6 @@ pub fn handle_action_qr(state: &mut SnipperState, original_rgba: &RgbaImage) {
             },
         );
     }
-}
-
-/// 重新打开最近一次 OCR 结果面板；没有结果时立即执行一次 OCR。
-pub fn handle_action_ocr_panel(state: &mut SnipperState, original_rgba: &RgbaImage) {
-    if state.ocr.panel.is_some() {
-        state.set_status_message(snapin_foundation::i18n::tr("OCR 结果面板已打开；Esc 关闭"));
-    } else {
-        handle_action_ocr(state, original_rgba);
-    }
-}
-
-/// 导出 OCR 面板当前选中的文本行。
-pub fn handle_action_export_ocr(state: &mut SnipperState, format: OcrExportFormat) {
-    if state.has_pending_job() {
-        state.set_status_message(snapin_foundation::i18n::tr("请等待当前任务完成"));
-        return;
-    }
-    let Some(panel) = state.ocr.panel.as_ref() else {
-        state.set_status_message(snapin_foundation::i18n::tr("没有可导出的 OCR 结果"));
-        return;
-    };
-    let lines = panel.selected_lines();
-    if lines.is_empty() {
-        state.set_status_message(snapin_foundation::i18n::tr("请至少选择一行 OCR 结果"));
-        return;
-    }
-    dispatch_job(
-        state,
-        SnipperJobKind::Export,
-        MediaJob::SaveOcrText { lines, format },
-    );
 }
 
 /// 返回当前锁定选区在原始截图中的像素原点。

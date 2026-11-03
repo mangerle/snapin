@@ -3,7 +3,7 @@
 use super::SnipperJobKind;
 use crate::ports::{JobId, MediaJobOutcome, OcrTextItem, QrCodeItem};
 use crate::snipper::window::clipboard::SnipperClipboardAction;
-use crate::snipper::window::ocr_panel::OcrPanelState;
+use crate::snipper::window::ocr_editor::OcrTextEditorState;
 use crate::snipper::window::redaction::{apply_redaction, RedactionPreview};
 use crate::snipper::window::state::SnipperState;
 use crate::snipper::window::types::SnipperOutcome;
@@ -35,37 +35,39 @@ pub fn handle_job_outcome(
     }
 }
 
-/// 处理 OCR 结果：智能打码进入预览，其余模式打开结果面板并复制正文。
+/// 处理 OCR 结果：智能打码进入预览，复制模式写入剪贴板，编辑模式打开全文编辑框。
 fn handle_ocr_outcome(
     state: &mut SnipperState,
     kind: SnipperJobKind,
     text: String,
     lines: Vec<OcrTextItem>,
 ) {
-    if kind == SnipperJobKind::Redact {
-        handle_redact_outcome(state, lines);
-        return;
+    match kind {
+        SnipperJobKind::Redact => handle_redact_outcome(state, lines),
+        SnipperJobKind::Ocr => handle_ocr_copy_outcome(state, text),
+        SnipperJobKind::OcrEdit => handle_ocr_edit_outcome(state, text),
+        _ => {}
     }
-    state.ocr.panel = Some(OcrPanelState::from_ocr_lines(&lines));
-    let text = text.trim();
+}
+
+/// 复制模式：真实写入剪贴板成功后才结束截图会话。
+fn handle_ocr_copy_outcome(state: &mut SnipperState, text: String) {
+    let text = text.trim().to_string();
     if text.is_empty() {
         state.set_status_message(snapin_foundation::i18n::tr("未识别到文字"));
         return;
     }
-    // 识别结果只写入剪贴板，不结束截图会话：用户常常要在同一张图上继续
-    // 标注或再识别另一块区域。成功提示必须等真实剪贴板写入完成后展示。
-    let success_message = snapin_foundation::trf!(
-        "已复制识别文字（{} 字符）",
-        "Recognized text copied ({} characters)",
-        text.chars().count()
-    );
-    state.submit_clipboard_text(
-        text.to_string(),
-        SnipperClipboardAction::TransientStatus {
-            success_message,
-            failure_label: "复制识别文字",
-        },
-    );
+    state.submit_clipboard_text(text.clone(), SnipperClipboardAction::CopyText(text));
+}
+
+/// 编辑模式：将 OCR 全文放入单个多行编辑框。
+fn handle_ocr_edit_outcome(state: &mut SnipperState, text: String) {
+    if text.trim().is_empty() {
+        state.set_status_message(snapin_foundation::i18n::tr("未识别到文字"));
+        return;
+    }
+    state.ocr.editor = Some(OcrTextEditorState::new(text));
+    state.clear_status_message();
 }
 
 /// 将智能打码命中的文字区域立即写入标注历史并保留可切换预览。
@@ -290,9 +292,9 @@ mod tests {
             .contains("网络超时"));
     }
 
-    /// OCR 成功后应保留截图会话并给出结果提示，而不是立刻关闭窗口
+    /// OCR 左键路径必须在剪贴板真实写入成功后设置 CopiedText 并关闭截图会话。
     #[test]
-    fn test_ocr_success_keeps_session_open() {
+    fn test_ocr_success_closes_after_clipboard_write() {
         let mut state = SnipperState::new();
         let job_id = accept_job(&mut state, SnipperJobKind::Ocr);
         handle_job_outcome(
@@ -313,11 +315,30 @@ mod tests {
             .pending_clipboard_id()
             .expect("OCR 文本复制应处于等待真实写入状态");
         state.handle_clipboard_finished(clipboard_id, Ok(crate::ports::ClipboardResult::Written));
-        let message = state.session.status_message.as_deref().unwrap_or_default();
-        assert!(
-            message.contains("已复制识别文字"),
-            "真实写入完成后应提示识别结果已复制，实际: {message}"
+        assert!(matches!(
+            state.session.outcome,
+            Some(SnipperOutcome::CopiedText(ref text)) if text == "识别出来的一段文字"
+        ));
+    }
+
+    /// 编辑路径不复制文字，而是打开一个包含完整 OCR 文本的多行编辑框。
+    #[test]
+    fn test_ocr_edit_outcome_opens_full_text_editor() {
+        let mut state = SnipperState::new();
+        let job_id = accept_job(&mut state, SnipperJobKind::OcrEdit);
+        handle_job_outcome(
+            &mut state,
+            job_id,
+            SnipperJobKind::OcrEdit,
+            MediaJobOutcome::Ocr {
+                text: "第一行\n第二行".to_string(),
+                lines: Vec::new(),
+            },
         );
+
+        let editor = state.ocr.editor.as_ref().expect("编辑模式应打开全文编辑框");
+        assert_eq!(editor.finish_text(), "第一行\n第二行");
+        assert!(state.session.outcome.is_none());
     }
 
     /// 智能打码结果应立即写入马赛克，无需用户再次确认。

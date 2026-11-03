@@ -220,15 +220,6 @@ pub(crate) fn window_at(pos: (f32, f32), windows: &[Rect]) -> Option<Rect> {
 /// 文本图元同样遵守"最新一条可编辑"的约定：提交后立即把选中切到它，
 /// 使刚输入的文字可以马上拖动或用滚轮调字号。
 pub fn commit_active_text_input(state: &mut SnipperState) {
-    if let Some(row) = state.ocr.edit_row.take() {
-        if let Some(session) = state.editor.annotation.active_text_input.take() {
-            let text = session.finish_text();
-            if let Some(panel) = state.ocr.panel.as_mut() {
-                panel.replace_line(row, text);
-            }
-        }
-        return;
-    }
     if let Some(session) = state.editor.annotation.active_text_input.take() {
         if let Some(action) = session.commit() {
             state.editor.annotations.push(action);

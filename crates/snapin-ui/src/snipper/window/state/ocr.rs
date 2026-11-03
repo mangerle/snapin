@@ -1,6 +1,7 @@
-//! 截图智能打码、二维码与 OCR 面板状态。
+//! 截图智能打码、二维码与文字识别交互状态。
 
-use super::super::ocr_panel::OcrPanelState;
+use super::super::ocr_editor::OcrTextEditorState;
+use super::super::ocr_menu::OcrContextMenuState;
 use super::super::redaction::RedactionPreview;
 use crate::ports::QrCodeItem;
 
@@ -11,8 +12,8 @@ pub(crate) struct SnipperOcr {
     pub(crate) redaction_preview: Option<RedactionPreview>,
     /// 最近一次二维码识别结果。
     pub(crate) qr_result: Option<Vec<QrCodeItem>>,
-    /// OCR 结果面板。
-    pub(crate) panel: Option<OcrPanelState>,
-    /// 当前正在编辑的 OCR 面板行。
-    pub(crate) edit_row: Option<usize>,
+    /// 文字识别主按钮的右键菜单。
+    pub(crate) menu: Option<OcrContextMenuState>,
+    /// 包含完整 OCR 文本的多行编辑框。
+    pub(crate) editor: Option<OcrTextEditorState>,
 }

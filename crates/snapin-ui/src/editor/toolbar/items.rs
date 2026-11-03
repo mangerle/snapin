@@ -13,7 +13,7 @@ pub enum ToolbarAction {
     Undo,
     /// 重做
     Redo,
-    /// OCR 文字识别并复制到剪贴板
+    /// OCR 文字识别、复制全文并在真实写入成功后关闭截图
     Ocr,
     /// 识别全部文字并进入马赛克/模糊预览
     SmartRedact,

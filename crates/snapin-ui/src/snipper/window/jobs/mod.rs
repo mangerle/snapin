@@ -17,7 +17,10 @@ use std::sync::Arc;
 /// 截图会话支持的后台任务类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnipperJobKind {
+    /// 识别文字后复制全文并关闭截图窗口。
     Ocr,
+    /// 识别文字后打开全文编辑框。
+    OcrEdit,
     Redact,
     Qr,
     Translate,
@@ -31,6 +34,7 @@ impl SnipperJobKind {
     pub fn label(self) -> &'static str {
         match self {
             Self::Ocr => "文字识别",
+            Self::OcrEdit => "编辑识别文字",
             Self::Redact => "智能打码",
             Self::Qr => "二维码识别",
             Self::Translate => "原位翻译",

@@ -160,20 +160,17 @@ pub fn tr(zh: &'static str) -> &'static str {
         }
         "Snapin 贴图已保存" => "Snapin Pin Saved",
         "；Ctrl+Enter 打开链接" => "; press Ctrl+Enter to open the link",
-        "Space 选择  Enter 编辑  A 全选  M 导出 Markdown  J 导出 JSON  Esc 关闭" => {
-            "Space select  Enter edit  A select all  M export Markdown  J export JSON  Esc close"
-        }
-        "OCR 结果面板已打开；Esc 关闭" => "OCR results are open; press Esc to close",
+        "复制文字" => "Copy text",
+        "编辑文字" => "Edit text",
+        "编辑识别文字" => "Edit recognized text",
+        "Ctrl+Enter 复制并关闭  Esc 取消" => "Ctrl+Enter to copy and close, Esc to cancel",
+        "识别文字不能为空" => "Recognized text cannot be empty",
         "创建贴图缓冲区失败" => "Failed to allocate the pin buffer",
         "单击复制颜色，Esc 取消" => "Click to copy the color; Esc to cancel",
-        "已关闭 OCR 结果面板" => "OCR result panel closed",
         "已复制图像到剪贴板" => "Image copied to clipboard",
         "未获得有效翻译结果" => "No valid translation result",
         "正在翻译文字..." => "Translating text...",
         "正在识别文字..." => "Recognizing text...",
-        "编辑 OCR 文本；Enter 确认，Esc 取消" => {
-            "Edit OCR text; Enter to confirm, Esc to cancel"
-        }
         "鼠标穿透已关闭" => "Mouse-through disabled",
         "保存失败: 无法提交后台任务" => {
             "Save failed: unable to start the background task"
@@ -209,8 +206,6 @@ pub fn tr(zh: &'static str) -> &'static str {
         "已选择模糊" => "Blur selected",
         "任务已取消" => "Task cancelled",
         "后台任务媒体执行器不可用" => "Background media executor is unavailable",
-        "没有可导出的 OCR 结果" => "No OCR result to export",
-        "请至少选择一行 OCR 结果" => "Select at least one OCR line",
         "请先识别二维码" => "Recognize a QR code first",
         "已请求系统浏览器打开二维码链接" => {
             "Opening the QR link in the system browser"

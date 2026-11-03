@@ -2,9 +2,10 @@
 
 use super::super::types::SnipMode;
 use super::*;
-use crate::editor::toolbar::{MosaicMode, StrokeWidthLevel, ToolbarAction};
+use crate::editor::toolbar::{MosaicMode, StrokeWidthLevel, ToolbarAction, ToolbarItem};
 use crate::geometry::Point;
 use crate::ports::OcrTextItem;
+use crate::snipper::window::ocr_menu::OcrMenuAction;
 use crate::snipper::window::redaction::{apply_redaction, is_redaction_applied, RedactionPreview};
 use snapin_annotation::action::AnnotationShape;
 use snapin_annotation::shapes::{MagnifierAction, MagnifierConnector, MagnifierShape, RectAction};
@@ -272,6 +273,70 @@ fn test_toolbar_click_does_not_create_annotation() {
         1,
         "序号印章不应被误创建"
     );
+}
+
+/// 右键文字识别按钮必须打开“复制文字/编辑文字”菜单，点击菜单项后关闭菜单。
+#[test]
+fn test_right_click_ocr_button_opens_context_menu() {
+    let mut state = SnipperState::new();
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 800.0,
+        height: 600.0,
+    };
+    state.viewport.selection = SelectionState::Locked {
+        rect: selection,
+        active_drag: None,
+    };
+    state
+        .editor
+        .annotation
+        .toolbar
+        .update_layout(&selection, 1920.0, 1080.0);
+    let ocr_item = ToolbarItem::Action(ToolbarAction::Ocr);
+    let ocr_rect = state
+        .editor
+        .annotation
+        .toolbar
+        .main_item_rect(ocr_item)
+        .expect("主栏应包含文字识别按钮");
+    state.viewport.cursor_pos = (
+        (ocr_rect.x + ocr_rect.width / 2.0) as f64,
+        (ocr_rect.y + ocr_rect.height / 2.0) as f64,
+    );
+    let original = RgbaImage::new(1920, 1080);
+
+    assert!(handle_mouse_button(
+        &mut state,
+        MouseButton::Right,
+        ElementState::Pressed,
+        &original
+    ));
+    let edit_rect = state
+        .ocr
+        .menu
+        .as_ref()
+        .and_then(|menu| menu.row_rect(OcrMenuAction::EditText))
+        .expect("右键菜单应包含编辑文字");
+    state.viewport.cursor_pos = (
+        (edit_rect.x + edit_rect.width / 2.0) as f64,
+        (edit_rect.y + edit_rect.height / 2.0) as f64,
+    );
+    assert!(handle_mouse_button(
+        &mut state,
+        MouseButton::Left,
+        ElementState::Pressed,
+        &original
+    ));
+    assert!(state.ocr.menu.is_some(), "按下菜单项时不得提前关闭菜单");
+    assert!(handle_mouse_button(
+        &mut state,
+        MouseButton::Left,
+        ElementState::Released,
+        &original
+    ));
+    assert!(state.ocr.menu.is_none(), "点击菜单项后应关闭菜单");
 }
 
 /// 清空全部标注动作必须一次性移除当前会话中的全部图元。

@@ -6,6 +6,7 @@ mod eraser;
 
 mod buttons;
 mod movement;
+mod ocr;
 mod wheel;
 
 pub use buttons::handle_mouse_button;

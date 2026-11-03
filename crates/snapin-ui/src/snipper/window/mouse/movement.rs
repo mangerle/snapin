@@ -11,6 +11,12 @@ pub fn handle_cursor_move(
 ) -> bool {
     state.viewport.cursor_pos = pos;
     state.viewport.cursor_ready = true;
+    if state.ocr.editor.is_some() {
+        return false;
+    }
+    if let Some(menu) = state.ocr.menu.as_mut() {
+        return menu.update_hover(pos.0 as f32, pos.1 as f32);
+    }
     let frame = CursorFrame {
         x: pos.0 as f32,
         y: pos.1 as f32,

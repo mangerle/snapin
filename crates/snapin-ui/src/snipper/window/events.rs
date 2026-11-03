@@ -4,9 +4,7 @@ use super::actions::{handle_action_copy, handle_action_pin, handle_action_save};
 use super::clipboard::SnipperClipboardAction;
 pub use super::state::{commit_active_text_input, SnipperState};
 use super::types::SnipperOutcome;
-use crate::editor::text_input::TextInputSession;
 use crate::editor::toolbar::Tool;
-use crate::ports::OcrExportFormat;
 use crate::snipper::selection::{SelectionConstraint, SelectionState};
 use image::RgbaImage;
 use winit::event::ElementState;
@@ -23,16 +21,20 @@ pub fn handle_key_input(
         return false;
     }
 
+    if state.ocr.editor.is_some() {
+        return handle_ocr_editor_key(state, key);
+    }
+
+    if state.ocr.menu.is_some() {
+        return matches!(key, Key::Named(NamedKey::Escape)) && handle_escape(state);
+    }
+
     if state.editor.annotation.active_text_input.is_some() {
         return handle_text_key_input(state, key);
     }
 
     if state.ocr.redaction_preview.is_some() && handle_redaction_preview_key(state, key) {
         return true;
-    }
-
-    if state.ocr.panel.is_some() {
-        return handle_ocr_panel_key(state, key, original_rgba);
     }
 
     match key {
@@ -131,7 +133,7 @@ fn handle_action_character(
         return None;
     }
     if key.eq_ignore_ascii_case("o") && state.viewport.modifiers.shift_key() {
-        super::actions::handle_action_ocr_panel(state, original_rgba);
+        super::actions::handle_action_ocr_edit(state, original_rgba);
         return Some(true);
     }
     if state.viewport.modifiers.control_key() {
@@ -265,83 +267,6 @@ fn nudge_locked_selection(
     true
 }
 
-/// 处理 OCR 结果面板键盘操作。
-fn handle_ocr_panel_key(state: &mut SnipperState, key: &Key, original_rgba: &RgbaImage) -> bool {
-    let scale = state.editor.annotation.toolbar.ui_scale;
-    let screen_width = original_rgba.width() as f32;
-    let screen_height = original_rgba.height() as f32;
-    match key {
-        Key::Named(NamedKey::Escape) => {
-            state.ocr.panel = None;
-            state.ocr.edit_row = None;
-            state.editor.annotation.active_text_input = None;
-            state.set_status_message(snapin_foundation::i18n::tr("已关闭 OCR 结果面板"));
-            true
-        }
-        Key::Named(NamedKey::ArrowUp) => move_ocr_cursor(state, -1, screen_height, scale),
-        Key::Named(NamedKey::ArrowDown) => move_ocr_cursor(state, 1, screen_height, scale),
-        Key::Named(NamedKey::Space) => {
-            if let Some(panel) = state.ocr.panel.as_mut() {
-                panel.toggle_cursor();
-            }
-            true
-        }
-        Key::Character(c) if c.eq_ignore_ascii_case("a") => {
-            if let Some(panel) = state.ocr.panel.as_mut() {
-                panel.toggle_all();
-            }
-            true
-        }
-        Key::Named(NamedKey::Enter) => {
-            begin_ocr_row_edit(state, screen_width, screen_height, scale);
-            true
-        }
-        Key::Character(c) if c.eq_ignore_ascii_case("m") => {
-            super::actions::handle_action_export_ocr(state, OcrExportFormat::Markdown);
-            true
-        }
-        Key::Character(c) if c.eq_ignore_ascii_case("j") => {
-            super::actions::handle_action_export_ocr(state, OcrExportFormat::Json);
-            true
-        }
-        _ => true,
-    }
-}
-
-/// 在 OCR 可见行范围内移动结果面板光标。
-fn move_ocr_cursor(state: &mut SnipperState, delta: isize, screen_height: f32, scale: f32) -> bool {
-    let visible = state
-        .ocr
-        .panel
-        .as_ref()
-        .map(|panel| panel.visible_rows(screen_height, scale))
-        .unwrap_or(1);
-    if let Some(panel) = state.ocr.panel.as_mut() {
-        panel.move_cursor(delta, visible);
-    }
-    true
-}
-
-/// 为当前 OCR 行创建文本编辑会话，提交时回写该行。
-fn begin_ocr_row_edit(state: &mut SnipperState, screen_width: f32, screen_height: f32, scale: f32) {
-    let Some(panel) = state.ocr.panel.as_ref() else {
-        return;
-    };
-    let Some(line) = panel.lines.get(panel.cursor) else {
-        return;
-    };
-    let Some(pos) = panel.editor_pos(screen_width, screen_height, scale) else {
-        return;
-    };
-    let mut session = TextInputSession::new(pos, (255, 255, 255, 255), 14.0);
-    session.text = line.text.clone();
-    state.ocr.edit_row = Some(panel.cursor);
-    state.editor.annotation.active_text_input = Some(session);
-    state.set_status_message(snapin_foundation::i18n::tr(
-        "编辑 OCR 文本；Enter 确认，Esc 取消",
-    ));
-}
-
 /// 处理智能打码交互阶段的退出键；其余快捷键继续交给全局处理。
 fn handle_redaction_preview_key(state: &mut SnipperState, key: &Key) -> bool {
     match key {
@@ -352,6 +277,41 @@ fn handle_redaction_preview_key(state: &mut SnipperState, key: &Key) -> bool {
         }
         _ => false,
     }
+}
+
+/// 处理 OCR 全文编辑框的键盘输入。
+///
+/// Enter 输入换行，Ctrl+Enter 将编辑后的全文写入剪贴板并在真实写入成功后关闭窗口，
+/// Esc 只退出编辑框并保留当前截图会话。
+fn handle_ocr_editor_key(state: &mut SnipperState, key: &Key) -> bool {
+    let ctrl_pressed = state.viewport.modifiers.control_key();
+    if matches!(key, Key::Named(NamedKey::Escape)) {
+        state.ocr.editor = None;
+        state.clear_status_message();
+        return true;
+    }
+    if matches!(key, Key::Named(NamedKey::Enter)) && ctrl_pressed {
+        let Some(text) = state.ocr.editor.as_ref().map(|editor| editor.finish_text()) else {
+            return false;
+        };
+        if text.trim().is_empty() {
+            state.set_status_message(snapin_foundation::i18n::tr("识别文字不能为空"));
+        } else {
+            state.submit_clipboard_text(text.clone(), SnipperClipboardAction::CopyText(text));
+        }
+        return true;
+    }
+    let Some(editor) = state.ocr.editor.as_mut() else {
+        return false;
+    };
+    match key {
+        Key::Named(NamedKey::Enter) => editor.push_str("\n"),
+        Key::Named(NamedKey::Backspace) => editor.pop_char(),
+        Key::Named(NamedKey::Space) => editor.push_str(" "),
+        Key::Character(character) if !ctrl_pressed => editor.push_str(character),
+        _ => {}
+    }
+    true
 }
 
 /// 打开最近二维码结果中的首个网页链接。
@@ -396,7 +356,6 @@ fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
         }
         crate::editor::text_input::TextSessionAction::Cancel => {
             state.editor.annotation.active_text_input = None;
-            state.ocr.edit_row = None;
             true
         }
         crate::editor::text_input::TextSessionAction::Ignored => false,
@@ -405,11 +364,12 @@ fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
 
 /// 逐级退出处理 (先提交文本 -> 再收起二级栏/工具 -> 再取消标注选中 -> 再取消选区 -> 再退出窗口)
 pub fn handle_escape(state: &mut SnipperState) -> bool {
-    if state.ocr.panel.is_some() {
-        state.ocr.panel = None;
-        state.ocr.edit_row = None;
-        state.editor.annotation.active_text_input = None;
-        state.set_status_message(snapin_foundation::i18n::tr("已关闭 OCR 结果面板"));
+    if state.ocr.menu.is_some() {
+        state.ocr.menu = None;
+        true
+    } else if state.ocr.editor.is_some() {
+        state.ocr.editor = None;
+        state.clear_status_message();
         true
     } else if state.ocr.redaction_preview.is_some() {
         // 马赛克在识别完成时已经写入标注历史，退出交互模式不得撤销用户当前选择。
@@ -490,5 +450,45 @@ fn handle_history_forward(state: &mut SnipperState, img: &RgbaImage) -> bool {
         true
     } else {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::snipper::window::ocr_editor::OcrTextEditorState;
+    use winit::keyboard::ModifiersState;
+
+    /// 编辑框内 Enter 必须换行，Ctrl+Enter 才提交复制。
+    #[test]
+    fn test_ocr_editor_enter_and_ctrl_enter() {
+        let mut state = SnipperState::new();
+        state.ocr.editor = Some(OcrTextEditorState::new("第一行".to_string()));
+        let image = RgbaImage::new(100, 100);
+
+        assert!(handle_key_input(
+            &mut state,
+            &Key::Named(NamedKey::Enter),
+            ElementState::Pressed,
+            &image,
+        ));
+        assert_eq!(
+            state
+                .ocr
+                .editor
+                .as_ref()
+                .map(OcrTextEditorState::finish_text)
+                .as_deref(),
+            Some("第一行\n")
+        );
+
+        state.viewport.modifiers = ModifiersState::CONTROL;
+        assert!(handle_key_input(
+            &mut state,
+            &Key::Named(NamedKey::Enter),
+            ElementState::Pressed,
+            &image,
+        ));
+        assert!(state.has_pending_clipboard());
     }
 }

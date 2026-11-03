@@ -449,7 +449,8 @@ impl SnipperPresenter {
             selected_annotation: selected_annotation_view(state),
             redaction_preview: state.ocr.redaction_preview.as_ref(),
             qr_codes: state.ocr.qr_result.as_deref(),
-            ocr_panel: state.ocr.panel.as_ref(),
+            ocr_menu: state.ocr.menu.as_ref(),
+            ocr_editor: state.ocr.editor.as_ref(),
         }
     }
 
