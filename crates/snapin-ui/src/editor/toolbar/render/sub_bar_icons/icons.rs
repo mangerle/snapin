@@ -87,6 +87,11 @@ pub(in crate::editor::toolbar::render) fn render_eraser_mode_icon(
     builder.line_to(x2, y2);
     builder.line_to(x3, y3);
     builder.close();
+    // 内部斜线把橡皮本体与擦除端分开，避免轮廓被误认为普通斜线图标。
+    let (divider_x0, divider_y0) = spec.point(-2.5, 8.0);
+    let (divider_x1, divider_y1) = spec.point(5.5, -3.0);
+    builder.move_to(divider_x0, divider_y0);
+    builder.line_to(divider_x1, divider_y1);
     stroke_builder(pixmap, builder, spec, 1.6);
 }
 

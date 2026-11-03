@@ -118,6 +118,53 @@ fn test_mosaic_smart_redact_sub_control_returns_action() {
     assert_eq!(tb.active_tool, Some(Tool::Mosaic));
 }
 
+/// 橡皮擦第三个控件是清空全部标注，必须与尺寸控件分组且可点击返回动作。
+#[test]
+fn test_eraser_clear_annotations_is_separated_and_clickable() {
+    let mut tb = Toolbar {
+        active_tool: Some(Tool::Eraser),
+        ..Toolbar::default()
+    };
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 500.0,
+        height: 300.0,
+    };
+    tb.update_layout(&selection, 1920.0, 1080.0);
+    let layout = tb.sub_layout().expect("橡皮擦二级栏应存在");
+    let controls = layout
+        .entries
+        .iter()
+        .filter_map(|entry| entry.control)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        controls,
+        vec![
+            SubControl::EraserMode,
+            SubControl::Size,
+            SubControl::ClearAnnotations,
+        ]
+    );
+    let clear_index = layout
+        .entries
+        .iter()
+        .position(|entry| entry.control == Some(SubControl::ClearAnnotations))
+        .expect("应包含清空全部标注动作");
+    assert_eq!(
+        layout.entries[clear_index - 1].control,
+        None,
+        "清空动作前必须有独立分隔线"
+    );
+    let clear = layout
+        .rect_of(SubControl::ClearAnnotations)
+        .expect("清空动作热区应存在");
+    assert_eq!(
+        tb.handle_click(clear.x + clear.width / 2.0, clear.y + clear.height / 2.0),
+        Some(ToolbarAction::ClearAnnotations)
+    );
+}
+
 #[test]
 fn test_toolbar_shape_button_toggles_without_cycling() {
     let mut tb = Toolbar::default();

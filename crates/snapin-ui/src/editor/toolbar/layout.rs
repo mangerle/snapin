@@ -99,9 +99,30 @@ impl EntryCursor<'_> {
         self.push(control, width * self.scale);
     }
 
-    /// 追加一个与现有视觉节奏一致的控件间隔。
+    /// 在相邻非空控件组之间追加一条分隔线。
+    ///
+    /// 重复调用不会生成连续分隔线，也不会在面板开头生成空白槽位。
     fn separator(&mut self) {
-        self.push_scaled(None, 12.0);
+        if self
+            .entries
+            .last()
+            .is_some_and(|entry| entry.control.is_some())
+        {
+            self.push_scaled(None, 12.0);
+        }
+    }
+
+    /// 移除末尾分隔线并回退游标，保证二级栏最后一项始终是可交互控件。
+    fn trim_trailing_separators(&mut self) {
+        while self
+            .entries
+            .last()
+            .is_some_and(|entry| entry.control.is_none())
+        {
+            if let Some(entry) = self.entries.pop() {
+                self.x -= entry.rect.width;
+            }
+        }
     }
 }
 
@@ -141,6 +162,7 @@ fn build_entries(context: EntryBuildContext, entries: &mut Vec<SubEntry>) -> f32
     push_standard_entries(&mut cursor, descriptor);
     push_color_palette(&mut cursor, descriptor);
 
+    cursor.trim_trailing_separators();
     // 末尾留出与内边距等宽的余量，避免最后一个色块贴边
     cursor.x + 4.0 * scale
 }
@@ -257,6 +279,7 @@ fn push_standard_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescript
         cursor.push_scaled(Some(SubControl::EndArrow), 44.0);
     }
     if descriptor.eraser_mode {
+        cursor.separator();
         cursor.push_scaled(Some(SubControl::ClearAnnotations), 30.0);
     }
 }

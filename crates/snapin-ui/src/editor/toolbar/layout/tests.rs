@@ -358,6 +358,35 @@ fn test_reference_toolbar_controls_are_complete() {
     }
 }
 
+/// 所有二级栏只能使用“非空控件组之间的单条分隔线”，禁止首尾或连续分隔线。
+#[test]
+fn test_sub_bar_separators_only_split_non_empty_groups() {
+    use crate::editor::toolbar::items::TOOL_DESCRIPTORS;
+
+    for descriptor in TOOL_DESCRIPTORS.iter().filter(|entry| entry.has_sub_bar) {
+        let layout = layout_for(&main_rect(), Some(descriptor.tool), (1920.0, 1080.0), 1.0)
+            .unwrap_or_else(|| panic!("{:?} 应生成二级栏", descriptor.tool));
+        let entries = &layout.entries;
+        assert!(
+            entries.first().is_some_and(|entry| entry.control.is_some()),
+            "{:?} 二级栏不得以分隔线开头",
+            descriptor.tool
+        );
+        assert!(
+            entries.last().is_some_and(|entry| entry.control.is_some()),
+            "{:?} 二级栏不得以分隔线结尾",
+            descriptor.tool
+        );
+        assert!(
+            entries
+                .windows(2)
+                .all(|pair| pair[0].control.is_some() || pair[1].control.is_some()),
+            "{:?} 二级栏不得出现连续分隔线",
+            descriptor.tool
+        );
+    }
+}
+
 /// 屏幕边缘的矩形二级栏必须整体回收，圆角控件不能落到屏幕外。
 #[test]
 fn test_sub_bar_is_clamped_inside_screen() {

@@ -144,6 +144,14 @@ fn sub_control_style_message(
             "{label}：{}",
             snapin_foundation::i18n::tr(options.marker_blend_mode.label())
         ),
+        SubControl::EraserMode => {
+            let mode = if options.eraser_rectangle_mode {
+                "框选"
+            } else {
+                "画笔"
+            };
+            format!("{label}：{mode}")
+        }
         SubControl::MosaicMode => {
             format!(
                 "{label}：{}",
@@ -422,7 +430,7 @@ mod tests {
         assert!(has_pixel_below, "按钮下方应绘制悬浮提示");
     }
 
-    /// 矩形与序号二级栏控件都必须解析出各自的悬浮提示文本。
+    /// 矩形、序号与橡皮擦二级栏控件都必须解析出准确的悬浮提示文本。
     #[test]
     fn test_sub_controls_resolve_tooltips_for_rect_and_badge() {
         let selection = Rect {
@@ -459,6 +467,31 @@ mod tests {
         assert_eq!(
             tooltip_target(&badge_toolbar).map(|(message, _)| message),
             Some("序号大小：4".to_string())
+        );
+
+        let mut eraser_toolbar = Toolbar {
+            active_tool: Some(super::super::super::items::Tool::Eraser),
+            ..Toolbar::default()
+        };
+        eraser_toolbar.update_layout(&selection, 1920.0, 1080.0);
+        let eraser_mode = eraser_toolbar
+            .sub_layout()
+            .and_then(|layout| layout.rect_of(SubControl::EraserMode))
+            .expect("橡皮擦二级栏应包含模式控件");
+        eraser_toolbar.handle_mouse_move(eraser_mode.x + 2.0, eraser_mode.y + 2.0);
+        assert_eq!(
+            tooltip_target(&eraser_toolbar).map(|(message, _)| message),
+            Some("橡皮擦模式：画笔".to_string())
+        );
+
+        let clear = eraser_toolbar
+            .sub_layout()
+            .and_then(|layout| layout.rect_of(SubControl::ClearAnnotations))
+            .expect("橡皮擦二级栏应包含清空动作");
+        eraser_toolbar.handle_mouse_move(clear.x + 2.0, clear.y + 2.0);
+        assert_eq!(
+            tooltip_target(&eraser_toolbar).map(|(message, _)| message),
+            Some("清空全部标注".to_string())
         );
     }
 }

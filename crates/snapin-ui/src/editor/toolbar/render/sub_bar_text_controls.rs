@@ -10,6 +10,8 @@ use super::sub_bar_icons::{
     render_marker_shape_icon, render_mosaic_mode_icon, render_mosaic_shape_icon,
     render_opacity_icon, render_padding_icon, render_text_background_icon, render_text_stroke_icon,
 };
+use super::widgets::fill_button_highlight;
+use tiny_skia::Color;
 
 impl SubControlRenderer<'_, '_> {
     pub(super) fn render_text_or_mode(&mut self, control: SubControl) {
@@ -44,6 +46,14 @@ impl SubControlRenderer<'_, '_> {
                 render_eraser_mode_icon(self.pixmap, self.icon_spec(active), active);
             }
             SubControl::ClearAnnotations => {
+                if self.toolbar.hovered_sub_control == Some(SubControl::ClearAnnotations) {
+                    fill_button_highlight(
+                        self.pixmap,
+                        &self.rect,
+                        Color::from_rgba8(239, 68, 68, 42),
+                        self.scale,
+                    );
+                }
                 render_clear_annotations_icon(self.pixmap, self.icon_spec(false));
             }
             SubControl::LineMode => {

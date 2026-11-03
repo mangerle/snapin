@@ -115,7 +115,7 @@ impl ToolbarAction {
             Self::Pin => "贴图置顶",
             Self::Copy => "复制",
             Self::Save => "保存",
-            Self::ClearAnnotations => "清空标注",
+            Self::ClearAnnotations => "清空全部标注",
             Self::Close => "关闭",
         })
     }

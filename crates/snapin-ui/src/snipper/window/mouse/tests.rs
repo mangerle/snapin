@@ -2,7 +2,7 @@
 
 use super::super::types::SnipMode;
 use super::*;
-use crate::editor::toolbar::{MosaicMode, StrokeWidthLevel};
+use crate::editor::toolbar::{MosaicMode, StrokeWidthLevel, ToolbarAction};
 use crate::geometry::Point;
 use crate::ports::OcrTextItem;
 use crate::snipper::window::redaction::{apply_redaction, is_redaction_applied, RedactionPreview};
@@ -272,6 +272,31 @@ fn test_toolbar_click_does_not_create_annotation() {
         1,
         "序号印章不应被误创建"
     );
+}
+
+/// 清空全部标注动作必须一次性移除当前会话中的全部图元。
+#[test]
+fn test_clear_annotations_action_removes_all_shapes() {
+    let mut state = SnipperState::new();
+    state
+        .editor
+        .annotations
+        .push(AnnotationShape::Rect(RectAction {
+            rect: Rect::new(10.0, 10.0, 100.0, 100.0),
+            color: (255, 0, 0, 255).into(),
+            stroke_width: 4.0,
+            is_filled: false,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
+        }));
+    let original = RgbaImage::new(800, 600);
+
+    assert!(super::toolbar_action::dispatch_toolbar_action(
+        &mut state,
+        ToolbarAction::ClearAnnotations,
+        &original
+    ));
+    assert!(state.editor.annotations.undo_stack().is_empty());
 }
 
 /// 序号工具单击画布直接放置序号图元，不得误开文字输入会话。
