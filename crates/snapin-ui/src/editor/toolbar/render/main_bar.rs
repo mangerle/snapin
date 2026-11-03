@@ -67,7 +67,7 @@ fn render_item_separator(pixmap: &mut PixmapMut, toolbar: &Toolbar, index: usize
         render_divider(
             pixmap,
             rect.x - divider_width(scale) + 3.0 * scale,
-            toolbar.main_rect.y + padding(scale),
+            rect.y + rect.height / 2.0,
             scale,
         );
     }
@@ -97,5 +97,56 @@ fn item_is_active(toolbar: &Toolbar, item: ToolbarItem) -> bool {
     } else {
         item.as_tool()
             .is_some_and(|tool| toolbar.active_tool == Some(tool))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::interaction;
+    use super::*;
+    use tiny_skia::Pixmap;
+
+    /// 主栏分隔线必须围绕按钮垂直中心绘制，不能继续使用顶部内边距作为纵坐标。
+    #[test]
+    fn test_main_toolbar_divider_is_vertically_centered() {
+        let toolbar = Toolbar {
+            main_rect: Rect {
+                x: 10.0,
+                y: 20.0,
+                width: 900.0,
+                height: 44.0,
+            },
+            ..Toolbar::default()
+        };
+        let items = interaction::main_item_rects(&toolbar.main_rect, toolbar.main_items, 1.0);
+        let (_, (_, button_rect)) = items
+            .iter()
+            .enumerate()
+            .find(|(index, _)| has_separator_before(toolbar.main_items, *index))
+            .expect("主栏必须存在分隔线");
+        let divider_x = (button_rect.x - divider_width(1.0) + 3.0).round() as u32;
+        let center_y = (button_rect.y + button_rect.height / 2.0).round() as u32;
+        let old_top_y = (toolbar.main_rect.y + padding(1.0)).round() as u32;
+
+        let mut pixmap = Pixmap::new(1000, 100).expect("测试位图应可分配");
+        pixmap.fill(Color::TRANSPARENT);
+        render_main_buttons(&toolbar, &mut pixmap.as_mut());
+
+        assert!(
+            pixmap
+                .pixel(divider_x, center_y)
+                .expect("中心像素应存在")
+                .alpha()
+                > 0,
+            "主栏分隔线必须在按钮垂直中心可见"
+        );
+        assert_eq!(
+            pixmap
+                .pixel(divider_x, old_top_y)
+                .expect("旧坐标像素应存在")
+                .alpha(),
+            0,
+            "主栏分隔线不得回到顶部内边距位置"
+        );
     }
 }
