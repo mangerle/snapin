@@ -144,6 +144,7 @@ impl Toolbar {
         let Some(control) = control else {
             return false;
         };
+        self.focused_sub_control = Some(control);
         let direction = if delta > 0.0 { 1.0 } else { -1.0 };
         if !self.adjust_numeric_control(control, direction) {
             return false;

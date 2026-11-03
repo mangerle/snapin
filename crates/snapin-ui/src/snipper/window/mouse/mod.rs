@@ -20,7 +20,7 @@ use super::annotation_builder::commit_annotation;
 use super::events::{commit_active_text_input, handle_escape, SnipperState};
 use super::state::window_at;
 use super::types::SnipMode;
-use crate::editor::toolbar::{LineMode, StrokeWidthLevel, Tool};
+use crate::editor::toolbar::{LineMode, Tool};
 use crate::model::ShapeId;
 use crate::snipper::selection::{hit_test_handle, DragMode, Rect, SelectionState};
 use image::RgbaImage;

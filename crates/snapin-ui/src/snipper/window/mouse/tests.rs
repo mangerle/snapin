@@ -2,6 +2,7 @@
 
 use super::super::types::SnipMode;
 use super::*;
+use crate::editor::toolbar::{MosaicMode, StrokeWidthLevel};
 use crate::geometry::Point;
 use crate::ports::OcrTextItem;
 use crate::snipper::window::redaction::{apply_redaction, is_redaction_applied, RedactionPreview};
@@ -344,6 +345,66 @@ fn test_redaction_region_click_toggles_mosaic_immediately() {
         &original
     ));
     assert!(is_redaction_applied(&state.editor.annotations, rect));
+}
+
+/// 智能打码滚轮调节必须同步本次 OCR 命中的全部马赛克，而不是只改最后一条。
+#[test]
+fn test_mouse_wheel_smart_redaction_updates_all_masks() {
+    let mut state = SnipperState::new();
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Mosaic);
+    state.editor.annotation.toolbar.sub_options.mosaic_mode = MosaicMode::SmartRedact;
+    state.editor.annotation.toolbar.sub_options.effect_strength = 60;
+    let preview = RedactionPreview::from_ocr_lines(&[
+        OcrTextItem {
+            text: "第一行敏感文字".to_string(),
+            bounds: snapin_foundation::Rect::new(10.0, 20.0, 80.0, 24.0),
+        },
+        OcrTextItem {
+            text: "第二行敏感文字".to_string(),
+            bounds: snapin_foundation::Rect::new(10.0, 60.0, 80.0, 24.0),
+        },
+    ]);
+    apply_redaction(&mut state, &preview);
+    state.ocr.redaction_preview = Some(preview.clone());
+
+    assert!(handle_mouse_wheel(
+        &mut state,
+        MouseScrollDelta::LineDelta(0.0, 1.0)
+    ));
+    assert_eq!(
+        state
+            .editor
+            .annotation
+            .toolbar
+            .sub_options
+            .custom_stroke_width,
+        8.5
+    );
+    assert_eq!(
+        state.editor.annotation.toolbar.sub_options.effect_strength,
+        68
+    );
+    for rect in &preview.regions {
+        let index = state
+            .editor
+            .annotations
+            .undo_stack()
+            .iter()
+            .rposition(|shape| match shape {
+                AnnotationShape::Mosaic(action) => {
+                    action.rect.x == rect.x
+                        && action.rect.y == rect.y
+                        && action.rect.width == rect.width
+                        && action.rect.height == rect.height
+                }
+                _ => false,
+            })
+            .expect("每个 OCR 区域都应有对应马赛克");
+        let Some(AnnotationShape::Mosaic(action)) = state.editor.annotations.shape_at(index) else {
+            panic!("目标图元必须是马赛克");
+        };
+        assert_eq!(action.cell_size, 17, "全部智能打码必须使用同一颗粒度");
+    }
 }
 
 #[test]

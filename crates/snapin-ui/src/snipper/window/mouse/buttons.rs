@@ -1,6 +1,7 @@
 //! 鼠标按键按下、释放与自动后处理触发。
 
 use super::*;
+use crate::editor::toolbar::SubControl;
 use crate::geometry::Point;
 use crate::snipper::selection::ResizeHandle;
 
@@ -146,6 +147,9 @@ fn handle_toolbar_press(
     }
     if let Some(item) = state.editor.annotation.toolbar.handle_click(cx, cy) {
         dispatch_toolbar_action(state, item, original_rgba);
+    }
+    if state.editor.annotation.toolbar.focused_sub_control() == Some(SubControl::EffectStrength) {
+        crate::snipper::window::redaction::sync_redaction_style(state, SubControl::EffectStrength);
     }
     true
 }

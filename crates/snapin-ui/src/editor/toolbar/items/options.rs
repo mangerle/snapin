@@ -160,6 +160,21 @@ impl SubToolOptions {
     pub fn current_stroke_width(&self) -> f32 {
         self.custom_stroke_width
     }
+
+    /// 更新连续笔触粗细，并同步粗、中、细档位。
+    ///
+    /// 智能打码会把该值映射为马赛克颗粒度，滚轮调节与效果强度滑块必须维护同一份档位状态，
+    /// 避免界面数值与后续图元样式不一致。
+    pub(crate) fn set_custom_stroke_width(&mut self, width: f32) {
+        self.custom_stroke_width = width.clamp(1.0, 48.0);
+        self.stroke_width = if self.custom_stroke_width <= 2.5 {
+            StrokeWidthLevel::Thin
+        } else if self.custom_stroke_width <= 5.5 {
+            StrokeWidthLevel::Medium
+        } else {
+            StrokeWidthLevel::Thick
+        };
+    }
 }
 
 /// 获取预设调色板列表，顺序与参考工具栏的十个色块一致。

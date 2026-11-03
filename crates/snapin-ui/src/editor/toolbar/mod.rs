@@ -20,6 +20,7 @@ mod tests;
 pub use items::{
     LineMode, MosaicMode, StrokeWidthLevel, SubToolOptions, Tool, ToolbarAction, ToolbarItem,
 };
+pub(crate) use layout::SubControl;
 mod state;
 pub use state::Toolbar;
 pub(crate) use state::{clear_remembered_sub_options, remembered_sub_options};

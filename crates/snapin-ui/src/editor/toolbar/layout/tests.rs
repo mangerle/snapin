@@ -178,12 +178,16 @@ fn test_sub_controls_follow_active_tool() {
         .entries
         .iter()
         .any(|e| e.control == Some(SubControl::MosaicMode)));
-    for hidden in [
-        SubControl::Size,
-        SubControl::MosaicBrush,
-        SubControl::MosaicRectangle,
-        SubControl::EffectStrength,
-    ] {
+    for visible in [SubControl::Size, SubControl::EffectStrength] {
+        assert!(
+            smart_redact_layout
+                .entries
+                .iter()
+                .any(|entry| entry.control == Some(visible)),
+            "智能马赛克必须保留 {visible:?} 控件"
+        );
+    }
+    for hidden in [SubControl::MosaicBrush, SubControl::MosaicRectangle] {
         assert!(
             !smart_redact_layout
                 .entries

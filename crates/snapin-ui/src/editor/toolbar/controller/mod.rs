@@ -6,8 +6,8 @@
 mod click;
 
 use super::layout::{
-    calculate_main_layout, calculate_sub_layout, MainLayoutRequest, SubLayout, SubLayoutOptions,
-    SubLayoutRequest,
+    calculate_main_layout, calculate_sub_layout, MainLayoutRequest, SubControl, SubLayout,
+    SubLayoutOptions, SubLayoutRequest,
 };
 use super::{Tool, Toolbar, ToolbarItem};
 
@@ -24,6 +24,11 @@ fn calculate_sub_layout_options(options: &super::items::SubToolOptions) -> SubLa
 }
 
 impl Toolbar {
+    /// 返回最近聚焦或通过滚轮调整的二级栏控件。
+    pub(crate) fn focused_sub_control(&self) -> Option<SubControl> {
+        self.focused_sub_control
+    }
+
     /// 根据选区与屏幕宽高重新计算工具栏摆放位置 (自适应 HiDPI 缩放)。
     ///
     /// 用户拖动过主栏后保持其手动位置（仅夹取到屏幕内），避免调整选区时工具栏又跳回遮挡处；

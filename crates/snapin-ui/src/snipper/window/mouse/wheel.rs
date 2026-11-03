@@ -1,6 +1,7 @@
 //! 鼠标滚轮尺寸、字号与放大镜倍率调节。
 
 use super::*;
+use crate::editor::toolbar::{MosaicMode, SubControl};
 
 /// 处理截图会话中的鼠标滚轮事件 (连续动态调节当前标注与后续标注大小)
 pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> bool {
@@ -28,6 +29,9 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
         }
         if state.editor.annotation.toolbar.active_tool == Some(Tool::Magnifier) {
             sync_selected_magnifier_scale(state);
+        }
+        if let Some(control) = state.editor.annotation.toolbar.focused_sub_control() {
+            crate::snipper::window::redaction::sync_redaction_style(state, control);
         }
         return true;
     }
@@ -82,15 +86,14 @@ fn adjust_stroke_wheel(state: &mut SnipperState, delta_y: f32) {
         .annotation
         .toolbar
         .sub_options
-        .custom_stroke_width = new_width;
-    state.editor.annotation.toolbar.sub_options.stroke_width = if new_width <= 2.5 {
-        StrokeWidthLevel::Thin
-    } else if new_width <= 5.5 {
-        StrokeWidthLevel::Medium
+        .set_custom_stroke_width(new_width);
+    let smart_redaction_active = state.editor.annotation.toolbar.active_tool == Some(Tool::Mosaic)
+        && state.editor.annotation.toolbar.sub_options.mosaic_mode == MosaicMode::SmartRedact;
+    if smart_redaction_active {
+        crate::snipper::window::redaction::sync_redaction_style(state, SubControl::Size);
     } else {
-        StrokeWidthLevel::Thick
-    };
-    state.editor.annotations.adjust_last_stroke_width(new_width);
+        state.editor.annotations.adjust_last_stroke_width(new_width);
+    }
 }
 
 /// 根据光标是否位于放大原区域或放大图像内，调整倍率或边框粗细。

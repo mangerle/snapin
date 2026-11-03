@@ -159,6 +159,9 @@ fn push_geometry_entries(cursor: &mut EntryCursor<'_>, descriptor: &ToolDescript
 }
 
 /// 追加马赛克模式及其依赖的尺寸控件。
+///
+/// 智能打码仍使用尺寸和效果强度控制文字区域内的马赛克颗粒度，因此必须保留这两个控件；
+/// 画笔与矩形切换只服务于手动涂抹，在智能打码模式下隐藏。
 fn push_mosaic_entries(
     cursor: &mut EntryCursor<'_>,
     descriptor: &ToolDescriptor,
@@ -168,15 +171,13 @@ fn push_mosaic_entries(
         return;
     }
     let editable = mosaic_mode != MosaicMode::SmartRedact;
-    if editable {
-        cursor.push_scaled(Some(SubControl::Size), 36.0);
-    }
+    cursor.push_scaled(Some(SubControl::Size), 36.0);
     cursor.push_scaled(Some(SubControl::MosaicMode), 48.0);
     if editable {
         cursor.push_scaled(Some(SubControl::MosaicBrush), 28.0);
         cursor.push_scaled(Some(SubControl::MosaicRectangle), 28.0);
-        cursor.push_scaled(Some(SubControl::EffectStrength), 82.0);
     }
+    cursor.push_scaled(Some(SubControl::EffectStrength), 82.0);
     cursor.separator();
 }
 
