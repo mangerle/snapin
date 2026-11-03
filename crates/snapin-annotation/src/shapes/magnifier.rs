@@ -3,7 +3,7 @@
 //! 放大镜不保存原始像素快照，而是在绘制时从当前底图复制源区域，再缩放到目标区域。
 //! 这样撤销、重做和后续标注重放始终基于同一张底图，历史数据也不会因缓存大块图像而膨胀。
 
-use super::{resize_rect, SizeParam};
+use super::{fill_path_if_visible, resize_rect, SizeParam};
 use crate::geometry::{Point, Rect};
 use crate::style::{ColorRgba, LineStyle, StrokePathSpec};
 use serde::{Deserialize, Serialize};
@@ -281,7 +281,8 @@ impl MagnifierAction {
         for (offset, alpha) in [(5.0, 20), (3.0, 28), (1.5, 36)] {
             let mut paint = Paint::default();
             paint.set_color_rgba8(0, 0, 0, alpha);
-            pixmap.fill_path(
+            fill_path_if_visible(
+                pixmap,
                 &path,
                 &paint,
                 FillRule::Winding,
@@ -354,7 +355,9 @@ impl MagnifierAction {
         };
         let mut mask_paint = Paint::default();
         mask_paint.set_color(tiny_skia::Color::WHITE);
-        mask_pixmap.fill_path(
+        let mut mask_pixmap_mut = mask_pixmap.as_mut();
+        fill_path_if_visible(
+            &mut mask_pixmap_mut,
             &path,
             &mask_paint,
             FillRule::Winding,

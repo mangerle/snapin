@@ -231,7 +231,7 @@ impl Toolbar {
             SubControl::TextBackgroundOpacity => {
                 self.sub_options.text_background_opacity = next_u8(
                     self.sub_options.text_background_opacity,
-                    &[40, 80, 120, 160, 200, 240],
+                    &[20, 40, 60, 80, 100],
                 );
             }
             SubControl::TextBackgroundPadding => {

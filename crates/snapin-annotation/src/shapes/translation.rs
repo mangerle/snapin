@@ -1,6 +1,6 @@
 //! 截图原位翻译替换图元光栅化实现。
 
-use super::{valid_rect, SizeParam};
+use super::{fill_path_if_visible, valid_rect, SizeParam};
 use crate::config::enums::CoverMode;
 use crate::geometry::Rect;
 use crate::render::with_thread_local_text_renderer;
@@ -74,7 +74,8 @@ impl TranslationAction {
             ));
             paint.anti_alias = true;
             if let Some(path) = rounded_rect_path(rx, ry, rw, rh) {
-                pixmap.fill_path(
+                fill_path_if_visible(
+                    pixmap,
                     &path,
                     &paint,
                     tiny_skia::FillRule::Winding,

@@ -1,7 +1,7 @@
 //! 文本标注图元绘制实现。
 
 use super::rect::{rounded_rect_path, RoundedRectSpec};
-use super::{estimate_text_width, map_point, SizeParam};
+use super::{estimate_text_width, fill_path_if_visible, map_point, SizeParam};
 use crate::geometry::{Point, Rect};
 use crate::render::{with_thread_local_text_renderer, StyledTextDrawOptions, TextStyleOptions};
 use crate::style::ColorRgba;
@@ -112,7 +112,8 @@ impl TextAction {
             background.2,
             self.background_opacity,
         ));
-        pixmap.fill_path(
+        fill_path_if_visible(
+            pixmap,
             &path,
             &paint,
             FillRule::Winding,

@@ -3,7 +3,7 @@
 //! 将聚光灯矩形之外的区域整体压暗，突出矩形内的内容；在撤销/重做时按底图
 //! 重新绘制，不保存像素快照。
 
-use super::{resize_rect, valid_rect, SizeParam};
+use super::{fill_path_if_visible, resize_rect, valid_rect, SizeParam};
 use crate::geometry::Rect;
 use crate::style::{ColorRgba, LineStyle, StrokePathSpec};
 use serde::{Deserialize, Serialize};
@@ -97,7 +97,8 @@ impl SpotlightAction {
         path_builder.push_rect(canvas);
         self.push_focus_path(&mut path_builder, focus);
         if let Some(path) = path_builder.finish() {
-            pixmap.fill_path(
+            fill_path_if_visible(
+                pixmap,
                 &path,
                 &paint,
                 FillRule::EvenOdd,

@@ -29,6 +29,27 @@ pub use text::TextAction;
 pub use translation::{TranslationAction, TranslationShapeItem};
 
 use crate::geometry::{Point, Rect};
+use tiny_skia::{FillRule, Mask, Paint, Path, PixmapMut, Transform};
+
+/// 仅在路径具有可填充面积时执行填充。
+///
+/// tiny-skia 会对空路径以及宽高近似为零的水平/垂直路径输出警告；这些路径在几何上
+/// 不可能产生可见填充，提前跳过既保持渲染结果不变，也避免高频重绘时污染运行日志。
+pub(crate) fn fill_path_if_visible(
+    pixmap: &mut PixmapMut,
+    path: &Path,
+    paint: &Paint,
+    fill_rule: FillRule,
+    transform: Transform,
+    mask: Option<&Mask>,
+) -> bool {
+    let bounds = path.bounds();
+    if bounds.width() <= 0.01 || bounds.height() <= 0.01 {
+        return false;
+    }
+    pixmap.fill_path(path, paint, fill_rule, transform, mask);
+    true
+}
 
 /// 图元尺寸调整参数。
 ///
@@ -115,4 +136,30 @@ pub(crate) fn estimate_text_width(text: &str, font_size: f32) -> f32 {
         .map(|ch| if ch.is_ascii() { 0.58 } else { 1.0 })
         .sum::<f32>()
         * font_size
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tiny_skia::{Color, PathBuilder, Pixmap};
+
+    /// 水平线等无面积路径不得进入填充流程，避免 tiny-skia 产生警告和无效绘制。
+    #[test]
+    fn test_fill_path_if_visible_skips_degenerate_path() {
+        let mut pixmap = Pixmap::new(32, 32).expect("测试位图应可分配");
+        pixmap.fill(Color::TRANSPARENT);
+        let mut builder = PathBuilder::new();
+        builder.move_to(2.0, 16.0);
+        builder.line_to(30.0, 16.0);
+        let path = builder.finish().expect("路径应可构建");
+        assert!(!fill_path_if_visible(
+            &mut pixmap.as_mut(),
+            &path,
+            &Paint::default(),
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        ));
+        assert!(pixmap.data().iter().all(|byte| *byte == 0));
+    }
 }

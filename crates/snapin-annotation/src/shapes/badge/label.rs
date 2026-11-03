@@ -7,8 +7,8 @@ use crate::render::{
     TextStyleOptions,
 };
 use crate::shapes::arrow::ArrowAction;
-use crate::shapes::estimate_text_width;
 use crate::shapes::rect::{rounded_rect_path, RoundedRectSpec};
+use crate::shapes::{estimate_text_width, fill_path_if_visible};
 use crate::style::{ArrowHeadStyle, LineStyle};
 use tiny_skia::{FillRule, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
@@ -150,7 +150,8 @@ impl BadgeAction {
             background.2,
             self.background_opacity,
         );
-        pixmap.fill_path(
+        fill_path_if_visible(
+            pixmap,
             &path,
             &paint,
             FillRule::Winding,

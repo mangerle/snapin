@@ -3,7 +3,7 @@
 //! 箭头提供三种并列形态：实线箭杆、虚线箭杆、锥形填充箭杆（尾细头粗）。
 //! 三者在同一份几何基础上绘制，只在箭杆渲染方式上分叉。
 
-use super::{map_point, SizeParam};
+use super::{fill_path_if_visible, map_point, SizeParam};
 use crate::geometry::{Point, Rect};
 use crate::style::{ArrowHeadStyle, ArrowStyle, ColorRgba, LineStyle, StrokePathSpec};
 use serde::{Deserialize, Serialize};
@@ -173,7 +173,8 @@ impl ArrowAction {
 
         if let Some(path) = pb.finish() {
             if stroke_style.line_style == LineStyle::Solid {
-                pixmap.fill_path(
+                fill_path_if_visible(
+                    pixmap,
                     &path,
                     paint,
                     tiny_skia::FillRule::Winding,
@@ -237,7 +238,8 @@ fn draw_triangle_head(
         return;
     };
     if appearance.style == ArrowHeadStyle::Triangle {
-        pixmap.fill_path(
+        fill_path_if_visible(
+            pixmap,
             &path,
             paint,
             tiny_skia::FillRule::Winding,
@@ -294,7 +296,8 @@ fn draw_circle_head(pixmap: &mut PixmapMut, paint: &Paint, geometry: &ArrowHeadG
     let mut builder = PathBuilder::new();
     builder.push_circle(geometry.tip.x, geometry.tip.y, geometry.half_width * 0.65);
     if let Some(path) = builder.finish() {
-        pixmap.fill_path(
+        fill_path_if_visible(
+            pixmap,
             &path,
             paint,
             tiny_skia::FillRule::Winding,

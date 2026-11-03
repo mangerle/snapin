@@ -1,6 +1,6 @@
 //! 直线与折线标注图元。
 
-use super::{map_point, points_bounds, SizeParam};
+use super::{fill_path_if_visible, map_point, points_bounds, SizeParam};
 use crate::geometry::{Point, Rect};
 use crate::style::{ArrowHeadStyle, ColorRgba, LineStyle, StrokePathSpec};
 use serde::{Deserialize, Serialize};
@@ -118,7 +118,8 @@ impl PolylineAction {
             return;
         };
         if matches!(style, ArrowHeadStyle::Triangle | ArrowHeadStyle::Circle) {
-            pixmap.fill_path(
+            fill_path_if_visible(
+                pixmap,
                 &path,
                 paint,
                 tiny_skia::FillRule::Winding,

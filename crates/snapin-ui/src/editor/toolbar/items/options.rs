@@ -74,7 +74,7 @@ pub struct SubToolOptions {
     pub text_italic: bool,
     pub text_stroke_width: f32,
     pub text_background_enabled: bool,
-    /// 文字背景不透明度（0 到 255）。
+    /// 文字背景不透明度百分比（0 到 100）。
     pub text_background_opacity: u8,
     /// 文字背景内边距。
     pub text_background_padding: f32,
@@ -131,7 +131,7 @@ impl Default for SubToolOptions {
             text_italic: false,
             text_stroke_width: 0.0,
             text_background_enabled: false,
-            text_background_opacity: 160,
+            text_background_opacity: 63,
             text_background_padding: 4.0,
             text_background_corner_radius: 4.0,
             font_family: None,
@@ -159,6 +159,12 @@ impl SubToolOptions {
     /// 获取当前生效的笔触粗细像素值
     pub fn current_stroke_width(&self) -> f32 {
         self.custom_stroke_width
+    }
+
+    /// 将界面百分比转换为图元实际使用的 8 位 alpha。
+    pub(crate) fn text_background_alpha(&self) -> u8 {
+        let percent = u16::from(self.text_background_opacity.min(100));
+        ((percent * 255 + 50) / 100) as u8
     }
 
     /// 更新连续笔触粗细，并同步粗、中、细档位。
@@ -234,5 +240,21 @@ mod tests {
             closest_preset_color_index(Color::from_rgba8(255, 59, 48, 255)),
             0
         );
+    }
+
+    /// 文字背景百分比必须映射到 0..=255 alpha，并在 100% 达到完全不透明。
+    #[test]
+    fn test_text_background_percent_maps_to_alpha() {
+        let mut options = SubToolOptions {
+            text_background_opacity: 0,
+            ..SubToolOptions::default()
+        };
+        assert_eq!(options.text_background_alpha(), 0);
+        options.text_background_opacity = 63;
+        assert_eq!(options.text_background_alpha(), 161);
+        options.text_background_opacity = 100;
+        assert_eq!(options.text_background_alpha(), 255);
+        options.text_background_opacity = 150;
+        assert_eq!(options.text_background_alpha(), 255);
     }
 }

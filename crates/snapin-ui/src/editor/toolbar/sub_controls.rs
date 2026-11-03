@@ -211,9 +211,9 @@ impl Toolbar {
             SubControl::TextBackgroundOpacity => {
                 self.sub_options.text_background_opacity = add_signed_u8(
                     self.sub_options.text_background_opacity,
-                    if direction > 0.0 { 10 } else { -10 },
+                    if direction > 0.0 { 5 } else { -5 },
                     0,
-                    255,
+                    100,
                 );
             }
             SubControl::SpotlightIntensity => {

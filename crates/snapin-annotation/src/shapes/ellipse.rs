@@ -1,6 +1,6 @@
 //! 椭圆与圆形标注图元绘制实现。
 
-use super::{resize_rect, valid_rect, SizeParam};
+use super::{fill_path_if_visible, resize_rect, valid_rect, SizeParam};
 use crate::geometry::Rect;
 use crate::style::{ColorRgba, LineStyle, StrokePathSpec};
 use serde::{Deserialize, Serialize};
@@ -29,7 +29,8 @@ impl EllipseAction {
             pb.push_oval(r);
             if let Some(path) = pb.finish() {
                 if self.is_filled {
-                    pixmap.fill_path(
+                    fill_path_if_visible(
+                        pixmap,
                         &path,
                         &paint,
                         tiny_skia::FillRule::Winding,

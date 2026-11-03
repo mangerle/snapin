@@ -100,7 +100,7 @@ impl TextInputSession {
         self.stroke_color = color_to_rgba(options.color);
         self.background_color = options.text_background_enabled.then_some(self.color);
         self.background_opacity = if options.text_background_enabled {
-            options.text_background_opacity
+            options.text_background_alpha()
         } else {
             0
         };

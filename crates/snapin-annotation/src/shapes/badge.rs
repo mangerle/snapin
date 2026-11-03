@@ -4,7 +4,7 @@ mod label;
 
 use self::label::BadgeNumberDraw;
 
-use super::{estimate_text_width, map_point, SizeParam};
+use super::{estimate_text_width, fill_path_if_visible, map_point, SizeParam};
 use crate::geometry::{Point, Rect};
 use crate::render::with_thread_local_text_renderer;
 use crate::style::{ArrowStyle, BadgeSequence, BadgeStyle, ColorRgba};
@@ -148,7 +148,8 @@ impl BadgeAction {
                 ..Default::default()
             };
             shadow_paint.set_color(Color::from_rgba8(0, 0, 0, 45));
-            pixmap.fill_path(
+            fill_path_if_visible(
+                pixmap,
                 &path,
                 &shadow_paint,
                 tiny_skia::FillRule::Winding,
@@ -168,7 +169,8 @@ impl BadgeAction {
                 ..Default::default()
             };
             paint.set_color_rgba8(self.color.0, self.color.1, self.color.2, self.color.3);
-            pixmap.fill_path(
+            fill_path_if_visible(
+                pixmap,
                 &path,
                 &paint,
                 tiny_skia::FillRule::Winding,
