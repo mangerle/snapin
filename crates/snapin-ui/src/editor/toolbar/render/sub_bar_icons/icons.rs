@@ -101,23 +101,35 @@ pub(in crate::editor::toolbar::render) fn render_clear_annotations_icon(
     spec: SubBarIconSpec,
 ) {
     let mut builder = PathBuilder::new();
-    let (left, top) = spec.point(-5.0, -6.0);
-    let (right, _) = spec.point(5.0, -6.0);
-    builder.move_to(left, top);
-    builder.line_to(right, top);
-    let (handle_left, handle_top) = spec.point(-2.5, -8.0);
-    let (handle_right, handle_bottom) = spec.point(2.5, -6.0);
-    builder.move_to(handle_left, handle_top);
-    builder.line_to(handle_right, handle_bottom);
-    let (body_left, body_top) = spec.point(-4.0, -4.0);
-    let (body_right, body_bottom) = spec.point(4.0, 7.5);
-    builder.move_to(body_left, body_top);
-    builder.line_to(body_right, body_bottom);
-    let (inner_x, inner_top) = spec.point(0.0, -2.0);
-    let (_, inner_bottom) = spec.point(0.0, 5.0);
-    builder.move_to(inner_x, inner_top);
-    builder.line_to(inner_x, inner_bottom);
-    stroke_builder(pixmap, builder, spec, 1.6);
+
+    // 桶盖与顶部提手保持独立，避免和桶身轮廓粘连。
+    let (lid_left, lid_y) = spec.point(-6.0, -5.5);
+    let (lid_right, _) = spec.point(6.0, -5.5);
+    builder.move_to(lid_left, lid_y);
+    builder.line_to(lid_right, lid_y);
+    let (handle_left, handle_y) = spec.point(-2.2, -7.8);
+    let (handle_right, _) = spec.point(2.2, -7.8);
+    builder.move_to(handle_left, handle_y);
+    builder.line_to(handle_right, handle_y);
+
+    // 梯形桶身、桶底与两条竖向纹理共同构成完整的垃圾桶语义。
+    let (body_top_left, body_top_y) = spec.point(-4.6, -3.5);
+    let (body_bottom_left, body_bottom_y) = spec.point(-3.5, 7.5);
+    let (body_bottom_right, _) = spec.point(3.5, 7.5);
+    let (body_top_right, _) = spec.point(4.6, -3.5);
+    builder.move_to(body_top_left, body_top_y);
+    builder.line_to(body_bottom_left, body_bottom_y);
+    builder.line_to(body_bottom_right, body_bottom_y);
+    builder.line_to(body_top_right, body_top_y);
+    builder.close();
+
+    for x in [-1.6, 1.6] {
+        let (rib_top_x, rib_top_y) = spec.point(x, -1.0);
+        let (rib_bottom_x, rib_bottom_y) = spec.point(x, 5.0);
+        builder.move_to(rib_top_x, rib_top_y);
+        builder.line_to(rib_bottom_x, rib_bottom_y);
+    }
+    stroke_builder(pixmap, builder, spec, 1.5);
 }
 
 /// 绘制文字描边开关图标。
