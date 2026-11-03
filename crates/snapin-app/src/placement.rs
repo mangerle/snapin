@@ -8,6 +8,7 @@
 //!
 //! 所有失败都只影响窗口落点、不影响贴图内容，属于可降级路径，故仅记录日志而不向上抛错。
 
+#[cfg(target_os = "linux")]
 use std::time::Duration;
 
 #[cfg(target_os = "linux")]

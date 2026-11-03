@@ -22,10 +22,11 @@ use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use snapin_config::config::{self, Config};
 use snapin_daemon::notify_daemon_reload_config;
 use snapin_foundation::error::CoreError;
+#[cfg(target_os = "linux")]
+use snapin_platform::get_platform_capabilities;
 use snapin_platform::{
-    get_platform_capabilities, open_path_in_file_manager, pick_config_export_path,
-    pick_config_import_path, sync_autostart, sync_hotkeys_to_gnome, write_image_to_clipboard,
-    write_text_to_clipboard, PlatformError,
+    open_path_in_file_manager, pick_config_export_path, pick_config_import_path, sync_autostart,
+    sync_hotkeys_to_gnome, write_image_to_clipboard, write_text_to_clipboard, PlatformError,
 };
 use snapin_runtime::{CancellationToken, TaskPool, TaskRuntime};
 use snapin_storage::{
