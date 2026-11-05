@@ -14,7 +14,9 @@ use snapin_platform::pick_save_path;
 use snapin_service::ocr::{LocalPpOcrEngine, OcrEngine, OcrResult, OcrTextBlock};
 use snapin_service::qr::decode_qr_codes;
 use snapin_service::{create_translator, Translator, TranslatorOptions};
-use snapin_storage::{resolve_save_path, save_image_to_path, save_image_with_config};
+use snapin_storage::{
+    ensure_output_directory, save_image_to_path, save_image_with_config, suggest_save_path,
+};
 use snapin_ui::{MediaJob, MediaJobOutcome, OcrExportFormat, OcrTextItem, QrCodeItem};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -94,13 +96,23 @@ async fn execute_save_beautified(
 ) -> MediaJobOutcome {
     let output = config.output.clone();
     let chosen_path = if output.prompt_save_path {
-        let suggested = resolve_save_path(&output);
-        let suggested_name = suggested
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("snapin.png")
-            .to_string();
-        match pick_save_path(&suggested_name, suggested.parent()).await {
+        let dialog_output = output.clone();
+        let suggestion = tokio::task::spawn_blocking(move || {
+            if let Err(error) = ensure_output_directory(&dialog_output) {
+                tracing::warn!("准备美化截图保存目录失败，保存对话框将使用系统默认位置: {error}");
+            }
+            suggest_save_path(&dialog_output)
+        })
+        .await;
+        let suggestion = match suggestion {
+            Ok(suggestion) => suggestion,
+            Err(error) => {
+                return MediaJobOutcome::Failed {
+                    message: format!("准备美化截图保存建议失败: {error}"),
+                }
+            }
+        };
+        match pick_save_path(&suggestion.file_name, Some(suggestion.directory.as_path())).await {
             Ok(Some(path)) => Some(path),
             Ok(None) => return MediaJobOutcome::SaveCancelled,
             Err(error) => {

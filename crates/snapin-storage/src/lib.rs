@@ -19,5 +19,6 @@ pub use error::StorageError;
 pub use raw_image::{checked_rgba_byte_len, MAX_RAW_PIXELS};
 pub use selection_cache::{clear_selection_cache, load_last_selection, save_last_selection};
 pub use writer::{
-    resolve_save_path, save_image_to_path, save_image_with_config, save_text_with_config,
+    ensure_output_directory, save_image_to_path, save_image_with_config, save_text_with_config,
+    suggest_save_path, SaveSuggestion,
 };

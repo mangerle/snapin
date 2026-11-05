@@ -9,37 +9,69 @@ use std::fs::{File, OpenOptions};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-/// 根据输出配置生成目标文件绝对路径（具备重名自增防覆盖安全保障）
-pub fn resolve_save_path(cfg: &OutputConfig) -> PathBuf {
-    let base_dir = expand_home_dir(&cfg.quick_save_dir);
-    if !base_dir.exists() {
-        let _ = std::fs::create_dir_all(&base_dir);
-    }
+/// 保存对话框建议的目标位置。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveSuggestion {
+    /// 建议文件名（含输出格式扩展名）
+    pub file_name: String,
+    /// 建议目录；目录可能尚不存在，需要落盘时由调用方显式创建
+    pub directory: PathBuf,
+}
 
-    let now = Local::now();
-    let template = normalize_file_name_template(&cfg.file_name_template);
-    let rendered = format_template(&template, &now);
-    let file_name = std::path::Path::new(&rendered)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .filter(|name| !name.is_empty())
-        .unwrap_or("Snapin");
+impl SaveSuggestion {
+    /// 建议目录与文件名拼接后的完整路径。
+    pub fn path(&self) -> PathBuf {
+        self.directory.join(&self.file_name)
+    }
+}
+
+/// 计算保存对话框建议的文件名与目录，不创建目录、不写文件。
+///
+/// 默认文件名已被占用时追加递增序号（`_1`、`_2`），减少用户手动改名的次数；
+/// 这个存在性检查只影响建议文案，真正的落盘由 [`save_image_with_config`] 以
+/// `create_new` 原子预占，避免“检查后写入”的竞态。
+pub fn suggest_save_path(cfg: &OutputConfig) -> SaveSuggestion {
+    let directory = expand_home_dir(&cfg.quick_save_dir);
+    let stem = rendered_file_name(cfg);
     let ext = cfg.default_format.extension();
-
-    let initial_path = base_dir.join(format!("{file_name}.{ext}"));
-    if !initial_path.exists() {
-        return initial_path;
-    }
-
-    // 防静默覆盖：若目标文件已存在，递增寻找未占用的序号文件名（如 _1, _2）
-    let mut counter = 1usize;
+    let mut counter = 0usize;
     loop {
-        let candidate = base_dir.join(format!("{file_name}_{counter}.{ext}"));
-        if !candidate.exists() {
-            return candidate;
+        let file_name = if counter == 0 {
+            format!("{stem}.{ext}")
+        } else {
+            format!("{stem}_{counter}.{ext}")
+        };
+        if !directory.join(&file_name).exists() {
+            return SaveSuggestion {
+                file_name,
+                directory,
+            };
         }
         counter = counter.saturating_add(1);
+        if counter == usize::MAX {
+            return SaveSuggestion {
+                file_name: format!("{stem}.{ext}"),
+                directory,
+            };
+        }
     }
+}
+
+/// 确保快捷保存目录存在，并返回其绝对路径。
+///
+/// 目录创建从 [`suggest_save_path`] 中剥离为显式副作用入口，避免“生成建议”
+/// 这类读路径在用户未确认保存前就改动文件系统。
+///
+/// # Errors
+///
+/// 目录创建失败或目标路径不是可写目录时返回 [`StorageError::Io`]。
+pub fn ensure_output_directory(cfg: &OutputConfig) -> Result<PathBuf, StorageError> {
+    let directory = expand_home_dir(&cfg.quick_save_dir);
+    std::fs::create_dir_all(&directory).map_err(|error| StorageError::Io {
+        path: directory.display().to_string(),
+        source: error,
+    })?;
+    Ok(directory)
 }
 
 /// 按照用户配置格式将图像编码并写入磁盘
@@ -192,12 +224,7 @@ fn open_new_private_file(path: &Path) -> std::io::Result<File> {
 
 /// 原子预占一个不存在的输出路径，返回可写入的目标路径。
 fn reserve_output_path(cfg: &OutputConfig) -> Result<PathBuf, StorageError> {
-    let base_dir = expand_home_dir(&cfg.quick_save_dir);
-    std::fs::create_dir_all(&base_dir).map_err(|error| StorageError::Io {
-        path: base_dir.display().to_string(),
-        source: error,
-    })?;
-
+    let base_dir = ensure_output_directory(cfg)?;
     let file_name = rendered_file_name(cfg);
     let ext = cfg.default_format.extension();
 
@@ -429,7 +456,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_save_path_auto_increment_when_exists() {
+    fn test_suggest_save_path_auto_increment_when_exists() {
         let unique_id = snapin_foundation::AppPaths::generate_unique_id();
         let temp_dir = std::env::temp_dir().join(format!("snapin_inc_{unique_id}"));
         let cfg = OutputConfig {
@@ -439,18 +466,20 @@ mod tests {
             ..OutputConfig::default()
         };
 
+        std::fs::create_dir_all(&temp_dir).expect("创建测试目录失败");
+
         // 第一次生成：文件不存在，返回固定原名
-        let path1 = resolve_save_path(&cfg);
+        let path1 = suggest_save_path(&cfg).path();
         assert_eq!(path1, temp_dir.join("snapin_fixed.png"));
         std::fs::write(&path1, b"first").expect("创建占位文件1成功");
 
         // 第二次生成：原文件已存在，自增生成 _1 后缀
-        let path2 = resolve_save_path(&cfg);
+        let path2 = suggest_save_path(&cfg).path();
         assert_eq!(path2, temp_dir.join("snapin_fixed_1.png"));
         std::fs::write(&path2, b"second").expect("创建占位文件2成功");
 
         // 第三次生成：_1 也存在，自增生成 _2 后缀
-        let path3 = resolve_save_path(&cfg);
+        let path3 = suggest_save_path(&cfg).path();
         assert_eq!(path3, temp_dir.join("snapin_fixed_2.png"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
@@ -474,7 +503,7 @@ mod template_extension_tests {
             default_format: ImageFormat::Png,
             ..OutputConfig::default()
         };
-        let path = resolve_save_path(&cfg);
+        let path = suggest_save_path(&cfg).path();
         assert_eq!(
             path.file_name().and_then(|name| name.to_str()),
             Some("shot.png")
@@ -495,7 +524,7 @@ mod template_extension_tests {
             default_format: ImageFormat::Png,
             ..OutputConfig::default()
         };
-        let path = resolve_save_path(&cfg);
+        let path = suggest_save_path(&cfg).path();
         assert_eq!(path.parent(), Some(dir.path()));
         assert!(path
             .file_name()
@@ -513,7 +542,7 @@ mod template_extension_tests {
             default_format: ImageFormat::Webp,
             ..OutputConfig::default()
         };
-        let path = resolve_save_path(&cfg);
+        let path = suggest_save_path(&cfg).path();
         assert_eq!(
             path.file_name().and_then(|name| name.to_str()),
             Some("shot.webp")

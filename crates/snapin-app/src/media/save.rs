@@ -9,9 +9,11 @@ use snapin_foundation::AppPaths;
 use snapin_platform::{
     open_path_in_file_manager, pick_save_path, send_desktop_notification, write_image_to_clipboard,
 };
-use snapin_storage::{resolve_save_path, save_image_to_path, save_image_with_config};
+use snapin_storage::{
+    ensure_output_directory, save_image_to_path, save_image_with_config, suggest_save_path,
+};
 use snapin_ui::MediaJobOutcome;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// 贴图保存请求。
@@ -119,18 +121,17 @@ async fn save_image(
 
 /// 弹出系统保存对话框，建议文件名与初始目录沿用快捷保存配置。
 async fn pick_save_target(config: &Config) -> Result<Option<PathBuf>, String> {
-    let suggested = resolve_save_path(&config.output);
-    let suggested_name = suggested
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("snapin.png")
-        .to_string();
-    let current_folder = suggested
-        .parent()
-        .filter(|folder| folder.is_absolute())
-        .map(Path::to_path_buf);
+    let output = config.output.clone();
+    let suggestion = tokio::task::spawn_blocking(move || {
+        if let Err(error) = ensure_output_directory(&output) {
+            tracing::warn!("准备快捷保存目录失败，保存对话框将使用系统默认位置: {error}");
+        }
+        suggest_save_path(&output)
+    })
+    .await
+    .map_err(|error| format!("准备保存建议失败: {error}"))?;
 
-    pick_save_path(&suggested_name, current_folder.as_deref())
+    pick_save_path(&suggestion.file_name, Some(suggestion.directory.as_path()))
         .await
         .map_err(|error| format!("打开保存对话框失败: {error}"))
 }
