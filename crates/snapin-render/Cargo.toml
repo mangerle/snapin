@@ -12,3 +12,4 @@ snapin-config.workspace = true
 serde.workspace = true
 cosmic-text.workspace = true
 tiny-skia.workspace = true
+thiserror.workspace = true

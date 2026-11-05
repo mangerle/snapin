@@ -128,7 +128,8 @@ async fn execute_save_beautified(
         let mut input = tiny_skia::Pixmap::new(image.width(), image.height())
             .ok_or_else(|| "分配美化输入缓冲区失败".to_string())?;
         input.data_mut().copy_from_slice(image.as_raw());
-        let beautified = snapin_render::render_beautified(input.as_ref(), &options)?;
+        let beautified = snapin_render::render_beautified(input.as_ref(), &options)
+            .map_err(|error| format!("美化渲染失败: {error}"))?;
         let rgba =
             image::RgbaImage::from_raw(beautified.width(), beautified.height(), beautified.take())
                 .ok_or_else(|| "转换美化输出图像失败".to_string())?;

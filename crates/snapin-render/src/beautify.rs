@@ -3,7 +3,7 @@
 //! 输入已经合成全部标注的截图位图，输出带背景、圆角、阴影、社交画布和水印的
 //! 新位图。渲染完全基于 tiny-skia，不经过平台窗口，因此可在后台线程安全执行。
 
-use crate::{with_thread_local_text_renderer, TextDrawOptions};
+use crate::{with_thread_local_text_renderer, RenderError, TextDrawOptions};
 use snapin_config::config::{BeautifyBackground, BeautifyConfig, SocialSize};
 use tiny_skia::{
     Color, FillRule, GradientStop, LinearGradient, Mask, MaskType, Paint, PathBuilder, Pixmap,
@@ -68,21 +68,22 @@ impl From<&BeautifyConfig> for BeautifyOptions {
 ///
 /// # Errors
 ///
-/// 输出尺寸溢出、像素缓冲区分配失败或渐变参数非法时返回中文错误。
+/// 输入尺寸为零、输出画布尺寸非法、像素缓冲区分配失败或背景渐变构造失败时
+/// 返回 [`RenderError`]。
 pub fn render_beautified(
     input: PixmapRef<'_>,
     options: &BeautifyOptions,
-) -> Result<Pixmap, String> {
+) -> Result<Pixmap, RenderError> {
     if input.width() == 0 || input.height() == 0 {
-        return Err("美化输入图像尺寸不能为零".to_string());
+        return Err(RenderError::EmptyInput);
     }
     let layout = BeautifyLayout::calculate(input, options)?;
-    let mut output = Pixmap::new(layout.canvas_width, layout.canvas_height).ok_or_else(|| {
-        format!(
-            "分配美化输出缓冲区失败，尺寸: {}x{}",
-            layout.canvas_width, layout.canvas_height
-        )
-    })?;
+    let mut output = Pixmap::new(layout.canvas_width, layout.canvas_height).ok_or(
+        RenderError::CanvasAllocation {
+            width: layout.canvas_width,
+            height: layout.canvas_height,
+        },
+    )?;
     draw_background(&mut output, options.background)?;
     draw_beautified_content(&mut output, input, options, &layout)?;
     draw_watermark(&mut output, options, &layout);
@@ -110,7 +111,7 @@ struct BeautifyLayout {
 
 impl BeautifyLayout {
     /// 校验输出上限并计算居中贴图区域。
-    fn calculate(input: PixmapRef<'_>, options: &BeautifyOptions) -> Result<Self, String> {
+    fn calculate(input: PixmapRef<'_>, options: &BeautifyOptions) -> Result<Self, RenderError> {
         let (canvas_width, canvas_height) =
             options.social_size.canvas_size().unwrap_or_else(|| {
                 let width = input
@@ -122,7 +123,10 @@ impl BeautifyLayout {
                 (width, height)
             });
         if canvas_width == 0 || canvas_height == 0 || canvas_width > 8192 || canvas_height > 8192 {
-            return Err(format!("美化输出尺寸非法: {canvas_width}x{canvas_height}"));
+            return Err(RenderError::InvalidCanvasSize {
+                width: canvas_width,
+                height: canvas_height,
+            });
         }
 
         let available_width = (canvas_width as f32 - options.padding * 2.0).max(1.0);
@@ -153,7 +157,7 @@ fn draw_beautified_content(
     input: PixmapRef<'_>,
     options: &BeautifyOptions,
     layout: &BeautifyLayout,
-) -> Result<(), String> {
+) -> Result<(), RenderError> {
     if options.shadow {
         draw_shadow(output, layout.content, layout.corner_radius);
     }
@@ -171,9 +175,11 @@ fn draw_beautified_content(
 }
 
 /// 将原始图像缩放到美化内容区域。
-fn scale_content(input: PixmapRef<'_>, layout: &BeautifyLayout) -> Result<Pixmap, String> {
-    let mut scaled = Pixmap::new(layout.content.width as u32, layout.content.height as u32)
-        .ok_or_else(|| "分配美化缩放缓冲区失败".to_string())?;
+fn scale_content(input: PixmapRef<'_>, layout: &BeautifyLayout) -> Result<Pixmap, RenderError> {
+    let width = layout.content.width as u32;
+    let height = layout.content.height as u32;
+    let mut scaled =
+        Pixmap::new(width, height).ok_or(RenderError::ScaledAllocation { width, height })?;
     scaled.draw_pixmap(
         0,
         0,
@@ -186,9 +192,11 @@ fn scale_content(input: PixmapRef<'_>, layout: &BeautifyLayout) -> Result<Pixmap
 }
 
 /// 构造内容区域圆角遮罩。
-fn build_content_mask(layout: &BeautifyLayout) -> Result<Mask, String> {
-    let mut mask_pixmap = Pixmap::new(layout.content.width as u32, layout.content.height as u32)
-        .ok_or_else(|| "分配美化圆角遮罩失败".to_string())?;
+fn build_content_mask(layout: &BeautifyLayout) -> Result<Mask, RenderError> {
+    let width = layout.content.width as u32;
+    let height = layout.content.height as u32;
+    let mut mask_pixmap =
+        Pixmap::new(width, height).ok_or(RenderError::MaskAllocation { width, height })?;
     let mut builder = PathBuilder::new();
     add_round_rect(
         &mut builder,
@@ -201,7 +209,11 @@ fn build_content_mask(layout: &BeautifyLayout) -> Result<Mask, String> {
         },
     );
     let Some(path) = builder.finish() else {
-        return Err("构造美化圆角遮罩失败".to_string());
+        return Err(RenderError::MaskPath {
+            width: layout.content.width,
+            height: layout.content.height,
+            radius: layout.corner_radius,
+        });
     };
     let mut paint = Paint::default();
     paint.set_color(Color::WHITE);
@@ -239,7 +251,7 @@ fn draw_watermark(output: &mut Pixmap, options: &BeautifyOptions, layout: &Beaut
 }
 
 /// 绘制纯色或渐变背景。
-fn draw_background(output: &mut Pixmap, background: BeautifyBackground) -> Result<(), String> {
+fn draw_background(output: &mut Pixmap, background: BeautifyBackground) -> Result<(), RenderError> {
     let colors = match background {
         BeautifyBackground::Dark => (Color::from_rgba8(24, 29, 39, 255), None),
         BeautifyBackground::Indigo => (
@@ -267,7 +279,7 @@ fn draw_background(output: &mut Pixmap, background: BeautifyBackground) -> Resul
             SpreadMode::Pad,
             Transform::identity(),
         )
-        .ok_or_else(|| "构造美化背景渐变失败".to_string())?;
+        .ok_or(RenderError::BackgroundGradient)?;
         paint.shader = shader;
     } else {
         paint.set_color(colors.0);
@@ -275,7 +287,10 @@ fn draw_background(output: &mut Pixmap, background: BeautifyBackground) -> Resul
     let Some(rect) =
         tiny_skia::Rect::from_xywh(0.0, 0.0, output.width() as f32, output.height() as f32)
     else {
-        return Err("构造美化背景矩形失败".to_string());
+        return Err(RenderError::BackgroundRect {
+            width: output.width(),
+            height: output.height(),
+        });
     };
     output.fill_rect(rect, &paint, Transform::identity(), None);
     Ok(())

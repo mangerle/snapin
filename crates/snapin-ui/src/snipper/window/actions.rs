@@ -159,7 +159,8 @@ fn apply_configured_beautify(state: &SnipperState, image: RgbaImage) -> Result<R
         .ok_or_else(|| "分配美化输出输入缓冲区失败".to_string())?;
     input.data_mut().copy_from_slice(image.as_raw());
     let output =
-        snapin_render::render_beautified(input.as_ref(), &(&state.session.config.beautify).into())?;
+        snapin_render::render_beautified(input.as_ref(), &(&state.session.config.beautify).into())
+            .map_err(|error| error.to_string())?;
     RgbaImage::from_raw(output.width(), output.height(), output.take())
         .ok_or_else(|| "转换美化输出图像失败".to_string())
 }
