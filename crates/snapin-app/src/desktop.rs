@@ -17,13 +17,13 @@
 
 use crate::config::{config_snapshot, SharedConfig};
 use arc_swap::ArcSwap;
+use snapin_foundation::Rect;
 use snapin_platform::{
     open_path_in_file_manager, open_url, read_clipboard_image, read_clipboard_text,
     send_desktop_notification, write_image_to_clipboard, write_text_to_clipboard,
 };
 use snapin_runtime::{TaskPool, TaskRuntime};
 use snapin_storage::{load_last_selection, save_last_selection};
-use snapin_ui::snipper::Rect;
 use snapin_ui::{
     ClipboardJobId, ClipboardPayload, ClipboardResult, ClipboardSink, ClipboardWrite, DesktopPort,
     PortError, PortErrorKind,

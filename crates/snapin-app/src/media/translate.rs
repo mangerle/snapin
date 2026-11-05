@@ -1,8 +1,8 @@
 //! 翻译图元排版与应用配置到服务层枚举的映射。
 
 use snapin_annotation::shapes::TranslationShapeItem;
-use snapin_annotation::Rect;
 use snapin_config::config::{CoverMode, TranslateProvider};
+use snapin_foundation::Rect;
 use snapin_service::ocr::OcrTextBlock;
 use snapin_service::ocr::{estimate_dominant_background_color, get_contrasting_text_color};
 use snapin_service::ServiceTranslateProvider;
