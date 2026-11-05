@@ -126,8 +126,9 @@ fn configured_bindings(config: &HotkeyConfig) -> [HotkeyBinding<'_>; 10] {
 /// GNOME 自定义快捷键的稳定动作顺序，供注册与挂起复用。
 /// 跨平台全局热键监听器
 pub struct PlatformHotkeyListener {
+    /// 原生热键管理器只承担注册生命周期，动作通过构造时注册的回调回传。
     #[cfg(any(target_os = "windows", target_os = "macos"))]
-    inner: native::NativeHotkeyListener,
+    _inner: native::NativeHotkeyListener,
 }
 
 impl PlatformHotkeyListener {
@@ -149,7 +150,7 @@ impl PlatformHotkeyListener {
             let on_action: std::sync::Arc<dyn Fn(HotkeyAction) + Send + Sync> =
                 std::sync::Arc::new(_on_action);
             let inner = native::NativeHotkeyListener::init(_config, on_action)?;
-            Ok(Self { inner })
+            Ok(Self { _inner: inner })
         }
 
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
