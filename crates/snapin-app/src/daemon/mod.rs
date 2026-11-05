@@ -13,22 +13,22 @@
 mod actions;
 pub mod commands;
 mod event;
+mod host;
 mod shutdown;
 mod update_loop;
 
 use crate::services::AppServices;
-use actions::{
-    handle_hotkey_action, handle_ipc_request, handle_snipper_result, handle_tray_action,
-};
+use actions::{handle_ipc_request, handle_snipper_result};
 use anyhow::{Context, Result};
 use event::{DaemonEvent, DaemonEventSources};
+use host::{
+    build_host_wake, create_daemon_tray, create_hotkey_listener, HostAction,
+    HOST_ACTION_QUEUE_CAPACITY,
+};
 use shutdown::{ShutdownCoordinator, ShutdownRequest};
 use snapin_config::config::Config;
 use snapin_daemon::{probe_daemon, DaemonProbe, IpcListener};
-use snapin_platform::{
-    send_desktop_notification, sync_hotkeys_to_gnome, HotkeyAction, PlatformHotkeyListener,
-    PlatformTray, TrayAction,
-};
+use snapin_platform::{send_desktop_notification, sync_hotkeys_to_gnome};
 use snapin_runtime::{TaskPool, TaskRuntime};
 use snapin_ui::snipper::SnipperOutcome;
 use snapin_ui::workspace::{
@@ -39,7 +39,7 @@ use std::sync::Arc;
 use std::time::Duration;
 #[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
-use tokio::sync::mpsc::{self, error::TrySendError, Receiver, Sender};
+use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use update_loop::run_update_check_loop;
@@ -276,102 +276,6 @@ fn finish_daemon(
         }
         (Ok(()), Ok(Err(error))) => Err(error),
     }
-}
-
-/// 宿主动作：托盘菜单与全局热键共享同一个有界队列，保持触发顺序。
-#[derive(Debug)]
-enum HostAction {
-    /// 托盘菜单或图标激活
-    Tray(TrayAction),
-    /// 系统全局快捷键
-    Hotkey(HotkeyAction),
-}
-
-/// 宿主动作队列容量；托盘与热键都是低频人工操作，满队列时丢弃并告警。
-const HOST_ACTION_QUEUE_CAPACITY: usize = 32;
-
-/// 在主线程创建原生托盘；Windows/macOS 的原生托盘必须在主线程初始化。
-fn create_daemon_tray(
-    sender: &Sender<HostAction>,
-    workspace: &PasterWorkspaceProxy,
-) -> Option<PlatformTray> {
-    let tray_icon = image::load_from_memory(include_bytes!("../../../../assets/icons/32x32.png"))
-        .ok()
-        .map(|img| {
-            let rgba = img.to_rgba8();
-            (rgba.as_raw().clone(), rgba.width(), rgba.height())
-        });
-    let sender = sender.clone();
-    let workspace = workspace.clone();
-    PlatformTray::new(tray_icon, move |action| {
-        tracing::debug!("托盘触发操作: {action:?}");
-        push_host_action(&sender, &workspace, HostAction::Tray(action));
-    })
-    .map_err(|error| tracing::warn!("初始化跨平台原生系统托盘失败: {error}"))
-    .ok()
-}
-
-/// 在主线程注册原生全局热键监听器。
-fn create_hotkey_listener(
-    cfg: &Config,
-    sender: &Sender<HostAction>,
-    workspace: &PasterWorkspaceProxy,
-) -> Option<PlatformHotkeyListener> {
-    let sender = sender.clone();
-    let workspace = workspace.clone();
-    PlatformHotkeyListener::new(&cfg.hotkeys, move |action| {
-        tracing::debug!("系统全局热键触发: {action:?}");
-        push_host_action(&sender, &workspace, HostAction::Hotkey(action));
-    })
-    .map_err(|error| tracing::warn!("初始化跨平台全局热键监听器失败: {error}"))
-    .ok()
-}
-
-/// 将平台回调产生的动作写入有界队列并唤醒 GUI 线程。
-///
-/// 回调可能运行在平台后端线程，不能直接操作窗口；这里只做一次非阻塞投递与
-/// 轻量用户事件唤醒，真正的分发在 GUI 线程完成。
-fn push_host_action(
-    sender: &Sender<HostAction>,
-    workspace: &PasterWorkspaceProxy,
-    action: HostAction,
-) {
-    match sender.try_send(action) {
-        Ok(()) => workspace.wake_host(),
-        Err(TrySendError::Full(action)) => {
-            tracing::warn!("宿主动作队列已满，已丢弃本次动作: {action:?}");
-        }
-        Err(TrySendError::Closed(action)) => {
-            tracing::debug!("贴图工作区已关闭，宿主动作已丢弃: {action:?}");
-        }
-    }
-}
-
-/// 构建 GUI 线程宿主唤醒回调：排空动作队列并分发，原生对象随闭包存活到退出。
-fn build_host_wake(
-    tray: Option<PlatformTray>,
-    hotkey_listener: Option<PlatformHotkeyListener>,
-    mut receiver: Receiver<HostAction>,
-    services: Arc<AppServices>,
-    workspace: PasterWorkspaceProxy,
-) -> Option<Box<dyn FnMut()>> {
-    if tray.is_none() && hotkey_listener.is_none() {
-        return None;
-    }
-    Some(Box::new(move || {
-        // 原生托盘与热键管理器必须活到事件循环退出；动作由构造时注册的回调写入队列。
-        let _keep_alive = (&tray, &hotkey_listener);
-        while let Ok(action) = receiver.try_recv() {
-            let keep_running = match action {
-                HostAction::Tray(action) => handle_tray_action(action, &services, &workspace),
-                HostAction::Hotkey(action) => handle_hotkey_action(action, &services, &workspace),
-            };
-            if !keep_running {
-                workspace.request_shutdown();
-                break;
-            }
-        }
-    }))
 }
 
 /// 启动阶段同步快捷键注册与扩展自愈。
