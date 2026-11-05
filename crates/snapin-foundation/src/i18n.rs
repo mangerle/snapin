@@ -28,7 +28,10 @@ pub fn language() -> UiLanguage {
 }
 
 /// 翻译静态用户文案。
-pub fn tr(zh: &'static str) -> &'static str {
+///
+/// 入参使用 `&str` 而非 `&'static str`，允许调用方传入运行时拼接的键；
+/// 命中目录的分支返回 `'static` 文案，未命中时回退为调用方原文。
+pub fn tr(zh: &str) -> &str {
     if language() == UiLanguage::ZhCn {
         return zh;
     }
@@ -149,6 +152,9 @@ pub fn tr(zh: &'static str) -> &'static str {
         "服务已就绪：按 Ctrl+Alt+A 截图，按 F1 贴图" => {
             "Ready: press Ctrl+Alt+A to capture or F1 to pin"
         }
+        "旧标注已锁定，按住 Alt 点击可重新编辑" => {
+            "This annotation is locked. Hold Alt and click to edit it."
+        }
         "Snapin 截图" => "Snapin Capture",
         "Snapin 截图失败" => "Snapin Capture Failed",
         "无法在常驻界面中打开截图覆盖层，详情请查看运行日志" => {
@@ -175,6 +181,12 @@ pub fn tr(zh: &'static str) -> &'static str {
         "正在翻译文字..." => "Translating text...",
         "正在识别文字..." => "Recognizing text...",
         "鼠标穿透已关闭" => "Mouse-through disabled",
+        "鼠标穿透开启时不能隐藏工具条，请先关闭穿透" => {
+            "The toolbar cannot be hidden while mouse-through is enabled. Disable mouse-through first."
+        }
+        "鼠标穿透已开启，点击工具条上的穿透按钮恢复" => {
+            "Mouse-through is enabled. Click the mouse-through button in the toolbar to restore interaction."
+        }
         "保存失败: 无法提交后台任务" => {
             "Save failed: unable to start the background task"
         }
@@ -203,6 +215,9 @@ pub fn tr(zh: &'static str) -> &'static str {
         "未识别到文字" => "No text recognized",
         "未识别到二维码" => "No QR code found",
         "请等待当前任务完成" => "Please wait for the current task to finish",
+        "请等待当前复制任务完成" => "Please wait for the current copy task to finish",
+        "请等待当前剪贴板任务完成" => "Please wait for the current clipboard task to finish",
+        "当前剪贴板为空" => "The clipboard is empty",
         "已取消保存" => "Save cancelled",
         "已取消智能打码" => "Smart redaction cancelled",
         "已选择马赛克" => "Mosaic selected",
@@ -250,13 +265,135 @@ macro_rules! trf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::{Path, PathBuf};
     use std::sync::Mutex;
 
     static LANGUAGE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+    /// 获取语言切换测试锁；前序用例失败导致锁中毒时仍继续，避免连带失败。
+    fn lock_language() -> std::sync::MutexGuard<'static, ()> {
+        LANGUAGE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// 查找工作区根目录；以源码目录发布时不具备跨 crate 扫描条件，测试直接跳过。
+    fn workspace_root() -> Option<PathBuf> {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root = manifest_dir.parent()?.parent()?.to_path_buf();
+        root.join("crates/snapin-ui").is_dir().then_some(root)
+    }
+
+    /// 递归收集工作区内的 Rust 源码文件。
+    fn collect_rust_files(dir: &Path, files: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if path.file_name().and_then(|name| name.to_str()) != Some("target") {
+                    collect_rust_files(&path, files);
+                }
+            } else if path.extension().and_then(|extension| extension.to_str()) == Some("rs") {
+                files.push(path);
+            }
+        }
+    }
+
+    /// 提取源码中所有 `tr` 调用携带的第一段字符串字面量。
+    ///
+    /// 这里只服务于测试：逐字节识别调用点，允许参数跨行，忽略 `trf!` 与其他
+    /// 以 `tr` 结尾的标识符。生产代码仍以 [`tr`] 的运行时查表为准。
+    fn collect_tr_keys(source: &str, keys: &mut Vec<String>) {
+        let bytes = source.as_bytes();
+        let mut index = 0;
+        while index + 3 <= bytes.len() {
+            if bytes[index] != b't' || bytes[index + 1] != b'r' || bytes[index + 2] != b'(' {
+                index += 1;
+                continue;
+            }
+            if index > 0 && (bytes[index - 1].is_ascii_alphanumeric() || bytes[index - 1] == b'_') {
+                index += 1;
+                continue;
+            }
+            let mut cursor = index + 3;
+            while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+                cursor += 1;
+            }
+            if cursor >= bytes.len() || bytes[cursor] != b'"' {
+                index += 1;
+                continue;
+            }
+            cursor += 1;
+            let mut value = Vec::new();
+            let mut terminated = false;
+            while cursor < bytes.len() {
+                match bytes[cursor] {
+                    b'\\' if cursor + 1 < bytes.len() => {
+                        value.push(bytes[cursor]);
+                        value.push(bytes[cursor + 1]);
+                        cursor += 2;
+                    }
+                    b'"' => {
+                        terminated = true;
+                        cursor += 1;
+                        break;
+                    }
+                    byte => {
+                        value.push(byte);
+                        cursor += 1;
+                    }
+                }
+            }
+            if terminated {
+                if let Ok(key) = String::from_utf8(value) {
+                    keys.push(key);
+                }
+            }
+            index = cursor;
+        }
+    }
+
+    /// 防止新增用户文案时只写中文、忘记补英文翻译而静默回退。
+    ///
+    /// 该测试等价于一次“翻译目录完整性”门禁：英文模式下每个调用点都必须
+    /// 命中目录，否则 [`tr`] 会原样返回中文键，界面出现中英混排。
+    #[test]
+    fn test_every_user_facing_key_has_english_translation() {
+        let _guard = lock_language();
+        let Some(root) = workspace_root() else {
+            return;
+        };
+        let mut files = Vec::new();
+        collect_rust_files(&root.join("crates"), &mut files);
+
+        set_language(UiLanguage::EnUs);
+        let mut missing = Vec::new();
+        for file in files {
+            let Ok(source) = std::fs::read_to_string(&file) else {
+                continue;
+            };
+            let mut keys = Vec::new();
+            collect_tr_keys(&source, &mut keys);
+            for key in keys {
+                if tr(&key) == key.as_str() {
+                    missing.push(format!("{}: {key}", file.display()));
+                }
+            }
+        }
+        set_language(UiLanguage::ZhCn);
+
+        assert!(
+            missing.is_empty(),
+            "以下用户文案缺少英文翻译，请补充到 i18n 目录:\n{}",
+            missing.join("\n")
+        );
+    }
+
     #[test]
     fn test_language_switches_static_and_formatted_text() {
-        let _guard = LANGUAGE_TEST_LOCK.lock().expect("语言测试锁必须可用");
+        let _guard = lock_language();
         set_language(UiLanguage::ZhCn);
         assert_eq!(tr("保存"), "保存");
         assert_eq!(
