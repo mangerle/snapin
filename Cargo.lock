@@ -5878,6 +5878,7 @@ dependencies = [
  "cosmic-text",
  "serde",
  "snapin-config",
+ "thiserror 1.0.69",
  "tiny-skia 0.12.0",
 ]
 

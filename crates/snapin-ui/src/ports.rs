@@ -294,6 +294,20 @@ impl JobId {
     }
 }
 
+/// 贴图窗口后台任务类别。
+///
+/// 任务回调只携带一个 [`MediaJobOutcome`]，用任务类别校验结果是否属于发起它的
+/// 任务；这样可以同时拒绝过期回调与错配结果，避免把保存路径写进 OCR 状态。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasterJobKind {
+    /// 整图文字识别
+    Ocr,
+    /// 整图原位翻译
+    Translate,
+    /// 贴图保存
+    Save,
+}
+
 /// 需要后台执行的一次性媒体任务。
 #[derive(Debug)]
 pub enum MediaJob {

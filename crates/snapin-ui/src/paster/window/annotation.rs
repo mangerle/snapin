@@ -10,6 +10,7 @@ use crate::editor::toolbar::{Tool, Toolbar, ToolbarAction, ToolbarItem};
 use crate::geometry::Point;
 #[cfg(test)]
 use crate::geometry::Rect;
+use crate::ports::PasterJobKind;
 use winit::window::Window;
 
 /// 贴图窗口主栏按钮序列：绘制工具、撤销/重做、整图识别/翻译与贴图动作。
@@ -219,7 +220,7 @@ fn submit_paster_ocr(state: &mut PasterWindowState) {
 
     match runtime.submit_ocr(state.document.item.id, image) {
         Ok((job_id, cancel)) => {
-            state.begin_job(job_id, cancel);
+            state.begin_job(PasterJobKind::Ocr, job_id, cancel);
             state.set_status_message(snapin_foundation::i18n::tr("正在识别文字..."));
         }
         Err(message) => state.set_status_message(format!("提交文字识别任务失败: {message}")),
@@ -250,7 +251,7 @@ fn submit_paster_translate(state: &mut PasterWindowState) {
         state.services.config.translate.cover_mode,
     ) {
         Ok((job_id, cancel)) => {
-            state.begin_job(job_id, cancel);
+            state.begin_job(PasterJobKind::Translate, job_id, cancel);
             state.set_status_message(snapin_foundation::i18n::tr("正在翻译文字..."));
         }
         Err(message) => state.set_status_message(format!("提交翻译任务失败: {message}")),

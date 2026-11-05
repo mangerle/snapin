@@ -3,7 +3,7 @@
 //! 任务 ID 用于丢弃过期回调，取消闭包确保窗口关闭时能真正停止在途工作；
 //! 两者必须一起维护，避免只清 ID 而让任务继续占用推理与网络资源。
 
-use crate::ports::{JobCancel, JobId};
+use crate::ports::{JobCancel, JobId, PasterJobKind};
 
 /// 单任务槽状态。
 #[derive(Default)]
@@ -13,6 +13,7 @@ pub(crate) struct PasterJobSlot {
 
 /// 一个已提交但尚未完成的贴图任务。
 struct PendingPasterJob {
+    kind: PasterJobKind,
     id: JobId,
     cancel: JobCancel,
 }
@@ -23,17 +24,21 @@ impl PasterJobSlot {
         self.pending.is_some()
     }
 
-    /// 记录新提交的任务与取消闭包。
-    pub(crate) fn begin(&mut self, job_id: JobId, cancel: JobCancel) {
-        self.pending = Some(PendingPasterJob { id: job_id, cancel });
+    /// 记录新提交的任务类别、ID 与取消闭包。
+    pub(crate) fn begin(&mut self, kind: PasterJobKind, job_id: JobId, cancel: JobCancel) {
+        self.pending = Some(PendingPasterJob {
+            kind,
+            id: job_id,
+            cancel,
+        });
     }
 
-    /// 结束匹配任务；过期任务返回 false，由调用方丢弃结果。
-    pub(crate) fn finish(&mut self, job_id: JobId) -> bool {
+    /// 结束类别与 ID 都匹配的任务；过期或错配的结果返回 false。
+    pub(crate) fn finish(&mut self, kind: PasterJobKind, job_id: JobId) -> bool {
         if self
             .pending
             .as_ref()
-            .is_some_and(|pending| pending.id == job_id)
+            .is_some_and(|pending| pending.id == job_id && pending.kind == kind)
         {
             self.pending = None;
             true

@@ -4,13 +4,12 @@ use crate::error::UiError;
 use crate::model::PasterItem;
 use crate::model::{GroupId, PasterId};
 use crate::ports::{
-    ClipboardJobId, ClipboardResult, ClipboardTarget, JobId, MediaJobOutcome, PortError,
+    ClipboardJobId, ClipboardResult, ClipboardTarget, JobId, MediaJobOutcome, PasterJobKind,
+    PortError,
 };
 use crate::snipper::window::jobs::SnipperJobKind;
 use crate::snipper::SnipperLaunch;
-use snapin_annotation::shapes::TranslationShapeItem;
 use snapin_config::config::Config;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use winit::event_loop::EventLoopProxy;
@@ -47,23 +46,16 @@ pub enum PasterAppEvent {
     SwitchGroup(Option<GroupId>),
     /// 查询当前工作区运行状态
     GetStatus(oneshot::Sender<WorkspaceStatus>),
-    /// 整图文字识别完成；携带 `paster_id` 以精确路由回发起窗口
-    OcrFinished {
+    /// 贴图后台媒体任务完成；携带 `paster_id` 以精确路由回发起窗口。
+    PasterJobFinished {
+        /// 发起任务的贴图窗口
         paster_id: PasterId,
+        /// 执行器分配的任务 ID
         job_id: JobId,
-        result: Result<String, String>,
-    },
-    /// 整图翻译完成；携带 `paster_id` 以精确路由回发起窗口
-    TranslateFinished {
-        paster_id: PasterId,
-        job_id: JobId,
-        result: Result<Vec<TranslationShapeItem>, String>,
-    },
-    /// 贴图保存完成：成功且用户选择路径时返回目标文件，取消时返回 `None`
-    SaveFinished {
-        paster_id: PasterId,
-        job_id: JobId,
-        result: Result<Option<PathBuf>, String>,
+        /// 任务类别，用于校验结果是否匹配在途任务
+        kind: PasterJobKind,
+        /// 统一的后台任务结果
+        outcome: MediaJobOutcome,
     },
     /// 剪贴板读写任务完成；按目标路由回截图覆盖层或指定贴图窗口。
     ClipboardFinished {
@@ -166,54 +158,25 @@ impl PasterWorkspaceProxy {
             })
     }
 
-    /// 回传整图文字识别结果。
-    pub(crate) fn ocr_finished(
+    /// 回传贴图后台媒体任务结果。
+    ///
+    /// 只暴露一条结果通路，任务类别与统一结果一起送回 GUI 线程，由工作区校验
+    /// 在途任务并分派；新增任务类型时无需再扩展事件枚举。
+    pub(crate) fn paster_job_finished(
         &self,
         paster_id: PasterId,
         job_id: JobId,
-        result: Result<String, String>,
+        kind: PasterJobKind,
+        outcome: MediaJobOutcome,
     ) -> Result<(), UiError> {
-        self.send(PasterAppEvent::OcrFinished {
+        self.send(PasterAppEvent::PasterJobFinished {
             paster_id,
             job_id,
-            result,
+            kind,
+            outcome,
         })
         .map_err(|e| UiError::Window {
-            message: format!("向贴图工作区回传文字识别结果失败: {e}"),
-        })
-    }
-
-    /// 回传整图翻译结果。
-    pub(crate) fn translate_finished(
-        &self,
-        paster_id: PasterId,
-        job_id: JobId,
-        result: Result<Vec<TranslationShapeItem>, String>,
-    ) -> Result<(), UiError> {
-        self.send(PasterAppEvent::TranslateFinished {
-            paster_id,
-            job_id,
-            result,
-        })
-        .map_err(|e| UiError::Window {
-            message: format!("向贴图工作区回传翻译结果失败: {e}"),
-        })
-    }
-
-    /// 回传贴图保存结果，供工作区更新对应贴图的文件路径与状态提示。
-    pub(crate) fn save_finished(
-        &self,
-        paster_id: PasterId,
-        job_id: JobId,
-        result: Result<Option<PathBuf>, String>,
-    ) -> Result<(), UiError> {
-        self.send(PasterAppEvent::SaveFinished {
-            paster_id,
-            job_id,
-            result,
-        })
-        .map_err(|e| UiError::Window {
-            message: format!("向贴图工作区回传保存结果失败: {e}"),
+            message: format!("向贴图工作区回传后台任务结果失败: {e}"),
         })
     }
 

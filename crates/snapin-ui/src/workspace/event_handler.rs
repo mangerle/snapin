@@ -1,7 +1,7 @@
 //! 贴图集中工作区事件调度与窗口事件响应。
 
 use super::clipboard_events::handle_clipboard_finished;
-use super::job_events::{handle_ocr_finished, handle_save_finished, handle_translate_finished};
+use super::job_events::handle_paster_job_finished;
 use super::paster_events::handle_paster_window_event;
 use super::persistence::persist_active_group;
 use super::proxy::{PasterAppEvent, WorkspaceStatus};
@@ -67,26 +67,13 @@ pub(crate) fn handle_workspace_user_event(
             };
             let _ = responder.send(status);
         }
-        PasterAppEvent::OcrFinished {
+        PasterAppEvent::PasterJobFinished {
             paster_id,
             job_id,
-            result,
+            kind,
+            outcome,
         } => {
-            handle_ocr_finished(paster_id, job_id, result, runtime);
-        }
-        PasterAppEvent::TranslateFinished {
-            paster_id,
-            job_id,
-            result,
-        } => {
-            handle_translate_finished(paster_id, job_id, result, runtime);
-        }
-        PasterAppEvent::SaveFinished {
-            paster_id,
-            job_id,
-            result,
-        } => {
-            handle_save_finished(paster_id, job_id, result, runtime);
+            handle_paster_job_finished(paster_id, job_id, kind, outcome, runtime);
         }
         PasterAppEvent::Shutdown(responder) => shutdown_workspace(runtime, responder, elwt),
     }

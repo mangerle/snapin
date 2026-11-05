@@ -18,5 +18,5 @@ pub use error::UiError;
 pub use ports::{
     ClipboardJobId, ClipboardPayload, ClipboardResult, ClipboardSink, ClipboardWrite, DesktopPort,
     JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, OcrExportFormat, OcrTextItem,
-    PortError, PortErrorKind, QrCodeItem, WorkspaceState, WorkspaceStateStore,
+    PasterJobKind, PortError, PortErrorKind, QrCodeItem, WorkspaceState, WorkspaceStateStore,
 };

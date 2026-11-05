@@ -4,7 +4,7 @@
 //! 又允许父模块继续对结构体字段保持私有。
 
 use super::PasterWindowState;
-use crate::ports::JobId;
+use crate::ports::{JobId, PasterJobKind};
 use tiny_skia::Pixmap;
 
 impl PasterWindowState {
@@ -26,9 +26,14 @@ impl PasterWindowState {
         self.job_slot.has_pending()
     }
 
-    /// 记录新提交的后台任务 ID 与取消闭包。
-    pub(crate) fn begin_job(&mut self, job_id: JobId, cancel: crate::ports::JobCancel) {
-        self.job_slot.begin(job_id, cancel);
+    /// 记录新提交的后台任务类别、ID 与取消闭包。
+    pub(crate) fn begin_job(
+        &mut self,
+        kind: PasterJobKind,
+        job_id: JobId,
+        cancel: crate::ports::JobCancel,
+    ) {
+        self.job_slot.begin(kind, job_id, cancel);
     }
 
     /// 取消当前后台任务；窗口关闭或用户主动放弃时调用。
@@ -36,9 +41,9 @@ impl PasterWindowState {
         self.job_slot.cancel();
     }
 
-    /// 结束匹配任务；过期任务返回 false，由调用方丢弃结果。
-    pub(crate) fn finish_job(&mut self, job_id: JobId) -> bool {
-        self.job_slot.finish(job_id)
+    /// 结束类别与 ID 都匹配的任务；过期或错配结果返回 false。
+    pub(crate) fn finish_job(&mut self, kind: PasterJobKind, job_id: JobId) -> bool {
+        self.job_slot.finish(kind, job_id)
     }
 }
 
@@ -59,12 +64,35 @@ mod tests {
         let cancelled = Arc::new(AtomicBool::new(false));
         let flag = cancelled.clone();
         state.begin_job(
+            PasterJobKind::Ocr,
             JobId::new(7),
             Box::new(move || flag.store(true, Ordering::Release)),
         );
 
         state.cancel_pending_job();
         assert!(cancelled.load(Ordering::Acquire));
+        assert!(!state.has_pending_job());
+    }
+
+    /// 任务类别或 ID 不匹配的结果必须被拒绝，且不能清除真正的在途任务。
+    #[test]
+    fn test_finish_job_rejects_mismatched_kind_or_id() {
+        let pixmap = Pixmap::new(2, 2).expect("创建测试位图失败");
+        let item = PasterItem::new(1, "测试".to_string(), pixmap, (0, 0));
+        let mut state = PasterWindowState::new(item);
+        state.begin_job(PasterJobKind::Ocr, JobId::new(3), Box::new(|| {}));
+
+        assert!(
+            !state.finish_job(PasterJobKind::Save, JobId::new(3)),
+            "类别不匹配的结果不得结束 OCR 任务"
+        );
+        assert!(state.has_pending_job());
+        assert!(
+            !state.finish_job(PasterJobKind::Ocr, JobId::new(4)),
+            "ID 不匹配的结果不得结束当前任务"
+        );
+        assert!(state.has_pending_job());
+        assert!(state.finish_job(PasterJobKind::Ocr, JobId::new(3)));
         assert!(!state.has_pending_job());
     }
 }

@@ -12,7 +12,7 @@
 //! 避免截图侧与贴图侧各自维护一套 OCR/翻译缓存。
 
 use crate::model::PasterId;
-use crate::ports::{JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, PortError};
+use crate::ports::{JobCancel, JobId, MediaJob, MediaJobRunner, PasterJobKind, PortError};
 use crate::workspace::PasterWorkspaceProxy;
 use image::RgbaImage;
 use snapin_config::config::CoverMode;
@@ -67,6 +67,28 @@ impl PasterJobRuntime {
         Self { runner, proxy }
     }
 
+    /// 提交一项贴图后台任务，并把任务类别与统一结果一起回传工作区。
+    ///
+    /// # Errors
+    ///
+    /// 后台执行器停止、队列已满或任务参数非法时返回 [`PortError`]。
+    fn submit(
+        &self,
+        paster_id: PasterId,
+        kind: PasterJobKind,
+        job: MediaJob,
+    ) -> Result<(JobId, JobCancel), PortError> {
+        let proxy = self.proxy.clone();
+        self.runner.submit(
+            job,
+            Box::new(move |job_id, outcome| {
+                if let Err(error) = proxy.paster_job_finished(paster_id, job_id, kind, outcome) {
+                    tracing::warn!("贴图工作区已关闭，后台任务结果未能回传: {error}");
+                }
+            }),
+        )
+    }
+
     /// 提交整图文字识别。
     ///
     /// # Errors
@@ -77,22 +99,13 @@ impl PasterJobRuntime {
         paster_id: PasterId,
         image: RgbaImage,
     ) -> Result<(JobId, JobCancel), PortError> {
-        let proxy = self.proxy.clone();
-        self.runner.submit(
+        self.submit(
+            paster_id,
+            PasterJobKind::Ocr,
             MediaJob::Ocr {
                 image,
                 origin: (0, 0),
             },
-            Box::new(move |job_id, outcome| {
-                let result = match outcome {
-                    MediaJobOutcome::Ocr { text, .. } => Ok(text),
-                    MediaJobOutcome::Failed { message } => Err(message),
-                    _ => Err("文字识别返回了不匹配的结果类型".to_string()),
-                };
-                if let Err(error) = proxy.ocr_finished(paster_id, job_id, result) {
-                    tracing::warn!("贴图工作区已关闭，文字识别结果未能回传: {error}");
-                }
-            }),
         )
     }
 
@@ -107,23 +120,14 @@ impl PasterJobRuntime {
         image: RgbaImage,
         cover_mode: CoverMode,
     ) -> Result<(JobId, JobCancel), PortError> {
-        let proxy = self.proxy.clone();
-        self.runner.submit(
+        self.submit(
+            paster_id,
+            PasterJobKind::Translate,
             MediaJob::Translate {
                 image,
                 origin: (0, 0),
                 cover_mode,
             },
-            Box::new(move |job_id, outcome| {
-                let result = match outcome {
-                    MediaJobOutcome::Translated { items } => Ok(items),
-                    MediaJobOutcome::Failed { message } => Err(message),
-                    _ => Err("原位翻译返回了不匹配的结果类型".to_string()),
-                };
-                if let Err(error) = proxy.translate_finished(paster_id, job_id, result) {
-                    tracing::warn!("贴图工作区已关闭，翻译结果未能回传: {error}");
-                }
-            }),
         )
     }
 
@@ -138,24 +142,14 @@ impl PasterJobRuntime {
         image: RgbaImage,
         options: PasterSaveOptions,
     ) -> Result<(JobId, JobCancel), PortError> {
-        let proxy = self.proxy.clone();
-        self.runner.submit(
+        self.submit(
+            paster_id,
+            PasterJobKind::Save,
             MediaJob::SavePaster {
                 image,
                 as_dialog: options.as_dialog,
                 open_folder_after: options.open_folder_after,
             },
-            Box::new(move |job_id, outcome| {
-                let result = match outcome {
-                    MediaJobOutcome::Saved { path } => Ok(Some(path)),
-                    MediaJobOutcome::SaveCancelled => Ok(None),
-                    MediaJobOutcome::Failed { message } => Err(message),
-                    _ => Err("保存任务返回了不匹配的结果类型".to_string()),
-                };
-                if let Err(error) = proxy.save_finished(paster_id, job_id, result) {
-                    tracing::warn!("贴图工作区已关闭，保存结果未能回传: {error}");
-                }
-            }),
         )
     }
 }

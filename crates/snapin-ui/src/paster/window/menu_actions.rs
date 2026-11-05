@@ -6,6 +6,7 @@
 use super::jobs::{pixmap_to_rgba_image, PasterSaveOptions};
 use super::state::PasterWindowState;
 use crate::paster::context_menu::MenuItemId;
+use crate::ports::PasterJobKind;
 use image::RgbaImage;
 use winit::window::Window;
 
@@ -105,7 +106,7 @@ fn submit_paster_save(state: &mut PasterWindowState, as_dialog: bool, open_folde
         },
     ) {
         Ok((job_id, cancel)) => {
-            state.begin_job(job_id, cancel);
+            state.begin_job(PasterJobKind::Save, job_id, cancel);
             state.set_status_message(if as_dialog {
                 "正在选择保存位置..."
             } else {
