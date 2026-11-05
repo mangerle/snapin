@@ -379,10 +379,10 @@ systemd 用户服务与第三方许可文件一并装入 deb 包。
 
 - `snapin`：CLI 解析与进程装配，不承载业务编排。
 - `snapin-app`：应用层用例编排、媒体任务执行器、守护进程运行时与系统集成调度。
-- `snapin-runtime`：统一后台任务运行时，提供有界准入、任务追踪、取消令牌与 panic 感知。
+- `snapin-runtime`：统一后台任务运行时，提供有界准入、任务内阻塞子任务入口、任务追踪、取消令牌与 panic 感知。
 - `snapin-updater`：自更新清单检查、下载验签与崩溃回滚，隔离网络与 `shipup` 依赖。
 - `snapin-storage`：图像编码保存、文件名模板、选区缓存与原生像素载荷校验。
-- `snapin-foundation`：错误、路径、几何、国际化、触发模式等无重型 UI 依赖的基础契约。
+- `snapin-foundation`：错误、路径、几何、国际化、触发模式，以及美化与翻译共享枚举等无重型 UI 依赖的基础契约。
 - `snapin-config`：强类型配置模型、迁移、语义校验与安全持久化。
 - `snapin-render`：文本测量、排版、光栅化与美化导出渲染。
 - `snapin-annotation`：标注图元、撤销重做历史与 Tiny-Skia 绘制实现。
@@ -393,9 +393,9 @@ systemd 用户服务与第三方许可文件一并装入 deb 包。
 - `snapin-daemon`：本地 IPC 协议、服务端与客户端。
 - `extension`：配套 GNOME Shell 扩展。
 
-核心依赖方向为 `snapin-foundation` ← `snapin-config` ← `snapin-render` ← `snapin-annotation`；`snapin-ui` 只直接依赖这些核心契约，不依赖平台、存储或服务 crate。`snapin-app` 负责把 UI 端口与基础设施实现装配起来，`snapin-platform`、`snapin-storage`、`snapin-daemon` 只依赖所需的轻量核心 crate，不再传递引入 Tiny-Skia 或 Cosmic-Text。
+核心依赖方向为 `snapin-foundation` ← `snapin-config`，`snapin-render` 与 `snapin-annotation` 只依赖基础契约，`snapin-annotation` 再依赖渲染层；渲染与标注不再反向依赖配置 schema，美化参数到配置的映射留在配置 crate。`snapin-ui` 只直接依赖这些核心契约，不依赖平台、存储或服务 crate。`snapin-app` 负责把 UI 端口与基础设施实现装配起来，`snapin-platform`、`snapin-storage`、`snapin-daemon` 只依赖所需的轻量核心 crate，不再传递引入 Tiny-Skia 或 Cosmic-Text。
 
-GUI 生命周期统一由常驻守护进程主线程的单一 winit 事件循环托管，贴图窗口与截图覆盖层共存于同一循环。命令行进程只负责 IPC，若守护进程未运行会自动派生并等待其就绪；设置中心作为独立 Slint 进程运行，不会在守护进程内创建第二个事件循环。
+GUI 生命周期统一由常驻守护进程主线程的单一 winit 事件循环托管，贴图窗口与截图覆盖层共存于同一循环；托盘与全局热键通过事件回调唤醒主循环，不再定时轮询。命令行进程只负责 IPC，若守护进程未运行会自动派生并等待其就绪；设置中心作为独立 Slint 进程运行，不会在守护进程内创建第二个事件循环。
 
 ## 参与贡献
 
