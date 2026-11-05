@@ -1,9 +1,11 @@
 //! 跨平台系统托盘管理抽象模块。
 //!
 //! 在 Windows 与 macOS 平台直接基于成熟的 tray-icon 实现原生托盘图标与上下文菜单，
-//! 并提供统一的事件通道；在 Linux 平台无缝复用 GNOME 专属扩展与系统 D-Bus 服务。
+//! 并通过进程级事件回调把动作推送给宿主；在 Linux 平台无缝复用 GNOME 专属扩展与
+//! 系统 D-Bus 服务。各平台均不再要求宿主定时轮询。
 
 use crate::error::PlatformError;
+use std::sync::Arc;
 
 /// 托盘菜单操作指令枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,6 +117,7 @@ mod native {
     use super::{tray_menu, TrayAction, TrayMenuEntry};
     use crate::error::PlatformError;
     use std::collections::HashMap;
+    use std::sync::Arc;
     use tray_icon::{
         menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
         Icon, TrayIcon, TrayIconBuilder,
@@ -124,12 +127,14 @@ mod native {
     pub struct NativePlatformTray {
         _tray: TrayIcon,
         _menu: Menu,
-        action_map: HashMap<tray_icon::menu::MenuId, TrayAction>,
     }
 
     impl NativePlatformTray {
-        /// 初始化原生托盘图标与菜单
-        pub fn init(rgba_icon: (Vec<u8>, u32, u32)) -> Result<Self, PlatformError> {
+        /// 初始化原生托盘图标与菜单，并注册全局菜单事件回调。
+        pub fn init(
+            rgba_icon: (Vec<u8>, u32, u32),
+            on_action: Arc<dyn Fn(TrayAction) + Send + Sync>,
+        ) -> Result<Self, PlatformError> {
             let (pixels, width, height) = rgba_icon;
             let icon = Icon::from_rgba(pixels, width, height).map_err(|e| PlatformError::Tray {
                 message: format!("加载托盘图标像素数据失败: {e}"),
@@ -161,10 +166,17 @@ mod native {
                     message: format!("创建原生系统托盘图标失败: {e}"),
                 })?;
 
+            // muda 的事件回调是进程级唯一入口；回调只负责把动作交给宿主，
+            // 真正的窗口与托盘对象操作仍留在创建托盘的主线程。
+            MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
+                if let Some(action) = action_map.get(&event.id) {
+                    on_action(*action);
+                }
+            }));
+
             Ok(Self {
                 _tray: tray,
                 _menu: menu,
-                action_map,
             })
         }
 
@@ -182,15 +194,12 @@ mod native {
             })?;
             Ok(())
         }
+    }
 
-        /// 非阻塞拉取用户触发的托盘指令
-        pub fn try_recv(&self) -> Option<TrayAction> {
-            while let Ok(event) = MenuEvent::receiver().try_recv() {
-                if let Some(&action) = self.action_map.get(&event.id) {
-                    return Some(action);
-                }
-            }
-            None
+    impl Drop for NativePlatformTray {
+        fn drop(&mut self) {
+            // 释放进程级回调，避免托盘销毁后仍向已关闭的工作区投递动作。
+            MenuEvent::set_event_handler::<fn(MenuEvent)>(None);
         }
     }
 }
@@ -200,14 +209,10 @@ mod linux {
     use super::{tray_menu, TrayAction, TrayMenuEntry};
     use crate::error::PlatformError;
     use ksni::{blocking::TrayMethods, menu::*, Tray};
-    use tokio::sync::mpsc::{channel, Receiver, Sender};
-
-    /// 托盘动作队列容量；托盘点击是低频人工操作，满队列时直接丢弃最旧语义之外的
-    /// 新动作并记录警告，绝不使用无界通道兜底。
-    const TRAY_ACTION_QUEUE_CAPACITY: usize = 32;
+    use std::sync::Arc;
 
     struct LinuxSniTray {
-        action_tx: Sender<TrayAction>,
+        on_action: Arc<dyn Fn(TrayAction) + Send + Sync>,
         icon_data: Option<ksni::Icon>,
     }
 
@@ -229,9 +234,7 @@ mod linux {
         }
 
         fn activate(&mut self, _x: i32, _y: i32) {
-            if self.action_tx.try_send(TrayAction::Snip).is_err() {
-                tracing::warn!("托盘动作队列已满，忽略本次托盘激活");
-            }
+            (self.on_action)(TrayAction::Snip);
         }
 
         fn menu(&self) -> Vec<MenuItem<Self>> {
@@ -253,22 +256,20 @@ mod linux {
 
     impl LinuxSniTray {
         fn emit(&self, action: TrayAction) {
-            if self.action_tx.try_send(action).is_err() {
-                tracing::warn!("托盘动作队列已满，忽略本次菜单动作: {action:?}");
-            }
+            (self.on_action)(action);
         }
     }
 
     /// Linux 平台原生 StatusNotifierItem 托盘管理器
     pub struct LinuxPlatformTray {
         _handle: ksni::blocking::Handle<LinuxSniTray>,
-        action_rx: Receiver<TrayAction>,
     }
 
     impl LinuxPlatformTray {
-        pub fn init(rgba_icon: Option<(Vec<u8>, u32, u32)>) -> Result<Self, PlatformError> {
-            let (tx, rx) = channel(TRAY_ACTION_QUEUE_CAPACITY);
-
+        pub fn init(
+            rgba_icon: Option<(Vec<u8>, u32, u32)>,
+            on_action: Arc<dyn Fn(TrayAction) + Send + Sync>,
+        ) -> Result<Self, PlatformError> {
             let icon_data = rgba_icon.map(|(rgba, width, height)| {
                 let mut argb = Vec::with_capacity(rgba.len());
                 let (chunks, _) = rgba.as_chunks::<4>();
@@ -286,7 +287,7 @@ mod linux {
             });
 
             let tray = LinuxSniTray {
-                action_tx: tx,
+                on_action,
                 icon_data,
             };
 
@@ -294,24 +295,18 @@ mod linux {
                 message: format!("启动 Linux StatusNotifierItem (SNI) 系统托盘服务失败: {e}"),
             })?;
 
-            Ok(Self {
-                _handle: handle,
-                action_rx: rx,
-            })
-        }
-
-        pub fn try_recv(&mut self) -> Option<TrayAction> {
-            self.action_rx.try_recv().ok()
+            Ok(Self { _handle: handle })
         }
     }
 }
 
 /// 统一跨平台托盘对象封装
 pub struct PlatformTray {
+    /// 平台托盘对象只承担 RAII 生命周期，动作通过构造时注册的回调回传。
     #[cfg(any(target_os = "windows", target_os = "macos"))]
-    inner: native::NativePlatformTray,
+    _inner: native::NativePlatformTray,
     #[cfg(target_os = "linux")]
-    inner: linux::LinuxPlatformTray,
+    _inner: linux::LinuxPlatformTray,
 }
 
 impl PlatformTray {
@@ -323,43 +318,35 @@ impl PlatformTray {
     /// # Errors
     ///
     /// 系统托盘后端初始化失败时返回 [`PlatformError`]。
-    pub fn new(_rgba_icon: Option<(Vec<u8>, u32, u32)>) -> Result<Self, PlatformError> {
+    ///
+    /// `on_action` 在托盘菜单被点击时执行，运行线程由平台后端决定；实现必须
+    /// 保持非阻塞，只做有界投递与事件循环唤醒。
+    pub fn new(
+        _rgba_icon: Option<(Vec<u8>, u32, u32)>,
+        on_action: impl Fn(TrayAction) + Send + Sync + 'static,
+    ) -> Result<Self, PlatformError> {
+        let on_action: Arc<dyn Fn(TrayAction) + Send + Sync> = Arc::new(on_action);
+
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
             let (pixels, width, height) = _rgba_icon.ok_or_else(|| PlatformError::Tray {
                 message: "Windows 与 macOS 初始化托盘必须提供图标 RGBA 像素数据".to_string(),
             })?;
-            let inner = native::NativePlatformTray::init((pixels, width, height))?;
-            Ok(Self { inner })
+            let inner =
+                native::NativePlatformTray::init((pixels, width, height), Arc::clone(&on_action))?;
+            Ok(Self { _inner: inner })
         }
 
         #[cfg(target_os = "linux")]
         {
-            let inner = linux::LinuxPlatformTray::init(_rgba_icon)?;
-            Ok(Self { inner })
+            let inner = linux::LinuxPlatformTray::init(_rgba_icon, on_action)?;
+            Ok(Self { _inner: inner })
         }
 
         #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
         {
+            let _ = on_action;
             Ok(Self {})
-        }
-    }
-
-    /// 非阻塞检查是否触发了托盘指令
-    pub fn poll_action(&mut self) -> Option<TrayAction> {
-        #[cfg(any(target_os = "windows", target_os = "macos"))]
-        {
-            self.inner.try_recv()
-        }
-
-        #[cfg(target_os = "linux")]
-        {
-            self.inner.try_recv()
-        }
-
-        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-        {
-            None
         }
     }
 }

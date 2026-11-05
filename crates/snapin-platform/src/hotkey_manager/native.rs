@@ -6,14 +6,17 @@ use global_hotkey::hotkey::HotKey;
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use snapin_config::config::HotkeyConfig;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub(crate) struct NativeHotkeyListener {
     _manager: GlobalHotKeyManager,
-    action_map: HashMap<u32, HotkeyAction>,
 }
 
 impl NativeHotkeyListener {
-    pub(crate) fn init(config: &HotkeyConfig) -> Result<Self, PlatformError> {
+    pub(crate) fn init(
+        config: &HotkeyConfig,
+        on_action: Arc<dyn Fn(HotkeyAction) + Send + Sync>,
+    ) -> Result<Self, PlatformError> {
         let manager = GlobalHotKeyManager::new().map_err(|e| PlatformError::Hotkey {
             message: format!("初始化原生全局热键管理器失败: {e}"),
         })?;
@@ -40,20 +43,23 @@ impl NativeHotkeyListener {
             }
         }
 
-        Ok(Self {
-            _manager: manager,
-            action_map,
-        })
-    }
-
-    pub(crate) fn try_recv(&self) -> Option<HotkeyAction> {
-        while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
+        // 事件回调是 global-hotkey 的进程级唯一入口；只把命中的动作交给宿主，
+        // 由宿主投递到 GUI 事件循环，避免固定周期轮询全局事件通道。
+        GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
             if event.state == HotKeyState::Pressed {
-                if let Some(&action) = self.action_map.get(&event.id) {
-                    return Some(action);
+                if let Some(action) = action_map.get(&event.id) {
+                    on_action(*action);
                 }
             }
-        }
-        None
+        }));
+
+        Ok(Self { _manager: manager })
+    }
+}
+
+impl Drop for NativeHotkeyListener {
+    fn drop(&mut self) {
+        // 释放进程级回调，避免监听器销毁后仍向已关闭的工作区投递热键动作。
+        GlobalHotKeyEvent::set_event_handler::<fn(GlobalHotKeyEvent)>(None);
     }
 }

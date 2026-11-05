@@ -65,11 +65,9 @@ pub struct PasterWorkspaceOptions {
     pub state_store: Arc<dyn WorkspaceStateStore>,
     /// 截图覆盖层结束回调；常驻守护进程用它把结果送回应用层
     pub on_snipper_finished: Option<SnipperFinishedCallback>,
-    /// GUI 线程周期回调；用于在主线程轮询托盘与原生热键。
-    ///
-    /// 回调在主线程执行，不能捕获要求 `Send` 的宿主对象之外的限制；
-    /// 返回后事件循环会安排 100ms 后的下一次唤醒。
-    pub on_tick: Option<Box<dyn FnMut()>>,
+    /// 宿主动作唤醒回调；托盘或全局热键投递 [`PasterAppEvent::HostWake`] 后在
+    /// GUI 线程执行，用于排空平台动作队列并保持原生对象在创建线程使用。
+    pub on_host_wake: Option<Box<dyn FnMut()>>,
 }
 
 /// 构建线程安全的剪贴板完成事件投递器。
@@ -107,11 +105,9 @@ pub(crate) struct WorkspaceRuntime {
     pub event_proxy: EventLoopProxy<PasterAppEvent>,
     /// 截图覆盖层结束回调；常驻守护进程用它把结果送回应用层
     pub on_snipper_finished: Option<SnipperFinishedCallback>,
-    /// GUI 线程周期回调；用于在主线程轮询托盘与原生热键。
-    ///
-    /// 回调在主线程执行，不能捕获要求 `Send` 的宿主对象之外的限制；
-    /// 返回后事件循环会安排 100ms 后的下一次唤醒。
-    pub on_tick: Option<Box<dyn FnMut()>>,
+    /// 宿主动作唤醒回调；托盘或全局热键投递 [`PasterAppEvent::HostWake`] 后在
+    /// GUI 线程执行，用于排空平台动作队列并保持原生对象在创建线程使用。
+    pub on_host_wake: Option<Box<dyn FnMut()>>,
     /// 剪贴板任务完成事件投递器。
     pub clipboard_events: ClipboardEventSink,
 }
@@ -210,7 +206,7 @@ pub fn run_paster_workspace_loop(
         media,
         state_store,
         on_snipper_finished,
-        on_tick,
+        on_host_wake,
     } = options;
 
     let mut manager = PasterManager::default();
@@ -239,7 +235,7 @@ pub fn run_paster_workspace_loop(
         snipper: None,
         event_proxy,
         on_snipper_finished,
-        on_tick,
+        on_host_wake,
         clipboard_events,
     };
 

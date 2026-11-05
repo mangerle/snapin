@@ -134,34 +134,27 @@ impl PlatformHotkeyListener {
     /// 初始化系统全局热键监听
     ///
     /// - Linux: 返回无操作空对象（热键由系统设置 media-keys 闭环驱动可执行文件执行）；
-    /// - Windows / macOS: 基于 global-hotkey 向操作系统底层注册钩子。
+    /// - Windows / macOS: 基于 global-hotkey 向操作系统底层注册钩子，并把命中
+    ///   动作通过 `on_action` 推送给宿主；回调必须保持非阻塞。
     ///
     /// # Errors
     ///
     /// 原生热键管理器初始化、命令执行或 GNOME 设置同步失败时返回 [`PlatformError`]。
-    pub fn new(_config: &HotkeyConfig) -> Result<Self, PlatformError> {
+    pub fn new(
+        _config: &HotkeyConfig,
+        _on_action: impl Fn(HotkeyAction) + Send + Sync + 'static,
+    ) -> Result<Self, PlatformError> {
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
-            let inner = native::NativeHotkeyListener::init(_config)?;
+            let on_action: std::sync::Arc<dyn Fn(HotkeyAction) + Send + Sync> =
+                std::sync::Arc::new(_on_action);
+            let inner = native::NativeHotkeyListener::init(_config, on_action)?;
             Ok(Self { inner })
         }
 
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         {
             Ok(Self {})
-        }
-    }
-
-    /// 非阻塞检查是否按下了注册的全局快捷键
-    pub fn poll_action(&self) -> Option<HotkeyAction> {
-        #[cfg(any(target_os = "windows", target_os = "macos"))]
-        {
-            self.inner.try_recv()
-        }
-
-        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-        {
-            None
         }
     }
 }

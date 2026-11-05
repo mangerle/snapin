@@ -57,6 +57,11 @@ pub(crate) fn handle_workspace_user_event(
             }
             finish_snipper_if_ready(runtime);
         }
+        PasterAppEvent::HostWake => {
+            if let Some(on_host_wake) = runtime.on_host_wake.as_mut() {
+                on_host_wake();
+            }
+        }
         PasterAppEvent::ToggleVisibility => toggle_group_visibility(runtime),
         PasterAppEvent::ShowWorkspace => show_workspace(runtime),
         PasterAppEvent::SwitchGroup(target) => switch_group(target, runtime),

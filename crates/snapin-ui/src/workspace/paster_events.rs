@@ -167,19 +167,15 @@ fn handle_redraw_event(inst: &mut PasterInstance) -> bool {
     inst.state.should_close
 }
 
-/// 事件循环空闲时清理过期提示、执行宿主周期回调，并返回下一次唤醒时刻。
+/// 事件循环空闲时清理过期提示与呈现重试，并返回下一次唤醒时刻。
 ///
-/// 返回 `Some(deadline)` 时调用方应把控制流切换为定时等待，确保提示到期或
-/// 托盘/热键轮询到点时即使没有输入事件也能被处理；返回 `None` 时恢复无限等待。
+/// 返回 `Some(deadline)` 时调用方应把控制流切换为定时等待，确保状态提示到期或
+/// 表面重试到点时即使没有输入事件也能被处理；返回 `None` 时恢复无限等待。
+/// 宿主动作由 [`PasterAppEvent::HostWake`](crate::workspace::PasterAppEvent::HostWake)
+/// 推送唤醒，不再依赖固定周期轮询。
 pub(crate) fn handle_workspace_about_to_wait(runtime: &mut WorkspaceRuntime) -> Option<Instant> {
     let now = Instant::now();
-    if let Some(on_tick) = runtime.on_tick.as_mut() {
-        on_tick();
-    }
-    let mut earliest: Option<Instant> = runtime
-        .on_tick
-        .as_ref()
-        .map(|_| now + std::time::Duration::from_millis(100));
+    let mut earliest: Option<Instant> = None;
     for inst in runtime.instances.values_mut() {
         if inst.state.clear_expired_status(now) {
             inst.window.request_redraw();

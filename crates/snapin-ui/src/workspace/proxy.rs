@@ -44,6 +44,8 @@ pub enum PasterAppEvent {
     ShowWorkspace,
     /// 切换活动分组（若为 None 则循环轮转至下一个分组）
     SwitchGroup(Option<GroupId>),
+    /// 宿主（托盘、全局热键）产生了新动作，请求 GUI 线程排空动作队列。
+    HostWake,
     /// 查询当前工作区运行状态
     GetStatus(oneshot::Sender<WorkspaceStatus>),
     /// 贴图后台媒体任务完成；携带 `paster_id` 以精确路由回发起窗口。
@@ -139,6 +141,16 @@ impl PasterWorkspaceProxy {
         .map_err(|error| UiError::Window {
             message: format!("向贴图工作区投递剪贴板任务结果失败: {error}"),
         })
+    }
+
+    /// 唤醒 GUI 线程处理宿主动作队列。
+    ///
+    /// 托盘与全局热键回调只负责投递“有动作待处理”的轻量事件，真正的动作分发
+    /// 仍在 GUI 线程完成；这样平台回调无需跨线程操作窗口，也不会永久定时轮询。
+    pub fn wake_host(&self) {
+        if let Err(error) = self.send(PasterAppEvent::HostWake) {
+            tracing::debug!("贴图工作区已关闭，宿主唤醒事件未投递: {error}");
+        }
     }
 
     /// 请求工作区平滑停机（不等待确认，供 GUI 线程托盘退出动作使用）。
