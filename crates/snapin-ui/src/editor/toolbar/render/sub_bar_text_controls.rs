@@ -2,6 +2,7 @@
 
 use super::super::items::LineMode;
 use super::super::layout::{SubControl, SubDropdown};
+use super::super::reject_unexpected_control;
 use super::sub_bar_controls::SubControlRenderer;
 use super::sub_bar_helpers::render_corner_radius_with_value;
 use super::sub_bar_icons::{
@@ -99,7 +100,7 @@ impl SubControlRenderer<'_, '_> {
             | SubControl::TextBackgroundOpacity
             | SubControl::TextBackgroundPadding
             | SubControl::TextBackgroundCornerRadius => self.render_text_background(control),
-            _ => unreachable!("文本或模式组收到错误控件"),
+            _ => reject_unexpected_control("文本或模式组", control),
         }
     }
 
@@ -118,7 +119,7 @@ impl SubControlRenderer<'_, '_> {
                 self.highlight_if_active(active);
                 render_text_background_icon(self.pixmap, self.icon_spec(active));
             }
-            _ => unreachable!("文本样式组收到错误控件"),
+            _ => reject_unexpected_control("文本样式组", control),
         }
     }
 
@@ -159,7 +160,7 @@ impl SubControlRenderer<'_, '_> {
                         == Some(SubControl::TextBackgroundCornerRadius),
                 );
             }
-            _ => unreachable!("文字背景组收到错误控件"),
+            _ => reject_unexpected_control("文字背景组", control),
         }
     }
 }

@@ -5,7 +5,7 @@
 
 use super::super::items::Tool;
 use super::super::layout::{SubControl, SubDropdown};
-use super::super::Toolbar;
+use super::super::{reject_unexpected_control, Toolbar};
 use super::magnifier_controls::{render_magnifier_sub_control, MagnifierControlSpec};
 use super::sub_bar_helpers::{
     is_badge_control, render_badge_control, render_caret, render_corner_radius_with_value,
@@ -125,7 +125,7 @@ impl SubControlRenderer<'_, '_> {
             | SubControl::MagnifierShadow
             | SubControl::MagnifierConnector => {}
             SubControl::BadgeStyle | SubControl::BadgeSequence => {
-                unreachable!("序号控件应由专用渲染器提前处理")
+                reject_unexpected_control("序号控件", control);
             }
         }
     }
@@ -152,7 +152,7 @@ impl SubControlRenderer<'_, '_> {
                     self.toolbar.focused_sub_control == Some(SubControl::EffectStrength),
                 );
             }
-            _ => unreachable!("形状组收到错误控件"),
+            _ => reject_unexpected_control("形状组", control),
         }
     }
 
@@ -195,7 +195,7 @@ impl SubControlRenderer<'_, '_> {
             SubControl::FontSize => self.render_font_size(),
             SubControl::StartArrow => self.render_arrow_head(true),
             SubControl::EndArrow => self.render_arrow_head(false),
-            _ => unreachable!("描边组收到错误控件"),
+            _ => reject_unexpected_control("描边组", control),
         }
     }
 
@@ -329,7 +329,7 @@ impl SubControlRenderer<'_, '_> {
                 self.highlight_if_active(active);
                 render_spotlight_outline_icon(self.pixmap, self.icon_spec(active));
             }
-            _ => unreachable!("聚光灯组收到错误控件"),
+            _ => reject_unexpected_control("聚光灯组", control),
         }
     }
 

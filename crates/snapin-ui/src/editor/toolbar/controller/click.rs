@@ -3,7 +3,7 @@
 use super::super::items::{preset_colors, tool_descriptor, LineMode};
 use super::super::layout::{SubControl, SubDropdown};
 use super::super::sub_controls::{next_f32, next_u8};
-use super::super::{Tool, Toolbar, ToolbarAction, ToolbarItem};
+use super::super::{reject_unexpected_control, Tool, Toolbar, ToolbarAction, ToolbarItem};
 use snapin_annotation::{MagnifierShape, SpotlightShape};
 
 /// 下拉菜单是否消费本次点击，以及是否产生一次性动作。
@@ -163,7 +163,7 @@ impl Toolbar {
             | SubControl::MarkerBlendMode
             | SubControl::EraserBrush
             | SubControl::EraserRectangle => self.apply_marker_control(control),
-            SubControl::ClearAnnotations => unreachable!("清空动作已在上方提前返回"),
+            SubControl::ClearAnnotations => reject_unexpected_control("清空动作", control),
         }
 
         self.persist_remembered_options();
@@ -186,7 +186,7 @@ impl Toolbar {
                 }
             }
             SubControl::Size => {}
-            _ => unreachable!("形状组收到错误控件"),
+            _ => reject_unexpected_control("形状组", control),
         }
     }
 
@@ -206,7 +206,7 @@ impl Toolbar {
             SubControl::FontSize => self.toggle_dropdown(SubDropdown::FontSize),
             SubControl::StartArrow => self.show_dropdown(SubDropdown::StartArrow),
             SubControl::EndArrow => self.show_dropdown(SubDropdown::EndArrow),
-            _ => unreachable!("描边组收到错误控件"),
+            _ => reject_unexpected_control("描边组", control),
         }
     }
 
@@ -246,7 +246,7 @@ impl Toolbar {
                     &[0.0, 4.0, 8.0, 12.0, 20.0, 30.0, 48.0],
                 );
             }
-            _ => unreachable!("文本组收到错误控件"),
+            _ => reject_unexpected_control("文本组", control),
         }
     }
 
@@ -262,7 +262,7 @@ impl Toolbar {
             SubControl::ArrowEnabled => {
                 self.sub_options.line_arrow_enabled = !self.sub_options.line_arrow_enabled;
             }
-            _ => unreachable!("直线组收到错误控件"),
+            _ => reject_unexpected_control("直线组", control),
         }
     }
 
@@ -276,7 +276,7 @@ impl Toolbar {
             }
             SubControl::MosaicRectangle => self.sub_options.mosaic_brush_mode = false,
             SubControl::MosaicMode => self.show_dropdown(SubDropdown::MosaicMode),
-            _ => unreachable!("马赛克组收到错误控件"),
+            _ => reject_unexpected_control("马赛克组", control),
         }
     }
 
@@ -298,7 +298,7 @@ impl Toolbar {
             SubControl::SpotlightOutline => {
                 self.sub_options.spotlight_outline = !self.sub_options.spotlight_outline;
             }
-            _ => unreachable!("聚光灯组收到错误控件"),
+            _ => reject_unexpected_control("聚光灯组", control),
         }
     }
 
@@ -328,7 +328,7 @@ impl Toolbar {
                 self.sub_options.magnifier_shadow = !self.sub_options.magnifier_shadow;
             }
             SubControl::MagnifierConnector => self.show_dropdown(SubDropdown::MagnifierConnector),
-            _ => unreachable!("放大镜组收到错误控件"),
+            _ => reject_unexpected_control("放大镜组", control),
         }
     }
 
@@ -339,7 +339,7 @@ impl Toolbar {
             SubControl::MarkerBlendMode => self.show_dropdown(SubDropdown::MarkerBlendMode),
             SubControl::EraserBrush => self.sub_options.eraser_rectangle_mode = false,
             SubControl::EraserRectangle => self.sub_options.eraser_rectangle_mode = true,
-            _ => unreachable!("画笔组收到错误控件"),
+            _ => reject_unexpected_control("画笔组", control),
         }
     }
 
