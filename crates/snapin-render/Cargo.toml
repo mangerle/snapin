@@ -8,7 +8,7 @@ license.workspace = true
 description = "Snapin 文本排版、测量、光栅化与美化导出渲染"
 
 [dependencies]
-snapin-config.workspace = true
+snapin-foundation.workspace = true
 serde.workspace = true
 cosmic-text.workspace = true
 tiny-skia.workspace = true

@@ -484,7 +484,7 @@ mod tests {
             bg_color: (255, 255, 255, 255).into(),
             text_color: (0, 0, 0, 255).into(),
             font_size: 16.0,
-            cover_mode: crate::config::enums::CoverMode::SolidColor,
+            cover_mode: snapin_foundation::CoverMode::SolidColor,
         };
 
         let action = TranslationAction::new(vec![item]);

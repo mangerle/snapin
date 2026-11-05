@@ -6,7 +6,6 @@ pub mod history;
 pub mod shapes;
 pub mod style;
 
-pub(crate) use snapin_config::config;
 pub(crate) use snapin_foundation::geometry;
 pub(crate) use snapin_render as render;
 

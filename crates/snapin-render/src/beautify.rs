@@ -4,65 +4,11 @@
 //! 新位图。渲染完全基于 tiny-skia，不经过平台窗口，因此可在后台线程安全执行。
 
 use crate::{with_thread_local_text_renderer, RenderError, TextDrawOptions};
-use snapin_config::config::{BeautifyBackground, BeautifyConfig, SocialSize};
+use snapin_foundation::beautify::{BeautifyBackground, BeautifyOptions};
 use tiny_skia::{
     Color, FillRule, GradientStop, LinearGradient, Mask, MaskType, Paint, PathBuilder, Pixmap,
     PixmapPaint, PixmapRef, Point, SpreadMode, Transform,
 };
-
-/// 美化导出参数。
-#[derive(Debug, Clone, PartialEq)]
-pub struct BeautifyOptions {
-    /// 社交画布尺寸
-    pub social_size: SocialSize,
-    /// 背景样式
-    pub background: BeautifyBackground,
-    /// 圆角半径
-    pub corner_radius: f32,
-    /// 图像四周留白
-    pub padding: f32,
-    /// 是否绘制阴影
-    pub shadow: bool,
-    /// 可选水印文字
-    pub watermark: Option<String>,
-}
-
-impl Default for BeautifyOptions {
-    fn default() -> Self {
-        Self {
-            social_size: SocialSize::Original,
-            background: BeautifyBackground::Dark,
-            corner_radius: 20.0,
-            padding: 48.0,
-            shadow: true,
-            watermark: Some("Snapin".to_string()),
-        }
-    }
-}
-
-impl BeautifyOptions {
-    /// 切换水印开关。
-    pub fn toggle_watermark(&mut self) {
-        self.watermark = if self.watermark.is_some() {
-            None
-        } else {
-            Some("Snapin".to_string())
-        };
-    }
-}
-
-impl From<&BeautifyConfig> for BeautifyOptions {
-    fn from(config: &BeautifyConfig) -> Self {
-        Self {
-            social_size: config.social_size,
-            background: config.background,
-            corner_radius: config.corner_radius,
-            padding: 48.0,
-            shadow: config.shadow,
-            watermark: (!config.watermark.trim().is_empty()).then(|| config.watermark.clone()),
-        }
-    }
-}
 
 /// 渲染美化截图。
 ///
@@ -364,6 +310,7 @@ fn add_round_rect(path: &mut PathBuilder, rect: RoundRect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use snapin_foundation::beautify::SocialSize;
 
     /// 原始尺寸输出必须包含四周留白且角点保持背景色。
     #[test]

@@ -8,7 +8,6 @@ license.workspace = true
 description = "Snapin 标注图元模型、撤销重做历史与 Tiny-Skia 绘制实现"
 
 [dependencies]
-snapin-config.workspace = true
 snapin-foundation.workspace = true
 snapin-render.workspace = true
 serde.workspace = true

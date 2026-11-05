@@ -1,11 +1,11 @@
 //! 截图原位翻译替换图元光栅化实现。
 
 use super::{fill_path_if_visible, valid_rect, SizeParam};
-use crate::config::enums::CoverMode;
 use crate::geometry::Rect;
 use crate::render::with_thread_local_text_renderer;
 use crate::style::ColorRgba;
 use serde::{Deserialize, Serialize};
+use snapin_foundation::CoverMode;
 use tiny_skia::{Color, Paint, PathBuilder, PixmapMut, Transform};
 
 /// 单个原位翻译文本项

@@ -5767,7 +5767,6 @@ version = "1.3.0"
 dependencies = [
  "serde",
  "serde_json",
- "snapin-config",
  "snapin-foundation",
  "snapin-render",
  "tiny-skia 0.12.0",
@@ -5877,7 +5876,7 @@ version = "1.3.0"
 dependencies = [
  "cosmic-text",
  "serde",
- "snapin-config",
+ "snapin-foundation",
  "thiserror 1.0.69",
  "tiny-skia 0.12.0",
 ]

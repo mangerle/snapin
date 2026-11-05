@@ -7,10 +7,10 @@ mod measure;
 mod raster;
 pub mod text;
 
-pub use beautify::{render_beautified, BeautifyOptions};
+pub use beautify::render_beautified;
 pub use error::RenderError;
 pub use layout::CenteredTextOptions;
-pub use snapin_config::config::{BeautifyBackground, SocialSize};
+pub use snapin_foundation::beautify::{BeautifyBackground, BeautifyOptions, SocialSize};
 pub use text::{
     with_thread_local_text_renderer, StyledTextDrawOptions, TextBoxOptions, TextDrawOptions,
     TextMeasureOptions, TextRenderer, TextStyleOptions,
