@@ -3,12 +3,12 @@
 use super::super::layout::{SubControl, SubDropdown};
 use super::super::Toolbar;
 use super::sub_bar_helpers::{
-    render_caret, render_magnifier_scale_slider, render_sub_shape_ellipse, render_sub_shape_rect,
-    SubBarGeometry,
+    render_caret, render_sub_shape_ellipse, render_sub_shape_rect, SubBarGeometry,
 };
 use super::sub_bar_icons::{
     render_magnifier_shadow_icon, render_magnifier_smooth_icon, SubBarIconSpec,
 };
+use super::sub_bar_sliders::render_magnifier_scale_slider;
 use super::widgets::{
     fill_button_highlight, render_magnifier_connector_preview, MagnifierConnectorPreviewSpec,
     PreviewSpan,

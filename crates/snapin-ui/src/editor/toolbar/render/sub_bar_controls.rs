@@ -9,13 +9,13 @@ use super::super::{reject_unexpected_control, Toolbar};
 use super::magnifier_controls::{render_magnifier_sub_control, MagnifierControlSpec};
 use super::sub_bar_helpers::{
     is_badge_control, render_badge_control, render_caret, render_corner_radius_with_value,
-    render_effect_strength_slider, render_fill_toggle, render_size_with_dot,
-    render_sub_shape_ellipse, render_sub_shape_rect, render_toggle_glyph,
-    spotlight_intensity_percent, SubBarGeometry,
+    render_fill_toggle, render_size_with_dot, render_sub_shape_ellipse, render_sub_shape_rect,
+    render_toggle_glyph, spotlight_intensity_percent, SubBarGeometry,
 };
 use super::sub_bar_icons::{
     render_font_size_icon, render_opacity_icon, render_spotlight_outline_icon, SubBarIconSpec,
 };
+use super::sub_bar_sliders::render_effect_strength_slider;
 use super::widgets::{
     fill_button_highlight, fill_circle, render_arrow_head_preview, render_arrow_preview,
     render_divider, stroke_circle, stroke_sample, ArrowHeadPreviewSpec, ArrowPreviewSpec,
