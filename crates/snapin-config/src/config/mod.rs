@@ -4,11 +4,13 @@
 
 pub mod defaults;
 pub mod enums;
+mod load;
 pub mod model;
+mod persist;
 pub mod sections;
 pub mod types;
 
-use crate::error::CoreError;
+pub use load::{get_default_config_path, load_or_create_config, parse_imported_config};
 pub use model::{
     normalize_file_name_template, BeautifyBackground, BeautifyConfig, ColorFormat, Config,
     ConfigFile, CoverMode, DoubleClickAction, GeneralConfig, HotkeyConfig, ImageFormat,
@@ -16,258 +18,15 @@ pub use model::{
     TargetLanguage, TranslateConfig, TranslateProvider, UiLanguage, ZoomAnchor,
     CONFIG_SCHEMA_VERSION,
 };
-use std::fs;
-use std::path::{Path, PathBuf};
+pub use persist::save_config;
 pub use types::{HexColor, Hotkey, HotkeyParseError, SecretString};
-
-/// 配置文件允许读取的最大字节数，防止异常文件一次性耗尽内存。
-const MAX_CONFIG_FILE_BYTES: usize = 1024 * 1024;
-
-/// 获取 Snapin 默认配置文件存储路径：优先 `$XDG_CONFIG_HOME/snapin/config.toml`，兜底 `~/.config/snapin/config.toml`
-///
-/// # Errors
-///
-/// 路径解析、语义校验、序列化或原子持久化失败时返回 [`CoreError`]；当前默认路径实现本身不会失败。
-pub fn get_default_config_path() -> Result<PathBuf, CoreError> {
-    Ok(crate::paths::AppPaths::default_config_file())
-}
-
-/// 加载配置文件；若文件不存在，则自动初始化并保存一套默认配置到磁盘。
-///
-/// # Errors
-///
-/// 文件读取失败、TOML 语法或字段非法、schema 版本过新，以及重复快捷键等语义
-/// 校验失败时返回 [`CoreError`]。已存在的无效配置始终保留原文件并拒绝继续，
-/// 不自动替换为默认值，避免用户偏好和翻译凭据被静默清除。
-pub fn load_or_create_config(custom_path: Option<&Path>) -> Result<Config, CoreError> {
-    if custom_path.is_none() {
-        crate::paths::AppPaths::ensure_config_dir().map_err(|source| CoreError::IoError {
-            path: crate::paths::AppPaths::config_dir(),
-            source,
-        })?;
-    }
-    let target_path = match custom_path {
-        Some(p) => p.to_path_buf(),
-        None => get_default_config_path()?,
-    };
-
-    if !target_path.exists() {
-        if let Some(parent) = target_path.parent() {
-            fs::create_dir_all(parent).map_err(|e| CoreError::IoError {
-                path: parent.to_path_buf(),
-                source: e,
-            })?;
-        }
-
-        let default_config = Config::default().sanitized();
-        save_config(&default_config, &target_path)?;
-        tracing::info!("未检测到配置文件，已初始化默认配置至: {:?}", target_path);
-        return Ok(default_config);
-    }
-
-    let content = snapin_foundation::read_utf8_file_limited(&target_path, MAX_CONFIG_FILE_BYTES)
-        .map_err(|e| CoreError::IoError {
-            path: target_path.clone(),
-            source: e,
-        })?;
-
-    let file = parse_config_file(&content).map_err(|reason| CoreError::ConfigParseError {
-        path: target_path.clone(),
-        reason,
-    })?;
-    let file = file.migrate(&target_path)?;
-    let config = file.config.sanitized();
-    config.validate()?;
-
-    tighten_config_permissions(&target_path);
-    tracing::debug!("成功加载配置文件: {:?}", target_path);
-    Ok(config)
-}
-
-/// 严格解析导入的配置文本，不修改源文件，也不在失败时创建备份或默认配置。
-///
-/// # Errors
-///
-/// 未知字段、非法快捷键、未来 schema 版本或语义校验失败时返回 [`CoreError`]。
-pub fn parse_imported_config(content: &str, source_path: &Path) -> Result<Config, CoreError> {
-    let file = parse_config_file(content).map_err(|reason| CoreError::ConfigParseError {
-        path: source_path.to_path_buf(),
-        reason,
-    })?;
-    let config = file.migrate(source_path)?.config.sanitized();
-    config.validate()?;
-    Ok(config)
-}
-
-/// 解析配置并检查未知字段。
-///
-/// `ConfigFile` 使用 `flatten` 兼容扁平板块布局，但 `serde` 的
-/// `deny_unknown_fields` 与 flatten 组合不可靠，因此用 `serde_ignored` 显式
-/// 收集未知键；拼写错误或未来版本字段会被当成损坏配置备份并重建，而不是静默忽略。
-fn parse_config_file(content: &str) -> Result<ConfigFile, String> {
-    let mut table = parse_toml_table(content)?;
-    reject_unknown_top_level_keys(&table)?;
-    let schema_version = take_schema_version(&mut table)?;
-    let config = deserialize_config_strict(table)?;
-    Ok(ConfigFile {
-        schema_version,
-        config,
-    })
-}
-
-/// 把原始 TOML 解析为可编辑表。
-fn parse_toml_table(content: &str) -> Result<toml::Table, String> {
-    let raw: toml::Value =
-        toml::from_str(content).map_err(|error| format!("TOML 解析失败: {error}"))?;
-    raw.as_table()
-        .cloned()
-        .ok_or_else(|| "配置文件顶层必须是 TOML 表".to_string())
-}
-
-/// 检查顶层板块白名单，防止 flatten 吞掉未知板块。
-fn reject_unknown_top_level_keys(table: &toml::Table) -> Result<(), String> {
-    let allowed = model::config_file_top_level_keys();
-    let unknown_fields: Vec<String> = table
-        .keys()
-        .filter(|key| !allowed.iter().any(|candidate| candidate == *key))
-        .cloned()
-        .collect();
-    if !unknown_fields.is_empty() {
-        return Err(format!(
-            "配置文件包含未知字段: {}",
-            unknown_fields.join(", ")
-        ));
-    }
-    Ok(())
-}
-
-/// 取出并校验 schema_version；缺失时按历史 v0 处理。
-fn take_schema_version(table: &mut toml::Table) -> Result<u32, String> {
-    let schema_version = match table.remove("schema_version") {
-        None => 0,
-        Some(value) => value
-            .as_integer()
-            .ok_or_else(|| "schema_version 必须是整数".to_string())?,
-    };
-    u32::try_from(schema_version)
-        .map_err(|_| format!("schema_version 超出 u32 范围: {schema_version}"))
-}
-
-/// 在保留嵌套字段检查的前提下把表反序列化为强类型配置。
-fn deserialize_config_strict(table: toml::Table) -> Result<Config, String> {
-    let config_toml = toml::to_string(&toml::Value::Table(table))
-        .map_err(|error| format!("配置规范化失败: {error}"))?;
-    let deserializer = toml::de::Deserializer::new(&config_toml);
-    let mut unknown_fields = Vec::new();
-    let config: Config =
-        serde_ignored::deserialize(deserializer, |path| unknown_fields.push(path.to_string()))
-            .map_err(|error| format!("TOML 解析失败: {error}"))?;
-    if !unknown_fields.is_empty() {
-        return Err(format!(
-            "配置文件包含未知字段: {}",
-            unknown_fields.join(", ")
-        ));
-    }
-    Ok(config)
-}
-
-/// 将已存在配置文件的权限收紧为 0600，避免历史版本创建的 0644 文件泄露 API 密钥。
-fn tighten_config_permissions(path: &Path) {
-    #[cfg(not(unix))]
-    let _ = path;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Ok(metadata) = std::fs::metadata(path) {
-            let mode = metadata.permissions().mode() & 0o777;
-            if mode & 0o077 != 0 {
-                if let Err(error) =
-                    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-                {
-                    tracing::warn!("收紧配置文件权限失败，路径: {:?}，原因: {error}", path);
-                }
-            }
-        }
-    }
-}
-
-/// 将内存配置结构体持久化写入指定的 TOML 文件
-///
-/// # Errors
-///
-/// 路径解析、语义校验、序列化或原子持久化失败时返回 [`CoreError`]；当前默认路径实现本身不会失败。
-pub fn save_config(config: &Config, target_path: &Path) -> Result<(), CoreError> {
-    if target_path == crate::paths::AppPaths::default_config_file() {
-        crate::paths::AppPaths::ensure_config_dir().map_err(|source| CoreError::IoError {
-            path: crate::paths::AppPaths::config_dir(),
-            source,
-        })?;
-    }
-    let toml_string = serialize_config(config)?;
-    write_config_atomically(target_path, toml_string.as_bytes())
-}
-
-/// 收敛并校验内存配置，再序列化为带 schema 版本的 TOML。
-fn serialize_config(config: &Config) -> Result<String, CoreError> {
-    let sanitized = config.clone().sanitized();
-    sanitized.validate()?;
-    toml::to_string_pretty(&ConfigFile::current(sanitized)).map_err(|error| {
-        CoreError::ConfigSerializeError {
-            reason: error.to_string(),
-        }
-    })
-}
-
-/// 通过同目录临时文件和原子替换写入配置。
-fn write_config_atomically(target_path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
-    ensure_parent_dir(target_path)?;
-    let parent = target_path.parent().unwrap_or_else(|| Path::new("."));
-    let file_name = target_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("config.toml");
-    let temp_path = parent.join(format!(
-        ".{file_name}.{}.{}.tmp",
-        std::process::id(),
-        crate::paths::AppPaths::generate_unique_id()
-    ));
-
-    if let Err(error) = crate::paths::AppPaths::write_secure_file(&temp_path, bytes) {
-        let _ = fs::remove_file(&temp_path);
-        return Err(CoreError::IoError {
-            path: temp_path,
-            source: error,
-        });
-    }
-
-    if let Err(error) = crate::paths::AppPaths::replace_file_atomically(&temp_path, target_path) {
-        let _ = fs::remove_file(&temp_path);
-        return Err(CoreError::IoError {
-            path: target_path.to_path_buf(),
-            source: error,
-        });
-    }
-
-    tracing::info!("配置文件保存就绪: {:?}", target_path);
-    Ok(())
-}
-
-/// 确保配置目标路径的父目录存在。
-fn ensure_parent_dir(target_path: &Path) -> Result<(), CoreError> {
-    if let Some(parent) = target_path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent).map_err(|error| CoreError::IoError {
-                path: parent.to_path_buf(),
-                source: error,
-            })?;
-        }
-    }
-    Ok(())
-}
 
 #[cfg(test)]
 mod tests {
+    use super::load::{parse_config_file, MAX_CONFIG_FILE_BYTES};
     use super::*;
+    use crate::error::CoreError;
+    use std::path::Path;
     use tempfile::tempdir;
 
     #[test]
