@@ -126,9 +126,10 @@ fn parse_toml_table(content: &str) -> Result<toml::Table, String> {
 
 /// 检查顶层板块白名单，防止 flatten 吞掉未知板块。
 fn reject_unknown_top_level_keys(table: &toml::Table) -> Result<(), String> {
+    let allowed = model::config_file_top_level_keys();
     let unknown_fields: Vec<String> = table
         .keys()
-        .filter(|key| !model::CONFIG_FILE_TOP_LEVEL_KEYS.contains(&key.as_str()))
+        .filter(|key| !allowed.iter().any(|candidate| candidate == *key))
         .cloned()
         .collect();
     if !unknown_fields.is_empty() {

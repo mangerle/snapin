@@ -10,27 +10,30 @@ use crate::config::defaults::{
 pub use crate::config::enums::*;
 pub use crate::config::sections::*;
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 
 /// 当前配置文件 schema 版本。
 pub const CONFIG_SCHEMA_VERSION: u32 = 3;
 
 /// 配置文件允许出现的全部顶层键。
 ///
-/// 该列表是加载器拒绝未知板块的唯一契约来源。`ConfigFile` 使用 `flatten` 承载
-/// 各配置板块，仅依赖 `serde_ignored` 无法稳定识别未知顶层键，因此新增配置板块时
-/// 必须同步维护此列表，并由配置往返测试保证两者不会漂移。
-pub(crate) const CONFIG_FILE_TOP_LEVEL_KEYS: &[&str] = &[
-    "schema_version",
-    "general",
-    "interface",
-    "snip",
-    "paster",
-    "output",
-    "hotkeys",
-    "ocr",
-    "translate",
-    "beautify",
-];
+/// 白名单直接由默认配置的序列化结果派生，而不是手工维护：`Config` 的每个字段
+/// 就是一个顶层板块，新增或删除板块时这里自动跟随，从结构上消除“忘记同步白名单
+/// 导致合法配置被判为未知字段”的漂移风险。`schema_version` 由 [`ConfigFile`]
+/// 承载，也会随整体序列化一并出现在结果中。
+pub(crate) fn config_file_top_level_keys() -> &'static [String] {
+    static KEYS: OnceLock<Vec<String>> = OnceLock::new();
+    KEYS.get_or_init(|| {
+        let value = toml::Value::try_from(ConfigFile::current(Config::default()))
+            .expect("默认配置必须可序列化为 TOML，否则配置文件写入路径同样不可用");
+        let table = value
+            .as_table()
+            .expect("配置序列化结果必须是以板块为键的 TOML 表");
+        let mut keys: Vec<String> = table.keys().cloned().collect();
+        keys.sort();
+        keys
+    })
+}
 
 /// 配置文件顶层封装：schema 版本 + 扁平化的配置板块。
 ///
