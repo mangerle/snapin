@@ -2,8 +2,9 @@
 //!
 //! 任务运行在统一 [`snapin_runtime::TaskRuntime`] 的异步上下文内；OCR 推理与
 //! 图像排版通过 `spawn_blocking` 移出异步 worker。OCR 引擎按模型目录缓存，
-//! 缓存锁只在阻塞线程内短暂持有，绝不跨越 `.await`。取消标志在 OCR、翻译、排版等
-//! 阶段边界检查；单次 ONNX 推理本身不可中断，取消会丢弃其结果并阻止后续阶段。
+//! 目录映射只在短临界区内取用，模型加载由 `OnceCell` 在锁外完成，同一目录的
+//! 并发任务共享一次初始化。取消标志在 OCR、翻译、排版等阶段边界检查；单次
+//! ONNX 推理本身不可中断，取消会丢弃其结果并阻止后续阶段。
 
 use super::save::{execute_save_paster, execute_save_screenshot, SavePasterRequest};
 use super::translate::{build_translation_items, to_service_provider, TranslationPlacement};
@@ -177,35 +178,36 @@ async fn execute_save_ocr_text(
 
 /// 获取或初始化 OCR 引擎。
 ///
-/// 初始化在阻塞线程内执行并完成二次检查，避免多个任务同时加载同一模型；
-/// 初始化失败同样写入缓存，用户修改模型目录后由新键触发重试。
+/// 缓存锁只用于取用“目录 → 初始化单元”的映射，不覆盖模型加载；同一模型目录的
+/// 并发任务共享同一个 `OnceCell`，由它保证初始化只执行一次。初始化失败同样
+/// 写入该单元，用户修改模型目录后由新目录触发新的初始化。
 async fn get_ocr_engine(
     cache: &Arc<Mutex<OcrCache>>,
     config: &Config,
 ) -> Result<Arc<LocalPpOcrEngine>, String> {
     let model_dir = config.ocr.local.model_dir.trim().to_string();
-    let mut guard = cache.lock().await;
-    if let Some((cached_dir, cached)) = &guard.entry {
-        if cached_dir == &model_dir {
-            return cached.clone();
-        }
-    }
-
-    let init_dir = model_dir.clone();
-    let initialized = tokio::task::spawn_blocking(move || {
-        let custom_dir = if init_dir.is_empty() {
-            None
-        } else {
-            Some(Path::new(&init_dir))
-        };
-        LocalPpOcrEngine::new(custom_dir)
-            .map(Arc::new)
-            .map_err(|error| error.to_string())
-    })
-    .await
-    .map_err(|error| format!("OCR 引擎初始化任务异常: {error}"))?;
-    guard.entry = Some((model_dir, initialized.clone()));
-    initialized
+    let cell = cache.lock().await.slot(&model_dir);
+    let initialized = cell
+        .get_or_init(|| async move {
+            let init_dir = model_dir.clone();
+            match tokio::task::spawn_blocking(move || {
+                let custom_dir = if init_dir.is_empty() {
+                    None
+                } else {
+                    Some(Path::new(&init_dir))
+                };
+                LocalPpOcrEngine::new(custom_dir)
+                    .map(Arc::new)
+                    .map_err(|error| error.to_string())
+            })
+            .await
+            {
+                Ok(result) => result,
+                Err(error) => Err(format!("OCR 引擎初始化任务异常: {error}")),
+            }
+        })
+        .await;
+    initialized.clone()
 }
 
 /// 执行 OCR 并返回全文。

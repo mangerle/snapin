@@ -32,12 +32,33 @@ use snapin_ui::{
 };
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OnceCell};
+
+/// OCR 引擎按模型目录缓存的一次性初始化单元。
+///
+/// 使用 `OnceCell` 而不是在缓存互斥锁内直接加载模型：取用槽位的临界区只做
+/// 目录比较与 Arc 克隆，真正的模型加载在锁外进行；同一目录的并发任务会等待
+/// 同一个初始化 Future，不会重复扫描模型文件。
+pub(super) type OcrEngineCell = OnceCell<Result<Arc<LocalPpOcrEngine>, String>>;
 
 /// OCR 引擎缓存；键为模型目录，初始化失败也按目录缓存，避免重复扫描。
 #[derive(Default)]
 pub(super) struct OcrCache {
-    pub(super) entry: Option<(String, Result<Arc<LocalPpOcrEngine>, String>)>,
+    entry: Option<(String, Arc<OcrEngineCell>)>,
+}
+
+impl OcrCache {
+    /// 取用指定模型目录的初始化单元；目录变化时替换旧槽位。
+    pub(super) fn slot(&mut self, model_dir: &str) -> Arc<OcrEngineCell> {
+        if let Some((cached_dir, cell)) = &self.entry {
+            if cached_dir == model_dir {
+                return cell.clone();
+            }
+        }
+        let cell = Arc::new(OcrEngineCell::new());
+        self.entry = Some((model_dir.to_string(), cell.clone()));
+        cell
+    }
 }
 
 /// 进程级媒体任务执行器。
