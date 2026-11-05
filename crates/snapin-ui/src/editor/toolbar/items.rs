@@ -45,16 +45,6 @@ pub enum ToolbarItem {
 }
 
 impl ToolbarItem {
-    /// 构造工具按钮。
-    pub const fn tool(tool: Tool) -> Self {
-        Self::Tool(tool)
-    }
-
-    /// 构造动作按钮。
-    pub const fn action(action: ToolbarAction) -> Self {
-        Self::Action(action)
-    }
-
     /// 提取工具；动作按钮返回 `None`。
     pub const fn as_tool(self) -> Option<Tool> {
         match self {
@@ -148,16 +138,16 @@ mod tests {
     /// 工具只在点击后保持激活，动作只执行一次，二者不得混用同一语义。
     #[test]
     fn test_toolbar_item_separates_tools_and_actions() {
-        let tool = ToolbarItem::tool(Tool::Pen);
+        let tool = ToolbarItem::Tool(Tool::Pen);
         assert_eq!(tool.as_tool(), Some(Tool::Pen));
         assert_eq!(
-            ToolbarItem::tool(Tool::Ellipse).as_tool(),
+            ToolbarItem::Tool(Tool::Ellipse).as_tool(),
             Some(Tool::Ellipse)
         );
 
-        let action = ToolbarItem::action(ToolbarAction::Undo);
+        let action = ToolbarItem::Action(ToolbarAction::Undo);
         assert_eq!(action.as_tool(), None);
-        assert_eq!(ToolbarItem::action(ToolbarAction::Close).as_tool(), None);
+        assert_eq!(ToolbarItem::Action(ToolbarAction::Close).as_tool(), None);
     }
 
     /// 描述表必须覆盖全部工具，并保留聚光灯无属性栏、矩形几何入口等关键差异。
@@ -245,7 +235,7 @@ mod tests {
         ];
         for tool in tools {
             assert!(!tool.label().is_empty(), "{tool:?} 必须有中文名称");
-            assert_eq!(ToolbarItem::tool(tool).shortcut(), None);
+            assert_eq!(ToolbarItem::Tool(tool).shortcut(), None);
         }
 
         let actions = [

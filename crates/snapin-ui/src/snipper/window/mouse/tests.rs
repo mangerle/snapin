@@ -2,9 +2,8 @@
 
 use super::super::types::SnipMode;
 use super::*;
-use crate::editor::toolbar::{
-    MosaicMode, StrokeWidthLevel, SubControl, ToolbarAction, ToolbarItem,
-};
+use crate::editor::toolbar::items::StrokeWidthLevel;
+use crate::editor::toolbar::{MosaicMode, SubControl, ToolbarAction, ToolbarItem};
 use crate::geometry::Point;
 use crate::ports::OcrTextItem;
 use crate::snipper::window::ocr_menu::OcrMenuAction;

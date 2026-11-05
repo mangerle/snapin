@@ -7,17 +7,16 @@
 //! 工作区只消费宿主注入的端口与配置快照，不自行读取配置文件、不创建后台线程；
 //! GUI 线程的派生与后台执行器生命周期属于应用层职责。
 
-pub mod clipboard_events;
-pub mod event_handler;
-pub mod job_events;
-pub mod paster_events;
-pub mod persistence;
-pub mod proxy;
-pub mod window_builder;
+pub(crate) mod clipboard_events;
+pub(crate) mod event_handler;
+pub(crate) mod job_events;
+pub(crate) mod paster_events;
+pub(crate) mod persistence;
+pub(crate) mod proxy;
+pub(crate) mod window_builder;
 
 pub use event_handler::{is_valid_group_id, TOTAL_PIN_GROUPS};
 pub use proxy::{PasterAppEvent, PasterWorkspaceProxy, WorkspaceStatus};
-pub use window_builder::PasterInstance;
 
 use crate::error::UiError;
 use crate::model::GroupId;
@@ -27,13 +26,15 @@ use crate::ports::{
     ClipboardEventSink, ClipboardTarget, DesktopPort, MediaJobRunner, WorkspaceState,
     WorkspaceStateStore,
 };
-use crate::snipper::{SnipperOutcome, SnipperView};
+use crate::snipper::window::SnipperView;
+use crate::snipper::SnipperOutcome;
 use event_handler::{handle_workspace_user_event, handle_workspace_window_event};
 use paster_events::handle_workspace_about_to_wait;
 use snapin_config::config::Config;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+use window_builder::PasterInstance;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};

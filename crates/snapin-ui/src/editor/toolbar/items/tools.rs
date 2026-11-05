@@ -9,16 +9,6 @@ pub enum LineMode {
     Polyline,
 }
 
-impl LineMode {
-    /// 二级栏展示名称。
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Straight => "直线",
-            Self::Polyline => "折线",
-        }
-    }
-}
-
 /// 马赛克工具的处理模式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MosaicMode {

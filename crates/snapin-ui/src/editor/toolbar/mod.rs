@@ -17,9 +17,7 @@ mod sub_controls;
 #[cfg(test)]
 mod tests;
 
-pub use items::{
-    LineMode, MosaicMode, StrokeWidthLevel, SubToolOptions, Tool, ToolbarAction, ToolbarItem,
-};
+pub use items::{LineMode, MosaicMode, SubToolOptions, Tool, ToolbarAction, ToolbarItem};
 pub(crate) use layout::SubControl;
 mod state;
 pub use state::Toolbar;

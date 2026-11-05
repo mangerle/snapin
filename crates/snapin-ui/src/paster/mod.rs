@@ -4,11 +4,11 @@
 #[cfg(target_os = "linux")]
 mod alpha_surface;
 
-pub mod context_menu;
-pub mod manager;
-pub mod surface;
-pub mod text_to_pin;
-pub mod window;
+pub(crate) mod context_menu;
+pub(crate) mod manager;
+pub(crate) mod surface;
+pub(crate) mod text_to_pin;
+pub(crate) mod window;
 
 /// 单帧呈现结果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,6 +20,4 @@ pub enum PresentOutcome {
 }
 
 pub use crate::model::{GroupId, PasterId, PasterItem, PasterTransform};
-pub use manager::PasterManager;
-pub use surface::PasterSurface;
 pub use text_to_pin::{render_color_swatch_card, render_simple_text_card, try_parse_hex_color};

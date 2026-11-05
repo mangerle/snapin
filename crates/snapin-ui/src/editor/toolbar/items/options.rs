@@ -18,17 +18,6 @@ pub enum StrokeWidthLevel {
     Thick,
 }
 
-impl StrokeWidthLevel {
-    /// 获取实际像素数值
-    pub fn to_pixel(self) -> f32 {
-        match self {
-            Self::Thin => 2.0,
-            Self::Medium => 4.0,
-            Self::Thick => 8.0,
-        }
-    }
-}
-
 /// 文字字号预设（像素），顺序与字号下拉菜单一致。
 pub const FONT_SIZE_PRESETS: &[f32] = &[12.0, 16.0, 20.0, 24.0, 32.0, 48.0];
 
