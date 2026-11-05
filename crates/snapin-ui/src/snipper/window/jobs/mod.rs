@@ -27,6 +27,10 @@ pub enum SnipperJobKind {
     Save,
     Export,
     Beautify,
+    /// 美化后复制到剪贴板。
+    Copy,
+    /// 美化后生成置顶贴图。
+    Pin,
 }
 
 impl SnipperJobKind {
@@ -41,6 +45,8 @@ impl SnipperJobKind {
             Self::Save => "保存截图",
             Self::Export => "导出 OCR 结果",
             Self::Beautify => "美化导出",
+            Self::Copy => "复制截图",
+            Self::Pin => "贴图",
         }
     }
 }

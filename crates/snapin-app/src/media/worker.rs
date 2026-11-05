@@ -53,6 +53,7 @@ pub(super) async fn execute_job(
             )
             .await
         }
+        MediaJob::Beautify { image, options } => execute_beautify(image, options).await,
         MediaJob::SaveScreenshot { image } => {
             execute_save_screenshot(Arc::new(image), &config).await
         }
@@ -124,29 +125,53 @@ async fn execute_save_beautified(
     } else {
         None
     };
-    let task = tokio::task::spawn_blocking(move || {
+    let rgba = match beautify_image(image, options).await {
+        Ok(image) => image,
+        Err(message) => return MediaJobOutcome::Failed { message },
+    };
+    let task = tokio::task::spawn_blocking(move || match chosen_path {
+        Some(path) => save_image_to_path(&rgba, &path, &output),
+        None => save_image_with_config(&rgba, &output),
+    })
+    .await;
+    match task {
+        Ok(Ok(path)) => MediaJobOutcome::Saved { path },
+        Ok(Err(error)) => MediaJobOutcome::Failed {
+            message: format!("保存美化图像失败: {error}"),
+        },
+        Err(error) => MediaJobOutcome::Failed {
+            message: format!("保存美化图像任务异常: {error}"),
+        },
+    }
+}
+
+/// 在后台合成美化图像，供复制与贴图流程复用。
+async fn execute_beautify(
+    image: image::RgbaImage,
+    options: snapin_render::BeautifyOptions,
+) -> MediaJobOutcome {
+    match beautify_image(image, options).await {
+        Ok(image) => MediaJobOutcome::Beautified { image },
+        Err(message) => MediaJobOutcome::Failed { message },
+    }
+}
+
+/// 在阻塞线程中执行美化渲染，返回可直接写入剪贴板或贴图窗口的 RGBA 图像。
+async fn beautify_image(
+    image: image::RgbaImage,
+    options: snapin_render::BeautifyOptions,
+) -> Result<image::RgbaImage, String> {
+    tokio::task::spawn_blocking(move || {
         let mut input = tiny_skia::Pixmap::new(image.width(), image.height())
             .ok_or_else(|| "分配美化输入缓冲区失败".to_string())?;
         input.data_mut().copy_from_slice(image.as_raw());
         let beautified = snapin_render::render_beautified(input.as_ref(), &options)
             .map_err(|error| format!("美化渲染失败: {error}"))?;
-        let rgba =
-            image::RgbaImage::from_raw(beautified.width(), beautified.height(), beautified.take())
-                .ok_or_else(|| "转换美化输出图像失败".to_string())?;
-        match chosen_path {
-            Some(path) => save_image_to_path(&rgba, &path, &output),
-            None => save_image_with_config(&rgba, &output),
-        }
-        .map_err(|error| format!("保存美化图像失败: {error}"))
+        image::RgbaImage::from_raw(beautified.width(), beautified.height(), beautified.take())
+            .ok_or_else(|| "转换美化输出图像失败".to_string())
     })
-    .await;
-    match task {
-        Ok(Ok(path)) => MediaJobOutcome::Saved { path },
-        Ok(Err(message)) => MediaJobOutcome::Failed { message },
-        Err(error) => MediaJobOutcome::Failed {
-            message: format!("美化渲染任务异常: {error}"),
-        },
-    }
+    .await
+    .map_err(|error| format!("美化渲染任务异常: {error}"))?
 }
 
 /// 按用户选择的格式导出 OCR 文本。

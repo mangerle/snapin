@@ -80,24 +80,56 @@ impl SnipperState {
 
     /// 登记一个已成功提交的媒体任务。
     pub(crate) fn begin_pending_job(&mut self, kind: SnipperJobKind, id: JobId, cancel: JobCancel) {
+        self.begin_pending_job_at(kind, id, cancel, None);
+    }
+
+    /// 登记一个美化贴图任务，并记录结果渲染完成后的放置位置。
+    ///
+    /// 贴图落点在提交时固化，避免任务执行期间用户移动选区导致图像与窗口位置错位。
+    pub(crate) fn begin_pin_job(&mut self, id: JobId, cancel: JobCancel, position: (i32, i32)) {
+        self.begin_pending_job_at(SnipperJobKind::Pin, id, cancel, Some(position));
+    }
+
+    /// 登记在途任务的统一入口。
+    fn begin_pending_job_at(
+        &mut self,
+        kind: SnipperJobKind,
+        id: JobId,
+        cancel: JobCancel,
+        pin_position: Option<(i32, i32)>,
+    ) {
         debug_assert!(
             self.jobs.pending_media.is_none(),
             "同一截图会话只能有一个在途任务"
         );
-        self.jobs.pending_media = Some(PendingMediaJob { kind, id, cancel });
+        debug_assert!(
+            (kind == SnipperJobKind::Pin) == pin_position.is_some(),
+            "只有贴图任务可以携带贴图落点"
+        );
+        self.jobs.pending_media = Some(PendingMediaJob {
+            kind,
+            id,
+            cancel,
+            pin_position,
+        });
     }
 
-    /// 仅当任务类型与 ID 都匹配时移除在途任务，返回是否为当前任务。
-    pub(crate) fn take_matching_job(&mut self, kind: SnipperJobKind, id: JobId) -> bool {
+    /// 仅当任务类型与 ID 都匹配时取出在途任务；调用方据此读取任务附加信息。
+    pub(crate) fn take_matching_job(
+        &mut self,
+        kind: SnipperJobKind,
+        id: JobId,
+    ) -> Option<PendingMediaJob> {
         let matches = self
             .jobs
             .pending_media
             .as_ref()
             .is_some_and(|pending| pending.kind == kind && pending.id == id);
         if matches {
-            self.jobs.pending_media = None;
+            self.jobs.pending_media.take()
+        } else {
+            None
         }
-        matches
     }
 
     /// 当前任务 ID；仅供同 crate 的任务状态校验与测试使用。
@@ -265,8 +297,12 @@ mod tests {
             Box::new(move || cancel_flag.store(true, Ordering::Release)),
         );
 
-        assert!(!state.take_matching_job(SnipperJobKind::Save, JobId::new(7)));
-        assert!(!state.take_matching_job(SnipperJobKind::Ocr, JobId::new(8)));
+        assert!(state
+            .take_matching_job(SnipperJobKind::Save, JobId::new(7))
+            .is_none());
+        assert!(state
+            .take_matching_job(SnipperJobKind::Ocr, JobId::new(8))
+            .is_none());
         assert!(state.has_pending_job(), "错误回调不得清除当前任务");
 
         state.cancel_pending_job();

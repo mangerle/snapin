@@ -1,5 +1,6 @@
 //! 截图任务结果回填与状态流转。
 
+use super::super::actions::build_pin_item;
 use super::SnipperJobKind;
 use crate::ports::{JobId, MediaJobOutcome, OcrTextItem, QrCodeItem};
 use crate::snipper::window::clipboard::SnipperClipboardAction;
@@ -7,6 +8,7 @@ use crate::snipper::window::ocr_editor::OcrTextEditorState;
 use crate::snipper::window::redaction::{apply_redaction, RedactionPreview};
 use crate::snipper::window::state::SnipperState;
 use crate::snipper::window::types::SnipperOutcome;
+use image::RgbaImage;
 use snapin_annotation::action::AnnotationShape;
 use snapin_annotation::shapes::{TranslationAction, TranslationShapeItem};
 use std::path::PathBuf;
@@ -18,20 +20,50 @@ pub fn handle_job_outcome(
     kind: SnipperJobKind,
     outcome: MediaJobOutcome,
 ) {
-    if !state.take_matching_job(kind, job_id) {
+    let Some(pending) = state.take_matching_job(kind, job_id) else {
         tracing::debug!("丢弃过期的截图媒体任务结果: {job_id:?}");
         return;
-    }
+    };
 
     match outcome {
         MediaJobOutcome::Ocr { text, lines } => handle_ocr_outcome(state, kind, text, lines),
         MediaJobOutcome::QrCodes { codes } => handle_qr_outcome(state, codes),
         MediaJobOutcome::Translated { items } => handle_translation_outcome(state, items),
+        MediaJobOutcome::Beautified { image } => {
+            handle_beautified_outcome(state, kind, image, pending.pin_position);
+        }
         MediaJobOutcome::Saved { path } => handle_saved_outcome(state, kind, path),
         MediaJobOutcome::SaveCancelled => {
             state.set_status_message(snapin_foundation::i18n::tr("已取消保存"));
         }
         MediaJobOutcome::Failed { message } => handle_job_failure(state, kind, message),
+    }
+}
+
+/// 处理后台美化结果：复制任务写入剪贴板，贴图任务按提交时固化的落点创建窗口。
+fn handle_beautified_outcome(
+    state: &mut SnipperState,
+    kind: SnipperJobKind,
+    image: RgbaImage,
+    pin_position: Option<(i32, i32)>,
+) {
+    match kind {
+        SnipperJobKind::Copy => {
+            state.submit_clipboard_image(image, SnipperClipboardAction::CopyImage);
+        }
+        SnipperJobKind::Pin => {
+            let Some(position) = pin_position else {
+                tracing::error!("贴图任务缺少落点信息，美化结果已丢弃");
+                return;
+            };
+            match build_pin_item(image, position) {
+                Some(item) => state.session.outcome = Some(SnipperOutcome::Pinned(item)),
+                None => state.set_status_message(snapin_foundation::i18n::tr("创建贴图缓冲区失败")),
+            }
+        }
+        _ => {
+            tracing::error!("美化结果与任务类别不匹配，任务类型: {kind:?}");
+        }
     }
 }
 
@@ -390,6 +422,53 @@ mod tests {
                 .map(|code| code.text.as_str()),
             Some("https://example.com")
         );
+    }
+
+    /// 美化复制结果必须走真实剪贴板写入，写入成功后才结束截图会话。
+    #[test]
+    fn test_beautified_copy_outcome_writes_image_to_clipboard() {
+        let mut state = SnipperState::new();
+        let job_id = accept_job(&mut state, SnipperJobKind::Copy);
+        let image = image::RgbaImage::from_pixel(4, 3, Rgba([1, 2, 3, 255]));
+        handle_job_outcome(
+            &mut state,
+            job_id,
+            SnipperJobKind::Copy,
+            MediaJobOutcome::Beautified { image },
+        );
+
+        assert!(state.session.outcome.is_none(), "写入完成前不得结束会话");
+        let clipboard_id = state
+            .pending_clipboard_id()
+            .expect("美化复制应处于等待真实写入状态");
+        state.handle_clipboard_finished(clipboard_id, Ok(crate::ports::ClipboardResult::Written));
+        assert!(matches!(
+            state.session.outcome,
+            Some(SnipperOutcome::CopiedImage)
+        ));
+    }
+
+    /// 美化贴图结果必须使用提交时固化的落点创建窗口。
+    #[test]
+    fn test_beautified_pin_outcome_uses_submitted_position() {
+        let mut state = SnipperState::new();
+        let job_id = JobId::new(9);
+        state.begin_pin_job(job_id, Box::new(|| {}), (12, 34));
+        let image = image::RgbaImage::from_pixel(2, 2, Rgba([9, 8, 7, 255]));
+        handle_job_outcome(
+            &mut state,
+            job_id,
+            SnipperJobKind::Pin,
+            MediaJobOutcome::Beautified { image },
+        );
+
+        match state.session.outcome {
+            Some(SnipperOutcome::Pinned(item)) => {
+                assert_eq!(item.position, (12, 34));
+                assert_eq!((item.pixmap.width(), item.pixmap.height()), (2, 2));
+            }
+            _ => panic!("美化贴图必须生成 Pinned 结果"),
+        }
     }
 
     /// 测试用图像必须与真实任务使用相同的 RGBA 布局

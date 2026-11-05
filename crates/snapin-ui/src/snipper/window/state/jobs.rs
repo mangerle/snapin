@@ -13,6 +13,8 @@ pub(crate) struct PendingMediaJob {
     pub(crate) id: JobId,
     /// 协作取消闭包。
     pub(crate) cancel: JobCancel,
+    /// 贴图任务的落点；仅 `Pin` 任务使用，其余任务为 `None`。
+    pub(crate) pin_position: Option<(i32, i32)>,
 }
 
 /// 截图会话的异步任务与完成回传状态。

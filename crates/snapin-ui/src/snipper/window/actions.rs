@@ -44,21 +44,32 @@ pub fn crop_selection_image(
     None
 }
 
-/// 复制选区图像到剪贴板并准备退出
+/// 复制选区图像到剪贴板并准备退出。
+///
+/// 开启美化时把渲染提交到后台媒体执行器，GUI 线程只负责提交与回填结果；
+/// 未开启美化时直接复用已合成的选区图像。
 pub fn handle_action_copy(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
+    if state.session.config.beautify.enabled && state.has_pending_job() {
+        state.set_status_message(snapin_foundation::i18n::tr("请等待当前任务完成"));
+        return;
+    }
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
-        let cropped = match apply_configured_beautify(state, cropped) {
-            Ok(image) => image,
-            Err(message) => {
-                state.set_status_message(message);
-                return;
-            }
-        };
         if let SelectionState::Locked { rect, .. } = &state.viewport.selection {
             state.remember_selection(*rect);
         }
-        state.submit_clipboard_image(cropped, SnipperClipboardAction::CopyImage);
+        if state.session.config.beautify.enabled {
+            dispatch_job(
+                state,
+                SnipperJobKind::Copy,
+                MediaJob::Beautify {
+                    image: cropped,
+                    options: (&state.session.config.beautify).into(),
+                },
+            );
+        } else {
+            state.submit_clipboard_image(cropped, SnipperClipboardAction::CopyImage);
+        }
     }
 }
 
@@ -115,54 +126,48 @@ pub fn handle_action_save_beautified(state: &mut SnipperState, original_rgba: &R
     }
 }
 
-/// 将选区转为贴图固定在屏幕
+/// 将选区转为贴图固定在屏幕。
+///
+/// 贴图落点在提交时固化；开启美化时由后台线程渲染，结果回来后按同一点位创建窗口。
 pub fn handle_action_pin(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
+    if state.session.config.beautify.enabled && state.has_pending_job() {
+        state.set_status_message(snapin_foundation::i18n::tr("请等待当前任务完成"));
+        return;
+    }
     let pin_pos = match &state.viewport.selection {
         SelectionState::Locked { rect, .. } => (rect.x as i32, rect.y as i32),
         _ => return,
     };
 
     if let Some(cropped) = crop_selection_image(state, original_rgba) {
-        let cropped = match apply_configured_beautify(state, cropped) {
-            Ok(image) => image,
-            Err(message) => {
-                state.set_status_message(message);
-                return;
-            }
-        };
-        match tiny_skia::Pixmap::new(cropped.width(), cropped.height()) {
-            Some(mut pixmap) => {
-                pixmap.data_mut().copy_from_slice(cropped.as_raw());
-                let id = snapin_foundation::AppPaths::generate_unique_id();
-                let item = PasterItem::new(id, format!("pin_{id}"), pixmap, pin_pos);
-                state.session.outcome = Some(SnipperOutcome::Pinned(item));
-            }
+        if state.session.config.beautify.enabled {
+            dispatch_pin_job(
+                state,
+                MediaJob::Beautify {
+                    image: cropped,
+                    options: (&state.session.config.beautify).into(),
+                },
+                pin_pos,
+            );
+            return;
+        }
+        match build_pin_item(cropped, pin_pos) {
+            Some(item) => state.session.outcome = Some(SnipperOutcome::Pinned(item)),
             None => {
-                tracing::error!(
-                    "创建贴图像素缓冲区失败，尺寸: {}x{}",
-                    cropped.width(),
-                    cropped.height()
-                );
+                tracing::error!("创建贴图像素缓冲区失败");
                 state.set_status_message(snapin_foundation::i18n::tr("创建贴图缓冲区失败"));
             }
         }
     }
 }
 
-/// 按配置把最终输出图像转换为美化版本；关闭美化时原样返回。
-fn apply_configured_beautify(state: &SnipperState, image: RgbaImage) -> Result<RgbaImage, String> {
-    if !state.session.config.beautify.enabled {
-        return Ok(image);
-    }
-    let mut input = tiny_skia::Pixmap::new(image.width(), image.height())
-        .ok_or_else(|| "分配美化输出输入缓冲区失败".to_string())?;
-    input.data_mut().copy_from_slice(image.as_raw());
-    let output =
-        snapin_render::render_beautified(input.as_ref(), &(&state.session.config.beautify).into())
-            .map_err(|error| error.to_string())?;
-    RgbaImage::from_raw(output.width(), output.height(), output.take())
-        .ok_or_else(|| "转换美化输出图像失败".to_string())
+/// 将已合成的 RGBA 图像包装为贴图窗口条目；缓冲区分配失败时返回 `None`。
+pub(crate) fn build_pin_item(image: RgbaImage, position: (i32, i32)) -> Option<PasterItem> {
+    let mut pixmap = tiny_skia::Pixmap::new(image.width(), image.height())?;
+    pixmap.data_mut().copy_from_slice(image.as_raw());
+    let id = snapin_foundation::AppPaths::generate_unique_id();
+    Some(PasterItem::new(id, format!("pin_{id}"), pixmap, position))
 }
 
 /// 取色器单击：读取光标处像素，按用户设置的格式复制颜色并退出。
@@ -282,6 +287,21 @@ fn locked_selection_origin(state: &SnipperState, original_rgba: &RgbaImage) -> O
 ///
 /// UI 不自行创建线程或 Tokio 任务；取消与结果回传统一由截图任务运行时负责。
 fn dispatch_job(state: &mut SnipperState, kind: SnipperJobKind, job: MediaJob) {
+    dispatch_job_at(state, kind, job, None);
+}
+
+/// 提交贴图美化任务，并把提交时的落点固化到在途任务中。
+fn dispatch_pin_job(state: &mut SnipperState, job: MediaJob, position: (i32, i32)) {
+    dispatch_job_at(state, SnipperJobKind::Pin, job, Some(position));
+}
+
+/// 提交任务的统一实现；`pin_position` 只允许与 `Pin` 任务同时出现。
+fn dispatch_job_at(
+    state: &mut SnipperState,
+    kind: SnipperJobKind,
+    job: MediaJob,
+    pin_position: Option<(i32, i32)>,
+) {
     let Some(runtime) = state.jobs.runtime.clone() else {
         state.set_status_message(snapin_foundation::i18n::tr("后台任务媒体执行器不可用"));
         return;
@@ -289,7 +309,10 @@ fn dispatch_job(state: &mut SnipperState, kind: SnipperJobKind, job: MediaJob) {
 
     match runtime.submit(kind, job) {
         Ok((job_id, cancel)) => {
-            state.begin_pending_job(kind, job_id, cancel);
+            match pin_position {
+                Some(position) => state.begin_pin_job(job_id, cancel, position),
+                None => state.begin_pending_job(kind, job_id, cancel),
+            }
             if kind == SnipperJobKind::Redact {
                 state.clear_status_message();
             } else {
@@ -302,7 +325,6 @@ fn dispatch_job(state: &mut SnipperState, kind: SnipperJobKind, job: MediaJob) {
         }
     }
 }
-
 /// 执行选区截图原位翻译替换
 pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaImage) {
     state.clear_status_message();
@@ -518,14 +540,17 @@ mod tests {
         assert!(!state.editor.annotations.can_undo());
     }
 
-    /// 美化开启后，最终输出图像必须采用设置中的尺寸和留白。
+    /// 美化配置必须转换为社交画布尺寸，后台渲染与保存路径共用同一组参数。
     #[test]
-    fn test_configured_beautify_changes_final_output() {
+    fn test_configured_beautify_options_produce_social_canvas() {
         let mut state = SnipperState::new();
         state.session.config.beautify.enabled = true;
         state.session.config.beautify.social_size = snapin_render::SocialSize::Square;
-        let image = RgbaImage::from_pixel(100, 50, Rgba([255, 0, 0, 255]));
-        let output = apply_configured_beautify(&state, image).expect("美化输出应成功");
-        assert_eq!(output.dimensions(), (1080, 1080));
+        let options = snapin_render::BeautifyOptions::from(&state.session.config.beautify);
+        let mut input = tiny_skia::Pixmap::new(100, 50).expect("创建测试位图失败");
+        input.fill(tiny_skia::Color::from_rgba8(255, 0, 0, 255));
+        let output =
+            snapin_render::render_beautified(input.as_ref(), &options).expect("美化输出应成功");
+        assert_eq!((output.width(), output.height()), (1080, 1080));
     }
 }

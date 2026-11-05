@@ -334,6 +334,16 @@ pub enum MediaJob {
         /// 原位翻译背景覆盖模式
         cover_mode: CoverMode,
     },
+    /// 按美化配置在后台合成最终图像，供复制与贴图前使用。
+    ///
+    /// 美化渲染包含大画布分配、缩放、圆角遮罩与阴影绘制，必须留在后台线程执行；
+    /// 关闭美化时 UI 直接使用原图，不提交本任务。
+    Beautify {
+        /// 已完成标注合成的选区图像
+        image: RgbaImage,
+        /// 美化参数
+        options: BeautifyOptions,
+    },
     /// 保存截图并遵循应用层当前的输出配置。
     SaveScreenshot {
         /// 要保存的最终图像
@@ -383,6 +393,11 @@ pub enum MediaJobOutcome {
     Translated {
         /// 已按原图坐标排版的翻译图元
         items: Vec<TranslationShapeItem>,
+    },
+    /// 美化合成完成
+    Beautified {
+        /// 已完成美化渲染的最终图像
+        image: RgbaImage,
     },
     /// 保存成功
     Saved {
