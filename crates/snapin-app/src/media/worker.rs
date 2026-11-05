@@ -1,7 +1,7 @@
 //! 媒体任务分派、OCR 引擎缓存与翻译编排。
 //!
 //! 任务运行在统一 [`snapin_runtime::TaskRuntime`] 的异步上下文内；OCR 推理与
-//! 图像排版通过 `spawn_blocking` 移出异步 worker。OCR 引擎按模型目录缓存，
+//! 图像排版通过统一运行时的 `run_blocking_detached` 移出异步 worker。OCR 引擎按模型目录缓存，
 //! 目录映射只在短临界区内取用，模型加载由 `OnceCell` 在锁外完成，同一目录的
 //! 并发任务共享一次初始化。取消标志在 OCR、翻译、排版等阶段边界检查；单次
 //! ONNX 推理本身不可中断，取消会丢弃其结果并阻止后续阶段。
@@ -11,6 +11,7 @@ use super::translate::{build_translation_items, to_service_provider, Translation
 use super::OcrCache;
 use snapin_config::config::Config;
 use snapin_platform::pick_save_path;
+use snapin_runtime::TaskRuntime;
 use snapin_service::ocr::{LocalPpOcrEngine, OcrEngine, OcrResult, OcrTextBlock};
 use snapin_service::qr::decode_qr_codes;
 use snapin_service::{create_translator, Translator, TranslatorOptions};
@@ -29,6 +30,7 @@ pub(super) async fn execute_job(
     config: Arc<Config>,
     cache: Arc<Mutex<OcrCache>>,
     cancel: Arc<AtomicBool>,
+    runtime: TaskRuntime,
 ) -> MediaJobOutcome {
     if cancel.load(Ordering::Acquire) {
         return cancelled();
@@ -37,10 +39,11 @@ pub(super) async fn execute_job(
         cache: &cache,
         config: &config,
         cancel: &cancel,
+        runtime: &runtime,
     };
     match job {
         MediaJob::Ocr { image, origin } => execute_ocr(&context, image, origin).await,
-        MediaJob::DecodeQr { image, origin } => execute_qr(image, origin, &cancel).await,
+        MediaJob::DecodeQr { image, origin } => execute_qr(image, origin, &cancel, &runtime).await,
         MediaJob::Translate {
             image,
             origin,
@@ -53,9 +56,9 @@ pub(super) async fn execute_job(
             )
             .await
         }
-        MediaJob::Beautify { image, options } => execute_beautify(image, options).await,
+        MediaJob::Beautify { image, options } => execute_beautify(image, options, &runtime).await,
         MediaJob::SaveScreenshot { image } => {
-            execute_save_screenshot(Arc::new(image), &config).await
+            execute_save_screenshot(Arc::new(image), &config, &runtime).await
         }
         MediaJob::SavePaster {
             image,
@@ -69,14 +72,15 @@ pub(super) async fn execute_job(
                     open_folder_after,
                 },
                 &config,
+                &runtime,
             )
             .await
         }
         MediaJob::SaveOcrText { lines, format } => {
-            execute_save_ocr_text(lines, format, &config).await
+            execute_save_ocr_text(lines, format, &config, &runtime).await
         }
         MediaJob::SaveBeautified { image, options } => {
-            execute_save_beautified(image, options, &config).await
+            execute_save_beautified(image, options, &config, &runtime).await
         }
     }
 }
@@ -87,6 +91,7 @@ struct MediaTaskContext<'a> {
     cache: &'a Arc<Mutex<OcrCache>>,
     config: &'a Config,
     cancel: &'a Arc<AtomicBool>,
+    runtime: &'a TaskRuntime,
 }
 
 /// 渲染美化截图并保存为当前默认输出格式。
@@ -94,17 +99,21 @@ async fn execute_save_beautified(
     image: image::RgbaImage,
     options: snapin_render::BeautifyOptions,
     config: &Config,
+    runtime: &TaskRuntime,
 ) -> MediaJobOutcome {
     let output = config.output.clone();
     let chosen_path = if output.prompt_save_path {
         let dialog_output = output.clone();
-        let suggestion = tokio::task::spawn_blocking(move || {
-            if let Err(error) = ensure_output_directory(&dialog_output) {
-                tracing::warn!("准备美化截图保存目录失败，保存对话框将使用系统默认位置: {error}");
-            }
-            suggest_save_path(&dialog_output)
-        })
-        .await;
+        let suggestion = runtime
+            .run_blocking_detached(move || {
+                if let Err(error) = ensure_output_directory(&dialog_output) {
+                    tracing::warn!(
+                        "准备美化截图保存目录失败，保存对话框将使用系统默认位置: {error}"
+                    );
+                }
+                suggest_save_path(&dialog_output)
+            })
+            .await;
         let suggestion = match suggestion {
             Ok(suggestion) => suggestion,
             Err(error) => {
@@ -125,15 +134,16 @@ async fn execute_save_beautified(
     } else {
         None
     };
-    let rgba = match beautify_image(image, options).await {
+    let rgba = match beautify_image(image, options, runtime).await {
         Ok(image) => image,
         Err(message) => return MediaJobOutcome::Failed { message },
     };
-    let task = tokio::task::spawn_blocking(move || match chosen_path {
-        Some(path) => save_image_to_path(&rgba, &path, &output),
-        None => save_image_with_config(&rgba, &output),
-    })
-    .await;
+    let task = runtime
+        .run_blocking_detached(move || match chosen_path {
+            Some(path) => save_image_to_path(&rgba, &path, &output),
+            None => save_image_with_config(&rgba, &output),
+        })
+        .await;
     match task {
         Ok(Ok(path)) => MediaJobOutcome::Saved { path },
         Ok(Err(error)) => MediaJobOutcome::Failed {
@@ -149,8 +159,9 @@ async fn execute_save_beautified(
 async fn execute_beautify(
     image: image::RgbaImage,
     options: snapin_render::BeautifyOptions,
+    runtime: &TaskRuntime,
 ) -> MediaJobOutcome {
-    match beautify_image(image, options).await {
+    match beautify_image(image, options, runtime).await {
         Ok(image) => MediaJobOutcome::Beautified { image },
         Err(message) => MediaJobOutcome::Failed { message },
     }
@@ -160,18 +171,20 @@ async fn execute_beautify(
 async fn beautify_image(
     image: image::RgbaImage,
     options: snapin_render::BeautifyOptions,
+    runtime: &TaskRuntime,
 ) -> Result<image::RgbaImage, String> {
-    tokio::task::spawn_blocking(move || {
-        let mut input = tiny_skia::Pixmap::new(image.width(), image.height())
-            .ok_or_else(|| "分配美化输入缓冲区失败".to_string())?;
-        input.data_mut().copy_from_slice(image.as_raw());
-        let beautified = snapin_render::render_beautified(input.as_ref(), &options)
-            .map_err(|error| format!("美化渲染失败: {error}"))?;
-        image::RgbaImage::from_raw(beautified.width(), beautified.height(), beautified.take())
-            .ok_or_else(|| "转换美化输出图像失败".to_string())
-    })
-    .await
-    .map_err(|error| format!("美化渲染任务异常: {error}"))?
+    runtime
+        .run_blocking_detached(move || {
+            let mut input = tiny_skia::Pixmap::new(image.width(), image.height())
+                .ok_or_else(|| "分配美化输入缓冲区失败".to_string())?;
+            input.data_mut().copy_from_slice(image.as_raw());
+            let beautified = snapin_render::render_beautified(input.as_ref(), &options)
+                .map_err(|error| format!("美化渲染失败: {error}"))?;
+            image::RgbaImage::from_raw(beautified.width(), beautified.height(), beautified.take())
+                .ok_or_else(|| "转换美化输出图像失败".to_string())
+        })
+        .await
+        .map_err(|error| format!("美化渲染任务异常: {error}"))?
 }
 
 /// 按用户选择的格式导出 OCR 文本。
@@ -179,29 +192,31 @@ async fn execute_save_ocr_text(
     lines: Vec<String>,
     format: OcrExportFormat,
     config: &Config,
+    runtime: &TaskRuntime,
 ) -> MediaJobOutcome {
     let output = config.output.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let (content, extension) = match format {
-            OcrExportFormat::Markdown => (
-                format!(
-                    "# OCR 识别结果\n\n{}\n",
-                    lines
-                        .iter()
-                        .map(|line| format!("- {line}"))
-                        .collect::<Vec<_>>()
-                        .join("\n")
+    let result = runtime
+        .run_blocking_detached(move || {
+            let (content, extension) = match format {
+                OcrExportFormat::Markdown => (
+                    format!(
+                        "# OCR 识别结果\n\n{}\n",
+                        lines
+                            .iter()
+                            .map(|line| format!("- {line}"))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    ),
+                    "md",
                 ),
-                "md",
-            ),
-            OcrExportFormat::Json => (
-                serde_json::to_string_pretty(&lines).unwrap_or_else(|_| "[]".to_string()),
-                "json",
-            ),
-        };
-        snapin_storage::save_text_with_config(&content, extension, &output)
-    })
-    .await;
+                OcrExportFormat::Json => (
+                    serde_json::to_string_pretty(&lines).unwrap_or_else(|_| "[]".to_string()),
+                    "json",
+                ),
+            };
+            snapin_storage::save_text_with_config(&content, extension, &output)
+        })
+        .await;
 
     match result {
         Ok(Ok(path)) => MediaJobOutcome::Saved { path },
@@ -222,23 +237,26 @@ async fn execute_save_ocr_text(
 async fn get_ocr_engine(
     cache: &Arc<Mutex<OcrCache>>,
     config: &Config,
+    runtime: &TaskRuntime,
 ) -> Result<Arc<LocalPpOcrEngine>, String> {
     let model_dir = config.ocr.local.model_dir.trim().to_string();
     let cell = cache.lock().await.slot(&model_dir);
+    let runtime = runtime.clone();
     let initialized = cell
         .get_or_init(|| async move {
             let init_dir = model_dir.clone();
-            match tokio::task::spawn_blocking(move || {
-                let custom_dir = if init_dir.is_empty() {
-                    None
-                } else {
-                    Some(Path::new(&init_dir))
-                };
-                LocalPpOcrEngine::new(custom_dir)
-                    .map(Arc::new)
-                    .map_err(|error| error.to_string())
-            })
-            .await
+            match runtime
+                .run_blocking_detached(move || {
+                    let custom_dir = if init_dir.is_empty() {
+                        None
+                    } else {
+                        Some(Path::new(&init_dir))
+                    };
+                    LocalPpOcrEngine::new(custom_dir)
+                        .map(Arc::new)
+                        .map_err(|error| error.to_string())
+                })
+                .await
             {
                 Ok(result) => result,
                 Err(error) => Err(format!("OCR 引擎初始化任务异常: {error}")),
@@ -257,14 +275,17 @@ async fn execute_ocr(
     if context.cancel.load(Ordering::Acquire) {
         return cancelled();
     }
-    let engine = match get_ocr_engine(context.cache, context.config).await {
+    let engine = match get_ocr_engine(context.cache, context.config, context.runtime).await {
         Ok(engine) => engine,
         Err(message) => return MediaJobOutcome::Failed { message },
     };
     if context.cancel.load(Ordering::Acquire) {
         return cancelled();
     }
-    let outcome = tokio::task::spawn_blocking(move || engine.recognize(&image)).await;
+    let outcome = context
+        .runtime
+        .run_blocking_detached(move || engine.recognize(&image))
+        .await;
     if context.cancel.load(Ordering::Acquire) {
         return cancelled();
     }
@@ -308,11 +329,14 @@ async fn execute_qr(
     image: image::RgbaImage,
     origin: (u32, u32),
     cancel: &Arc<AtomicBool>,
+    runtime: &TaskRuntime,
 ) -> MediaJobOutcome {
     if cancel.load(Ordering::Acquire) {
         return cancelled();
     }
-    let task = tokio::task::spawn_blocking(move || decode_qr_codes(&image)).await;
+    let task = runtime
+        .run_blocking_detached(move || decode_qr_codes(&image))
+        .await;
     if cancel.load(Ordering::Acquire) {
         return cancelled();
     }
@@ -355,7 +379,7 @@ async fn execute_translate(
         Ok(translated) => translated,
         Err(outcome) => return outcome,
     };
-    layout_translation(image, ocr_result, translated, placement).await
+    layout_translation(image, ocr_result, translated, placement, context.runtime).await
 }
 
 /// 在取消边界内执行 OCR，并将推理错误转换为最终任务回执。
@@ -366,13 +390,16 @@ async fn recognize_for_translation(
     if context.cancel.load(Ordering::Acquire) {
         return Err(cancelled());
     }
-    let engine = get_ocr_engine(context.cache, context.config)
+    let engine = get_ocr_engine(context.cache, context.config, context.runtime)
         .await
         .map_err(|message| MediaJobOutcome::Failed { message })?;
     if context.cancel.load(Ordering::Acquire) {
         return Err(cancelled());
     }
-    let result = tokio::task::spawn_blocking(move || engine.recognize(&image)).await;
+    let result = context
+        .runtime
+        .run_blocking_detached(move || engine.recognize(&image))
+        .await;
     if context.cancel.load(Ordering::Acquire) {
         return Err(cancelled());
     }
@@ -422,11 +449,13 @@ async fn layout_translation(
     ocr_result: OcrResult,
     translated: Vec<String>,
     placement: TranslationPlacement,
+    runtime: &TaskRuntime,
 ) -> MediaJobOutcome {
-    let layout = tokio::task::spawn_blocking(move || {
-        build_translation_items(&image, &ocr_result.blocks, &translated, placement)
-    })
-    .await;
+    let layout = runtime
+        .run_blocking_detached(move || {
+            build_translation_items(&image, &ocr_result.blocks, &translated, placement)
+        })
+        .await;
     match layout {
         Ok(items) => MediaJobOutcome::Translated { items },
         Err(error) => MediaJobOutcome::Failed {
@@ -463,17 +492,18 @@ mod tests {
     /// 相同模型目录必须命中已有缓存，不同目录必须触发重建。
     #[tokio::test]
     async fn test_ocr_cache_key_changes_with_model_dir() {
+        let runtime = TaskRuntime::current(1).expect("测试运行时必须可用");
         let cache = Arc::new(Mutex::new(OcrCache::default()));
         let mut config = Config::default();
         config.ocr.local.model_dir = "/tmp/nonexistent-model-a".to_string();
-        let first = get_ocr_engine(&cache, &config).await;
+        let first = get_ocr_engine(&cache, &config, &runtime).await;
         assert!(first.is_err(), "不存在的模型目录必须返回错误");
         let cached = cache.lock().await.entry.clone();
         let (cached_dir, _) = cached.expect("错误结果也必须按目录缓存");
         assert_eq!(cached_dir, "/tmp/nonexistent-model-a");
 
         config.ocr.local.model_dir = "/tmp/nonexistent-model-b".to_string();
-        let second = get_ocr_engine(&cache, &config).await;
+        let second = get_ocr_engine(&cache, &config, &runtime).await;
         assert!(second.is_err());
         let cached = cache.lock().await.entry.clone();
         let (cached_dir, _) = cached.expect("新目录必须写入新缓存");

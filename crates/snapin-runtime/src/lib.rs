@@ -201,39 +201,9 @@ impl TaskRuntime {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let _admission = self.lock_admission();
-        if self.inner.shutting_down.load(Ordering::Acquire) {
-            return Err(TaskRuntimeError::ShuttingDown);
-        }
-        let permit = self.acquire(pool)?;
-        let id = self.inner.next_task_id.fetch_add(1, Ordering::Relaxed);
-        // 把许可与追踪令牌一起移动进阻塞闭包：即使调用方丢弃 JoinHandle，阻塞线程
-        // 完成前仍会占用名额并被 TaskTracker 统计，避免停机误判为已排空。
-        let join = self.inner.tracker.spawn_blocking_on(
-            move || {
-                let _permit = permit;
-                task()
-            },
-            &self.inner.handle,
-        );
+        let (id, join) = self.spawn_blocking_join(task, Some(pool))?;
         let abort = join.abort_handle();
-        if let Ok(mut active) = self.inner.active_tasks.lock() {
-            active.insert(id, abort.clone());
-        }
-        let inner = Arc::clone(&self.inner);
-        let tracked = self.inner.tracker.track_future(async move {
-            match join.await {
-                Ok(_) => {}
-                Err(error) if error.is_panic() => {
-                    tracing::error!("后台阻塞任务发生 panic，任务序号: {id}，已隔离该任务");
-                }
-                Err(_) => tracing::debug!("后台阻塞任务在完成前被取消，任务序号: {id}"),
-            }
-            if let Ok(mut active) = inner.active_tasks.lock() {
-                active.remove(&id);
-            }
-        });
-        drop(self.inner.handle.spawn(tracked));
+        self.monitor_blocking_join(id, join);
         Ok(TaskHandle { id, abort })
     }
 
@@ -267,38 +237,109 @@ impl TaskRuntime {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let (id, join) = {
-            let _admission = self.lock_admission();
-            if self.inner.shutting_down.load(Ordering::Acquire) {
-                return Err(TaskRuntimeError::ShuttingDown);
-            }
-            let permit = self.acquire(pool)?;
-            let id = self.inner.next_task_id.fetch_add(1, Ordering::Relaxed);
-            let join = self.inner.tracker.spawn_blocking_on(
-                move || {
-                    let _permit = permit;
-                    task()
-                },
-                &self.inner.handle,
-            );
-            let abort = join.abort_handle();
-            if let Ok(mut active) = self.inner.active_tasks.lock() {
-                active.insert(id, abort);
-            }
-            (id, join)
-        };
+        let (id, join) = self.spawn_blocking_join(task, Some(pool))?;
         let result = join.await;
         if let Ok(mut active) = self.inner.active_tasks.lock() {
             active.remove(&id);
         }
-        result.map_err(|error| TaskRuntimeError::BlockingTaskFailed {
-            task_id: id,
-            reason: if error.is_panic() {
-                "任务发生 panic".to_string()
-            } else {
-                "任务在完成前被取消".to_string()
+        result.map_err(|error| blocking_task_error(id, error))
+    }
+
+    /// 在已持有任务名额的异步任务内派生受追踪的阻塞子任务。
+    ///
+    /// 媒体任务的外层异步任务已经占用 `Media` 池名额；若在任务内部再次调用
+    /// [`Self::spawn_blocking_in`] 申请同池名额，池满时会得到虚假的队列已满错误。
+    /// 本入口复用调用方已持有的名额，不再二次准入，但阻塞线程仍登记到
+    /// [`TaskTracker`] 与活动任务表，停机等待和 panic 日志保持可见。
+    ///
+    /// # Errors
+    ///
+    /// 运行时已停机时返回 [`TaskRuntimeError::ShuttingDown`]。
+    pub fn spawn_blocking_detached<F, R>(&self, task: F) -> Result<TaskHandle, TaskRuntimeError>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let (id, join) = self.spawn_blocking_join(task, None)?;
+        let abort = join.abort_handle();
+        self.monitor_blocking_join(id, join);
+        Ok(TaskHandle { id, abort })
+    }
+
+    /// 在已持有任务名额的异步任务内执行并等待阻塞子任务。
+    ///
+    /// 与 [`Self::run_blocking_in`] 相比不重复申请池名额，适合媒体任务在
+    /// 推理、图像编码等 CPU 阶段使用。
+    ///
+    /// # Errors
+    ///
+    /// 运行时已停机或阻塞任务 panic 时返回 [`TaskRuntimeError`]。
+    pub async fn run_blocking_detached<F, R>(&self, task: F) -> Result<R, TaskRuntimeError>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let (id, join) = self.spawn_blocking_join(task, None)?;
+        let result = join.await;
+        if let Ok(mut active) = self.inner.active_tasks.lock() {
+            active.remove(&id);
+        }
+        result.map_err(|error| blocking_task_error(id, error))
+    }
+
+    /// 登记并启动一个阻塞任务；`pool` 为 `None` 时复用调用方已持有的名额。
+    fn spawn_blocking_join<F, R>(
+        &self,
+        task: F,
+        pool: Option<TaskPool>,
+    ) -> Result<(u64, tokio::task::JoinHandle<R>), TaskRuntimeError>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let _admission = self.lock_admission();
+        if self.inner.shutting_down.load(Ordering::Acquire) {
+            return Err(TaskRuntimeError::ShuttingDown);
+        }
+        let permit = match pool {
+            Some(pool) => Some(self.acquire(pool)?),
+            None => None,
+        };
+        let id = self.inner.next_task_id.fetch_add(1, Ordering::Relaxed);
+        // 把许可与追踪令牌一起移动进阻塞闭包：即使调用方丢弃 JoinHandle，阻塞线程
+        // 完成前仍会占用名额并被 TaskTracker 统计，避免停机误判为已排空。
+        let join = self.inner.tracker.spawn_blocking_on(
+            move || {
+                let _permit = permit;
+                task()
             },
-        })
+            &self.inner.handle,
+        );
+        if let Ok(mut active) = self.inner.active_tasks.lock() {
+            active.insert(id, join.abort_handle());
+        }
+        Ok((id, join))
+    }
+
+    /// 监视阻塞任务完成并清理活动表，panic 时输出告警而不影响其他任务。
+    fn monitor_blocking_join<R>(&self, id: u64, join: tokio::task::JoinHandle<R>)
+    where
+        R: Send + 'static,
+    {
+        let inner = Arc::clone(&self.inner);
+        let tracked = self.inner.tracker.track_future(async move {
+            match join.await {
+                Ok(_) => {}
+                Err(error) if error.is_panic() => {
+                    tracing::error!("后台阻塞任务发生 panic，任务序号: {id}，已隔离该任务");
+                }
+                Err(_) => tracing::debug!("后台阻塞任务在完成前被取消，任务序号: {id}"),
+            }
+            if let Ok(mut active) = inner.active_tasks.lock() {
+                active.remove(&id);
+            }
+        });
+        drop(self.inner.handle.spawn(tracked));
     }
 
     /// 获取共享取消令牌。
@@ -406,6 +447,18 @@ fn abort_active_tasks(active_tasks: &Mutex<HashMap<u64, tokio::task::AbortHandle
     count
 }
 
+/// 将阻塞任务的 JoinError 收敛为运行时领域错误。
+fn blocking_task_error(id: u64, error: tokio::task::JoinError) -> TaskRuntimeError {
+    TaskRuntimeError::BlockingTaskFailed {
+        task_id: id,
+        reason: if error.is_panic() {
+            "任务发生 panic".to_string()
+        } else {
+            "任务在完成前被取消".to_string()
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -463,7 +516,27 @@ mod tests {
         assert_eq!(flag.load(Ordering::Acquire), 1);
     }
 
-    /// 可等待的阻塞任务必须返回闭包结果，并在完成后释放池名额。
+    /// 任务内阻塞子任务复用外层已持有的名额，不得因同池已满被拒绝。
+    #[tokio::test]
+    async fn test_run_blocking_detached_reuses_outer_permit() {
+        let runtime = TaskRuntime::current(1).expect("测试运行时必须可用");
+        let task_runtime = runtime.clone();
+        let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+        runtime
+            .spawn(async move {
+                let value = task_runtime
+                    .run_blocking_detached(|| 7_u32)
+                    .await
+                    .expect("任务内阻塞子任务应成功");
+                let _ = result_tx.send(value);
+            })
+            .expect("外层任务应成功入队");
+
+        assert_eq!(result_rx.await.expect("任务应回传结果"), 7);
+        assert!(runtime.shutdown(Duration::from_secs(1)).await);
+    }
+
+    /// 可等待的阻塞任务必须返回闭包结果，并在完成后释放池名额。    /// 可等待的阻塞任务必须返回闭包结果，并在完成后释放池名额。
     #[tokio::test]
     async fn test_run_blocking_returns_value_and_releases_permit() {
         let runtime = TaskRuntime::current(1).expect("测试运行时必须可用");

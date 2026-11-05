@@ -94,10 +94,11 @@ impl MediaJobRunner for MediaService {
         let task_cancel = cancel.clone();
         let worker_cancel = task_cancel.clone();
         let cache = self.ocr_cache.clone();
+        let runtime = self.runtime.clone();
 
         self.runtime
             .spawn_in(TaskPool::Media, async move {
-                let outcome = worker::execute_job(job, config, cache, worker_cancel).await;
+                let outcome = worker::execute_job(job, config, cache, worker_cancel, runtime).await;
                 if !task_cancel.load(Ordering::Acquire) {
                     sink(job_id, outcome);
                 }

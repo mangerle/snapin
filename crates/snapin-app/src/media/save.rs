@@ -9,6 +9,7 @@ use snapin_foundation::AppPaths;
 use snapin_platform::{
     open_path_in_file_manager, pick_save_path, send_desktop_notification, write_image_to_clipboard,
 };
+use snapin_runtime::TaskRuntime;
 use snapin_storage::{
     ensure_output_directory, save_image_to_path, save_image_with_config, suggest_save_path,
 };
@@ -30,9 +31,10 @@ pub(super) struct SavePasterRequest {
 pub(super) async fn execute_save_screenshot(
     image: Arc<image::RgbaImage>,
     config: &Config,
+    runtime: &TaskRuntime,
 ) -> MediaJobOutcome {
     let chosen_path = if config.output.prompt_save_path {
-        match pick_save_target(config).await {
+        match pick_save_target(config, runtime).await {
             Ok(Some(path)) => Some(path),
             Ok(None) => return MediaJobOutcome::SaveCancelled,
             Err(message) => return MediaJobOutcome::Failed { message },
@@ -41,14 +43,15 @@ pub(super) async fn execute_save_screenshot(
         None
     };
 
-    let path = match save_image(image.clone(), chosen_path, &config.output).await {
+    let path = match save_image(image.clone(), chosen_path, &config.output, runtime).await {
         Ok(path) => path,
         Err(message) => return MediaJobOutcome::Failed { message },
     };
 
     let clipboard_image = image;
-    let clipboard_result =
-        tokio::task::spawn_blocking(move || write_image_to_clipboard(&clipboard_image)).await;
+    let clipboard_result = runtime
+        .run_blocking_detached(move || write_image_to_clipboard(&clipboard_image))
+        .await;
     match clipboard_result {
         Ok(Ok(())) => {}
         Ok(Err(error)) => tracing::warn!("保存后同步复制到系统剪贴板失败: {error}"),
@@ -61,6 +64,7 @@ pub(super) async fn execute_save_screenshot(
 pub(super) async fn execute_save_paster(
     request: SavePasterRequest,
     config: &Config,
+    runtime: &TaskRuntime,
 ) -> MediaJobOutcome {
     let SavePasterRequest {
         image,
@@ -69,7 +73,7 @@ pub(super) async fn execute_save_paster(
     } = request;
 
     let chosen_path = if as_dialog {
-        match pick_save_target(config).await {
+        match pick_save_target(config, runtime).await {
             Ok(Some(path)) => Some(path),
             Ok(None) => return MediaJobOutcome::SaveCancelled,
             Err(message) => return MediaJobOutcome::Failed { message },
@@ -78,7 +82,7 @@ pub(super) async fn execute_save_paster(
         None
     };
 
-    let path = match save_image(image, chosen_path, &config.output).await {
+    let path = match save_image(image, chosen_path, &config.output, runtime).await {
         Ok(path) => path,
         Err(message) => return MediaJobOutcome::Failed { message },
     };
@@ -108,28 +112,34 @@ async fn save_image(
     image: Arc<image::RgbaImage>,
     chosen_path: Option<PathBuf>,
     output: &OutputConfig,
+    runtime: &TaskRuntime,
 ) -> Result<PathBuf, String> {
     let output = output.clone();
-    tokio::task::spawn_blocking(move || match chosen_path {
-        Some(path) => save_image_to_path(&image, &path, &output)
-            .map_err(|error| format!("保存到所选路径失败: {error}")),
-        None => save_quick_with_fallback(&image, &output),
-    })
-    .await
-    .map_err(|error| format!("保存任务异常: {error}"))?
+    runtime
+        .run_blocking_detached(move || match chosen_path {
+            Some(path) => save_image_to_path(&image, &path, &output)
+                .map_err(|error| format!("保存到所选路径失败: {error}")),
+            None => save_quick_with_fallback(&image, &output),
+        })
+        .await
+        .map_err(|error| format!("保存任务异常: {error}"))?
 }
 
 /// 弹出系统保存对话框，建议文件名与初始目录沿用快捷保存配置。
-async fn pick_save_target(config: &Config) -> Result<Option<PathBuf>, String> {
+async fn pick_save_target(
+    config: &Config,
+    runtime: &TaskRuntime,
+) -> Result<Option<PathBuf>, String> {
     let output = config.output.clone();
-    let suggestion = tokio::task::spawn_blocking(move || {
-        if let Err(error) = ensure_output_directory(&output) {
-            tracing::warn!("准备快捷保存目录失败，保存对话框将使用系统默认位置: {error}");
-        }
-        suggest_save_path(&output)
-    })
-    .await
-    .map_err(|error| format!("准备保存建议失败: {error}"))?;
+    let suggestion = runtime
+        .run_blocking_detached(move || {
+            if let Err(error) = ensure_output_directory(&output) {
+                tracing::warn!("准备快捷保存目录失败，保存对话框将使用系统默认位置: {error}");
+            }
+            suggest_save_path(&output)
+        })
+        .await
+        .map_err(|error| format!("准备保存建议失败: {error}"))?;
 
     pick_save_path(&suggestion.file_name, Some(suggestion.directory.as_path()))
         .await

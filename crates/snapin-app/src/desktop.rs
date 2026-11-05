@@ -151,13 +151,13 @@ impl AppDesktop {
         runtime
             .spawn_in(
                 TaskPool::Background,
-                run_clipboard_worker(clipboard_rx, cancel.clone()),
+                run_clipboard_worker(clipboard_rx, cancel.clone(), runtime.clone()),
             )
             .map_err(|error| worker_start_error("启动系统剪贴板任务", error))?;
         runtime
             .spawn_in(
                 TaskPool::Background,
-                run_selection_writer(selection_rx, cancel),
+                run_selection_writer(selection_rx, cancel, runtime.clone()),
             )
             .map_err(|error| worker_start_error("启动历史选区写入任务", error))?;
         Ok(Self {
@@ -210,6 +210,7 @@ impl AppDesktop {
 async fn run_clipboard_worker(
     mut receiver: mpsc::Receiver<ClipboardTask>,
     cancel: snapin_runtime::CancellationToken,
+    runtime: TaskRuntime,
 ) {
     loop {
         let task = tokio::select! {
@@ -217,19 +218,19 @@ async fn run_clipboard_worker(
             task = receiver.recv() => task,
         };
         if let Some(task) = task {
-            execute_clipboard_task(task).await;
+            execute_clipboard_task(task, &runtime).await;
             continue;
         }
         while let Ok(task) = receiver.try_recv() {
-            execute_clipboard_task(task).await;
+            execute_clipboard_task(task, &runtime).await;
         }
         break;
     }
 }
 
 /// 在阻塞线程池执行单个剪贴板任务。
-async fn execute_clipboard_task(task: ClipboardTask) {
-    if let Err(error) = tokio::task::spawn_blocking(move || task.execute()).await {
+async fn execute_clipboard_task(task: ClipboardTask, runtime: &TaskRuntime) {
+    if let Err(error) = runtime.run_blocking_detached(move || task.execute()).await {
         tracing::warn!("等待系统剪贴板任务失败: {error}");
     }
 }
@@ -238,6 +239,7 @@ async fn execute_clipboard_task(task: ClipboardTask) {
 async fn run_selection_writer(
     mut receiver: mpsc::Receiver<Rect>,
     cancel: snapin_runtime::CancellationToken,
+    runtime: TaskRuntime,
 ) {
     loop {
         let rect = tokio::select! {
@@ -245,7 +247,7 @@ async fn run_selection_writer(
             rect = receiver.recv() => rect,
         };
         if let Some(rect) = rect {
-            execute_selection_write(rect).await;
+            execute_selection_write(rect, &runtime).await;
             continue;
         }
         // 停机时只保留最后选区，避免对中间状态做多次无意义落盘。
@@ -254,18 +256,19 @@ async fn run_selection_writer(
             latest = Some(rect);
         }
         if let Some(rect) = latest {
-            execute_selection_write(rect).await;
+            execute_selection_write(rect, &runtime).await;
         }
         break;
     }
 }
 
 /// 在阻塞线程池提交历史选区持久化。
-async fn execute_selection_write(rect: Rect) {
-    let result = tokio::task::spawn_blocking(move || {
-        save_last_selection((rect.x, rect.y, rect.width, rect.height));
-    })
-    .await;
+async fn execute_selection_write(rect: Rect, runtime: &TaskRuntime) {
+    let result = runtime
+        .run_blocking_detached(move || {
+            save_last_selection((rect.x, rect.y, rect.width, rect.height));
+        })
+        .await;
     if let Err(error) = result {
         tracing::warn!("等待历史选区写入任务失败: {error}");
     }
