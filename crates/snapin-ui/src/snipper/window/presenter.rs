@@ -216,12 +216,26 @@ impl SnipperPresenter {
 
         self.base_bg = scale_pixmap_to(&self.base_bg, width, height)
             .ok_or(UiError::PixmapAlloc { width, height })?;
-        *bg_image = image::imageops::resize(
-            bg_image,
-            width,
-            height,
-            image::imageops::FilterType::Triangle,
-        );
+        if (width as i32 - bg_image.width() as i32).abs() <= 64
+            && (height as i32 - bg_image.height() as i32).abs() <= 64
+        {
+            let mut adjusted = RgbaImage::new(width, height);
+            let copy_w = bg_image.width().min(width);
+            let copy_h = bg_image.height().min(height);
+            for y in 0..copy_h {
+                for x in 0..copy_w {
+                    adjusted.put_pixel(x, y, *bg_image.get_pixel(x, y));
+                }
+            }
+            *bg_image = adjusted;
+        } else {
+            *bg_image = image::imageops::resize(
+                bg_image,
+                width,
+                height,
+                image::imageops::FilterType::Triangle,
+            );
+        }
         self.render_pixmap =
             Pixmap::new(width, height).ok_or(UiError::PixmapAlloc { width, height })?;
         self.frame_words = create_frame_words(width, height)?;

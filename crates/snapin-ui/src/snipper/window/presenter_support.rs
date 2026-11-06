@@ -5,23 +5,40 @@ use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::window::events::SnipperState;
 use tiny_skia::{Color, FilterQuality, Pixmap, PixmapPaint, Transform};
 
-/// 将底图缩放/裁剪到目标尺寸；缩放失败时返回 `None`。
+/// 将底图缩放或裁剪到目标尺寸；在尺寸轻微变化时优先 1:1 物理对齐以保持像素锐利。
 pub(super) fn scale_pixmap_to(source: &Pixmap, width: u32, height: u32) -> Option<Pixmap> {
     let mut target = Pixmap::new(width, height)?;
     target.fill(Color::BLACK);
-    let scale_x = width as f32 / source.width() as f32;
-    let scale_y = height as f32 / source.height() as f32;
-    target.draw_pixmap(
-        0,
-        0,
-        source.as_ref(),
-        &PixmapPaint {
-            quality: FilterQuality::Bilinear,
-            ..PixmapPaint::default()
-        },
-        Transform::from_scale(scale_x, scale_y),
-        None,
-    );
+    let dw = (width as i32 - source.width() as i32).abs();
+    let dh = (height as i32 - source.height() as i32).abs();
+
+    if dw <= 64 && dh <= 64 {
+        target.draw_pixmap(
+            0,
+            0,
+            source.as_ref(),
+            &PixmapPaint {
+                quality: FilterQuality::Nearest,
+                ..PixmapPaint::default()
+            },
+            Transform::identity(),
+            None,
+        );
+    } else {
+        let scale_x = width as f32 / source.width() as f32;
+        let scale_y = height as f32 / source.height() as f32;
+        target.draw_pixmap(
+            0,
+            0,
+            source.as_ref(),
+            &PixmapPaint {
+                quality: FilterQuality::Bilinear,
+                ..PixmapPaint::default()
+            },
+            Transform::from_scale(scale_x, scale_y),
+            None,
+        );
+    }
     Some(target)
 }
 
