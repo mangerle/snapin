@@ -201,9 +201,7 @@ fn capture_xcap_blocking() -> Result<RgbaImage, PlatformError> {
 #[cfg(target_os = "windows")]
 fn normalize_windows_capture_alpha(image: &mut RgbaImage) {
     for pixel in image.chunks_exact_mut(4) {
-        if pixel[3] == 0 {
-            pixel[3] = 255;
-        }
+        pixel[3] = 255;
     }
 }
 
