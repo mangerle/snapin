@@ -182,9 +182,29 @@ fn capture_xcap_blocking() -> Result<RgbaImage, PlatformError> {
         });
     }
     if monitors.len() == 1 {
-        return capture_single_monitor(&monitors[0]);
+        let mut image = capture_single_monitor(&monitors[0])?;
+        #[cfg(target_os = "windows")]
+        normalize_windows_capture_alpha(&mut image);
+        return Ok(image);
     }
-    capture_monitor_desktop(&monitors)
+    let mut image = capture_monitor_desktop(&monitors)?;
+    #[cfg(target_os = "windows")]
+    normalize_windows_capture_alpha(&mut image);
+    Ok(image)
+}
+
+/// 确保 Windows 截屏导出的像素具有完全不透明的 Alpha 通道（255）。
+///
+/// Windows GDI 截屏或部分 DXGI 表面导出的 Alpha 通道默认可能为零；
+/// 若不纠正为 255，在 DWM 预乘透明混合下会导致贴图加法过曝发白，
+/// 且容易在后续的图像切片与缩放中出现色彩失真。
+#[cfg(target_os = "windows")]
+fn normalize_windows_capture_alpha(image: &mut RgbaImage) {
+    for pixel in image.chunks_exact_mut(4) {
+        if pixel[3] == 0 {
+            pixel[3] = 255;
+        }
+    }
 }
 
 /// 捕获单显示器并转换像素布局。

@@ -70,7 +70,6 @@ fn window_attributes(item: &PasterItem) -> WindowAttributes {
     let attributes = Window::default_attributes()
         .with_title(&item.title)
         .with_decorations(false)
-        .with_transparent(true)
         .with_window_level(WindowLevel::AlwaysOnTop)
         .with_inner_size(PhysicalSize::new(item.pixmap.width(), item.pixmap.height()))
         .with_position(PhysicalPosition::new(item.position.0, item.position.1));
@@ -78,7 +77,9 @@ fn window_attributes(item: &PasterItem) -> WindowAttributes {
     #[cfg(target_os = "linux")]
     {
         use winit::platform::wayland::WindowAttributesExtWayland;
-        attributes.with_name("snapin-pin", "snapin-pin")
+        attributes
+            .with_transparent(true)
+            .with_name("snapin-pin", "snapin-pin")
     }
     #[cfg(not(target_os = "linux"))]
     {

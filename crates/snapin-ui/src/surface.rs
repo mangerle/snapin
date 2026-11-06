@@ -7,14 +7,14 @@ use std::sync::Arc;
 use tiny_skia::Pixmap;
 use winit::window::Window;
 
-/// 将单个预乘 RGBA 像素打包为 softbuffer 所需的 `0x00RRGGBB` 字。
+/// 将单个预乘 RGBA 像素打包为 softbuffer 所需的 `0xFFRRGGBB` 字。
 ///
-/// softbuffer 的无 alpha 表面只读取 RGB 三个通道，预乘后的 alpha 无需写入；
-/// 使用 32 位字整读再位运算重排，比逐字节取移位少一次内存读且更利于编译器向量化。
+/// 显式写入 `0xFF00_0000` 保证在 Windows DWM 或其它读取 Alpha 的合成器中，
+/// 像素被正确当作完全不透明处理，避免因 Alpha 为零触发加法预乘过曝发白。
 #[inline]
 fn pack_rgb(src: [u8; 4]) -> u32 {
     let rgba = u32::from_le_bytes(src);
-    (rgba & 0x0000_FF00) | ((rgba & 0x0000_00FF) << 16) | ((rgba >> 16) & 0x0000_00FF)
+    0xFF00_0000 | (rgba & 0x0000_FF00) | ((rgba & 0x0000_00FF) << 16) | ((rgba >> 16) & 0x0000_00FF)
 }
 
 /// 将整幅位图重排到 ARGB 字缓冲。
