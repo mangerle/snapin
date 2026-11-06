@@ -39,6 +39,8 @@ fn with_clipboard<R, F: FnMut(&mut Clipboard) -> Result<R, arboard::Error>>(
             Err(e) => {
                 // 若底层句柄损坏，尝试重建一次剪贴板句柄自愈
                 tracing::warn!("剪贴板操作失败，尝试重建连接句柄: {e}");
+                #[cfg(target_os = "windows")]
+                std::thread::sleep(std::time::Duration::from_millis(40));
                 if let Ok(mut new_cb) = Clipboard::new() {
                     let res = f(&mut new_cb);
                     *guard = Some(new_cb);
@@ -217,6 +219,131 @@ fn clipboard_image_from_data(img_data: ImageData<'_>) -> Result<RgbaImage, Platf
     RgbaImage::from_raw(width, height, bytes).ok_or_else(|| PlatformError::Clipboard {
         message: format!("构建剪贴板图像失败，尺寸: {width}x{height}"),
     })
+}
+
+/// 剪贴板事件监听守卫，销毁时自动注销系统钩子与消息窗口。
+pub struct ClipboardListenerGuard {
+    #[cfg(target_os = "windows")]
+    hwnd: windows_sys::Win32::Foundation::HWND,
+}
+
+unsafe impl Send for ClipboardListenerGuard {}
+unsafe impl Sync for ClipboardListenerGuard {}
+
+impl Drop for ClipboardListenerGuard {
+    fn drop(&mut self) {
+        #[cfg(target_os = "windows")]
+        if self.hwnd != 0 {
+            unsafe {
+                use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_USER};
+                PostMessageW(self.hwnd, WM_USER + 101, 0, 0);
+            }
+        }
+    }
+}
+
+/// 订阅系统剪贴板更新事件（Windows 平台基于原生消息监听，非 Windows 平台降级为空通知器）。
+pub fn subscribe_clipboard_changes() -> (ClipboardListenerGuard, tokio::sync::mpsc::Receiver<()>) {
+    #[cfg(target_os = "windows")]
+    {
+        windows_listener::start_clipboard_listener()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let (_tx, rx) = tokio::sync::mpsc::channel(1);
+        (ClipboardListenerGuard {}, rx)
+    }
+}
+
+#[cfg(target_os = "windows")]
+mod windows_listener {
+    use super::ClipboardListenerGuard;
+    use tokio::sync::mpsc::{channel, Receiver};
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::System::DataExchange::{
+        AddClipboardFormatListener, RemoveClipboardFormatListener,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
+        RegisterClassExW, TranslateMessage, HWND_MESSAGE, MSG, WM_CLIPBOARDUPDATE, WM_USER,
+        WNDCLASSEXW,
+    };
+
+    const WM_STOP_LISTENER: u32 = WM_USER + 101;
+
+    unsafe extern "system" fn listener_window_proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        DefWindowProcW(hwnd, msg, wparam, lparam)
+    }
+
+    pub(super) fn start_clipboard_listener() -> (ClipboardListenerGuard, Receiver<()>) {
+        let (tx, rx) = channel(16);
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+
+        std::thread::spawn(move || unsafe {
+            let class_name: Vec<u16> = "SnapinClipboardListener\0".encode_utf16().collect();
+            let wnd_class = WNDCLASSEXW {
+                cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+                style: 0,
+                lpfnWndProc: Some(listener_window_proc),
+                cbClsExtra: 0,
+                cbWndExtra: 0,
+                hInstance: 0,
+                hIcon: 0,
+                hCursor: 0,
+                hbrBackground: 0,
+                lpszMenuName: std::ptr::null(),
+                lpszClassName: class_name.as_ptr(),
+                hIconSm: 0,
+            };
+            RegisterClassExW(&wnd_class);
+
+            let hwnd = CreateWindowExW(
+                0,
+                class_name.as_ptr(),
+                class_name.as_ptr(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                HWND_MESSAGE,
+                0,
+                0,
+                std::ptr::null(),
+            );
+
+            if hwnd == 0 {
+                let _ = ready_tx.send(0);
+                return;
+            }
+
+            AddClipboardFormatListener(hwnd);
+            let _ = ready_tx.send(hwnd);
+
+            let mut msg = std::mem::zeroed::<MSG>();
+            while GetMessageW(&mut msg, 0, 0, 0) > 0 {
+                if msg.message == WM_STOP_LISTENER {
+                    break;
+                }
+                if msg.message == WM_CLIPBOARDUPDATE {
+                    let _ = tx.try_send(());
+                }
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+
+            RemoveClipboardFormatListener(hwnd);
+            DestroyWindow(hwnd);
+        });
+
+        let hwnd = ready_rx.recv().unwrap_or(0);
+        (ClipboardListenerGuard { hwnd }, rx)
+    }
 }
 
 #[cfg(test)]

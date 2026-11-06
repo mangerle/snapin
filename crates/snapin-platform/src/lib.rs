@@ -29,8 +29,9 @@ pub use capabilities::{
 };
 pub use capture::capture_fullscreen_snapshot;
 pub use clipboard::{
-    read_clipboard_image, read_clipboard_text, write_image_to_clipboard,
-    write_raw_image_to_clipboard, write_text_to_clipboard,
+    read_clipboard_image, read_clipboard_text, subscribe_clipboard_changes,
+    write_image_to_clipboard, write_raw_image_to_clipboard, write_text_to_clipboard,
+    ClipboardListenerGuard,
 };
 pub use command::output_with_timeout;
 pub use error::PlatformError;

@@ -5867,6 +5867,7 @@ dependencies = [
  "tracing",
  "tray-icon",
  "url",
+ "windows-sys 0.61.2",
  "xcap",
  "zbus",
 ]

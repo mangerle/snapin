@@ -48,13 +48,33 @@ pub(crate) fn run_clipboard_history_monitor(runtime: &TaskRuntime) -> Result<()>
         .clone()
         .spawn_in(TaskPool::Background, async move {
             let mut persist_gate = PersistGate::default();
+            #[cfg(target_os = "windows")]
+            let (_guard, mut clipboard_rx) = snapin_platform::subscribe_clipboard_changes();
+            #[cfg(not(target_os = "windows"))]
             let mut interval = tokio::time::interval(POLL_INTERVAL);
+            #[cfg(not(target_os = "windows"))]
             interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
             loop {
+                #[cfg(target_os = "windows")]
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    event = clipboard_rx.recv() => {
+                        if event.is_none() {
+                            break;
+                        }
+                    }
+                }
+
+                #[cfg(not(target_os = "windows"))]
                 tokio::select! {
                     _ = cancel.cancelled() => break,
                     _ = interval.tick() => {}
                 }
+
+                #[cfg(target_os = "windows")]
+                tokio::time::sleep(Duration::from_millis(60)).await;
+
                 let read = runtime.run_blocking_in(TaskPool::Io, read_snapshot);
                 let (fingerprint, snapshot) = tokio::select! {
                     _ = cancel.cancelled() => break,
