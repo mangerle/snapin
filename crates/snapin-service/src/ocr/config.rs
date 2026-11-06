@@ -91,8 +91,16 @@ impl LocalOcrPaths {
         if let Some(paths) = Self::discover_first(&model_search_roots()) {
             return Ok(paths);
         }
+        #[cfg(target_os = "windows")]
+        let expected_path =
+            "snapin.exe 所在目录下的 models\\ppocrv6 或 %LOCALAPPDATA%\\snapin\\models\\ppocrv6";
+        #[cfg(target_os = "macos")]
+        let expected_path =
+            "snapin.app/Contents/Resources/models/ppocrv6 或 ~/.local/share/snapin/models/ppocrv6";
+        #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+        let expected_path = "/usr/lib/snapin/models/ppocrv6 或 /usr/share/snapin/models/ppocrv6";
         Err(ServiceError::ModelNotFound {
-            path: "/usr/lib/snapin/models/ppocrv6 或 /usr/share/snapin/models/ppocrv6".to_string(),
+            path: expected_path.to_string(),
         })
     }
 
@@ -129,8 +137,11 @@ fn model_search_roots() -> Vec<PathBuf> {
     if let Some(base) = user_data_base {
         roots.push(base.join("snapin").join("models").join("ppocrv6"));
     }
-    roots.push(PathBuf::from("/usr/lib/snapin/models/ppocrv6"));
-    roots.push(PathBuf::from("/usr/share/snapin/models/ppocrv6"));
+    #[cfg(not(target_os = "windows"))]
+    {
+        roots.push(PathBuf::from("/usr/lib/snapin/models/ppocrv6"));
+        roots.push(PathBuf::from("/usr/share/snapin/models/ppocrv6"));
+    }
     roots
 }
 

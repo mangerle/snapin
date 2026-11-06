@@ -44,6 +44,7 @@ icons = [
 ]
 resources = [
   { src = "../../assets/models/ppocrv6", target = "models/ppocrv6" },
+  { src = "../../assets/libs/windows/onnxruntime.dll", target = "onnxruntime.dll" },
   { src = "../../LICENSE", target = "licenses/LICENSE" },
   { src = "../../NOTICE", target = "licenses/NOTICE" },
   { src = "../../THIRD_PARTY_NOTICES.md", target = "licenses/THIRD_PARTY_NOTICES.md" },

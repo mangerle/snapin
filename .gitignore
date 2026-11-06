@@ -6,6 +6,8 @@
 dist/
 keys/
 *.key
+*.dll
+assets/libs/
 
 
 

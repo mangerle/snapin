@@ -123,8 +123,10 @@ jobs:
         include:
           - target: x86_64-pc-windows-msvc
             arch: x64
+            ort_arch: x64
           - target: aarch64-pc-windows-msvc
             arch: arm64
+            ort_arch: arm64
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -145,10 +147,38 @@ jobs:
       - name: 编译 Release 二进制文件 (${{ matrix.target }})
         run: cargo build --release -p snapin --target ${{ matrix.target }}
 
-      - name: 使用 cargo-packager 构建 Windows NSIS 安装包与便携包
+      - name: 下载并集成 Windows ONNX Runtime 动态库
+        shell: pwsh
         run: |
-          cargo packager --release -p snapin --target ${{ matrix.target }} --formats nsis
-          Compress-Archive -Path "target/${{ matrix.target }}/release/snapin.exe" -DestinationPath "target/${{ matrix.target }}/release/snapin_windows_${{ matrix.arch }}.zip"
+          $ortVersion = "1.20.1"
+          $ortArch = "${{ matrix.ort_arch }}"
+          $ortZip = "onnxruntime-win-$ortArch-$ortVersion.zip"
+          $ortUrl = "https://github.com/microsoft/onnxruntime/releases/download/v$ortVersion/$ortZip"
+          Write-Host "正在下载 ONNX Runtime $ortVersion ($ortArch): $ortUrl"
+          Invoke-WebRequest -Uri $ortUrl -OutFile $ortZip
+          Expand-Archive -Path $ortZip -DestinationPath "ort_extracted"
+          New-Item -ItemType Directory -Force -Path "assets/libs/windows"
+          Copy-Item "ort_extracted/onnxruntime-win-$ortArch-$ortVersion/lib/onnxruntime.dll" -Destination "assets/libs/windows/onnxruntime.dll" -Force
+          New-Item -ItemType Directory -Force -Path "target/${{ matrix.target }}/release"
+          Copy-Item "ort_extracted/onnxruntime-win-$ortArch-$ortVersion/lib/onnxruntime.dll" -Destination "target/${{ matrix.target }}/release/onnxruntime.dll" -Force
+          Remove-Item -Recurse -Force "ort_extracted", $ortZip
+
+      - name: 使用 cargo-packager 构建 Windows NSIS 安装包
+        run: cargo packager --release -p snapin --target ${{ matrix.target }} --formats nsis
+
+      - name: 规整并打包 Windows 绿色便携包 (.zip)
+        shell: pwsh
+        run: |
+          $portableDir = "target/${{ matrix.target }}/release/snapin-portable"
+          New-Item -ItemType Directory -Force -Path "$portableDir"
+          Copy-Item "target/${{ matrix.target }}/release/snapin.exe" -Destination "$portableDir/"
+          Copy-Item "assets/libs/windows/onnxruntime.dll" -Destination "$portableDir/"
+          New-Item -ItemType Directory -Force -Path "$portableDir/models"
+          Copy-Item -Recurse "assets/models/ppocrv6" -Destination "$portableDir/models/ppocrv6"
+          Copy-Item "LICENSE" -Destination "$portableDir/"
+          Copy-Item "NOTICE" -Destination "$portableDir/"
+          Copy-Item "THIRD_PARTY_NOTICES.md" -Destination "$portableDir/"
+          Compress-Archive -Path "$portableDir/*" -DestinationPath "target/${{ matrix.target }}/release/snapin_windows_${{ matrix.arch }}.zip" -Force
 
       - name: 上传 Windows 构建产物
         uses: actions/upload-artifact@v4
