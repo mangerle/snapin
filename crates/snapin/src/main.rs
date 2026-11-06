@@ -19,7 +19,10 @@ use snapin_app::{
     run_application_command, run_daemon_process, sync_system_hotkeys,
 };
 use snapin_config::config::{self, Config};
-use snapin_settings::{run_clipboard_history_panel, run_settings_gui};
+use snapin_settings::{
+    request_clipboard_history_panel_close, run_clipboard_history_panel, run_settings_gui,
+};
+use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -138,7 +141,16 @@ fn dispatch_command(command: Commands, config: Option<Config>) -> Result<()> {
         }
         CommandRoute::ClipboardPanel => {
             let Some(lock) = InstanceLock::try_acquire("clipboard-panel")? else {
-                tracing::info!("Snapin 剪贴板历史面板已在运行，忽略重复启动");
+                let runtime = cli_runtime()?;
+                let close_result = runtime.block_on(request_clipboard_history_panel_close());
+                runtime.shutdown_timeout(Duration::from_secs(1));
+                if close_result.context("请求关闭剪贴板历史面板失败")? {
+                    tracing::info!("已请求关闭 Snapin 剪贴板历史面板");
+                } else {
+                    tracing::warn!(
+                        "Snapin 剪贴板历史面板已在运行，但控制通道尚未就绪，无法处理关闭请求"
+                    );
+                }
                 return Ok(());
             };
             tracing::debug!("已获取剪贴板历史面板单实例锁: {}", lock.path().display());

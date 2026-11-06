@@ -13,7 +13,7 @@ pub mod mapping;
 pub mod shortcut;
 pub mod update_controller;
 
-pub use clipboard_panel::run_clipboard_history_panel;
+pub use clipboard_panel::{request_clipboard_history_panel_close, run_clipboard_history_panel};
 
 use config_store::ConfigStore;
 use config_sync::{extract_config_from_window, sync_config_to_window};

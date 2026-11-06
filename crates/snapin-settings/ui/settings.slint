@@ -103,8 +103,8 @@ export component SettingsWindow inherits Window {
     in-out property <string> smart_redact_hotkey: "Ctrl+Alt+R";
     in-out property <string> qr_hotkey: "Ctrl+Alt+Q";
     in-out property <string> beautify_hotkey: "Ctrl+Alt+B";
-    in-out property <string> workspace_hotkey: "Ctrl+Alt+W";
-    in-out property <string> clipboard_history_hotkey: "Ctrl+Shift+V";
+    in-out property <string> workspace_hotkey: "Ctrl+Alt+P";
+    in-out property <string> clipboard_history_hotkey: "Super+V";
 
     // 回调事件
     callback save_and_apply();
@@ -416,74 +416,86 @@ export component ClipboardPanel inherits Window {
     callback clear_history();
     callback close_panel();
 
-    VerticalLayout {
-        padding: 18px;
-        spacing: 12px;
+    init => { panel_focus.focus(); }
 
-        HorizontalLayout {
+    panel_focus := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.close_panel();
+                return accept;
+            }
+            reject
+        }
+
+        VerticalLayout {
+            padding: 18px;
+            spacing: 12px;
+
+            HorizontalLayout {
+                Text {
+                    text: @tr("剪贴板历史");
+                    font-size: 20px;
+                    font-weight: 700;
+                    color: #0f172a;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                SecondaryButton {
+                    text: @tr("清空");
+                    clicked => { root.clear_history(); }
+                }
+                SecondaryButton {
+                    text: @tr("关闭");
+                    clicked => { root.close_panel(); }
+                }
+            }
+
             Text {
-                text: @tr("剪贴板历史");
-                font-size: 20px;
-                font-weight: 700;
-                color: #0f172a;
-                vertical-alignment: center;
+                text: @tr("最多保留 10 条，自动删除超过 1 天的记录。点击条目立即复制并创建贴图；再次触发快捷键或按 Esc 可关闭。");
+                font-size: 12px;
+                color: #64748b;
+                wrap: word-wrap;
             }
-            Rectangle { horizontal-stretch: 1; }
-            SecondaryButton {
-                text: @tr("清空");
-                clicked => { root.clear_history(); }
-            }
-            SecondaryButton {
-                text: @tr("关闭");
-                clicked => { root.close_panel(); }
-            }
-        }
 
-        Text {
-            text: @tr("最多保留 10 条，自动删除超过 1 天的记录。点击条目立即复制并创建贴图。");
-            font-size: 12px;
-            color: #64748b;
-            wrap: word-wrap;
-        }
+            ScrollView {
+                VerticalLayout {
+                    spacing: 8px;
+                    for row[index] in root.titles : Rectangle {
+                        height: 72px;
+                        border-radius: 10px;
+                        border-width: 1px;
+                        border-color: #e2e8f0;
+                        background: touch.has-hover ? #eff6ff : #ffffff;
 
-        ScrollView {
-            VerticalLayout {
-                spacing: 8px;
-                for row[index] in root.titles : Rectangle {
-                    height: 72px;
-                    border-radius: 10px;
-                    border-width: 1px;
-                    border-color: #e2e8f0;
-                    background: touch.has-hover ? #eff6ff : #ffffff;
-
-                    touch := TouchArea {
-                        clicked => { root.activate(index); }
-                    }
-
-                    VerticalLayout {
-                        padding: 10px;
-                        spacing: 4px;
-                        Text {
-                            text: row;
-                            font-size: 14px;
-                            font-weight: 600;
-                            color: #0f172a;
+                        touch := TouchArea {
+                            clicked => { root.activate(index); }
                         }
-                        Text {
-                            text: root.previews[index];
-                            font-size: 12px;
-                            color: #64748b;
-                            overflow: elide;
+
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 4px;
+                            Text {
+                                text: row;
+                                font-size: 14px;
+                                font-weight: 600;
+                                color: #0f172a;
+                            }
+                            Text {
+                                text: root.previews[index];
+                                font-size: 12px;
+                                color: #64748b;
+                                overflow: elide;
+                            }
                         }
                     }
                 }
             }
-        }
 
-        if root.status_message != "" : Text {
-            text: root.status_message;
-            font-size: 12px;
-            color: #2563eb;
+            if root.status_message != "" : Text {
+                text: root.status_message;
+                font-size: 12px;
+                color: #2563eb;
+            }
         }
     }
 }

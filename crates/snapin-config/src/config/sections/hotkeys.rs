@@ -105,9 +105,23 @@ fn default_beautify_hotkey() -> Hotkey {
 }
 
 fn default_workspace_hotkey() -> Hotkey {
-    default_hotkey("Ctrl+Alt+W")
+    default_hotkey("Ctrl+Alt+P")
 }
 
 fn default_clipboard_history_hotkey() -> Hotkey {
-    default_hotkey("Ctrl+Shift+V")
+    default_hotkey("Super+V")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 默认快捷键属于对外行为契约，必须与设置中心展示值及文档保持一致。
+    #[test]
+    fn test_default_workspace_and_clipboard_hotkeys() {
+        let hotkeys = HotkeyConfig::default();
+
+        assert_eq!(hotkeys.workspace.to_display_string(), "Ctrl+Alt+P");
+        assert_eq!(hotkeys.clipboard_history.to_display_string(), "Super+V");
+    }
 }

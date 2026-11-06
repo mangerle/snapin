@@ -53,8 +53,8 @@ Default global shortcuts:
 | Smart redaction | `Ctrl+Alt+R` |
 | QR recognition | `Ctrl+Alt+Q` |
 | Beautified export | `Ctrl+Alt+B` |
-| Pin workspace | `Ctrl+Alt+W` |
-| Clipboard history | `Ctrl+Shift+V` |
+| Pin workspace | `Ctrl+Alt+P` |
+| Clipboard history | `Super+V` |
 
 Screenshot actions:
 

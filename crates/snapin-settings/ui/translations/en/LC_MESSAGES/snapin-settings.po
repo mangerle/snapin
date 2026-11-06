@@ -329,8 +329,8 @@ msgstr "Capture Translation"
 msgid "截屏时包含鼠标指针"
 msgstr "Include mouse cursor in screenshots"
 
-msgid "打开最近十条文本、图像与颜色记录，快速再次贴图"
-msgstr "Open the latest 10 text, image, and color entries"
+msgid "打开最近十条文本、图像与颜色记录；再次触发快捷键或按 Esc 关闭"
+msgstr "Open the latest 10 text, image, and color entries; press the shortcut again or Esc to close"
 
 msgid "打开缩略图墙并集中管理工作区内的全部贴图"
 msgstr "Open the thumbnail wall and manage all pins"
@@ -413,8 +413,8 @@ msgstr "Smart Redaction"
 msgid "更新内容:"
 msgstr "Changes:"
 
-msgid "最多保留 10 条，自动删除超过 1 天的记录。点击条目立即复制并创建贴图。"
-msgstr "Keep the latest 10 entries for one day. Click an entry to copy it and create a pin."
+msgid "最多保留 10 条，自动删除超过 1 天的记录。点击条目立即复制并创建贴图；再次触发快捷键或按 Esc 可关闭。"
+msgstr "Keep the latest 10 entries for one day. Click an entry to copy it and create a pin; press the shortcut again or Esc to close."
 
 msgid "有道 App Key"
 msgstr "Youdao App Key"

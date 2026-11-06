@@ -32,7 +32,7 @@ pub enum TrayAction {
     Beautify,
     /// 显示当前活动分组全部贴图
     Workspace,
-    /// 启动剪贴板历史面板
+    /// 打开或关闭剪贴板历史面板
     ClipboardHistory,
     /// 批量显隐贴图窗口
     TogglePasters,

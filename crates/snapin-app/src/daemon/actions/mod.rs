@@ -163,7 +163,7 @@ pub(super) fn spawn_preferences_subprocess() {
     spawn_independent_process(&exe, &["prefs"]);
 }
 
-/// 派生独立剪贴板历史面板进程。
+/// 派生独立剪贴板历史面板进程；已有面板会收到关闭请求。
 pub(super) fn spawn_clipboard_history_subprocess() {
     let Ok(exe) = std::env::current_exe() else {
         tracing::warn!("获取当前可执行文件路径失败，无法启动剪贴板历史面板");

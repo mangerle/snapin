@@ -79,6 +79,10 @@ pub async fn handle_command(
         DaemonRequest::Shutdown => Some(DaemonResponse::Ok),
         DaemonRequest::Ping => Some(DaemonResponse::Pong),
         DaemonRequest::GetStatus => Some(status::query(workspace).await),
+        DaemonRequest::CloseClipboardPanel => Some(DaemonResponse::error(
+            DaemonErrorCode::Unsupported,
+            "守护进程不处理剪贴板历史面板关闭请求",
+        )),
     }
 }
 

@@ -219,8 +219,8 @@ cargo run -p snapin -- daemon
 | 智能打码 | `Ctrl+Alt+R` |
 | 二维码识别 | `Ctrl+Alt+Q` |
 | 美化导出 | `Ctrl+Alt+B` |
-| 贴图工作区 | `Ctrl+Alt+W` |
-| 剪贴板历史 | `Ctrl+Shift+V` |
+| 贴图工作区 | `Ctrl+Alt+P` |
+| 剪贴板历史 | `Super+V` |
 
 截图工具栏常用操作：
 

@@ -52,6 +52,8 @@ pub enum DaemonRequest {
     Ping,
     /// 查询守护进程当前运行状态
     GetStatus,
+    /// 关闭独立剪贴板历史面板（由面板自身的控制监听器消费）
+    CloseClipboardPanel,
 }
 
 /// 守护进程向 IPC 客户端返回的强类型响应协议
