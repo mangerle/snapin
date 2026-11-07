@@ -206,8 +206,8 @@ pub async fn capture_fullscreen_extension_with_cursor(
 
 /// 请求扩展抓取全屏，并在抓帧瞬间隐藏指定标题的 Snapin 覆盖层。
 ///
-/// 旧版扩展缺少该方法时回退普通抓屏，调用方会收到包含覆盖层的画面；新扩展在线时，
-/// 录屏可取得覆盖层下方真实桌面内容。
+/// 该方法只允许由已更新到正式 UUID 的新版扩展提供。旧扩展缺少此方法时直接返回错误，
+/// 不能回退到普通抓屏，否则录屏会包含 Snapin 覆盖层。
 ///
 /// # Errors
 ///
@@ -219,16 +219,7 @@ pub async fn capture_fullscreen_extension_excluding_title(
 ) -> Result<bool, PlatformError> {
     let token = read_extension_token().await?;
     let arguments = (token.as_str(), target_path, exclude_title, include_cursor);
-    let (success,): (bool,) = match call_extension("CaptureFullscreenExcludingTitle", &arguments)
-        .await
-    {
-        Ok(result) => result,
-        Err(PlatformError::DBusMethodUnavailable { .. }) => {
-            tracing::debug!("GNOME 扩展版本不支持 CaptureFullscreenExcludingTitle，回退普通抓屏");
-            return capture_fullscreen_extension_with_cursor(target_path, include_cursor).await;
-        }
-        Err(error) => return Err(error),
-    };
+    let (success,): (bool,) = call_extension("CaptureFullscreenExcludingTitle", &arguments).await?;
     Ok(success)
 }
 

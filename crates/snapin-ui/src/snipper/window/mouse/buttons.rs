@@ -109,12 +109,14 @@ fn handle_locked_press(
     pointer: Point,
     original_rgba: &RgbaImage,
 ) -> bool {
-    // 优先检测是否点击在工具栏范围内，坚决拦截阻止事件穿透到画布
-    if state
-        .editor
-        .annotation
-        .toolbar
-        .contains_point(pointer.x, pointer.y)
+    // 录屏状态下普通截图工具栏只保留状态但不可见，必须彻底禁用其命中路由，
+    // 否则漏出录屏栏的点击会重复进入“屏幕录制”动作并造成界面循环。
+    if state.recording.is_none()
+        && state
+            .editor
+            .annotation
+            .toolbar
+            .contains_point(pointer.x, pointer.y)
     {
         return handle_toolbar_press(state, pointer.x, pointer.y, original_rgba);
     }
@@ -384,11 +386,12 @@ fn finish_locked_selection(
     release: &PointerRelease<'_>,
 ) -> bool {
     // 若释放位置在工具栏区域内，清理暂存点并直接拦截，避免误提交标注
-    if state
-        .editor
-        .annotation
-        .toolbar
-        .contains_point(release.cx, release.cy)
+    if state.recording.is_none()
+        && state
+            .editor
+            .annotation
+            .toolbar
+            .contains_point(release.cx, release.cy)
     {
         state.editor.annotation.stroke.points.clear();
         return true;

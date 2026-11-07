@@ -165,6 +165,7 @@ pub fn tr(zh: &str) -> &str {
         "录制设置" => "Recording settings",
         "输出格式" => "Output format",
         "切换帧率" => "Switch frame rate",
+        "帧率已切换为 {}FPS" => "Frame rate switched to {} FPS",
         "撤销标注" => "Undo annotation",
         "重新开始" => "Restart",
         "选区过小，无法开始屏幕录制" => "Selection is too small to start screen recording",

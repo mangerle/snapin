@@ -60,14 +60,12 @@ pub(crate) fn handle_recording_button(
         return None;
     }
     if event.button_state == ElementState::Released {
-        if state
-            .recording
-            .as_mut()
-            .is_some_and(|session| session.end_toolbar_drag())
-        {
-            return Some(true);
-        }
-        return None;
+        let handled = state.recording.as_mut().is_some_and(|session| {
+            let was_dragging = session.end_toolbar_drag();
+            let press_consumed = session.take_mouse_press_consumed();
+            was_dragging || press_consumed
+        });
+        return handled.then_some(true);
     }
     let selection = locked_rect(state)?;
     let (screen_width, screen_height) = (
@@ -87,10 +85,21 @@ pub(crate) fn handle_recording_button(
     };
     if let Some(format) = layout.hit_menu(event.position.0, event.position.1) {
         if let Some(session) = state.recording.as_mut() {
+            session.consume_mouse_press();
             session.set_format(format);
         }
         return Some(true);
     }
+    let hit = layout.hit(event.position.0, event.position.1);
+    tracing::info!(
+        "录屏工具栏点击，坐标: ({:.1}, {:.1})，工具栏: ({:.1}, {:.1}) {:.1}x{:.1}，命中: {hit:?}",
+        event.position.0,
+        event.position.1,
+        layout.bar_rect.x,
+        layout.bar_rect.y,
+        layout.bar_rect.width,
+        layout.bar_rect.height,
+    );
     if !layout.contains(event.position.0, event.position.1) {
         if state
             .recording
@@ -98,13 +107,25 @@ pub(crate) fn handle_recording_button(
             .is_some_and(|session| session.settings_open())
         {
             if let Some(session) = state.recording.as_mut() {
+                session.consume_mouse_press();
                 session.toggle_settings();
+            }
+            return Some(true);
+        }
+        // 录屏栏通常位于选区外。录屏状态下点击选区外但未命中录屏栏时也必须
+        // 消费事件，不能落到隐藏的普通截图工具栏并重新打开录屏会话。
+        if !selection.contains(event.position.0, event.position.1) {
+            if let Some(session) = state.recording.as_mut() {
+                session.consume_mouse_press();
             }
             return Some(true);
         }
         return None;
     }
-    let Some(item) = layout.hit(event.position.0, event.position.1) else {
+    if let Some(session) = state.recording.as_mut() {
+        session.consume_mouse_press();
+    }
+    let Some(item) = hit else {
         return Some(true);
     };
     if item == RecordingItem::Action(RecordingAction::DragHandle) {
@@ -186,6 +207,13 @@ fn handle_action(
         RecordingAction::CycleFps => {
             if let Some(session) = state.recording.as_mut() {
                 session.cycle_fps();
+                let fps = session.fps();
+                tracing::info!("录屏帧率已切换为 {fps}FPS");
+                state.set_status_message(snapin_foundation::trf!(
+                    "帧率已切换为 {}FPS",
+                    "Frame rate switched to {} FPS",
+                    fps
+                ));
             }
         }
         RecordingAction::Undo => {

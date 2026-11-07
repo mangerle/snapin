@@ -68,6 +68,15 @@ impl ScreenRecorder for RecordingService {
                 ),
             ));
         }
+        tracing::info!(
+            "提交屏幕录制任务，格式: {}, 帧率: {}, 区域: ({}, {}) {}x{}",
+            options.format.label(),
+            options.fps,
+            options.region.x,
+            options.region.y,
+            options.region.width,
+            options.region.height
+        );
         let control = Arc::new(RecordingControl::default());
         let task_control = control.clone();
         let worker_control = control.clone();
@@ -106,14 +115,17 @@ impl ScreenRecorder for RecordingService {
                     }
                     match result {
                         Ok(path) if !task_control.cancelled.load(Ordering::Acquire) => {
+                            tracing::info!("屏幕录制完成，文件路径: {}", path.display());
                             task_sink(RecordingEvent::Finished { path });
                             Ok(())
                         }
                         Ok(_) => {
+                            tracing::info!("屏幕录制已取消，未生成最终文件");
                             task_sink(RecordingEvent::Cancelled);
                             Ok(())
                         }
                         Err(_message) if task_control.cancelled.load(Ordering::Acquire) => {
+                            tracing::info!("屏幕录制已取消，未生成最终文件");
                             task_sink(RecordingEvent::Cancelled);
                             Ok(())
                         }
@@ -123,6 +135,7 @@ impl ScreenRecorder for RecordingService {
                 .await;
                 task_control.finished.store(true, Ordering::Release);
                 if let Err(message) = result {
+                    tracing::warn!("屏幕录制失败: {message}");
                     task_sink(RecordingEvent::Failed { message });
                 }
             })

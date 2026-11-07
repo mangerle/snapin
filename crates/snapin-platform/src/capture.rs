@@ -105,23 +105,27 @@ async fn capture_linux(include_cursor: bool) -> Result<RgbaImage, PlatformError>
     capture_fullscreen_portal().await
 }
 
-/// Linux 录屏抓帧：优先隐藏 Snapin 覆盖层，扩展不可用时降级 Portal。
+/// Linux 录屏抓帧：必须使用新版 GNOME 扩展排除 Snapin 覆盖层。
+///
+/// XDG Portal 的截图接口是交互式选择界面，只适合一次性截图，不能用于连续录屏。
+/// 因此这里不再降级 Portal；扩展未启用或版本过旧时直接返回可操作的错误，避免录制
+/// 过程中再次弹出系统框选界面。
 #[cfg(target_os = "linux")]
 async fn capture_linux_excluding_window(exclude_title: &str) -> Result<RgbaImage, PlatformError> {
     let caps = get_platform_capabilities();
-    if caps.gnome_extension_active {
-        match capture_via_extension_excluding(exclude_title).await {
-            Ok(image) => return Ok(image),
-            Err(err) => {
-                tracing::warn!(
-                    "GNOME 扩展排除覆盖层抓屏失败，降级至 XDG Portal（画面可能包含覆盖层），原因: {err:#}"
-                );
-            }
-        }
-    } else {
-        tracing::warn!("GNOME 扩展未在线，录屏抓帧降级至 XDG Portal，画面可能包含 Snapin 覆盖层");
+    if !caps.gnome_extension_active {
+        return Err(PlatformError::Capture {
+            message: "Linux 录屏需要启用 GNOME 扩展 snapin@wangle，请重新安装或启用扩展"
+                .to_string(),
+        });
     }
-    capture_fullscreen_portal().await
+    capture_via_extension_excluding(exclude_title)
+        .await
+        .map_err(|error| PlatformError::Capture {
+            message: format!(
+                "Linux 录屏需要新版 GNOME 扩展 snapin@wangle，请更新扩展后重试，原因: {error}"
+            ),
+        })
 }
 
 /// 通过 GNOME Shell 扩展执行零白闪截屏并解码

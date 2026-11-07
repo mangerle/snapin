@@ -15,3 +15,4 @@ snapin-render.workspace = true
 tiny-skia.workspace = true
 image.workspace = true
 winit.workspace = true
+tracing.workspace = true

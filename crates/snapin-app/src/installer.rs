@@ -3,9 +3,9 @@
 //! 在编译期内嵌 GNOME Shell 扩展全部资源文件，摆脱对当前工作目录的路径依赖，
 //! 支持在任意系统目录下安全部署至用户扩展目录并调用系统启用命令。
 
-#[cfg(target_os = "linux")]
-use anyhow::Context;
 use anyhow::Result;
+#[cfg(target_os = "linux")]
+use anyhow::{bail, Context};
 #[cfg(target_os = "linux")]
 use snapin_platform::output_with_timeout;
 #[cfg(target_os = "linux")]
@@ -24,8 +24,16 @@ const LEGACY_GNOME_EXTENSION_UUIDS: &[&str] =
     &["snapin@wangle.local", "snapin-helper@wangle.local"];
 #[cfg(target_os = "linux")]
 const GNOME_EXTENSION_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(target_os = "linux")]
+const GNOME_EXTENSION_ACTIVE_WAIT: Duration = Duration::from_secs(15);
+#[cfg(target_os = "linux")]
+const GNOME_EXTENSION_POLL_INTERVAL: Duration = Duration::from_millis(150);
 
-/// 安装配套 GNOME Shell 扩展到用户目录并向系统请求启用
+/// 安装配套 GNOME Shell 扩展到用户目录并重新加载。
+///
+/// 先原子替换磁盘文件，再确保正式 UUID 处于启用状态。GNOME Shell 会缓存已经加载
+/// 的 ESM 模块，因此从历史 UUID 首次迁移或扩展接口升级后，仍需注销并重新登录一次。
+/// 使用稳定 UUID 可以保证后续启动始终加载同一目录，避免旧扩展继续遮蔽新版本。
 ///
 /// # Errors
 ///
@@ -39,9 +47,7 @@ pub fn install_gnome_extension() -> Result<()> {
 
     #[cfg(target_os = "linux")]
     {
-        let uuid = GNOME_EXTENSION_UUID;
-        let target_dir = snapin_foundation::AppPaths::gnome_extension_dir(uuid);
-
+        let target_dir = snapin_foundation::AppPaths::gnome_extension_dir(GNOME_EXTENSION_UUID);
         let icons_dir = target_dir.join("icons");
         std::fs::create_dir_all(&icons_dir).context("创建 GNOME 扩展目标目录失败")?;
 
@@ -54,38 +60,85 @@ pub fn install_gnome_extension() -> Result<()> {
             .context("写入 GNOME 扩展图标文件失败")?;
 
         tracing::info!("GNOME 扩展文件已成功部署至: {:?}", target_dir);
-
-        // 请求 GNOME 启用该扩展（登录或重启 Shell 后将自动加载生效）
-        let mut command = std::process::Command::new("gnome-extensions");
-        command.args(["enable", uuid]);
-        match output_with_timeout(command, GNOME_EXTENSION_COMMAND_TIMEOUT) {
-            Ok(output) if output.status.success() => {
-                tracing::info!("已向 GNOME 发送扩展启用指令。");
-            }
-            Ok(output) => {
-                tracing::warn!(
-                    "GNOME 扩展启用命令返回非零状态，状态: {}，原因: {}",
-                    output.status,
-                    String::from_utf8_lossy(&output.stderr).trim()
-                );
-            }
-            Err(error) => {
-                tracing::warn!("执行 GNOME 扩展启用命令失败: {error}");
-            }
-        }
+        reload_gnome_extension(GNOME_EXTENSION_UUID)?;
+        wait_for_gnome_extension_active(GNOME_EXTENSION_UUID)?;
         cleanup_legacy_extensions();
         Ok(())
     }
 }
 
-/// 清理曾经使用过的扩展 UUID，避免旧扩展继续遮蔽正式扩展。
+/// 确保扩展处于启用状态；Shell 已缓存模块时会在下一次登录加载新文件。
+#[cfg(target_os = "linux")]
+fn reload_gnome_extension(uuid: &str) -> Result<()> {
+    // 扩展可能本来就未启用；停用失败不应阻止后续启用。
+    if let Err(error) = set_gnome_extension_enabled(uuid, false) {
+        tracing::debug!("停用 GNOME 扩展时未取得成功状态，继续尝试启用: {error}");
+    }
+    set_gnome_extension_enabled(uuid, true)?;
+    tracing::info!("GNOME 扩展已启用，UUID: {uuid}；若接口尚未更新，请注销并重新登录");
+    Ok(())
+}
+
+/// 等待 GNOME Shell 完成扩展加载，避免登录阶段守护进程先行时停留在 INACTIVE。
+#[cfg(target_os = "linux")]
+fn wait_for_gnome_extension_active(uuid: &str) -> Result<()> {
+    let deadline = std::time::Instant::now() + GNOME_EXTENSION_ACTIVE_WAIT;
+    let mut attempt = 0_u32;
+    while std::time::Instant::now() < deadline {
+        if gnome_extension_is_active(uuid) {
+            tracing::info!("GNOME 扩展已进入 ACTIVE 状态，UUID: {uuid}");
+            return Ok(());
+        }
+        // Shell 尚未完成启动时首次 enable 可能只写入启用状态；定期重试启用可在
+        // 扩展管理器就绪后完成真实加载，而不必要求用户手动再执行一次命令。
+        if attempt % 10 == 9 {
+            let _ = set_gnome_extension_enabled(uuid, true);
+        }
+        attempt = attempt.saturating_add(1);
+        std::thread::sleep(GNOME_EXTENSION_POLL_INTERVAL);
+    }
+    bail!("等待 GNOME 扩展进入 ACTIVE 状态超时，UUID: {uuid}");
+}
+
+/// 查询扩展是否已经由 Shell 真正加载。
+#[cfg(target_os = "linux")]
+fn gnome_extension_is_active(uuid: &str) -> bool {
+    let mut command = std::process::Command::new("gnome-extensions");
+    command.env("LC_ALL", "C").args(["info", uuid]);
+    matches!(
+        output_with_timeout(command, GNOME_EXTENSION_COMMAND_TIMEOUT),
+        Ok(output)
+            if output.status.success()
+                && String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .any(|line| line.trim() == "State: ACTIVE")
+    )
+}
+
+/// 调用 `gnome-extensions` 切换扩展状态。
+#[cfg(target_os = "linux")]
+fn set_gnome_extension_enabled(uuid: &str, enabled: bool) -> Result<()> {
+    let action = if enabled { "enable" } else { "disable" };
+    let mut command = std::process::Command::new("gnome-extensions");
+    command.env("LC_ALL", "C").args([action, uuid]);
+    let output = output_with_timeout(command, GNOME_EXTENSION_COMMAND_TIMEOUT)
+        .with_context(|| format!("执行 GNOME 扩展 {action} 命令失败"))?;
+    if !output.status.success() {
+        bail!(
+            "GNOME 扩展 {action} 命令失败，UUID: {uuid}，状态: {}，原因: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+/// 清理曾经使用过的扩展 UUID，避免旧 D-Bus 接口继续遮蔽正式扩展。
 #[cfg(target_os = "linux")]
 fn cleanup_legacy_extensions() {
     for uuid in LEGACY_GNOME_EXTENSION_UUIDS {
-        let mut command = std::process::Command::new("gnome-extensions");
-        command.args(["disable", uuid]);
-        if let Err(error) = output_with_timeout(command, GNOME_EXTENSION_COMMAND_TIMEOUT) {
-            tracing::debug!("停用历史 GNOME 扩展时未完成，UUID: {uuid}，原因: {error}");
+        if let Err(error) = set_gnome_extension_enabled(uuid, false) {
+            tracing::debug!("停用历史 GNOME 扩展时未取得成功状态，UUID: {uuid}，原因: {error}");
         }
         let path = snapin_foundation::AppPaths::gnome_extension_dir(uuid);
         if path.exists() {
@@ -124,8 +177,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_embedded_extension_contract_uses_stable_uuid() {
+    fn test_embedded_extension_contract_uses_stable_uuid_and_exclusion_method() {
         assert!(EXT_METADATA.contains("\"uuid\": \"snapin@wangle\""));
+        assert!(EXT_JAVASCRIPT.contains("CaptureFullscreenExcludingTitle"));
     }
 
     #[test]

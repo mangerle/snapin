@@ -121,6 +121,7 @@ pub struct RecordingSession {
     restart_pending: bool,
     toolbar_offset: (f32, f32),
     toolbar_drag: Option<ToolbarDrag>,
+    mouse_press_consumed: bool,
 }
 
 /// 一次工具栏拖动会话的固定起点。
@@ -149,6 +150,7 @@ impl RecordingSession {
             restart_pending: false,
             toolbar_offset: (0.0, 0.0),
             toolbar_drag: None,
+            mouse_press_consumed: false,
         }
     }
 
@@ -233,6 +235,16 @@ impl RecordingSession {
     /// 结束工具栏拖动。
     pub fn end_toolbar_drag(&mut self) -> bool {
         self.toolbar_drag.take().is_some()
+    }
+
+    /// 标记当前鼠标按下事件已由录制工具栏消费。
+    pub fn consume_mouse_press(&mut self) {
+        self.mouse_press_consumed = true;
+    }
+
+    /// 读取并清除鼠标按下事件的消费标记。
+    pub fn take_mouse_press_consumed(&mut self) -> bool {
+        std::mem::take(&mut self.mouse_press_consumed)
     }
 
     /// 更新悬停状态，返回是否需要重绘。
@@ -490,6 +502,23 @@ mod tests {
     }
 
     #[test]
+    fn test_recording_session_cycles_common_frame_rates() {
+        let mut session = RecordingSession::new(
+            Arc::new(MockRecorder {
+                control: Arc::new(MockControl::default()),
+            }),
+            Arc::new(|_| {}),
+        );
+        assert_eq!(session.fps(), 60);
+        session.cycle_fps();
+        assert_eq!(session.fps(), 24);
+        session.cycle_fps();
+        assert_eq!(session.fps(), 30);
+        session.cycle_fps();
+        assert_eq!(session.fps(), 60);
+    }
+
+    #[test]
     fn test_recording_session_controls_and_finishes() {
         let control = Arc::new(MockControl::default());
         let recorder = Arc::new(MockRecorder {
@@ -515,6 +544,19 @@ mod tests {
             session.handle_event(RecordingEvent::Finished { path: path.clone() }),
             RecordingTransition::Finished(path)
         );
+    }
+
+    #[test]
+    fn test_mouse_press_consumption_is_cleared_on_release() {
+        let mut session = RecordingSession::new(
+            Arc::new(MockRecorder {
+                control: Arc::new(MockControl::default()),
+            }),
+            Arc::new(|_| {}),
+        );
+        session.consume_mouse_press();
+        assert!(session.take_mouse_press_consumed());
+        assert!(!session.take_mouse_press_consumed());
     }
 
     #[test]

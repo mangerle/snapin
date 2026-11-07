@@ -9,6 +9,10 @@ pub fn handle_cursor_move(
     screen_w: f32,
     screen_h: f32,
 ) -> bool {
+    // 录屏工具栏悬停会提前返回，坐标必须在分支前落库；否则紧接着的鼠标按下
+    // 仍使用上一次位置，帧率和其他录屏按钮会全部命中失败。
+    state.viewport.cursor_pos = pos;
+    state.viewport.cursor_ready = true;
     if let Some(needle) = super::recording::handle_recording_cursor_move(
         state,
         (pos.0 as f32, pos.1 as f32),
@@ -16,9 +20,6 @@ pub fn handle_cursor_move(
     ) {
         return needle;
     }
-
-    state.viewport.cursor_pos = pos;
-    state.viewport.cursor_ready = true;
     if state.ocr.editor.is_some() {
         return handle_editor_cursor_move(state, pos.0 as f32, pos.1 as f32, screen_w, screen_h);
     }
@@ -176,11 +177,12 @@ fn handle_locked_cursor(
         update_selection_drag(state, rect, drag, frame);
         return true;
     }
-    if state
-        .editor
-        .annotation
-        .toolbar
-        .contains_point(frame.x, frame.y)
+    if state.recording.is_none()
+        && state
+            .editor
+            .annotation
+            .toolbar
+            .contains_point(frame.x, frame.y)
     {
         return state
             .editor
@@ -199,11 +201,12 @@ fn handle_locked_cursor(
         update_drawing_stroke(state, rect, frame);
         return true;
     }
-    let hover_changed = state
-        .editor
-        .annotation
-        .toolbar
-        .handle_mouse_move(frame.x, frame.y);
+    let hover_changed = state.recording.is_none()
+        && state
+            .editor
+            .annotation
+            .toolbar
+            .handle_mouse_move(frame.x, frame.y);
     hover_changed || has_brush_cursor(state)
 }
 

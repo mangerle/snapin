@@ -7,12 +7,78 @@ use super::*;
 use crate::editor::text_input::TextInputSession;
 use crate::editor::toolbar::{MosaicMode, SubControl, ToolbarAction, ToolbarItem};
 use crate::geometry::Point;
-use crate::ports::OcrTextItem;
+use crate::ports::{NoopScreenRecorder, OcrTextItem};
+use crate::snipper::canvas::recording::{calculate_recording_layout, RecordingLayoutRequest};
 use crate::snipper::window::ocr_menu::OcrMenuAction;
 use crate::snipper::window::redaction::{apply_redaction, is_redaction_applied, RedactionPreview};
+use crate::snipper::window::state::{RecordingAction, RecordingItem, RecordingSession};
 use snapin_annotation::action::AnnotationShape;
 use snapin_annotation::shapes::RectAction;
 use snapin_annotation::LineStyle;
+use std::sync::Arc;
+
+/// 录屏工具栏悬停后点击帧率必须使用最新坐标，不能沿用进入工具栏前的位置。
+#[test]
+fn test_recording_fps_click_uses_current_toolbar_position() {
+    let mut state = SnipperState::new();
+    let selection = Rect {
+        x: 200.0,
+        y: 200.0,
+        width: 800.0,
+        height: 500.0,
+    };
+    state.viewport.selection = SelectionState::Locked {
+        rect: selection,
+        active_drag: None,
+    };
+    state.recording = Some(RecordingSession::new(
+        Arc::new(NoopScreenRecorder),
+        Arc::new(|_| {}),
+    ));
+    let original = RgbaImage::new(1920, 1080);
+    let layout = {
+        let session = state.recording.as_ref().expect("测试会话必须存在");
+        calculate_recording_layout(RecordingLayoutRequest {
+            session,
+            selection: &selection,
+            screen_width: original.width() as f32,
+            screen_height: original.height() as f32,
+            scale: 1.0,
+        })
+    };
+    let fps_center = layout
+        .slots
+        .iter()
+        .find(|slot| slot.item == Some(RecordingItem::Action(RecordingAction::CycleFps)))
+        .map(|slot| {
+            (
+                slot.rect.x + slot.rect.width / 2.0,
+                slot.rect.y + slot.rect.height / 2.0,
+            )
+        })
+        .expect("录屏帧率槽位必须存在");
+
+    assert!(handle_cursor_move(
+        &mut state,
+        (fps_center.0 as f64, fps_center.1 as f64),
+        original.width() as f32,
+        original.height() as f32,
+    ));
+    assert_eq!(
+        state.viewport.cursor_pos,
+        (fps_center.0 as f64, fps_center.1 as f64)
+    );
+    assert!(handle_mouse_button(
+        &mut state,
+        MouseButton::Left,
+        ElementState::Pressed,
+        &original,
+    ));
+    assert_eq!(
+        state.recording.as_ref().map(|session| session.fps()),
+        Some(24)
+    );
+}
 
 /// 空闲态鼠标移动必须触发重绘，保证放大镜实时跟随光标
 #[test]

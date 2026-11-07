@@ -95,9 +95,9 @@ pub(crate) fn calculate_recording_layout(request: RecordingLayoutRequest<'_>) ->
         screen_height,
         scale,
     } = request;
-    // 工具栏在 1 倍缩放时约 691 像素宽；除左右边距外还需预留缩放后的安全间隔，
+    // 工具栏在 1 倍缩放时约 705 像素宽；除左右边距外还需预留缩放后的安全间隔，
     // 高 DPI 小屏上必须主动收缩，否则最右侧拖动手柄会被裁出屏幕。
-    let scale = scale.min((screen_width / 720.0).max(0.8));
+    let scale = scale.min((screen_width / 740.0).max(0.8));
     let bar_height = 42.0 * scale;
     let mut slots = Vec::with_capacity(25);
     let mut cursor = LayoutCursor {
@@ -115,7 +115,7 @@ pub(crate) fn calculate_recording_layout(request: RecordingLayoutRequest<'_>) ->
         &mut slots,
         &mut cursor,
         RecordingSlotKind::Fps,
-        48.0 * scale,
+        62.0 * scale,
     );
     if let Some(slot) = slots.last_mut() {
         slot.item = Some(RecordingItem::Action(RecordingAction::CycleFps));

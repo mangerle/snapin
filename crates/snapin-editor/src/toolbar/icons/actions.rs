@@ -425,36 +425,30 @@ fn sample_backdrop(pixmap: &PixmapMut, x: f32, y: f32) -> Color {
         .unwrap_or(Color::TRANSPARENT)
 }
 
-/// 图标: 屏幕录制（显示器外框与实心录制圆点）
+/// 图标: 屏幕录制（鲜明的红色录制按钮）
 pub(super) fn render_icon_screen_recording(pixmap: &mut PixmapMut, painter: &IconPainter) {
     let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
-    let mut frame = PathBuilder::new();
-    add_round_rect(
-        &mut frame,
-        RoundRect {
-            x: cx - 6.0 * s,
-            y: cy - 4.5 * s,
-            width: 12.0 * s,
-            height: 8.5 * s,
-            radius: 1.5 * s,
-        },
-    );
-    if let Some(path) = frame.finish() {
+    let red = make_paint(Color::from_rgba8(239, 68, 68, 255));
+    let mut ring = PathBuilder::new();
+    ring.push_circle(cx, cy, 6.2 * s);
+    if let Some(path) = ring.finish() {
         pixmap.stroke_path(
             &path,
-            &painter.paint,
-            &painter.stroke,
+            &red,
+            &Stroke {
+                width: 1.5 * s,
+                ..Default::default()
+            },
             Transform::identity(),
             None,
         );
     }
     let mut dot = PathBuilder::new();
-    dot.push_circle(cx, cy - 0.2 * s, 2.3 * s);
+    dot.push_circle(cx, cy, 3.7 * s);
     if let Some(path) = dot.finish() {
-        let paint = make_paint(Color::from_rgba8(239, 68, 68, 255));
         pixmap.fill_path(
             &path,
-            &paint,
+            &red,
             tiny_skia::FillRule::Winding,
             Transform::identity(),
             None,
