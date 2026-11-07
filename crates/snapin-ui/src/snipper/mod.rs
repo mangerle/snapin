@@ -6,5 +6,5 @@ mod selection;
 pub(crate) mod window;
 mod window_rect;
 
-pub use window::{SnipMode, SnipperLaunch, SnipperOutcome, SnipperRuntime};
+pub use window::{SnipMode, SnipperLaunch, SnipperOutcome, SnipperPhase, SnipperRuntime};
 pub use window_rect::WindowRect;

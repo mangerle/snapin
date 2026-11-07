@@ -5,6 +5,7 @@
 
 use super::annotation_edit::{self, AnnotationDrag};
 use super::events::SnipperState;
+use super::state::SnipperPhase;
 use crate::snipper::selection::{hit_test_handle, DragMode, Rect, ResizeHandle, SelectionState};
 use winit::window::{CursorIcon, Window};
 
@@ -21,6 +22,12 @@ pub fn refresh_cursor(window: &Window, state: &mut SnipperState) {
 
 /// 计算当前应显示的光标形状。
 fn desired_cursor_icon(state: &SnipperState) -> CursorIcon {
+    match state.phase() {
+        SnipperPhase::Busy => return CursorIcon::Wait,
+        SnipperPhase::Idle | SnipperPhase::CreatingSelection => return CursorIcon::Default,
+        _ => {}
+    }
+
     let SelectionState::Locked { rect, active_drag } = &state.viewport.selection else {
         return CursorIcon::Default;
     };

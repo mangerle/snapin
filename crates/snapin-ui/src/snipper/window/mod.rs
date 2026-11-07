@@ -23,6 +23,7 @@ pub mod state;
 pub mod types;
 pub mod view;
 
+pub use state::SnipperPhase;
 pub use types::{SnipMode, SnipperLaunch, SnipperOutcome, SnipperRuntime};
 pub use view::SnipperView;
 

@@ -3,6 +3,7 @@
 mod editor;
 mod jobs;
 mod ocr;
+mod phase;
 mod session;
 mod viewport;
 
@@ -15,6 +16,7 @@ use crate::snipper::window_rect::WindowRect;
 use editor::SnipperEditor;
 use jobs::{PendingMediaJob, SnipperJobs};
 use ocr::SnipperOcr;
+pub use phase::SnipperPhase;
 use session::SnipperSession;
 use snapin_config::config::{Config, InterfaceConfig, SnipConfig};
 use std::sync::Arc;
