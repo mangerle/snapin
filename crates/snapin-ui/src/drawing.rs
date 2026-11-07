@@ -34,6 +34,13 @@ pub(crate) fn make_paint(color: Color) -> Paint<'static> {
     paint
 }
 
+/// 向 PathBuilder 添加直角矩形路径。
+pub(crate) fn add_rect(pb: &mut PathBuilder, x: f32, y: f32, w: f32, h: f32) {
+    if let Some(r) = tiny_skia::Rect::from_xywh(x, y, w, h) {
+        pb.push_rect(r);
+    }
+}
+
 /// 向 PathBuilder 添加圆角矩形路径。
 pub(crate) fn add_round_rect(pb: &mut PathBuilder, rect: RoundRect) {
     let radius = rect.radius.min(rect.width / 2.0).min(rect.height / 2.0);

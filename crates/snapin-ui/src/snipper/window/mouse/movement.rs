@@ -12,7 +12,7 @@ pub fn handle_cursor_move(
     state.viewport.cursor_pos = pos;
     state.viewport.cursor_ready = true;
     if state.ocr.editor.is_some() {
-        return false;
+        return handle_editor_cursor_move(state, pos.0 as f32, pos.1 as f32, screen_w, screen_h);
     }
     if let Some(menu) = state.ocr.menu.as_mut() {
         return menu.update_hover(pos.0 as f32, pos.1 as f32);
@@ -47,6 +47,76 @@ pub fn handle_cursor_move(
             handle_locked_cursor(state, rect, active_drag, frame)
         }
     }
+}
+
+/// 处理文字识别全文编辑框中的鼠标移动（窗口拖拽、文本拖选、滚动条拖拽与按钮悬停）。
+fn handle_editor_cursor_move(
+    state: &mut SnipperState,
+    x: f32,
+    y: f32,
+    screen_w: f32,
+    screen_h: f32,
+) -> bool {
+    let scale = state.editor.annotation.toolbar.ui_scale;
+    let Some(editor) = state.ocr.editor.as_mut() else {
+        return false;
+    };
+    let layout = editor.layout(screen_w, screen_h, scale);
+
+    // 1. 拖动面板
+    if let Some((offset_x, offset_y)) = editor.drag_start {
+        let new_x = x - offset_x;
+        let new_y = y - offset_y;
+        editor.custom_position = Some((new_x, new_y));
+        return true;
+    }
+
+    // 2. 拖选文本
+    if editor.is_selecting_text {
+        let padding_x = 12.0 * scale;
+        let padding_y = 10.0 * scale;
+        let max_text_width = (layout.body.width - padding_x * 2.0 - 12.0 * scale).max(10.0);
+        let options = snapin_render::TextMeasureOptions::new(
+            14.0 * scale,
+            22.0 * scale,
+            max_text_width,
+            10000.0,
+        );
+        let hit_x = (x - layout.body.x - padding_x).max(0.0);
+        let hit_y = (y - layout.body.y - padding_y + editor.scroll_y).max(0.0);
+        let text = editor.display_text();
+        let offset = snapin_render::with_thread_local_text_renderer(|renderer| {
+            renderer.hit_test_text_offset(&text, hit_x, hit_y, options)
+        });
+        if editor.cursor != offset {
+            editor.cursor = offset;
+            editor.reset_blink();
+            return true;
+        }
+        return false;
+    }
+
+    // 3. 拖动滚动条
+    if editor.is_dragging_scrollbar {
+        if let (Some(track), Some(thumb)) = (layout.scrollbar_track, layout.scrollbar_thumb) {
+            let max_thumb_travel = (track.height - thumb.height).max(1.0);
+            let dy = y - editor.scrollbar_drag_start_y;
+            let max_scroll = (editor.content_height - layout.body.height).max(0.0);
+            let scroll_ratio = dy / max_thumb_travel;
+            editor.scroll_y = (editor.scrollbar_drag_start_scroll_y + scroll_ratio * max_scroll)
+                .clamp(0.0, max_scroll);
+            return true;
+        }
+    }
+
+    // 4. 按钮悬停态更新
+    let new_hovered = layout.hit_test_button(x, y);
+    if editor.hovered_button != new_hovered {
+        editor.hovered_button = new_hovered;
+        return true;
+    }
+
+    false
 }
 
 /// 单次光标移动所需的坐标与屏幕尺寸。

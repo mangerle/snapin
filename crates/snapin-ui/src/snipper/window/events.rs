@@ -298,6 +298,8 @@ fn handle_redaction_preview_key(state: &mut SnipperState, key: &Key) -> bool {
 /// Esc 只退出编辑框并保留当前截图会话。
 fn handle_ocr_editor_key(state: &mut SnipperState, key: &Key) -> bool {
     let ctrl_pressed = state.viewport.modifiers.control_key();
+    let shift_pressed = state.viewport.modifiers.shift_key();
+
     if matches!(key, Key::Named(NamedKey::Escape)) {
         state.ocr.editor = None;
         state.clear_status_message();
@@ -314,15 +316,81 @@ fn handle_ocr_editor_key(state: &mut SnipperState, key: &Key) -> bool {
         }
         return true;
     }
+
+    let ui_scale = state.editor.annotation.toolbar.ui_scale;
     let Some(editor) = state.ocr.editor.as_mut() else {
         return false;
     };
+
+    if ctrl_pressed && !state.viewport.modifiers.alt_key() {
+        match key {
+            Key::Character(c) if c.eq_ignore_ascii_case("a") => {
+                editor.select_all();
+                return true;
+            }
+            Key::Character(c) if c.eq_ignore_ascii_case("c") => {
+                let text_to_copy = editor
+                    .selected_text()
+                    .unwrap_or_else(|| editor.finish_text());
+                if !text_to_copy.is_empty() {
+                    state.submit_clipboard_text(
+                        text_to_copy,
+                        SnipperClipboardAction::TransientStatus {
+                            success_message: snapin_foundation::i18n::tr("已复制文字到剪贴板")
+                                .to_string(),
+                            failure_label: "复制文字",
+                        },
+                    );
+                }
+                return true;
+            }
+            Key::Character(c) if c.eq_ignore_ascii_case("x") => {
+                if let Some(text_to_cut) = editor.selected_text() {
+                    editor.delete_selection();
+                    state.submit_clipboard_text(
+                        text_to_cut,
+                        SnipperClipboardAction::TransientStatus {
+                            success_message: snapin_foundation::i18n::tr("已剪切文字到剪贴板")
+                                .to_string(),
+                            failure_label: "剪切文字",
+                        },
+                    );
+                }
+                return true;
+            }
+            Key::Character(c) if c.eq_ignore_ascii_case("v") => {
+                state.request_clipboard_paste_into_ocr_editor();
+                return true;
+            }
+            Key::Named(NamedKey::Home) => {
+                editor.move_doc_start(shift_pressed);
+                return true;
+            }
+            Key::Named(NamedKey::End) => {
+                editor.move_doc_end(shift_pressed);
+                return true;
+            }
+            _ => {}
+        }
+    }
+
     match key {
-        Key::Named(NamedKey::Enter) => editor.push_str("\n"),
-        Key::Named(NamedKey::Backspace) => editor.pop_char(),
-        Key::Named(NamedKey::Space) => editor.push_str(" "),
-        Key::Character(character) if !ctrl_pressed => editor.push_str(character),
-        _ => {}
+        Key::Named(NamedKey::ArrowLeft) => editor.move_left(shift_pressed),
+        Key::Named(NamedKey::ArrowRight) => editor.move_right(shift_pressed),
+        Key::Named(NamedKey::ArrowUp) => {
+            editor.move_vertical(true, shift_pressed, 600.0 * ui_scale, ui_scale)
+        }
+        Key::Named(NamedKey::ArrowDown) => {
+            editor.move_vertical(false, shift_pressed, 600.0 * ui_scale, ui_scale)
+        }
+        Key::Named(NamedKey::Home) => editor.move_home(shift_pressed),
+        Key::Named(NamedKey::End) => editor.move_end(shift_pressed),
+        Key::Named(NamedKey::Delete) => editor.delete_forward(),
+        Key::Named(NamedKey::Backspace) => editor.pop_char_backward(),
+        Key::Named(NamedKey::Enter) => editor.insert_char('\n'),
+        Key::Named(NamedKey::Space) => editor.insert_char(' '),
+        Key::Character(character) if !ctrl_pressed => editor.insert_str(character),
+        _ => return false,
     }
     true
 }
@@ -534,5 +602,39 @@ mod tests {
             &image,
         ));
         assert!(state.has_pending_clipboard());
+    }
+
+    /// 编辑框内 Ctrl+A 全选并能直接替换输入。
+    #[test]
+    fn test_ocr_editor_navigation_and_shortcuts() {
+        let mut state = SnipperState::new();
+        state.ocr.editor = Some(OcrTextEditorState::new("原始文字".to_string()));
+        let image = RgbaImage::new(100, 100);
+
+        // Ctrl+A 全选
+        state.viewport.modifiers = ModifiersState::CONTROL;
+        assert!(handle_key_input(
+            &mut state,
+            &Key::Character(winit::keyboard::SmolStr::new("a")),
+            ElementState::Pressed,
+            &image,
+        ));
+        assert!(state
+            .ocr
+            .editor
+            .as_ref()
+            .unwrap()
+            .selection_range()
+            .is_some());
+
+        // 输入替换
+        state.viewport.modifiers = ModifiersState::empty();
+        assert!(handle_key_input(
+            &mut state,
+            &Key::Character(winit::keyboard::SmolStr::new("新")),
+            ElementState::Pressed,
+            &image,
+        ));
+        assert_eq!(state.ocr.editor.as_ref().unwrap().finish_text(), "新");
     }
 }

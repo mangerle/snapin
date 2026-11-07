@@ -98,6 +98,18 @@ pub struct TextMeasureOptions {
     pub max_height: f32,
 }
 
+impl TextMeasureOptions {
+    /// 构造文本测量配置。
+    pub const fn new(font_size: f32, line_height: f32, max_width: f32, max_height: f32) -> Self {
+        Self {
+            font_size,
+            line_height,
+            max_width,
+            max_height,
+        }
+    }
+}
+
 /// 单行纯文本绘制的位置、字号与颜色参数。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TextDrawOptions {
@@ -160,6 +172,33 @@ impl TextRenderer {
                 style: TextStyleOptions::default(),
             },
         );
+    }
+
+    /// 在指定坐标绘制多行自动折行文本。
+    pub fn draw_multiline_text_rgba(
+        &mut self,
+        pixmap: &mut PixmapMut,
+        text: &str,
+        origin_x: f32,
+        origin_y: f32,
+        options: TextMeasureOptions,
+        rgba: (u8, u8, u8, u8),
+    ) {
+        if text.is_empty() {
+            return;
+        }
+        let metrics = Metrics::new(options.font_size, options.line_height);
+        let mut buffer = Buffer::new(&mut self.font_system, metrics);
+        buffer.set_size(&mut self.font_system, options.max_width, options.max_height);
+        buffer.set_text(&mut self.font_system, text, Attrs::new(), Shaping::Advanced);
+        buffer.shape_until_scroll(&mut self.font_system, false);
+        self.paint_styled_buffer(StyledBufferPaint {
+            pixmap,
+            buffer: &mut buffer,
+            origin_x,
+            origin_y,
+            rgba,
+        });
     }
 
     /// 在指定坐标绘制带粗体、斜体和字体族样式的单行文字。

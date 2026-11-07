@@ -5,7 +5,16 @@ use crate::editor::toolbar::{MosaicMode, SubControl};
 
 /// 处理截图会话中的鼠标滚轮事件 (连续动态调节当前标注与后续标注大小)
 pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> bool {
-    if state.ocr.editor.is_some() || state.ocr.menu.is_some() {
+    if let Some(editor) = state.ocr.editor.as_mut() {
+        let Some(delta_y) = normalized_wheel_delta(delta) else {
+            return false;
+        };
+        let scale = state.editor.annotation.toolbar.ui_scale;
+        let body_height = 340.0 * scale;
+        editor.scroll_by(-delta_y * 36.0, body_height);
+        return true;
+    }
+    if state.ocr.menu.is_some() {
         return true;
     }
     let Some(delta_y) = normalized_wheel_delta(delta) else {

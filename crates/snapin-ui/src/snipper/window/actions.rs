@@ -286,7 +286,7 @@ fn locked_selection_origin(state: &SnipperState, original_rgba: &RgbaImage) -> O
 /// 将任务提交到应用层媒体执行器并更新等待状态。
 ///
 /// UI 不自行创建线程或 Tokio 任务；取消与结果回传统一由截图任务运行时负责。
-fn dispatch_job(state: &mut SnipperState, kind: SnipperJobKind, job: MediaJob) {
+pub(super) fn dispatch_job(state: &mut SnipperState, kind: SnipperJobKind, job: MediaJob) {
     dispatch_job_at(state, kind, job, None);
 }
 

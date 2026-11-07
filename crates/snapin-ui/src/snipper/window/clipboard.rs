@@ -25,6 +25,8 @@ pub(crate) enum SnipperClipboardAction {
     },
     /// 读取剪贴板文本并插入到当前活动的文字标注会话中。
     PasteIntoTextInput,
+    /// 读取剪贴板文本并插入到当前活动的文字识别编辑框中。
+    PasteIntoOcrEditor,
 }
 
 impl SnipperClipboardAction {
@@ -36,6 +38,7 @@ impl SnipperClipboardAction {
             Self::CopyText(_) => "复制识别文字",
             Self::TransientStatus { failure_label, .. } => failure_label,
             Self::PasteIntoTextInput => "粘贴文字",
+            Self::PasteIntoOcrEditor => "粘贴识别文字",
         }
     }
 }
@@ -132,6 +135,31 @@ impl SnipperState {
         }
     }
 
+    /// 提交纯文本剪贴板读取，异步将文本写入当前文字识别编辑框中。
+    pub(crate) fn request_clipboard_paste_into_ocr_editor(&mut self) -> bool {
+        if self.has_pending_clipboard() {
+            return false;
+        }
+
+        let events = self.jobs.clipboard_events.clone();
+        let sink = Box::new(move |job_id, result| {
+            events(ClipboardTarget::Snipper, job_id, result);
+        });
+        match self.session.desktop.read_clipboard(sink) {
+            Ok(id) => {
+                self.jobs.pending_clipboard = Some(PendingClipboardJob {
+                    id,
+                    action: SnipperClipboardAction::PasteIntoOcrEditor,
+                });
+                true
+            }
+            Err(error) => {
+                tracing::warn!("读取剪贴板失败: {error}");
+                false
+            }
+        }
+    }
+
     /// 处理剪贴板写入完成事件；返回是否匹配当前在途任务。
     pub(crate) fn handle_clipboard_finished(
         &mut self,
@@ -162,13 +190,21 @@ impl SnipperState {
                 } => {
                     self.set_status_message(success_message);
                 }
-                SnipperClipboardAction::PasteIntoTextInput => {}
+                SnipperClipboardAction::PasteIntoTextInput
+                | SnipperClipboardAction::PasteIntoOcrEditor => {}
             },
             Ok(ClipboardResult::Payload(payload)) => match pending.action {
                 SnipperClipboardAction::PasteIntoTextInput => {
                     if let ClipboardPayload::Text(text) = payload {
                         if let Some(session) = &mut self.editor.annotation.active_text_input {
                             session.insert_str(&text);
+                        }
+                    }
+                }
+                SnipperClipboardAction::PasteIntoOcrEditor => {
+                    if let ClipboardPayload::Text(text) = payload {
+                        if let Some(editor) = &mut self.ocr.editor {
+                            editor.insert_str(&text);
                         }
                     }
                 }
