@@ -696,7 +696,7 @@ fn test_double_click_existing_text_reopens_edit_session() {
 }
 
 #[test]
-fn test_text_tool_click_on_existing_text_reopens_edit_session() {
+fn test_text_tool_click_on_existing_text_allows_dragging_and_double_click_edits() {
     let mut state = SnipperState::new();
     state.editor.annotation.toolbar.ui_scale = 1.0;
     state.viewport.selection = SelectionState::Locked {
@@ -718,12 +718,41 @@ fn test_text_tool_click_on_existing_text_reopens_edit_session() {
         .annotations
         .push(session.commit().expect("应成功生成 TextAction"));
 
-    // 2. 激活文字工具并单击该文字标注
+    // 2. 激活文字工具并单击按下该文字标注
     state.editor.annotation.toolbar.active_tool = Some(Tool::Text);
     assert!(handle_left_press(&mut state, 110.0, 105.0, &original));
 
-    // 3. 验证进入就地二次编辑，而不是在上面新建空文本框
-    assert!(state.editor.annotation.active_text_input.is_some());
+    // 3. 验证：必须开启拖拽移动模式（Move），而不能直接劫持为编辑会话导致无法拖拽
+    assert!(
+        state.editor.annotation_drag.is_some(),
+        "按下已有文字标注必须进入拖拽移动状态"
+    );
+    assert!(
+        state.editor.annotation.active_text_input.is_none(),
+        "单次按下不得过早进入文本输入会话"
+    );
+
+    // 4. 移动光标拖拽该文字标注（从 110,105 拖到 160,155，偏移 +50,+50）
+    assert!(handle_cursor_move(&mut state, (160.0, 155.0), 800.0, 600.0));
+    assert!(handle_left_release(&mut state, 160.0, 155.0, &original));
+
+    // 5. 验证文字标注位置已成功平移
+    match state.editor.annotations.shape_at(0) {
+        Some(AnnotationShape::Text(action)) => {
+            assert_eq!(action.pos.x, 150.0, "文字 X 坐标应随拖拽移动 +50");
+            assert_eq!(action.pos.y, 150.0, "文字 Y 坐标应随拖拽移动 +50");
+        }
+        other => panic!("应为 Text 图元，实际: {other:?}"),
+    }
+
+    // 6. 紧接着在已移动的新位置双击该文字标注，验证正常唤起二次编辑
+    assert!(handle_left_press(&mut state, 160.0, 155.0, &original));
+    assert!(handle_left_release(&mut state, 160.0, 155.0, &original));
+    assert!(handle_left_press(&mut state, 160.0, 155.0, &original));
+    assert!(
+        state.editor.annotation.active_text_input.is_some(),
+        "双击文字标注必须唤起文本重新编辑"
+    );
     let active = state.editor.annotation.active_text_input.as_ref().unwrap();
     assert_eq!(active.text, "原文字");
 }

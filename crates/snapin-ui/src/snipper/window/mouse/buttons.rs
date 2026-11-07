@@ -216,7 +216,8 @@ fn handle_annotation_press(
 
     // 1. 如果用户显式切换并激活了文字工具（Tool::Text）：
     if state.editor.annotation.toolbar.active_tool == Some(Tool::Text) && !allow_locked_annotation {
-        // 如果点击命中了已存在的文字标注，优先唤起就地重新编辑，而不是覆盖新建
+        // 如果点击命中了已存在的文字标注，允许选中并拖动移动它；
+        // 若需修改文字内容，在文字上方双击或按 Enter 即可进入重新编辑。
         if let Some(index) = crate::snipper::window::annotation_edit::hit_test_editable(
             state,
             (cx, cy),
@@ -225,8 +226,11 @@ fn handle_annotation_press(
             if matches!(
                 state.editor.annotations.shape_at(index),
                 Some(AnnotationShape::Text(_))
-            ) && crate::snipper::window::annotation_edit::start_editing_text_annotation(
-                state, index,
+            ) && crate::snipper::window::annotation_edit::handle_press(
+                state,
+                cx,
+                cy,
+                allow_locked_annotation,
             ) {
                 return Some(true);
             }
