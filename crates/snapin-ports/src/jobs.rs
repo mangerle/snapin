@@ -148,7 +148,7 @@ pub enum MediaJobOutcome {
 
 /// 取消句柄。
 ///
-/// 使用装箱闭包而不是绑定 `tokio::task::AbortHandle`，使 UI 端口不依赖任何
+/// 使用装箱闭包而不是绑定 `tokio::task::AbortHandle`，使端口不依赖任何
 /// 特定异步运行时；应用层可以在闭包里同时设置取消标志与 abort 底层任务。
 pub type JobCancel = Box<dyn Fn() + Send + Sync>;
 

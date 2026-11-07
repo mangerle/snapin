@@ -1,7 +1,7 @@
 //! 剪贴板任务契约与结果类型。
 
 use super::error::PortError;
-use crate::model::PasterId;
+use crate::id::PasterId;
 use image::RgbaImage;
 use std::sync::Arc;
 
@@ -70,6 +70,6 @@ pub type ClipboardEventSink =
     Arc<dyn Fn(ClipboardTarget, ClipboardJobId, Result<ClipboardResult, PortError>) + Send + Sync>;
 
 /// 构造不执行任何动作的剪贴板事件投递器，供无宿主测试和纯渲染场景使用。
-pub(crate) fn noop_clipboard_event_sink() -> ClipboardEventSink {
+pub fn noop_clipboard_event_sink() -> ClipboardEventSink {
     Arc::new(|_, _, _| {})
 }

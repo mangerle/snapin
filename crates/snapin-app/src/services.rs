@@ -8,8 +8,8 @@ use crate::config::{publish_config, shared_config, SharedConfig};
 use crate::desktop::AppDesktop;
 use crate::media::MediaService;
 use snapin_config::config::Config;
+use snapin_ports::{DesktopPort, MediaJobRunner, PortError};
 use snapin_runtime::TaskRuntime;
-use snapin_ui::{DesktopPort, MediaJobRunner, PortError};
 use std::sync::Arc;
 
 /// 应用级服务容器。

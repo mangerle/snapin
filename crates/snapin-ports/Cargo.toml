@@ -1,0 +1,14 @@
+[package]
+name = "snapin-ports"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Snapin 核心领域与宿主环境之间的端口契约（六边形架构 Ports 契约层）"
+
+[dependencies]
+snapin-annotation.workspace = true
+snapin-config.workspace = true
+snapin-foundation.workspace = true
+image.workspace = true

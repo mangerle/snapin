@@ -221,13 +221,21 @@ fn handle_inside_selection_press(state: &mut SnipperState, rect: Rect, cx: f32, 
         && state.editor.annotation.toolbar.sub_options.line_mode == LineMode::Polyline
     {
         crate::snipper::window::annotation_edit::clear(state);
-        state.editor.annotation.stroke.append(crate::geometry::Point::new(cx, cy));
+        state
+            .editor
+            .annotation
+            .stroke
+            .append(crate::geometry::Point::new(cx, cy));
         state.editor.annotation.stroke.is_drawing = true;
         return true;
     }
     if state.editor.annotation.toolbar.active_tool.is_some() {
         crate::snipper::window::annotation_edit::clear(state);
-        state.editor.annotation.stroke.begin(crate::geometry::Point::new(cx, cy));
+        state
+            .editor
+            .annotation
+            .stroke
+            .begin(crate::geometry::Point::new(cx, cy));
         return true;
     }
     crate::snipper::window::annotation_edit::clear(state);

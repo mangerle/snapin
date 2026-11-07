@@ -153,6 +153,5 @@ impl From<TranslationAction> for AnnotationShape {
     }
 }
 
-
 #[cfg(test)]
 mod tests;

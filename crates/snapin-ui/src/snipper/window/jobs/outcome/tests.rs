@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::geometry::Rect;
 use crate::ports::MediaJob;

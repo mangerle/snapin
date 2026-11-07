@@ -49,10 +49,12 @@ impl PasterWindowState {
                 .mosaic_brush_mode;
             let is_polyline = self.interaction.annotation.toolbar.sub_options.line_mode
                 == crate::editor::toolbar::LineMode::Polyline;
-            self.interaction
-                .annotation
-                .stroke
-                .update_with_tool(tool, point, is_brush_mosaic, is_polyline);
+            self.interaction.annotation.stroke.update_with_tool(
+                tool,
+                point,
+                is_brush_mosaic,
+                is_polyline,
+            );
         }
         true
     }

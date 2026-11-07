@@ -14,6 +14,7 @@ snapin-foundation.workspace = true
 snapin-render.workspace = true
 snapin-daemon.workspace = true
 snapin-platform.workspace = true
+snapin-ports.workspace = true
 snapin-service.workspace = true
 snapin-storage.workspace = true
 snapin-runtime.workspace = true

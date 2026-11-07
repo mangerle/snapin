@@ -471,6 +471,5 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
-
 #[cfg(test)]
 mod tests;

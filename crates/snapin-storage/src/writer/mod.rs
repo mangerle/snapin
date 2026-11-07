@@ -357,6 +357,5 @@ fn encode_image_to_path(
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests;

@@ -11,6 +11,7 @@ use super::translate::{build_translation_items, to_service_provider, Translation
 use super::OcrCache;
 use snapin_config::config::Config;
 use snapin_platform::pick_save_path;
+use snapin_ports::{MediaJob, MediaJobOutcome, OcrExportFormat, OcrTextItem, QrCodeItem};
 use snapin_runtime::TaskRuntime;
 use snapin_service::ocr::{LocalPpOcrEngine, OcrEngine, OcrResult, OcrTextBlock};
 use snapin_service::qr::decode_qr_codes;
@@ -18,7 +19,6 @@ use snapin_service::{create_translator, Translator, TranslatorOptions};
 use snapin_storage::{
     ensure_output_directory, save_image_to_path, save_image_with_config, suggest_save_path,
 };
-use snapin_ui::{MediaJob, MediaJobOutcome, OcrExportFormat, OcrTextItem, QrCodeItem};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::editor::toolbar::Tool;
 use crate::snipper::selection::SelectionState;

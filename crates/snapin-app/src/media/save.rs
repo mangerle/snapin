@@ -9,11 +9,11 @@ use snapin_foundation::AppPaths;
 use snapin_platform::{
     open_path_in_file_manager, pick_save_path, send_desktop_notification, write_image_to_clipboard,
 };
+use snapin_ports::MediaJobOutcome;
 use snapin_runtime::TaskRuntime;
 use snapin_storage::{
     ensure_output_directory, save_image_to_path, save_image_with_config, suggest_save_path,
 };
-use snapin_ui::MediaJobOutcome;
 use std::path::PathBuf;
 use std::sync::Arc;
 

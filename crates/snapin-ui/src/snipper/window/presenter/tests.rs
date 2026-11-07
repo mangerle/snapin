@@ -1,4 +1,3 @@
-
 use super::*;
 use image::Rgba;
 use tiny_skia::Color;

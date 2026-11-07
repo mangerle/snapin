@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::snipper::magnifier::ColorFormat;
 use crate::snipper::selection::Rect;

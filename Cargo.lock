@@ -5790,6 +5790,7 @@ dependencies = [
  "snapin-daemon",
  "snapin-foundation",
  "snapin-platform",
+ "snapin-ports",
  "snapin-render",
  "snapin-runtime",
  "snapin-service",
@@ -5870,6 +5871,16 @@ dependencies = [
  "windows-sys 0.61.2",
  "xcap",
  "zbus",
+]
+
+[[package]]
+name = "snapin-ports"
+version = "1.4.0"
+dependencies = [
+ "image",
+ "snapin-annotation",
+ "snapin-config",
+ "snapin-foundation",
 ]
 
 [[package]]
@@ -5968,6 +5979,7 @@ dependencies = [
  "snapin-annotation",
  "snapin-config",
  "snapin-foundation",
+ "snapin-ports",
  "snapin-render",
  "softbuffer",
  "thiserror 1.0.69",

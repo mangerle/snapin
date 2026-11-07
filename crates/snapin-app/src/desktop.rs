@@ -22,12 +22,12 @@ use snapin_platform::{
     open_path_in_file_manager, open_url, read_clipboard_image, read_clipboard_text,
     send_desktop_notification, write_image_to_clipboard, write_text_to_clipboard,
 };
-use snapin_runtime::{TaskPool, TaskRuntime};
-use snapin_storage::{load_last_selection, save_last_selection};
-use snapin_ui::{
+use snapin_ports::{
     ClipboardJobId, ClipboardPayload, ClipboardResult, ClipboardSink, ClipboardWrite, DesktopPort,
     PortError, PortErrorKind,
 };
+use snapin_runtime::{TaskPool, TaskRuntime};
+use snapin_storage::{load_last_selection, save_last_selection};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;

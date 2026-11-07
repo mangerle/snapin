@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::snipper::window::ocr_editor::OcrTextEditorState;
 use winit::keyboard::ModifiersState;

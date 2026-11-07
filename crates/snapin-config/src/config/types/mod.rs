@@ -437,6 +437,5 @@ impl<'de> Deserialize<'de> for Hotkey {
     }
 }
 
-
 #[cfg(test)]
 mod tests;

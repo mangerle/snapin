@@ -25,11 +25,11 @@ mod translate;
 mod worker;
 
 use crate::config::{config_snapshot, SharedConfig};
-use snapin_runtime::TaskPool;
-use snapin_service::ocr::LocalPpOcrEngine;
-use snapin_ui::{
+use snapin_ports::{
     JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, PortError, PortErrorKind,
 };
+use snapin_runtime::TaskPool;
+use snapin_service::ocr::LocalPpOcrEngine;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, OnceCell};

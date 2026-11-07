@@ -1,9 +1,11 @@
-use crate::ports::*;
+//! 端口契约单元测试。
+
+use crate::*;
 use image::RgbaImage;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-/// 无操作端口必须保持幂等且不产生副作用，供纯 UI 测试安全复用
+/// 无操作端口必须保持幂等且不产生副作用，供测试安全复用
 #[test]
 fn noop_desktop_is_safe() {
     let desktop = NoopDesktop;
@@ -23,7 +25,7 @@ fn noop_desktop_is_safe() {
     assert!(desktop.read_clipboard(Box::new(|_, _| {})).is_ok());
 }
 
-/// 取消闭包应可被 UI 侧重复调用而不 panic
+/// 取消闭包应可被重复调用而不 panic
 #[test]
 fn job_cancel_is_repeatable() {
     let cancelled = Arc::new(AtomicBool::new(false));
