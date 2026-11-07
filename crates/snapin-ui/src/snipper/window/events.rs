@@ -343,9 +343,13 @@ fn handle_qr_open_link(state: &mut SnipperState) -> bool {
 /// 具体字符增删与 Esc/Enter 语义由共享的 [`TextInputSession`] 处理，
 /// 截图侧只负责把动作落到标注历史。
 fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
-    let ctrl_pressed = state.viewport.modifiers.control_key();
+    let modifiers = crate::editor::text_input::KeyModifiers::new(
+        state.viewport.modifiers.control_key(),
+        state.viewport.modifiers.shift_key(),
+        state.viewport.modifiers.alt_key(),
+    );
     let action = match state.editor.annotation.active_text_input.as_mut() {
-        Some(session) => crate::editor::text_input::handle_session_key(session, key, ctrl_pressed),
+        Some(session) => crate::editor::text_input::handle_session_key(session, key, modifiers),
         None => return false,
     };
     match action {

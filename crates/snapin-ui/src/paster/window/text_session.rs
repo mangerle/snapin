@@ -73,11 +73,13 @@ impl PasterWindowState {
     /// 该分支由 [`super::events::handle_paster_key`] 在会话激活时优先调用，
     /// 因此 Esc 不会继续落到「关闭贴图」的全局分支上。
     pub(crate) fn handle_text_session_key(&mut self, key: &Key) -> bool {
-        let ctrl_pressed = self.modifiers.control_key();
+        let modifiers = crate::editor::text_input::KeyModifiers::new(
+            self.modifiers.control_key(),
+            self.modifiers.shift_key(),
+            self.modifiers.alt_key(),
+        );
         let action = match self.interaction.annotation.active_text_input.as_mut() {
-            Some(session) => {
-                crate::editor::text_input::handle_session_key(session, key, ctrl_pressed)
-            }
+            Some(session) => crate::editor::text_input::handle_session_key(session, key, modifiers),
             None => return false,
         };
         match action {

@@ -231,7 +231,7 @@ fn measure_tooltip(request: TooltipLayoutRequest<'_>) -> Option<TooltipMetrics> 
     let font_size = (FONT_SIZE * scale).max(9.0);
     let padding_x = PADDING_X * scale;
     let padding_y = PADDING_Y * scale;
-    let (text_width, _) = with_thread_local_text_renderer(|renderer| {
+    let text_metrics = with_thread_local_text_renderer(|renderer| {
         renderer.measure_text_input(
             request.message,
             TextMeasureOptions {
@@ -242,6 +242,7 @@ fn measure_tooltip(request: TooltipLayoutRequest<'_>) -> Option<TooltipMetrics> 
             },
         )
     });
+    let text_width = text_metrics.max_line_width;
     if text_width <= 0.0 {
         return None;
     }

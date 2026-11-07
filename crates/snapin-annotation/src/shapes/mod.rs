@@ -127,15 +127,19 @@ pub(crate) fn resize_rect(from: Rect, to: Rect, rect: Rect) -> Rect {
     }
 }
 
-/// 估算单行文本的渲染宽度。
+/// 估算单行或多行文本的渲染宽度（多行取各行中的最大宽度）。
 ///
 /// cosmic-text 的实际排版宽度需要持有 FontSystem 才能精确测量，标注包围盒只服务
 /// 于选中框与手柄命中，使用与画布状态提示一致的字符宽度经验值即可。
 pub(crate) fn estimate_text_width(text: &str, font_size: f32) -> f32 {
-    text.chars()
-        .map(|ch| if ch.is_ascii() { 0.58 } else { 1.0 })
-        .sum::<f32>()
-        * font_size
+    text.lines()
+        .map(|line| {
+            line.chars()
+                .map(|ch| if ch.is_ascii() { 0.58 } else { 1.0 })
+                .sum::<f32>()
+                * font_size
+        })
+        .fold(0.0f32, f32::max)
 }
 
 #[cfg(test)]

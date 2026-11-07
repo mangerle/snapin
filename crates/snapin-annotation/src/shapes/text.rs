@@ -92,8 +92,9 @@ impl TextAction {
         let Some(background) = self.background_color else {
             return;
         };
+        let line_count = self.text.lines().count().max(1) as f32;
         let width = estimate_text_width(&self.text, placement.font_size) + self.padding * 2.0;
-        let height = placement.font_size * 1.25 + self.padding * 2.0;
+        let height = line_count * placement.font_size * 1.25 + self.padding * 2.0;
         let Some(path) = rounded_rect_path(RoundedRectSpec {
             rect: Rect::new(
                 placement.position.x - self.padding,
@@ -180,9 +181,10 @@ impl TextAction {
         if self.text.is_empty() {
             return None;
         }
+        let line_count = self.text.lines().count().max(1) as f32;
         let width = estimate_text_width(&self.text, self.font_size).max(1.0);
         let width = width + self.padding * 2.0;
-        let height = (self.font_size * 1.25 + self.padding * 2.0).max(1.0);
+        let height = (line_count * self.font_size * 1.25 + self.padding * 2.0).max(1.0);
         Some(Rect {
             x: self.pos.x - self.padding,
             y: self.pos.y - self.padding,

@@ -165,7 +165,7 @@ impl TextInputSession {
             std::borrow::Cow::Owned(format!("{}{}", self.text, self.preedit))
         };
 
-        let cursor_x = if display_text.is_empty() {
+        let (cursor_x, cursor_y) = if display_text.is_empty() {
             let min_w = (font_size * 3.0).max(64.0 * scale);
             render_input_box(
                 pixmap,
@@ -176,7 +176,7 @@ impl TextInputSession {
                     height: line_height + 8.0 * scale,
                 },
             );
-            x
+            (x, y)
         } else {
             let frame = InputFrame {
                 x,
@@ -194,19 +194,19 @@ impl TextInputSession {
             pixmap,
             TextCursorSpec {
                 x: cursor_x,
-                y,
+                y: cursor_y,
                 font_size,
                 color: self.color,
             },
         );
     }
 
-    /// 测量输入框范围、绘制黑色外框底衬与文字像素，并返回末尾光标 X 坐标
-    fn draw_box_and_text(&self, pixmap: &mut PixmapMut, frame: &InputFrame<'_>) -> f32 {
+    /// 测量输入框范围、绘制黑色外框底衬与文字像素，并返回末尾光标 (x, y) 坐标
+    fn draw_box_and_text(&self, pixmap: &mut PixmapMut, frame: &InputFrame<'_>) -> (f32, f32) {
         with_thread_local_text_renderer(|renderer| {
             let max_w = pixmap.width() as f32;
             let max_h = pixmap.height() as f32;
-            let (line_w, cursor_offset) = renderer.measure_text_input(
+            let metrics = renderer.measure_text_input(
                 frame.text,
                 TextMeasureOptions {
                     font_size: frame.font_size,
@@ -215,14 +215,14 @@ impl TextInputSession {
                     max_height: max_h,
                 },
             );
-            draw_input_background(pixmap, frame, line_w);
+            draw_input_background(pixmap, frame, metrics.max_line_width, metrics.total_height);
             renderer.draw_text_rgba(
                 pixmap,
                 frame.text,
                 TextDrawOptions::new(frame.x, frame.y, frame.font_size, self.color),
             );
             if frame.underline_preedit && !self.preedit.is_empty() {
-                let (_, text_cursor) = renderer.measure_text_input(
+                let text_metrics = renderer.measure_text_input(
                     &self.text,
                     TextMeasureOptions {
                         font_size: frame.font_size,
@@ -234,24 +234,33 @@ impl TextInputSession {
                 render_preedit_underline(
                     pixmap,
                     PreeditUnderline {
-                        start_x: preedit_start_x(frame, self.text.is_empty(), text_cursor),
-                        end_x: frame.x + cursor_offset,
-                        y: frame.y + frame.font_size * 1.15,
+                        start_x: preedit_start_x(
+                            frame,
+                            self.text.is_empty(),
+                            text_metrics.cursor_x,
+                        ),
+                        end_x: frame.x + metrics.cursor_x,
+                        y: frame.y + metrics.cursor_y + frame.font_size * 1.15,
                         scale: frame.scale,
                     },
                 );
             }
 
-            frame.x + cursor_offset
+            (frame.x + metrics.cursor_x, frame.y + metrics.cursor_y)
         })
     }
 }
 
-/// 绘制输入框黑色外框与底衬。
-fn draw_input_background(pixmap: &mut PixmapMut, frame: &InputFrame<'_>, line_width: f32) {
+/// 绘制输入框黑色外框与底衬，自适应多行总高度。
+fn draw_input_background(
+    pixmap: &mut PixmapMut,
+    frame: &InputFrame<'_>,
+    max_line_width: f32,
+    total_height: f32,
+) {
     let min_width = (frame.font_size * 3.0).max(64.0 * frame.scale);
-    let box_width = (line_width + 16.0 * frame.scale).max(min_width);
-    let box_height = frame.line_height + 8.0 * frame.scale;
+    let box_width = (max_line_width + 16.0 * frame.scale).max(min_width);
+    let box_height = total_height + 8.0 * frame.scale;
     render_input_box(
         pixmap,
         InputBoxRect {
@@ -447,17 +456,36 @@ fn color_to_rgba(color: tiny_skia::Color) -> (u8, u8, u8, u8) {
     )
 }
 
+/// 文本输入会话处理中的键盘修饰键状态。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct KeyModifiers {
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+}
+
+impl KeyModifiers {
+    /// 构造包含 Ctrl 与 Shift 状态的修饰键集合。
+    pub const fn new(ctrl: bool, shift: bool, alt: bool) -> Self {
+        Self { ctrl, shift, alt }
+    }
+}
+
 /// 统一处理文本输入会话中的按键。
 ///
-/// Esc 统一取消当前输入、Enter 提交，避免截图侧提交而贴图侧取消的行为分叉；
-/// Ctrl 组合键不写入普通字符，交由窗口快捷键处理。
+/// Esc 统一取消当前输入、Enter 提交文本、Shift+Enter 插入换行符；
+/// 退格删除末尾字符，空格输入空格；Ctrl 组合键交由窗口快捷键处理。
 pub fn handle_session_key(
     session: &mut TextInputSession,
     key: &Key,
-    ctrl_pressed: bool,
+    modifiers: KeyModifiers,
 ) -> TextSessionAction {
     match key {
         Key::Named(NamedKey::Escape) => TextSessionAction::Cancel,
+        Key::Named(NamedKey::Enter) if modifiers.shift => {
+            session.push_char('\n');
+            TextSessionAction::Handled
+        }
         Key::Named(NamedKey::Enter) => TextSessionAction::Commit,
         Key::Named(NamedKey::Backspace) => {
             session.pop_char();
@@ -467,7 +495,7 @@ pub fn handle_session_key(
             session.push_char(' ');
             TextSessionAction::Handled
         }
-        Key::Character(text) if !ctrl_pressed && !text.is_empty() => {
+        Key::Character(text) if !modifiers.ctrl && !text.is_empty() => {
             session.push_str(text.as_str());
             TextSessionAction::Handled
         }
@@ -550,26 +578,54 @@ mod tests {
         assert!(has_pixels);
     }
 
-    /// Esc 统一取消、Enter 提交，Ctrl 组合字符不进入文本内容。
+    #[test]
+    fn test_multiline_text_input_renders_box_and_cursor() {
+        let mut pixmap = Pixmap::new(300, 200).unwrap();
+        pixmap.fill(tiny_skia::Color::BLACK);
+
+        let mut session = TextInputSession::new((10.0, 20.0), (255, 255, 255, 255), 18.0);
+        session.push_str("第一行文字\n第二行文字\n第三行");
+        assert_eq!(session.text.lines().count(), 3);
+        session.render(&mut pixmap.as_mut());
+
+        let has_pixels = pixmap
+            .data()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
+        assert!(has_pixels);
+    }
+
+    /// Esc 统一取消、Enter 提交、Shift+Enter 换行，Ctrl 组合字符不进入文本内容。
     #[test]
     fn test_shared_text_session_key_actions() {
         let mut session = TextInputSession::new((0.0, 0.0), (255, 255, 255, 255), 16.0);
+        let normal = KeyModifiers::default();
+        let shift = KeyModifiers::new(false, true, false);
+        let ctrl = KeyModifiers::new(true, false, false);
+
         assert_eq!(
-            handle_session_key(&mut session, &Key::Named(NamedKey::Escape), false),
+            handle_session_key(&mut session, &Key::Named(NamedKey::Escape), normal),
             TextSessionAction::Cancel
         );
         assert_eq!(
-            handle_session_key(&mut session, &Key::Named(NamedKey::Enter), false),
+            handle_session_key(&mut session, &Key::Named(NamedKey::Enter), shift),
+            TextSessionAction::Handled
+        );
+        assert_eq!(session.text, "\n");
+        assert_eq!(
+            handle_session_key(&mut session, &Key::Named(NamedKey::Enter), normal),
             TextSessionAction::Commit
         );
         assert_eq!(
-            handle_session_key(&mut session, &Key::Character("a".into()), true),
+            handle_session_key(&mut session, &Key::Character("a".into()), ctrl),
             TextSessionAction::Ignored
         );
         assert_eq!(
-            handle_session_key(&mut session, &Key::Character("a".into()), false),
+            handle_session_key(&mut session, &Key::Character("a".into()), normal),
             TextSessionAction::Handled
         );
-        assert_eq!(session.text, "a");
+        assert_eq!(session.text, "\na");
     }
 }
