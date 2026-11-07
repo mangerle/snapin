@@ -19,7 +19,6 @@ mod window;
 #[cfg(target_os = "linux")]
 pub(crate) mod dbus_session;
 
-#[cfg(any(target_os = "windows", target_os = "macos"))]
 mod dialog;
 
 pub use autostart::sync_autostart;
@@ -50,39 +49,8 @@ pub use lifecycle::{
 };
 pub use notification::send_desktop_notification;
 
-#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub use dialog::{pick_config_export_path, pick_config_import_path, pick_save_path};
 #[cfg(target_os = "linux")]
-pub use portal::{
-    capture_fullscreen_portal, ensure_portal_screenshot_permission, pick_config_export_path,
-    pick_config_import_path, pick_save_path,
-};
-
-/// 未接入原生保存对话框的平台显式返回不支持，而不是伪造成功空值。
-#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-pub async fn pick_save_path(
-    _suggested_name: &str,
-    _current_folder: Option<&std::path::Path>,
-) -> Result<Option<std::path::PathBuf>, error::PlatformError> {
-    Err(error::PlatformError::Unsupported {
-        capability: "系统保存对话框".to_string(),
-    })
-}
-
-/// 未接入原生文件对话框的平台显式返回不支持。
-#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-pub async fn pick_config_import_path() -> Result<Option<std::path::PathBuf>, error::PlatformError> {
-    Err(error::PlatformError::Unsupported {
-        capability: "配置导入对话框".to_string(),
-    })
-}
-
-/// 未接入原生文件对话框的平台显式返回不支持。
-#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-pub async fn pick_config_export_path() -> Result<Option<std::path::PathBuf>, error::PlatformError> {
-    Err(error::PlatformError::Unsupported {
-        capability: "配置导出对话框".to_string(),
-    })
-}
+pub use portal::{capture_fullscreen_portal, ensure_portal_screenshot_permission};
 pub use tray::{PlatformTray, TrayAction};
 pub use window::enumerate_visible_windows;
