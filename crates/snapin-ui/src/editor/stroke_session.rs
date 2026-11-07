@@ -4,6 +4,7 @@
 //! 与提交规则容易分叉。本类型只承载“当前这一笔”的数据，具体坐标约束、样式
 //! 预览与图元提交仍由两侧的会话逻辑完成。
 
+use crate::editor::toolbar::Tool;
 use crate::geometry::Point;
 
 /// 当前一笔标注草稿。
@@ -51,6 +52,28 @@ impl StrokeSession {
     pub fn clear(&mut self) {
         self.points.clear();
         self.is_drawing = false;
+    }
+
+    /// 按绘制工具的特征更新草稿点集：
+    /// - 画笔/荧光笔/笔刷马赛克：连续追加点（内建去重）
+    /// - 折线：由点击追加，光标移动时不改写已有折线点
+    /// - 矩形/椭圆/单线/箭头等两点式图元：更新终点并保持起点不变
+    pub fn update_with_tool(
+        &mut self,
+        tool: Tool,
+        point: Point,
+        is_brush_mosaic: bool,
+        is_polyline: bool,
+    ) {
+        if !self.is_drawing {
+            return;
+        }
+        match tool {
+            Tool::Pen | Tool::Marker => self.append(point),
+            Tool::Mosaic if is_brush_mosaic => self.append(point),
+            Tool::Line if is_polyline => {}
+            _ => self.update_endpoint(point),
+        }
     }
 
     /// 是否没有任何待提交点。

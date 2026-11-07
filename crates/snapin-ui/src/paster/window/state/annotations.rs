@@ -11,13 +11,10 @@ impl PasterWindowState {
         if self.interaction.annotation.toolbar.active_tool.is_none() {
             return false;
         }
-        self.interaction.annotation.stroke.points.clear();
         self.interaction
             .annotation
             .stroke
-            .points
-            .push(Point::from(self.image_point(screen_pos)));
-        self.interaction.annotation.stroke.is_drawing = true;
+            .begin(Point::from(self.image_point(screen_pos)));
         true
     }
 
@@ -27,46 +24,35 @@ impl PasterWindowState {
             return false;
         }
         let Some(tool) = self.interaction.annotation.toolbar.active_tool else {
-            self.interaction.annotation.stroke.points.clear();
-            self.interaction.annotation.stroke.is_drawing = false;
+            self.interaction.annotation.stroke.clear();
             return false;
         };
 
         let point = Point::from(self.image_point(screen_pos));
-        match tool {
-            Tool::Eraser
-                if !self
-                    .interaction
-                    .annotation
-                    .toolbar
-                    .sub_options
-                    .eraser_rectangle_mode =>
-            {
-                if self.erase_annotations_at(point) {
-                    self.rebuild_item_pixmap();
-                }
+        if tool == Tool::Eraser
+            && !self
+                .interaction
+                .annotation
+                .toolbar
+                .sub_options
+                .eraser_rectangle_mode
+        {
+            if self.erase_annotations_at(point) {
+                self.rebuild_item_pixmap();
             }
-            Tool::Pen | Tool::Marker => self.interaction.annotation.stroke.append(point),
-            Tool::Mosaic
-                if self
-                    .interaction
-                    .annotation
-                    .toolbar
-                    .sub_options
-                    .mosaic_brush_mode =>
-            {
-                self.interaction.annotation.stroke.append(point);
-            }
-            Tool::Line
-                if self.interaction.annotation.toolbar.sub_options.line_mode
-                    == crate::editor::toolbar::LineMode::Polyline => {}
-            _ => {
-                if self.interaction.annotation.stroke.points.len() > 1 {
-                    self.interaction.annotation.stroke.points[1] = point;
-                } else {
-                    self.interaction.annotation.stroke.points.push(point);
-                }
-            }
+        } else {
+            let is_brush_mosaic = self
+                .interaction
+                .annotation
+                .toolbar
+                .sub_options
+                .mosaic_brush_mode;
+            let is_polyline = self.interaction.annotation.toolbar.sub_options.line_mode
+                == crate::editor::toolbar::LineMode::Polyline;
+            self.interaction
+                .annotation
+                .stroke
+                .update_with_tool(tool, point, is_brush_mosaic, is_polyline);
         }
         true
     }
