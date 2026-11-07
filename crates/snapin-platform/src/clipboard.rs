@@ -233,7 +233,7 @@ unsafe impl Sync for ClipboardListenerGuard {}
 impl Drop for ClipboardListenerGuard {
     fn drop(&mut self) {
         #[cfg(target_os = "windows")]
-        if self.hwnd != 0 {
+        if !self.hwnd.is_null() {
             unsafe {
                 use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_USER};
                 PostMessageW(self.hwnd, WM_USER + 101, 0, 0);
@@ -282,7 +282,7 @@ mod windows_listener {
 
     pub(super) fn start_clipboard_listener() -> (ClipboardListenerGuard, Receiver<()>) {
         let (tx, rx) = channel(16);
-        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<isize>(1);
 
         std::thread::spawn(move || unsafe {
             let class_name: Vec<u16> = "SnapinClipboardListener\0".encode_utf16().collect();
@@ -292,13 +292,13 @@ mod windows_listener {
                 lpfnWndProc: Some(listener_window_proc),
                 cbClsExtra: 0,
                 cbWndExtra: 0,
-                hInstance: 0,
-                hIcon: 0,
-                hCursor: 0,
-                hbrBackground: 0,
+                hInstance: std::ptr::null_mut(),
+                hIcon: std::ptr::null_mut(),
+                hCursor: std::ptr::null_mut(),
+                hbrBackground: std::ptr::null_mut(),
                 lpszMenuName: std::ptr::null(),
                 lpszClassName: class_name.as_ptr(),
-                hIconSm: 0,
+                hIconSm: std::ptr::null_mut(),
             };
             RegisterClassExW(&wnd_class);
 
@@ -312,21 +312,21 @@ mod windows_listener {
                 0,
                 0,
                 HWND_MESSAGE,
-                0,
-                0,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
                 std::ptr::null(),
             );
 
-            if hwnd == 0 {
+            if hwnd.is_null() {
                 let _ = ready_tx.send(0);
                 return;
             }
 
             AddClipboardFormatListener(hwnd);
-            let _ = ready_tx.send(hwnd);
+            let _ = ready_tx.send(hwnd as isize);
 
             let mut msg = std::mem::zeroed::<MSG>();
-            while GetMessageW(&mut msg, 0, 0, 0) > 0 {
+            while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
                 if msg.message == WM_STOP_LISTENER {
                     break;
                 }
@@ -341,7 +341,7 @@ mod windows_listener {
             DestroyWindow(hwnd);
         });
 
-        let hwnd = ready_rx.recv().unwrap_or(0);
+        let hwnd = ready_rx.recv().unwrap_or(0) as HWND;
         (ClipboardListenerGuard { hwnd }, rx)
     }
 }
