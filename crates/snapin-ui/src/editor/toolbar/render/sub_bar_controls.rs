@@ -12,9 +12,7 @@ use super::sub_bar_helpers::{
     render_fill_toggle, render_size_with_dot, render_sub_shape_ellipse, render_sub_shape_rect,
     render_toggle_glyph, spotlight_intensity_percent, SubBarGeometry,
 };
-use super::sub_bar_icons::{
-    render_font_size_icon, render_opacity_icon, render_spotlight_outline_icon, SubBarIconSpec,
-};
+use super::sub_bar_icons::{render_opacity_icon, render_spotlight_outline_icon, SubBarIconSpec};
 use super::sub_bar_sliders::render_effect_strength_slider;
 use super::widgets::{
     fill_button_highlight, fill_circle, render_arrow_head_preview, render_arrow_preview,
@@ -23,7 +21,7 @@ use super::widgets::{
 };
 use crate::geometry::Rect;
 use snapin_annotation::SpotlightShape;
-use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
+use snapin_render::{with_thread_local_text_renderer, TextDrawOptions, TextMeasureOptions};
 use tiny_skia::{Color, PixmapMut};
 
 /// 单个二级栏控件的渲染上下文。
@@ -297,9 +295,44 @@ impl SubControlRenderer<'_, '_> {
 
     fn render_font_size(&mut self) {
         let open = self.toolbar.open_dropdown == Some(SubDropdown::FontSize);
-        self.highlight_if_open(open);
-        render_font_size_icon(self.pixmap, self.dropdown_icon_spec(open));
-        self.render_caret();
+        let focused = self.toolbar.focused_sub_control == Some(SubControl::FontSize);
+        self.highlight_if_open(open || focused);
+
+        let active = open || focused;
+        let color = self.icon_color(active);
+        let font_size_text = format!("{:.0}", self.toolbar.sub_options.font_size);
+
+        let s = self.scale;
+        let text_font_size = 11.5 * s;
+        with_thread_local_text_renderer(|renderer| {
+            let metrics = renderer.measure_text_input(
+                &font_size_text,
+                TextMeasureOptions {
+                    font_size: text_font_size,
+                    line_height: 14.0 * s,
+                    max_width: self.rect.width,
+                    max_height: self.rect.height,
+                },
+            );
+            let caret_w = 5.0 * s;
+            let gap = 3.5 * s;
+            let total_w = metrics.max_line_width + gap + caret_w;
+            let start_x = self.rect.x + ((self.rect.width - total_w) / 2.0).max(4.0 * s);
+
+            renderer.draw_text_rgba(
+                self.pixmap,
+                &font_size_text,
+                TextDrawOptions::new(
+                    start_x,
+                    self.center_y - 6.0 * s,
+                    text_font_size,
+                    icon_rgba(color),
+                ),
+            );
+
+            let caret_cx = start_x + metrics.max_line_width + gap + caret_w / 2.0;
+            render_caret(self.pixmap, caret_cx, self.center_y, s);
+        });
     }
 
     fn render_spotlight(&mut self, control: SubControl) {

@@ -335,29 +335,6 @@ pub(in crate::editor::toolbar::render) fn render_font_family_icon(
     stroke_builder(pixmap, glyph, spec, 1.4);
 }
 
-/// 绘制字号图标，使用大小两个 A 表示尺度变化。
-pub(in crate::editor::toolbar::render) fn render_font_size_icon(
-    pixmap: &mut PixmapMut,
-    spec: SubBarIconSpec,
-) {
-    let mut large = PathBuilder::new();
-    let large_spec = SubBarIconSpec {
-        center_x: spec.center_x - 2.5 * spec.scale,
-        ..spec
-    };
-    push_glyph_a(&mut large, large_spec, 9.0, 6.5);
-    stroke_builder(pixmap, large, spec, 1.5);
-    let mut small = PathBuilder::new();
-    let small_spec = SubBarIconSpec {
-        center_x: spec.center_x + 5.0 * spec.scale,
-        center_y: spec.center_y + 3.0 * spec.scale,
-        scale: spec.scale * 0.62,
-        ..spec
-    };
-    push_glyph_a(&mut small, small_spec, 9.0, 6.5);
-    stroke_builder(pixmap, small, spec, 1.3);
-}
-
 /// 绘制放大镜抗锯齿开关图标。
 pub(in crate::editor::toolbar::render) fn render_magnifier_smooth_icon(
     pixmap: &mut PixmapMut,

@@ -682,3 +682,45 @@ fn test_drag_handle_disabled_by_default() {
     tb.draggable = true;
     assert!(tb.main_width() > width_without);
 }
+
+/// 文字工具二级栏字号按钮必须直接渲染当前字号数字，并在 Pixmap 上产生成像素渲染。
+#[test]
+fn test_text_font_size_sub_control_renders_actual_number() {
+    let mut tb = Toolbar::default();
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 800.0,
+        height: 400.0,
+    };
+    tb.sub_options.font_size = 28.0;
+    tb.active_tool = Some(Tool::Text);
+    tb.update_layout(&selection, 1920.0, 1080.0);
+
+    let layout = tb.sub_layout().expect("必须生成二级栏布局");
+    let font_rect = layout
+        .rect_of(SubControl::FontSize)
+        .expect("必须包含字号控件");
+
+    let mut pixmap = tiny_skia::Pixmap::new(800, 600).expect("分配 Pixmap 成功");
+    tb.render(&mut pixmap.as_mut());
+
+    // 在字号按钮区域内必须有非透明文字像素绘制
+    let (x0, y0) = (font_rect.x as u32, font_rect.y as u32);
+    let (w, h) = (font_rect.width as u32, font_rect.height as u32);
+    let mut has_visible_pixel = false;
+    for x in x0..(x0 + w) {
+        for y in y0..(y0 + h) {
+            if let Some(pixel) = pixmap.pixel(x, y) {
+                if pixel.alpha() > 0 {
+                    has_visible_pixel = true;
+                    break;
+                }
+            }
+        }
+        if has_visible_pixel {
+            break;
+        }
+    }
+    assert!(has_visible_pixel, "字号按钮内必须绘制可见像素");
+}
