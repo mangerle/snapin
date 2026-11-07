@@ -4,6 +4,7 @@ pub mod toolbar_action;
 
 mod eraser;
 
+mod annotation;
 mod buttons;
 mod movement;
 mod ocr;
@@ -26,7 +27,7 @@ use crate::model::ShapeId;
 use crate::snipper::selection::{hit_test_handle, DragMode, Rect, SelectionState};
 use image::RgbaImage;
 use snapin_annotation::AnnotationShape;
-use toolbar_action::{dispatch_toolbar_action, handle_text_tool_click};
+use toolbar_action::dispatch_toolbar_action;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 
 #[cfg(test)]
