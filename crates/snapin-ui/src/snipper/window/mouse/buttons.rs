@@ -147,15 +147,30 @@ fn handle_toolbar_press(
 
 /// 处理已提交标注的编辑、锁定提示与文字工具入口。
 fn handle_annotation_press(state: &mut SnipperState, cx: f32, cy: f32) -> Option<bool> {
-    // 已提交标注的编辑优先于新建文本与新图元：默认只允许编辑最新一条，
-    // 旧标注处于锁定态，让它们重新变成可绘制的画布；按住 Alt 可显式解锁旧标注。
     let allow_locked_annotation = state.viewport.modifiers.alt_key();
+
+    // 1. 如果用户显式切换并激活了文字工具（Tool::Text）：
+    // 用户的明确意图是在点击位置添加文字标注，绝不能拦截并误选上一次绘制的矩形或图形。
+    // 只有在按住 Alt 键显式请求时，才覆盖当前工具去选择已有图元。
+    if state.editor.annotation.toolbar.active_tool == Some(Tool::Text) && !allow_locked_annotation {
+        crate::snipper::window::annotation_edit::clear(state);
+        return Some(handle_text_tool_click(state, cx, cy));
+    }
+
+    // 2. 如果命中了已选中标注的手柄，用户明确意图是缩放微调，优先响应手柄调整
+    if crate::snipper::window::annotation_edit::hit_test_selected_handle(state, cx, cy).is_some()
+        && crate::snipper::window::annotation_edit::handle_press(state, cx, cy, false)
+    {
+        return Some(true);
+    }
+
+    // 3. 在未激活工具（选择模式）或按住 Alt 时，允许选中并拖动已有标注
     if crate::snipper::window::annotation_edit::handle_press(state, cx, cy, allow_locked_annotation)
     {
         return Some(true);
     }
 
-    // 未激活绘制工具时点击旧标注：不应误拖动整个选区，改为提示 Alt 解锁方式。
+    // 4. 未激活绘制工具时点击旧标注：给出 Alt 解锁提示
     if state.editor.annotation.toolbar.active_tool.is_none()
         && crate::snipper::window::annotation_edit::hit_test_locked(state, (cx, cy))
     {
@@ -165,9 +180,6 @@ fn handle_annotation_press(state: &mut SnipperState, cx: f32, cy: f32) -> Option
         return Some(true);
     }
 
-    if state.editor.annotation.toolbar.active_tool == Some(Tool::Text) {
-        return Some(handle_text_tool_click(state, cx, cy));
-    }
     None
 }
 

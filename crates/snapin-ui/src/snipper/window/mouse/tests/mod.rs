@@ -601,3 +601,42 @@ fn test_new_annotation_is_selected_and_old_ones_lock() {
         Some(AnnotationDrag::Move { .. })
     ));
 }
+
+#[test]
+fn test_switching_to_text_tool_allows_typing_on_existing_rect() {
+    let mut state = SnipperState::new();
+    state.editor.annotation.toolbar.ui_scale = 1.0;
+    state.viewport.selection = SelectionState::Locked {
+        rect: Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 800.0,
+            height: 600.0,
+        },
+        active_drag: None,
+    };
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Rect);
+    let original = RgbaImage::new(800, 600);
+
+    // 1. 画一个矩形并完成提交
+    assert!(handle_left_press(&mut state, 100.0, 100.0, &original));
+    handle_cursor_move(&mut state, (250.0, 200.0), 800.0, 600.0);
+    assert!(handle_left_release(&mut state, 250.0, 200.0, &original));
+    assert_eq!(state.editor.annotations.undo_stack().len(), 1);
+
+    // 2. 切换到文字工具
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Text);
+
+    // 3. 在刚才画的矩形内部点击
+    assert!(handle_left_press(&mut state, 150.0, 150.0, &original));
+
+    // 4. 验证：必须直接创建文字输入会话，绝不能误选或拖拽矩形
+    assert!(
+        state.editor.annotation.active_text_input.is_some(),
+        "切换到文字工具后，在矩形上方点击必须正常进入文字输入"
+    );
+    assert!(
+        state.editor.annotation_drag.is_none(),
+        "不得误进入上一个矩形的拖拽模式"
+    );
+}
