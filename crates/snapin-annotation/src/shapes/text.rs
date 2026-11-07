@@ -121,6 +121,21 @@ impl TextAction {
             Transform::identity(),
             None,
         );
+
+        // 绘制文字卡片精致外边框，增强边界感与对比度
+        let mut border_paint = Paint::default();
+        let border_alpha = self.background_opacity.saturating_add(60).max(120);
+        border_paint.set_color(Color::from_rgba8(
+            background.0,
+            background.1,
+            background.2,
+            border_alpha,
+        ));
+        let stroke = tiny_skia::Stroke {
+            width: 1.0,
+            ..Default::default()
+        };
+        pixmap.stroke_path(&path, &border_paint, &stroke, Transform::identity(), None);
     }
 
     /// 先绘制文字描边，再绘制正文。
@@ -239,5 +254,30 @@ mod tests {
         let alpha_at = |x: u32, y: u32| pixmap.pixel(x, y).map(|pixel| pixel.alpha()).unwrap_or(0);
         assert_eq!(alpha_at(16, 12), 0, "背景圆角外侧应保持透明");
         assert!(alpha_at(16, 20) > 0, "背景左侧边缘应着色");
+    }
+
+    /// 文字背景启用时必须绘制外边框描边，使文字卡片具有清晰的轮廓边界。
+    #[test]
+    fn test_text_background_draws_border_stroke() {
+        let mut pixmap = Pixmap::new(120, 80).expect("分配 Pixmap 成功");
+        let mut action = TextAction::plain(
+            Point::new(20.0, 20.0),
+            "Border".to_string(),
+            (255, 0, 0, 255).into(),
+            18.0,
+        );
+        action.background_color = Some((100, 150, 200, 255).into());
+        action.background_opacity = 80;
+        action.padding = 6.0;
+        action.corner_radius = 4.0;
+        action.draw(&mut pixmap.as_mut());
+
+        // 边框描边不透明度大于等于 120，应高于纯背景填充不透明度 (80)
+        let alpha_at = |x: u32, y: u32| pixmap.pixel(x, y).map(|pixel| pixel.alpha()).unwrap_or(0);
+        let border_alpha = alpha_at(14, 20);
+        assert!(
+            border_alpha >= 120,
+            "边框描边像素不透明度必须达到强化边框阈值，实际: {border_alpha}"
+        );
     }
 }
