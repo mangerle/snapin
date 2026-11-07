@@ -5,7 +5,7 @@ use crate::model::PasterItem;
 use crate::model::{GroupId, PasterId};
 use crate::ports::{
     ClipboardJobId, ClipboardResult, ClipboardTarget, JobId, MediaJobOutcome, PasterJobKind,
-    PortError,
+    PortError, RecordingEvent,
 };
 use crate::snipper::window::jobs::SnipperJobKind;
 use crate::snipper::SnipperLaunch;
@@ -25,6 +25,11 @@ pub enum PasterAppEvent {
     OpenPaster(PasterItem),
     /// 在同一事件循环中打开全屏截图覆盖层
     OpenSnipper(Box<SnipperLaunch>),
+    /// 截图覆盖层录屏状态更新
+    SnipperRecordingEvent {
+        /// 录制后台状态
+        event: RecordingEvent,
+    },
     /// 截图覆盖层媒体任务完成
     SnipperJobFinished {
         /// 执行器分配的任务 ID

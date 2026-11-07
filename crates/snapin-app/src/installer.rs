@@ -34,7 +34,7 @@ pub fn install_gnome_extension() -> Result<()> {
     #[cfg(not(target_os = "linux"))]
     {
         tracing::info!("当前操作系统无需安装 GNOME Shell 扩展。");
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(target_os = "linux")]

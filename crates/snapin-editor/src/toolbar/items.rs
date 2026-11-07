@@ -21,6 +21,8 @@ pub enum ToolbarAction {
     Qr,
     /// 截图原位翻译
     Translate,
+    /// 选区屏幕录制
+    ScreenRecording,
     /// 切换贴图鼠标穿透（仅贴图工具栏使用）
     MouseThrough,
     /// 贴图置顶到屏幕 (F3)
@@ -101,6 +103,7 @@ impl ToolbarAction {
             Self::SmartRedact => "智能打码",
             Self::Qr => "二维码",
             Self::Translate => "翻译",
+            Self::ScreenRecording => "屏幕录制",
             Self::MouseThrough => "鼠标穿透",
             Self::Pin => "贴图置顶",
             Self::Copy => "复制",
@@ -122,6 +125,7 @@ impl ToolbarAction {
             Self::SmartRedact => Some("R"),
             Self::Qr => Some("Q"),
             Self::Translate => Some("T"),
+            Self::ScreenRecording => Some("G"),
             Self::Pin => Some("F3"),
             Self::Copy => Some("Ctrl+C"),
             Self::Save => Some("Ctrl+S"),
@@ -198,7 +202,7 @@ mod tests {
             .filter(|item| matches!(item, ToolbarItem::Action(_)))
             .count();
         assert_eq!(tool_count, 11);
-        assert_eq!(action_count, 9);
+        assert_eq!(action_count, 10);
 
         let text_index = crate::toolbar::Toolbar::MAIN_ITEMS
             .iter()

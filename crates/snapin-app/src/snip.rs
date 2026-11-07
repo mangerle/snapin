@@ -112,6 +112,7 @@ pub(crate) async fn prepare_snipper_launch(
             post_action: request.post_action,
             desktop: services.desktop(),
             media: services.media(),
+            recorder: services.recorder(),
         },
     })
 }

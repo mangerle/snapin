@@ -11,6 +11,7 @@ use snapin_platform::{read_clipboard_image, read_clipboard_text};
 use snapin_runtime::{TaskPool, TaskRuntime, TaskRuntimeError};
 use snapin_storage::{append_clipboard_image, append_clipboard_text, ClipboardEntryKind};
 use std::time::{Duration, Instant};
+#[cfg(not(target_os = "windows"))]
 use tokio::time::MissedTickBehavior;
 
 /// 剪贴板轮询间隔。
@@ -18,6 +19,7 @@ use tokio::time::MissedTickBehavior;
 /// 平台没有提供剪贴板变更事件，只能轮询；图像剪贴板每次读取都要解码并计算
 /// 内容哈希，过短间隔会持续占用阻塞线程。一秒一次在历史记录的实时性与空闲
 /// 开销之间取平衡，内容未变化时只做一次读取与比较，不触发落盘。
+#[cfg(not(target_os = "windows"))]
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// 持久化失败后的重试间隔，避免磁盘故障时每 500 毫秒重复告警。
 const PERSIST_RETRY_DELAY: Duration = Duration::from_secs(30);

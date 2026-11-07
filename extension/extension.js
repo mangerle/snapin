@@ -31,6 +31,13 @@ const IFACE_XML = `
       <arg type="b" direction="in" name="includeCursor"/>
       <arg type="b" direction="out" name="success"/>
     </method>
+    <method name="CaptureFullscreenExcludingTitle">
+      <arg type="s" direction="in" name="authToken"/>
+      <arg type="s" direction="in" name="targetPath"/>
+      <arg type="s" direction="in" name="excludeTitle"/>
+      <arg type="b" direction="in" name="includeCursor"/>
+      <arg type="b" direction="out" name="success"/>
+    </method>
     <method name="ListWindows">
       <arg type="s" direction="in" name="authToken"/>
       <arg type="s" direction="out" name="windowsJson"/>
@@ -397,6 +404,54 @@ export default class SnapinHelperExtension extends Extension {
         } catch (e) {
             console.error('Snapin 原生截屏（含指针选项）失败:', e);
             return false;
+        }
+    }
+
+    /**
+     * 截取全屏并在合成器抓帧瞬间隐藏指定标题的窗口。
+     *
+     * 录屏时 Snapin 覆盖层会占据整个屏幕；如果直接抓屏，视频将只包含暗色遮罩和静态
+     * 截图底图。这里短暂把目标窗口 actor 透明度设为 0，等待一个合成帧后抓屏，再在
+     * finally 中恢复原透明度。窗口对用户只产生一帧不可见，抓帧结束后立即恢复。
+     * @param {string} targetPath 存储目标 PNG 路径
+     * @param {string} excludeTitle 需要在抓帧时隐藏的窗口标题
+     * @param {boolean} includeCursor 是否包含鼠标指针
+     * @returns {boolean} 是否捕获成功
+     */
+    async CaptureFullscreenExcludingTitle(authToken, targetPath, excludeTitle, includeCursor) {
+        if (!this._isAuthorized(authToken) || !this._isAllowedCapturePath(targetPath)) {
+            return false;
+        }
+        const actors = global.get_window_actors().filter(actor => {
+            const win = actor.get_meta_window();
+            return win && win.get_title() === excludeTitle;
+        });
+        const previousOpacities = actors.map(actor => [actor, actor.opacity]);
+        try {
+            for (const actor of actors) {
+                actor.set_opacity(0);
+            }
+            if (actors.length > 0) {
+                await new Promise(resolve => {
+                    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 16, () => {
+                        resolve();
+                        return GLib.SOURCE_REMOVE;
+                    });
+                });
+            }
+            let screenshot = new Shell.Screenshot();
+            let file = Gio.File.new_for_path(targetPath);
+            let stream = file.replace(null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+            await screenshot.screenshot(Boolean(includeCursor), stream);
+            stream.close(null);
+            return true;
+        } catch (e) {
+            console.error('Snapin 排除覆盖层截屏失败:', e);
+            return false;
+        } finally {
+            for (const [actor, opacity] of previousOpacities) {
+                actor.set_opacity(opacity);
+            }
         }
     }
 

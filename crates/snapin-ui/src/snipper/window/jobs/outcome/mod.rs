@@ -111,6 +111,7 @@ fn handle_redact_outcome(state: &mut SnipperState, lines: Vec<OcrTextItem>) {
     let preview = RedactionPreview::from_ocr_lines(&lines);
     let applied = apply_redaction(state, &preview);
     state.ocr.redaction_preview = (applied > 0).then_some(preview);
+    state.sync_recording_overlay();
     state.clear_status_message();
 }
 

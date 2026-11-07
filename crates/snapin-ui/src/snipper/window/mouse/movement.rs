@@ -9,6 +9,14 @@ pub fn handle_cursor_move(
     screen_w: f32,
     screen_h: f32,
 ) -> bool {
+    if let Some(needle) = super::recording::handle_recording_cursor_move(
+        state,
+        (pos.0 as f32, pos.1 as f32),
+        (screen_w, screen_h),
+    ) {
+        return needle;
+    }
+
     state.viewport.cursor_pos = pos;
     state.viewport.cursor_ready = true;
     if state.ocr.editor.is_some() {

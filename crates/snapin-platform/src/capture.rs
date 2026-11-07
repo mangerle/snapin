@@ -55,6 +55,30 @@ pub async fn capture_fullscreen_snapshot(include_cursor: bool) -> Result<RgbaIma
     }
 }
 
+/// 获取全屏快照，并在 Linux GNOME 扩展通道中排除指定标题的覆盖层窗口。
+///
+/// Windows 与 macOS 的截图覆盖层通过系统内容保护属性排除在录制画面之外；
+/// Linux 则在 Mutter 合成器中临时隐藏对应窗口 actor 后抓取一帧。Portal 降级路径
+/// 无法保证排除窗口，因此仍会返回可用图像并允许录制继续。
+///
+/// # Errors
+///
+/// 屏幕捕获、图像解码、尺寸校验或超时失败时返回 [`PlatformError`]。
+pub async fn capture_fullscreen_snapshot_excluding_window(
+    exclude_title: &str,
+) -> Result<RgbaImage, PlatformError> {
+    #[cfg(target_os = "linux")]
+    {
+        capture_linux_excluding_window(exclude_title).await
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = exclude_title;
+        capture_fullscreen_snapshot(false).await
+    }
+}
+
 /// Linux 平台专用抓屏逻辑：扩展直通与 Portal 降级
 #[cfg(target_os = "linux")]
 async fn capture_linux(include_cursor: bool) -> Result<RgbaImage, PlatformError> {
@@ -81,6 +105,25 @@ async fn capture_linux(include_cursor: bool) -> Result<RgbaImage, PlatformError>
     capture_fullscreen_portal().await
 }
 
+/// Linux 录屏抓帧：优先隐藏 Snapin 覆盖层，扩展不可用时降级 Portal。
+#[cfg(target_os = "linux")]
+async fn capture_linux_excluding_window(exclude_title: &str) -> Result<RgbaImage, PlatformError> {
+    let caps = get_platform_capabilities();
+    if caps.gnome_extension_active {
+        match capture_via_extension_excluding(exclude_title).await {
+            Ok(image) => return Ok(image),
+            Err(err) => {
+                tracing::warn!(
+                    "GNOME 扩展排除覆盖层抓屏失败，降级至 XDG Portal（画面可能包含覆盖层），原因: {err:#}"
+                );
+            }
+        }
+    } else {
+        tracing::warn!("GNOME 扩展未在线，录屏抓帧降级至 XDG Portal，画面可能包含 Snapin 覆盖层");
+    }
+    capture_fullscreen_portal().await
+}
+
 /// 通过 GNOME Shell 扩展执行零白闪截屏并解码
 #[cfg(target_os = "linux")]
 async fn capture_via_extension(include_cursor: bool) -> Result<RgbaImage, PlatformError> {
@@ -99,6 +142,31 @@ async fn capture_via_extension(include_cursor: bool) -> Result<RgbaImage, Platfo
     if !success {
         return Err(PlatformError::Capture {
             message: format!("GNOME 扩展返回截屏失败，目标路径: {target_str}"),
+        });
+    }
+    let file_bytes = read_extension_screenshot(target_path, target_str).await?;
+    decode_extension_screenshot(file_bytes).await
+}
+
+/// 通过 GNOME 扩展抓取一帧，并在捕获瞬间隐藏 Snapin 覆盖层。
+#[cfg(target_os = "linux")]
+async fn capture_via_extension_excluding(exclude_title: &str) -> Result<RgbaImage, PlatformError> {
+    let target_path =
+        AppPaths::generate_temp_path("screen", "png").map_err(|source| PlatformError::Io {
+            path: AppPaths::runtime_dir().display().to_string(),
+            source,
+        })?;
+    let _cleanup = TemporaryScreenshotFile::new(target_path.clone());
+    let target_str = target_path.to_string_lossy().to_string();
+    let success = crate::extension_client::capture_fullscreen_extension_excluding_title(
+        &target_str,
+        exclude_title,
+        false,
+    )
+    .await?;
+    if !success {
+        return Err(PlatformError::Capture {
+            message: format!("GNOME 扩展排除覆盖层截屏失败，目标路径: {target_str}"),
         });
     }
     let file_bytes = read_extension_screenshot(target_path, target_str).await?;
@@ -200,7 +268,7 @@ fn capture_xcap_blocking() -> Result<RgbaImage, PlatformError> {
 /// 且容易在后续的图像切片与缩放中出现色彩失真。
 #[cfg(target_os = "windows")]
 fn normalize_windows_capture_alpha(image: &mut RgbaImage) {
-    for pixel in image.chunks_exact_mut(4) {
+    for pixel in image.as_chunks_mut::<4>().0 {
         pixel[3] = 255;
     }
 }

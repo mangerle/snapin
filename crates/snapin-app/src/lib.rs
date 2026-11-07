@@ -21,6 +21,7 @@ mod lifecycle;
 mod media;
 mod paste;
 mod placement;
+mod recording;
 mod services;
 mod snip;
 mod update;

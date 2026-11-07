@@ -7,8 +7,9 @@
 use crate::config::{publish_config, shared_config, SharedConfig};
 use crate::desktop::AppDesktop;
 use crate::media::MediaService;
+use crate::recording::RecordingService;
 use snapin_config::config::Config;
-use snapin_ports::{DesktopPort, MediaJobRunner, PortError};
+use snapin_ports::{DesktopPort, MediaJobRunner, PortError, ScreenRecorder};
 use snapin_runtime::TaskRuntime;
 use std::sync::Arc;
 
@@ -18,6 +19,7 @@ pub(crate) struct AppServices {
     runtime: TaskRuntime,
     desktop: Arc<AppDesktop>,
     media: Arc<MediaService>,
+    recorder: Arc<RecordingService>,
 }
 
 impl AppServices {
@@ -29,11 +31,13 @@ impl AppServices {
         let shared = shared_config(config);
         let desktop = Arc::new(AppDesktop::new(shared.clone(), runtime.clone())?);
         let media = Arc::new(MediaService::new(shared.clone(), runtime.clone()));
+        let recorder = Arc::new(RecordingService::new(shared.clone(), runtime.clone()));
         Ok(Self {
             config: shared,
             runtime,
             desktop,
             media,
+            recorder,
         })
     }
 
@@ -55,6 +59,11 @@ impl AppServices {
     /// 获取媒体任务执行端口。
     pub(crate) fn media(&self) -> Arc<dyn MediaJobRunner> {
         self.media.clone()
+    }
+
+    /// 获取屏幕录制与媒体编码端口。
+    pub(crate) fn recorder(&self) -> Arc<dyn ScreenRecorder> {
+        self.recorder.clone()
     }
 
     /// 获取统一后台任务运行时。

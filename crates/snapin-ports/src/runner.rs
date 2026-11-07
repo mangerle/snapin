@@ -16,6 +16,7 @@ use crate::error::PortError;
 use crate::id::GroupId;
 use crate::jobs::MediaJobRunner;
 use crate::model::PasterItem;
+use crate::recording::ScreenRecorder;
 use async_trait::async_trait;
 use snapin_config::config::Config;
 use snapin_foundation::{PostCaptureAction, SnipMode};
@@ -57,6 +58,8 @@ pub struct SnipperRuntime {
     pub desktop: Arc<dyn DesktopPort>,
     /// 媒体任务执行端口
     pub media: Arc<dyn MediaJobRunner>,
+    /// 浏览器录屏与媒体编码端口
+    pub recorder: Arc<dyn ScreenRecorder>,
 }
 
 /// 截图交互完成后的最终产出决策。

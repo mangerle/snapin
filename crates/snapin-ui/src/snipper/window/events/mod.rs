@@ -114,12 +114,14 @@ fn handle_control_character(
     match key.to_ascii_lowercase().as_str() {
         "z" => {
             let changed = state.editor.annotations.undo();
+            state.sync_recording_overlay();
             // 撤销后新的文档最后一条接管可编辑权；文档为空则清除选中。
             super::annotation_edit::select_latest(state);
             Some(changed)
         }
         "y" => {
             let changed = state.editor.annotations.redo();
+            state.sync_recording_overlay();
             super::annotation_edit::select_latest(state);
             Some(changed)
         }
@@ -160,6 +162,7 @@ fn handle_action_character(
         "t" => super::actions::handle_action_translate(state, original_rgba),
         "r" => super::actions::handle_action_redact(state, original_rgba),
         "q" => super::actions::handle_action_qr(state, original_rgba),
+        "g" => super::actions::handle_action_start_recording(state, original_rgba),
         _ => return None,
     }
     Some(true)
@@ -374,6 +377,11 @@ fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
 
 /// 逐级退出处理 (先提交文本 -> 再收起二级栏/工具 -> 再取消标注选中 -> 再取消选区 -> 再退出窗口)
 pub fn handle_escape(state: &mut SnipperState) -> bool {
+    if let Some(mut session) = state.recording.take() {
+        session.cancel();
+        state.session.outcome = Some(SnipperOutcome::Cancelled);
+        return true;
+    }
     if state.ocr.menu.is_some() {
         state.ocr.menu = None;
         true

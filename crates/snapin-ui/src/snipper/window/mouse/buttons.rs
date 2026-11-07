@@ -27,6 +27,9 @@ pub fn handle_mouse_button(
     if let Some(handled) = super::ocr::handle_ocr_overlay_press(state, &event) {
         return handled;
     }
+    if let Some(handled) = super::recording::handle_recording_button(state, event) {
+        return handled;
+    }
 
     if button == MouseButton::Left {
         let hit_region = state
@@ -66,7 +69,11 @@ pub fn handle_mouse_button(
 
     match button_state {
         ElementState::Pressed => handle_left_press(state, cx, cy, original_rgba),
-        ElementState::Released => handle_left_release(state, cx, cy, original_rgba),
+        ElementState::Released => {
+            let handled = handle_left_release(state, cx, cy, original_rgba);
+            state.sync_recording_overlay();
+            handled
+        }
     }
 }
 

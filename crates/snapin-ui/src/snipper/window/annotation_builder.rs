@@ -29,6 +29,7 @@ pub fn commit_annotation(state: &mut SnipperState) {
         if let Some(shape) = build_shape(&params) {
             state.editor.annotations.push(shape);
             super::annotation_edit::select_latest(state);
+            state.sync_recording_overlay();
         }
     }
     state.editor.annotation.stroke.points.clear();

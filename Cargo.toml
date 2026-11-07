@@ -57,6 +57,9 @@ tiny-skia = "0.12"
 
 # 图像操作与零拷贝像素裁剪
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+gif = "0.14"
+mp4 = "0.14"
+openh264 = "0.9.9"
 chrono = "0.4"
 xcap = "0.9"
 

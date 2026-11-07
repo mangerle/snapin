@@ -9,7 +9,7 @@ use super::window_builder::create_new_paster_window;
 use super::WorkspaceRuntime;
 use crate::model::GroupId;
 use crate::snipper::window::jobs::SnipperJobSink;
-use crate::snipper::window::SnipperView;
+use crate::snipper::window::{SnipperView, SnipperViewInit};
 use crate::snipper::SnipperOutcome;
 use snapin_config::config::Config;
 use std::sync::{Arc, Mutex};
@@ -46,6 +46,13 @@ pub(crate) fn handle_workspace_user_event(
             job_id,
             result,
         } => handle_clipboard_finished(target, job_id, result, runtime),
+        PasterAppEvent::SnipperRecordingEvent { event } => {
+            if let Some(view) = runtime.snipper.as_mut() {
+                view.handle_recording_event(event);
+                view.request_redraw();
+            }
+            finish_snipper_if_ready(runtime);
+        }
         PasterAppEvent::SnipperJobFinished {
             job_id,
             kind,
@@ -204,7 +211,20 @@ fn open_snipper(
         });
     });
 
-    match SnipperView::new(elwt, launch, sink, runtime.clipboard_events.clone()) {
+    let event_proxy = Arc::new(Mutex::new(runtime.event_proxy.clone()));
+    let recording_sink: crate::ports::RecordingEventSink = Arc::new(move |event| {
+        let proxy = event_proxy
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _ = proxy.send_event(PasterAppEvent::SnipperRecordingEvent { event });
+    });
+    let init = SnipperViewInit {
+        launch,
+        job_sink: sink,
+        recording_sink,
+        clipboard_events: runtime.clipboard_events.clone(),
+    };
+    match SnipperView::new(elwt, init) {
         Ok(view) => {
             tracing::info!("截图覆盖层已挂载至常驻工作区事件循环");
             runtime.snipper = Some(view);

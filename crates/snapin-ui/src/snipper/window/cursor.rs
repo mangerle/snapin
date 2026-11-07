@@ -6,6 +6,7 @@
 use super::annotation_edit::{self, AnnotationDrag};
 use super::events::SnipperState;
 use super::state::SnipperPhase;
+use crate::snipper::canvas::recording::{calculate_recording_layout, RecordingLayoutRequest};
 use crate::snipper::selection::{hit_test_handle, DragMode, Rect, ResizeHandle, SelectionState};
 use winit::window::{CursorIcon, Window};
 
@@ -31,6 +32,9 @@ fn desired_cursor_icon(state: &SnipperState) -> CursorIcon {
     let SelectionState::Locked { rect, active_drag } = &state.viewport.selection else {
         return CursorIcon::Default;
     };
+    if state.recording.is_some() {
+        return recording_cursor(state, rect);
+    }
     let (cx, cy) = (
         state.viewport.cursor_pos.0 as f32,
         state.viewport.cursor_pos.1 as f32,
@@ -45,6 +49,42 @@ fn desired_cursor_icon(state: &SnipperState) -> CursorIcon {
         return icon;
     }
     selection_cursor(state, rect, cx, cy)
+}
+
+/// 录制阶段隐藏缩放手柄与普通工具栏交互，只在选区内部显示绘制光标。
+fn recording_cursor(state: &SnipperState, rect: &Rect) -> CursorIcon {
+    let (cx, cy) = (
+        state.viewport.cursor_pos.0 as f32,
+        state.viewport.cursor_pos.1 as f32,
+    );
+    let scale = state.editor.annotation.toolbar.ui_scale;
+    if let Some(session) = state.recording.as_ref() {
+        if session.is_dragging_toolbar() {
+            return CursorIcon::Grabbing;
+        }
+        let layout = calculate_recording_layout(RecordingLayoutRequest {
+            session,
+            selection: rect,
+            screen_width: state.viewport.screen_size.0,
+            screen_height: state.viewport.screen_size.1,
+            scale,
+        });
+        if layout.contains(cx, cy) {
+            return if layout.hit(cx, cy)
+                == Some(crate::snipper::window::state::RecordingItem::Action(
+                    crate::snipper::window::state::RecordingAction::DragHandle,
+                )) {
+                CursorIcon::Grab
+            } else {
+                CursorIcon::Default
+            };
+        }
+    }
+    if rect.contains(cx, cy) && state.editor.annotation.toolbar.active_tool.is_some() {
+        CursorIcon::Crosshair
+    } else {
+        CursorIcon::Default
+    }
 }
 
 /// 拖拽过程中固定显示当前操作对应的光标，避免闪回箭头。

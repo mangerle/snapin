@@ -21,12 +21,14 @@ pub fn dispatch_toolbar_action(
             let changed = state.editor.annotations.undo();
             // 历史变化后让新的文档最后一条接管可编辑权，避免选中停留在已被撤销的索引上。
             super::super::annotation_edit::select_latest(state);
+            state.sync_recording_overlay();
             changed
         }
         ToolbarAction::MouseThrough => true,
         ToolbarAction::Redo => {
             let changed = state.editor.annotations.redo();
             super::super::annotation_edit::select_latest(state);
+            state.sync_recording_overlay();
             changed
         }
         ToolbarAction::Copy => {
@@ -57,6 +59,10 @@ pub fn dispatch_toolbar_action(
             super::super::actions::handle_action_translate(state, original_rgba);
             true
         }
+        ToolbarAction::ScreenRecording => {
+            super::super::actions::handle_action_start_recording(state, original_rgba);
+            true
+        }
         ToolbarAction::Close => {
             state.session.outcome = Some(SnipperOutcome::Cancelled);
             true
@@ -64,6 +70,7 @@ pub fn dispatch_toolbar_action(
         ToolbarAction::ClearAnnotations => {
             state.editor.annotations.clear();
             state.editor.selected_annotation = None;
+            state.sync_recording_overlay();
             true
         }
     }

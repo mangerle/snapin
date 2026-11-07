@@ -13,10 +13,13 @@ use super::event_dispatcher::{SnipperDispatchContext, SnipperEventDispatcher};
 use super::events::SnipperState;
 use super::jobs::{handle_job_outcome, SnipperJobKind, SnipperJobRuntime, SnipperJobSink};
 use super::presenter::{SnipperPresenter, SnipperPresenterInit};
-use super::state::clamp_window_rect;
+use super::state::{clamp_window_rect, RecordingTransition};
 use super::types::{SnipMode, SnipperLaunch, SnipperOutcome, SnipperRuntime};
 use crate::error::UiError;
-use crate::ports::{ClipboardEventSink, ClipboardJobId, ClipboardResult, PortError};
+use crate::ports::{
+    ClipboardEventSink, ClipboardJobId, ClipboardResult, PortError, RecordingEvent,
+    RecordingEventSink,
+};
 use crate::snipper::selection::{Rect, SelectionState};
 use image::RgbaImage;
 use std::sync::Arc;
@@ -24,6 +27,18 @@ use winit::dpi::PhysicalSize;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Fullscreen, Window, WindowLevel};
+
+/// 截图视图创建参数。
+pub struct SnipperViewInit {
+    /// 全屏底图、窗口候选、配置与宿主端口。
+    pub launch: SnipperLaunch,
+    /// 媒体任务完成回传。
+    pub job_sink: SnipperJobSink,
+    /// 录屏状态回传。
+    pub recording_sink: RecordingEventSink,
+    /// 剪贴板任务完成回传。
+    pub clipboard_events: ClipboardEventSink,
+}
 
 /// 全屏截图覆盖层视图。
 pub struct SnipperView {
@@ -39,12 +54,13 @@ impl SnipperView {
     /// # Errors
     ///
     /// 窗口或软件帧缓冲创建失败时返回 [`UiError::Window`] / [`UiError::Softbuffer`]。
-    pub fn new(
-        window_target: &ActiveEventLoop,
-        launch: SnipperLaunch,
-        job_sink: SnipperJobSink,
-        clipboard_events: ClipboardEventSink,
-    ) -> Result<Self, UiError> {
+    pub fn new(window_target: &ActiveEventLoop, init: SnipperViewInit) -> Result<Self, UiError> {
+        let SnipperViewInit {
+            launch,
+            job_sink,
+            recording_sink,
+            clipboard_events,
+        } = init;
         let SnipperLaunch {
             bg_image,
             windows,
@@ -67,6 +83,7 @@ impl SnipperView {
             mode,
             screen_size: (screen_w, screen_h),
             job_sink,
+            recording_sink,
             clipboard_events,
         });
         super::apply_ui_scale(&window, &mut state, screen_w, screen_h);
@@ -91,6 +108,7 @@ fn create_overlay_window(
         .with_title("Snapin")
         .with_decorations(false)
         .with_window_level(WindowLevel::AlwaysOnTop)
+        .with_content_protected(true)
         .with_fullscreen(Some(Fullscreen::Borderless(None)))
         .with_inner_size(PhysicalSize::new(screen_w, screen_h));
     let window = window_target
@@ -109,6 +127,7 @@ struct SnipperStateInit {
     mode: SnipMode,
     screen_size: (u32, u32),
     job_sink: SnipperJobSink,
+    recording_sink: RecordingEventSink,
     clipboard_events: ClipboardEventSink,
 }
 
@@ -120,6 +139,7 @@ fn build_initial_state(init: SnipperStateInit) -> SnipperState {
         mode,
         screen_size: (screen_w, screen_h),
         job_sink,
+        recording_sink,
         clipboard_events,
     } = init;
     let mut state = SnipperState::from_config(runtime.config, mode, runtime.desktop);
@@ -143,6 +163,8 @@ fn build_initial_state(init: SnipperStateInit) -> SnipperState {
         state.set_status_message(snapin_foundation::i18n::tr("单击复制颜色，Esc 取消"));
     }
 
+    state.session.recorder = runtime.recorder;
+    state.session.recording_events = recording_sink;
     state.jobs.runtime = Some(Arc::new(SnipperJobRuntime::new(runtime.media, job_sink)));
     state.jobs.clipboard_events = clipboard_events;
     state
@@ -189,11 +211,57 @@ impl SnipperView {
         self.state.handle_clipboard_finished(job_id, result);
     }
 
+    /// 处理录制后台状态。
+    pub fn handle_recording_event(&mut self, event: RecordingEvent) {
+        let message = match &event {
+            RecordingEvent::Warning { message } => Some(message.clone()),
+            RecordingEvent::Failed { message } => Some(message.clone()),
+            _ => None,
+        };
+        if event == RecordingEvent::Started {
+            self.state.clear_status_message();
+        }
+        let transition = self
+            .state
+            .recording
+            .as_mut()
+            .map(|session| session.handle_event(event));
+        match transition {
+            Some(RecordingTransition::Finished(path)) => {
+                self.state.session.outcome = Some(SnipperOutcome::Saved(path));
+            }
+            Some(RecordingTransition::Cancelled) => {
+                self.state.recording = None;
+            }
+            Some(RecordingTransition::Restart) => {
+                let region = self
+                    .state
+                    .recording
+                    .as_ref()
+                    .and_then(|session| session.region());
+                if let (Some(session), Some(region)) = (self.state.recording.as_mut(), region) {
+                    if let Err(error) = session.start(region) {
+                        self.state.set_status_message(error.message);
+                    }
+                }
+            }
+            Some(RecordingTransition::Updated) => {}
+            None => {}
+        }
+        if let Some(message) = message {
+            self.state
+                .set_status_message(snapin_foundation::i18n::tr(&message).to_string());
+        }
+    }
+
     /// 取出会话结果；存在结果时会取消仍在执行的后台任务。
     pub fn take_outcome(&mut self) -> Option<SnipperOutcome> {
         let outcome = self.state.session.outcome.take();
         if outcome.is_some() {
             self.state.cancel_pending_job();
+            if let Some(session) = self.state.recording.as_mut() {
+                session.cancel();
+            }
         }
         outcome
     }
@@ -206,6 +274,9 @@ impl SnipperView {
     /// 事件循环退出前取消后台任务并关闭 IME。
     pub fn cancel(&mut self) {
         self.state.cancel_pending_job();
+        if let Some(session) = self.state.recording.as_mut() {
+            session.cancel();
+        }
         self.state.jobs.pending_clipboard = None;
         self.window.set_ime_allowed(false);
     }

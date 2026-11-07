@@ -130,6 +130,7 @@ impl Toolbar {
         ToolbarItem::Action(ToolbarAction::Redo),
         ToolbarItem::Action(ToolbarAction::Ocr),
         ToolbarItem::Action(ToolbarAction::Translate),
+        ToolbarItem::Action(ToolbarAction::ScreenRecording),
         ToolbarItem::Action(ToolbarAction::Close),
         ToolbarItem::Action(ToolbarAction::Pin),
         ToolbarItem::Action(ToolbarAction::Save),

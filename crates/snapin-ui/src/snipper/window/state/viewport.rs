@@ -31,6 +31,8 @@ pub(crate) struct SnipperViewport {
     pub(crate) cursor_icon: CursorIcon,
     /// 当前修饰键状态。
     pub(crate) modifiers: ModifiersState,
+    /// 当前覆盖层物理像素尺寸。
+    pub(crate) screen_size: (f32, f32),
 }
 
 impl SnipperViewport {
@@ -49,6 +51,7 @@ impl SnipperViewport {
             cursor_ready: false,
             cursor_icon: CursorIcon::Default,
             modifiers: ModifiersState::default(),
+            screen_size: (0.0, 0.0),
         }
     }
 }

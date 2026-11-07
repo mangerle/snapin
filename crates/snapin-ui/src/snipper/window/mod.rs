@@ -25,7 +25,7 @@ pub mod view;
 
 pub use state::SnipperPhase;
 pub use types::{SnipMode, SnipperLaunch, SnipperOutcome, SnipperRuntime};
-pub use view::SnipperView;
+pub use view::{SnipperView, SnipperViewInit};
 
 /// 按窗口实际缩放因子与屏幕尺寸初始化工具栏和放大镜缩放。
 pub(super) fn apply_ui_scale(
@@ -44,6 +44,7 @@ pub(super) fn apply_ui_scale(
     } * state.session.config.interface.toolbar_scale;
     state.editor.annotation.toolbar.ui_scale = auto_scale;
     state.viewport.magnifier.ui_scale = auto_scale;
+    state.viewport.screen_size = (screen_w as f32, screen_h as f32);
 
     if let SelectionState::Locked { rect, .. } = &state.viewport.selection {
         state

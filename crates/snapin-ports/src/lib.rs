@@ -26,6 +26,7 @@ mod error;
 mod id;
 mod jobs;
 pub mod model;
+mod recording;
 pub mod runner;
 mod types;
 
@@ -43,6 +44,10 @@ pub use jobs::{JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, Past
 pub use model::{
     flip_pixmap_horizontal, flip_pixmap_vertical, rotate_pixmap_ccw, rotate_pixmap_cw, PasterItem,
     PasterTransform, ShapeId,
+};
+pub use recording::{
+    NoopScreenRecorder, RecordingEvent, RecordingEventSink, RecordingFormat, RecordingHandle,
+    RecordingOptions, RecordingRegion, ScreenRecorder,
 };
 pub use runner::{
     MockWorkspaceDriver, SnipperLaunch, SnipperOutcome, SnipperRuntime, WindowRect,

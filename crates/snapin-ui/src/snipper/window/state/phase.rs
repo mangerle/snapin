@@ -30,6 +30,8 @@ pub enum SnipperPhase {
     OcrEditing,
     /// 后台媒体异步任务（OCR推理、翻译网络请求、图像保存等）执行中
     Busy,
+    /// 选区录屏工具栏正在工作
+    Recording,
 }
 
 impl SnipperPhase {
@@ -58,6 +60,9 @@ impl SnipperPhase {
 impl SnipperState {
     /// 推导当前会话所处的高层交互阶段。
     pub fn phase(&self) -> SnipperPhase {
+        if self.recording.is_some() {
+            return SnipperPhase::Recording;
+        }
         if self.ocr.editor.is_some() {
             return SnipperPhase::OcrEditing;
         }

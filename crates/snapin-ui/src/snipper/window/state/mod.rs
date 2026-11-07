@@ -4,6 +4,7 @@ mod editor;
 mod jobs;
 mod ocr;
 mod phase;
+mod recording;
 mod session;
 mod viewport;
 
@@ -14,9 +15,13 @@ use crate::ports::{DesktopPort, JobCancel, JobId, NoopDesktop};
 use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::window_rect::WindowRect;
 use editor::SnipperEditor;
+use image::RgbaImage;
 use jobs::{PendingMediaJob, SnipperJobs};
 use ocr::SnipperOcr;
 pub use phase::SnipperPhase;
+pub use recording::{
+    RecordingAction, RecordingItem, RecordingSession, RecordingStatus, RecordingTransition,
+};
 use session::SnipperSession;
 use snapin_config::config::{Config, InterfaceConfig, SnipConfig};
 use std::sync::Arc;
@@ -37,6 +42,8 @@ pub struct SnipperState {
     pub(crate) jobs: SnipperJobs,
     /// OCR、二维码与智能打码状态。
     pub(crate) ocr: SnipperOcr,
+    /// 选区屏幕录制会话。
+    pub(crate) recording: Option<RecordingSession>,
 }
 
 impl SnipperState {
@@ -58,6 +65,7 @@ impl SnipperState {
             session: SnipperSession::new(desktop, SnipMode::default()),
             jobs: SnipperJobs::new(),
             ocr: SnipperOcr::default(),
+            recording: None,
         }
     }
 
@@ -249,6 +257,34 @@ pub(crate) fn window_at(pos: (f32, f32), windows: &[Rect]) -> Option<Rect> {
         .copied()
 }
 
+impl SnipperState {
+    /// 把当前标注历史栅格化为录制透明层并同步给后台采集器。
+    ///
+    /// 只允许在 GUI 线程调用。没有录制会话、未开始录制或没有标注时分别安全跳过，
+    /// 这样现有截图路径无需感知录屏状态。
+    pub(crate) fn sync_recording_overlay(&mut self) {
+        let Some(region) = self.recording.as_ref().and_then(|session| session.region()) else {
+            return;
+        };
+        let overlay = if self.editor.annotations.can_undo() {
+            let Some(mut pixmap) = tiny_skia::Pixmap::new(region.width, region.height) else {
+                return;
+            };
+            self.editor.annotations.replay_with_offset(
+                &mut pixmap.as_mut(),
+                -(region.x as f32),
+                -(region.y as f32),
+            );
+            RgbaImage::from_raw(region.width, region.height, pixmap.take())
+        } else {
+            None
+        };
+        if let Some(session) = self.recording.as_ref() {
+            session.update_overlay(overlay);
+        }
+    }
+}
+
 /// 提交并关闭当前文本输入会话。
 ///
 /// 文本图元同样遵守"最新一条可编辑"的约定：提交后立即把选中切到它，
@@ -258,6 +294,7 @@ pub fn commit_active_text_input(state: &mut SnipperState) {
         if let Some(action) = session.commit() {
             state.editor.annotations.push(action);
             super::annotation_edit::select_latest(state);
+            state.sync_recording_overlay();
         }
     }
 }

@@ -362,3 +362,33 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
 
 #[cfg(test)]
 mod tests;
+
+/// 从当前锁定选区进入屏幕录制工具栏。
+///
+/// 打开工具栏时不会立即采集，用户可以继续微调选区，再点击红色录制按钮提交后台任务。
+/// 录制区域会向下取整为偶数像素，保证 OpenH264 的 YUV420 输入满足宽高整除约束。
+pub fn handle_action_start_recording(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    if state.recording.is_some() {
+        return;
+    }
+    state.clear_status_message();
+    let (_, _, pw, ph) = match &state.viewport.selection {
+        SelectionState::Locked { rect, .. } => {
+            rect.to_pixel_bounds(original_rgba.width(), original_rgba.height())
+        }
+        _ => return,
+    };
+    let width = pw & !1;
+    let height = ph & !1;
+    if width < 2 || height < 2 {
+        state.set_status_message(snapin_foundation::i18n::tr("选区过小，无法开始屏幕录制"));
+        return;
+    }
+    state.recording = Some(super::state::RecordingSession::new(
+        state.session.recorder.clone(),
+        state.session.recording_events.clone(),
+    ));
+    state.set_status_message(snapin_foundation::i18n::tr(
+        "屏幕录制工具栏已打开，点击录制按钮开始",
+    ));
+}

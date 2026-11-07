@@ -8,6 +8,7 @@ mod annotation;
 mod buttons;
 mod movement;
 mod ocr;
+mod recording;
 mod wheel;
 
 pub use buttons::handle_mouse_button;

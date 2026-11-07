@@ -142,6 +142,32 @@ pub fn tr(zh: &str) -> &str {
         "锥形箭头" => "Tapered Arrow",
         "截屏" => "Capture",
         "全屏截图" => "Fullscreen Capture",
+        "屏幕录制" => "Screen Recording",
+        "正在准备屏幕录制" => "Preparing screen recording",
+        "屏幕录制工具栏已打开，点击录制按钮开始" => {
+            "Screen recording toolbar opened. Click record to start"
+        }
+        "当前系统声音采集尚未接入，本次将录制无声视频" => {
+            "System audio capture is not available yet; this recording will be silent"
+        }
+        "当前采集通道不保证包含鼠标指针，鼠标高亮将不写入视频" => {
+            "The capture backend cannot guarantee cursor inclusion; cursor highlight will not be embedded"
+        }
+        "正在启动屏幕录制" => "Starting screen recording",
+        "正在编码录屏" => "Encoding screen recording",
+        "屏幕录制已暂停" => "Screen recording paused",
+        "录制期间选区位置已锁定" => "Selection is locked while recording",
+        "录制区域无效" => "Invalid recording region",
+        "开始或停止录制" => "Start or stop recording",
+        "暂停或继续" => "Pause or resume",
+        "系统声音" => "System audio",
+        "鼠标指针" => "Mouse cursor",
+        "录制设置" => "Recording settings",
+        "输出格式" => "Output format",
+        "切换帧率" => "Switch frame rate",
+        "撤销标注" => "Undo annotation",
+        "重新开始" => "Restart",
+        "选区过小，无法开始屏幕录制" => "Selection is too small to start screen recording",
         "取色器" => "Color Picker",
         "贴图" => "Pin",
         "隐藏/显示所有贴图" => "Hide/Show All Pins",

@@ -3,6 +3,7 @@
 //! 基于 tiny-skia 实现全屏暗色遮罩、选区镂空聚焦、8 手柄线框以及像素放大镜复合渲染。
 
 mod overlays;
+pub(crate) mod recording;
 mod selection;
 
 use crate::editor::text_input::TextInputSession;
@@ -15,6 +16,7 @@ use crate::snipper::window::annotation_builder::{render_draft_preview, Annotatio
 use crate::snipper::window::ocr_editor::OcrTextEditorState;
 use crate::snipper::window::ocr_menu::OcrContextMenuState;
 use crate::snipper::window::redaction::{is_redaction_applied, RedactionPreview};
+use crate::snipper::window::state::RecordingSession;
 use crate::status_badge;
 use image::RgbaImage;
 use snapin_annotation::AnnotationHistory;
@@ -75,6 +77,8 @@ pub struct SnipperCanvas<'a> {
     pub ocr_menu: Option<&'a OcrContextMenuState>,
     /// 文字识别全文编辑框
     pub ocr_editor: Option<&'a OcrTextEditorState>,
+    /// 选区屏幕录制会话（若激活）
+    pub recording: Option<&'a RecordingSession>,
 }
 
 impl<'a> SnipperCanvas<'a> {
@@ -128,11 +132,29 @@ impl<'a> SnipperCanvas<'a> {
         }
         self.render_detection_previews(pixmap);
         self.render_active_brush_cursor(pixmap, rect);
-        self.render_selection_borders_and_handles(pixmap, rect);
-        if let Some(selected) = self.selected_annotation {
-            self.render_annotation_selection(pixmap, &selected);
+        let recording_active = self
+            .recording
+            .is_some_and(|session| session.status().is_busy());
+        if !recording_active {
+            self.render_selection_borders_and_handles(pixmap, rect);
+            if let Some(selected) = self.selected_annotation {
+                self.render_annotation_selection(pixmap, &selected);
+            }
         }
-        if matches!(self.selection, SelectionState::Locked { .. }) {
+        if let Some(session) = self.recording {
+            if let (Some(toolbar), Some(selection)) = (self.toolbar, self.active_selection_rect()) {
+                recording::render_recording_toolbar(
+                    pixmap,
+                    recording::RecordingRenderContext {
+                        session,
+                        toolbar,
+                        selection: &selection,
+                        screen_size: (pixmap.width(), pixmap.height()),
+                        ui_scale: self.ui_scale,
+                    },
+                );
+            }
+        } else if matches!(self.selection, SelectionState::Locked { .. }) {
             if let Some(toolbar) = self.toolbar {
                 toolbar.render(pixmap);
             }

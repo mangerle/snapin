@@ -385,6 +385,7 @@ impl SnipperPresenter {
             qr_codes: state.ocr.qr_result.as_deref(),
             ocr_menu: state.ocr.menu.as_ref(),
             ocr_editor: state.ocr.editor.as_ref(),
+            recording: state.recording.as_ref(),
         }
     }
 
