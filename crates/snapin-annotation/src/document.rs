@@ -94,20 +94,28 @@ impl AnnotationDocument {
         true
     }
 
-    /// 动态调节最近绘制的文本/译文图元字号；最近图元不是文本类时不做任何修改。
-    pub fn adjust_last_font_size(&mut self, font_size: f32) -> bool {
-        let Some(last) = self.shapes.last_mut() else {
+    /// 动态调节指定索引图元的字号；图元不是文本类或越界时返回 false。
+    pub fn adjust_font_size_at(&mut self, index: usize, font_size: f32) -> bool {
+        let Some(shape) = self.shapes.get_mut(index) else {
             return false;
         };
-        match last {
+        match shape {
             AnnotationShape::Text(_)
             | AnnotationShape::Translation(_)
             | AnnotationShape::Badge(_) => {
-                last.adjust_size(SizeParam::Font(font_size));
+                shape.adjust_size(SizeParam::Font(font_size));
                 true
             }
             _ => false,
         }
+    }
+
+    /// 动态调节最近绘制的文本/译文图元字号；最近图元不是文本类时不做任何修改。
+    pub fn adjust_last_font_size(&mut self, font_size: f32) -> bool {
+        self.shapes
+            .len()
+            .checked_sub(1)
+            .is_some_and(|idx| self.adjust_font_size_at(idx, font_size))
     }
 
     /// 根据当前生效的徽章图元推导下一个可用序号。

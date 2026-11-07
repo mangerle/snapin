@@ -144,12 +144,31 @@ fn handle_toolbar_press(
     original_rgba: &RgbaImage,
 ) -> bool {
     commit_active_text_input(state);
-    crate::snipper::window::annotation_edit::clear(state);
+    let prev_tool = state.editor.annotation.toolbar.active_tool;
     if state.editor.annotation.toolbar.begin_drag(cx, cy) {
+        crate::snipper::window::annotation_edit::clear(state);
         return true;
     }
     if let Some(item) = state.editor.annotation.toolbar.handle_click(cx, cy) {
         dispatch_toolbar_action(state, item, original_rgba);
+    }
+    if state.editor.annotation.toolbar.active_tool != prev_tool {
+        crate::snipper::window::annotation_edit::clear(state);
+    }
+    if let Some(index) = state
+        .editor
+        .selected_annotation
+        .map(crate::model::ShapeId::get)
+    {
+        if matches!(
+            state.editor.annotations.shape_at(index),
+            Some(AnnotationShape::Text(_) | AnnotationShape::Translation(_))
+        ) {
+            state
+                .editor
+                .annotations
+                .adjust_font_size_at(index, state.editor.annotation.toolbar.sub_options.font_size);
+        }
     }
     if state.editor.annotation.toolbar.focused_sub_control() == Some(SubControl::EffectStrength) {
         crate::snipper::window::redaction::sync_redaction_style(state, SubControl::EffectStrength);

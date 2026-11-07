@@ -230,3 +230,63 @@ fn test_magnifier_wheel_outside_image_adjusts_border_width() {
         other => panic!("应为放大镜图元，实际: {other:?}"),
     }
 }
+
+/// 选中已提交的文字标注后，滚轮必须能够直接调节该文字标注的字号。
+#[test]
+fn test_mouse_wheel_adjusts_font_size_of_selected_text_annotation() {
+    let mut state = SnipperState::new();
+    state.viewport.selection = SelectionState::Locked {
+        rect: Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 800.0,
+            height: 600.0,
+        },
+        active_drag: None,
+    };
+    let original = image::RgbaImage::new(800, 600);
+
+    // 1. 提交一条字号为 16.0 的文字标注
+    let mut session =
+        crate::editor::text_input::TextInputSession::new((100.0, 100.0), (255, 0, 0, 255), 16.0);
+    session.push_str("测试字号调整");
+    state
+        .editor
+        .annotations
+        .push(session.commit().expect("应生成 TextAction"));
+    assert_eq!(state.editor.annotations.undo_stack().len(), 1);
+
+    // 2. 清除当前活跃工具，模拟选择模式
+    state.editor.annotation.toolbar.active_tool = None;
+
+    // 3. 点击选中该文字标注
+    assert!(super::super::buttons::handle_left_press(
+        &mut state, 110.0, 105.0, &original
+    ));
+    assert!(super::super::buttons::handle_left_release(
+        &mut state, 110.0, 105.0, &original
+    ));
+    assert!(state.editor.selected_annotation.is_some());
+
+    // 4. 向上滚动滚轮，字号增大 2.0 -> 18.0
+    let delta = MouseScrollDelta::LineDelta(0.0, 1.0);
+    assert!(handle_mouse_wheel(&mut state, delta));
+    assert_eq!(state.editor.annotation.toolbar.sub_options.font_size, 18.0);
+    match state.editor.annotations.shape_at(0) {
+        Some(AnnotationShape::Text(action)) => {
+            assert_eq!(action.font_size, 18.0, "选中文本图元字号应随滚轮增大");
+        }
+        other => panic!("应为 Text 图元，实际: {other:?}"),
+    }
+
+    // 5. 向下滚动滚轮，字号减小 2.0 -> 16.0
+    let delta_down = MouseScrollDelta::LineDelta(0.0, -1.0);
+    assert!(handle_mouse_wheel(&mut state, delta_down));
+    assert_eq!(state.editor.annotation.toolbar.sub_options.font_size, 16.0);
+    match state.editor.annotations.shape_at(0) {
+        Some(AnnotationShape::Text(action)) => {
+            assert_eq!(action.font_size, 16.0, "选中文本图元字号应随滚轮减小");
+        }
+        other => panic!("应为 Text 图元，实际: {other:?}"),
+    }
+}

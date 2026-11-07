@@ -134,13 +134,16 @@ pub fn hit_test_selected_body(state: &SnipperState, cx: f32, cy: f32) -> bool {
 /// 新画完、撤销与重做之后都调用它，保证"当前可编辑的标注"始终是文档最后一条。
 pub fn select_latest(state: &mut SnipperState) {
     state.editor.annotation_drag = None;
-    state.editor.selected_annotation = state
-        .editor
-        .annotations
-        .undo_stack()
-        .len()
-        .checked_sub(1)
-        .map(ShapeId::from);
+    let latest = state.editor.annotations.undo_stack().len().checked_sub(1);
+    state.editor.selected_annotation = latest.map(ShapeId::from);
+    if let Some(index) = latest {
+        if let Some(AnnotationShape::Text(action)) = state.editor.annotations.shape_at(index) {
+            state.editor.annotation.toolbar.sub_options.font_size = action.font_size;
+            let (r, g, b, a) = action.color.to_tuple();
+            state.editor.annotation.toolbar.sub_options.color =
+                tiny_skia::Color::from_rgba8(r, g, b, a);
+        }
+    }
 }
 
 /// 处理左键按下：优先命中已选中标注的手柄，其次命中当前允许编辑的标注并开始整体拖动。
@@ -160,6 +163,12 @@ pub fn handle_press(state: &mut SnipperState, cx: f32, cy: f32, allow_locked: bo
     if let Some(index) = hit_test_editable(state, (cx, cy), allow_locked) {
         state.editor.selected_annotation = Some(index.into());
         if let Some(original) = state.editor.annotations.shape_at(index).cloned() {
+            if let AnnotationShape::Text(action) = &original {
+                state.editor.annotation.toolbar.sub_options.font_size = action.font_size;
+                let (r, g, b, a) = action.color.to_tuple();
+                state.editor.annotation.toolbar.sub_options.color =
+                    tiny_skia::Color::from_rgba8(r, g, b, a);
+            }
             state.editor.annotation_drag = Some(AnnotationDrag::Move {
                 origin: (cx, cy),
                 original,

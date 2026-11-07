@@ -22,6 +22,17 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
         return true;
     }
 
+    let selected_text_index = state
+        .editor
+        .selected_annotation
+        .map(ShapeId::get)
+        .filter(|&idx| {
+            matches!(
+                state.editor.annotations.shape_at(idx),
+                Some(AnnotationShape::Text(_) | AnnotationShape::Translation(_))
+            )
+        });
+
     if state.editor.annotation.toolbar.handle_sub_wheel(
         state.viewport.cursor_pos.0 as f32,
         state.viewport.cursor_pos.1 as f32,
@@ -35,6 +46,12 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
         if let Some(session) = &mut state.editor.annotation.active_text_input {
             session.font_size = state.editor.annotation.toolbar.sub_options.font_size;
         }
+        if let Some(index) = selected_text_index {
+            state
+                .editor
+                .annotations
+                .adjust_font_size_at(index, state.editor.annotation.toolbar.sub_options.font_size);
+        }
         if state.editor.annotation.toolbar.active_tool == Some(Tool::Magnifier) {
             sync_selected_magnifier_scale(state);
         }
@@ -46,8 +63,9 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
 
     if state.editor.annotation.toolbar.active_tool == Some(Tool::Text)
         || state.editor.annotation.active_text_input.is_some()
+        || selected_text_index.is_some()
     {
-        adjust_text_wheel(state, delta_y);
+        adjust_text_wheel(state, delta_y, selected_text_index);
     } else {
         adjust_stroke_wheel(state, delta_y);
     }
@@ -63,8 +81,8 @@ fn normalized_wheel_delta(delta: MouseScrollDelta) -> Option<f32> {
     (delta_y.is_finite() && delta_y.abs() >= 0.1).then_some(delta_y)
 }
 
-/// 连续调节文字字号并同步当前文字会话与最近文本图元。
-fn adjust_text_wheel(state: &mut SnipperState, delta_y: f32) {
+/// 连续调节文字字号并同步当前文字会话与选中的文本图元。
+fn adjust_text_wheel(state: &mut SnipperState, delta_y: f32, selected_text_index: Option<usize>) {
     let step = if delta_y > 0.0 { 2.0 } else { -2.0 };
     let new_font_size =
         (state.editor.annotation.toolbar.sub_options.font_size + step).clamp(12.0, 72.0);
@@ -72,10 +90,17 @@ fn adjust_text_wheel(state: &mut SnipperState, delta_y: f32) {
     if let Some(session) = &mut state.editor.annotation.active_text_input {
         session.font_size = new_font_size;
     }
-    state
-        .editor
-        .annotations
-        .adjust_last_font_size(new_font_size);
+    if let Some(index) = selected_text_index {
+        state
+            .editor
+            .annotations
+            .adjust_font_size_at(index, new_font_size);
+    } else {
+        state
+            .editor
+            .annotations
+            .adjust_last_font_size(new_font_size);
+    }
 }
 
 /// 连续调节描边粗细并同步尺寸等级与最近描边图元。

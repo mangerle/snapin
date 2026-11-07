@@ -41,6 +41,15 @@ impl AnnotationHistory {
         self.document.adjust_last_corner_radius(radius)
     }
 
+    /// 动态调节指定索引文本/译文图元字号。
+    pub fn adjust_font_size_at(&mut self, index: usize, font_size: f32) -> bool {
+        let ok = self.document.adjust_font_size_at(index, font_size);
+        if ok {
+            self.redo_stack.clear();
+        }
+        ok
+    }
+
     /// 动态调节最近绘制的文本/译文图元字号。
     pub fn adjust_last_font_size(&mut self, font_size: f32) -> bool {
         self.document.adjust_last_font_size(font_size)
