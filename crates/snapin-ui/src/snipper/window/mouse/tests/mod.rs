@@ -4,6 +4,7 @@ mod wheel;
 
 use super::super::types::SnipMode;
 use super::*;
+use crate::editor::text_input::TextInputSession;
 use crate::editor::toolbar::{MosaicMode, SubControl, ToolbarAction, ToolbarItem};
 use crate::geometry::Point;
 use crate::ports::OcrTextItem;
@@ -639,4 +640,90 @@ fn test_switching_to_text_tool_allows_typing_on_existing_rect() {
         state.editor.annotation_drag.is_none(),
         "不得误进入上一个矩形的拖拽模式"
     );
+}
+
+#[test]
+fn test_double_click_existing_text_reopens_edit_session() {
+    let mut state = SnipperState::new();
+    state.editor.annotation.toolbar.ui_scale = 1.0;
+    state.viewport.selection = SelectionState::Locked {
+        rect: Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 800.0,
+            height: 600.0,
+        },
+        active_drag: None,
+    };
+    let original = RgbaImage::new(800, 600);
+
+    // 1. 提交一条文字标注
+    let mut session = TextInputSession::new((100.0, 100.0), (255, 0, 0, 255), 16.0);
+    session.push_str("已提交的标注");
+    state
+        .editor
+        .annotations
+        .push(session.commit().expect("应成功生成 TextAction"));
+    assert_eq!(state.editor.annotations.undo_stack().len(), 1);
+
+    // 2. 第一次点击该文字：选中它
+    assert!(handle_left_press(&mut state, 110.0, 105.0, &original));
+    assert!(handle_left_release(&mut state, 110.0, 105.0, &original));
+    assert!(state.editor.selected_annotation.is_some());
+
+    // 3. 紧接着第二次点击同一位置（双击判定成立）：唤起二次编辑
+    assert!(handle_left_press(&mut state, 110.0, 105.0, &original));
+    assert!(
+        state.editor.annotation.active_text_input.is_some(),
+        "双击已选文字标注必须重新唤起文字输入会话"
+    );
+    let active = state.editor.annotation.active_text_input.as_ref().unwrap();
+    assert_eq!(active.text, "已提交的标注");
+    assert_eq!(
+        state.editor.annotations.undo_stack().len(),
+        0,
+        "二次编辑时原图元已临时取出"
+    );
+
+    // 4. 按 Esc 放弃编辑，原图元应完整复原
+    assert!(crate::snipper::window::events::handle_escape(&mut state));
+    assert!(state.editor.annotation.active_text_input.is_none());
+    assert_eq!(
+        state.editor.annotations.undo_stack().len(),
+        1,
+        "Esc 取消后原图元必须无损复原"
+    );
+}
+
+#[test]
+fn test_text_tool_click_on_existing_text_reopens_edit_session() {
+    let mut state = SnipperState::new();
+    state.editor.annotation.toolbar.ui_scale = 1.0;
+    state.viewport.selection = SelectionState::Locked {
+        rect: Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 800.0,
+            height: 600.0,
+        },
+        active_drag: None,
+    };
+    let original = RgbaImage::new(800, 600);
+
+    // 1. 提交一条文字标注
+    let mut session = TextInputSession::new((100.0, 100.0), (0, 255, 0, 255), 20.0);
+    session.push_str("原文字");
+    state
+        .editor
+        .annotations
+        .push(session.commit().expect("应成功生成 TextAction"));
+
+    // 2. 激活文字工具并单击该文字标注
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Text);
+    assert!(handle_left_press(&mut state, 110.0, 105.0, &original));
+
+    // 3. 验证进入就地二次编辑，而不是在上面新建空文本框
+    assert!(state.editor.annotation.active_text_input.is_some());
+    let active = state.editor.annotation.active_text_input.as_ref().unwrap();
+    assert_eq!(active.text, "原文字");
 }

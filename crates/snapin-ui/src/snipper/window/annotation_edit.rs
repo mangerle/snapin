@@ -5,9 +5,39 @@
 
 use super::drag_calculator::calculate_drag;
 use super::events::SnipperState;
+use crate::editor::text_input::TextInputSession;
+use crate::editor::toolbar::Tool;
 use crate::model::ShapeId;
 use crate::snipper::selection::{hit_test_handle, DragMode, Rect, ResizeHandle};
 use snapin_annotation::AnnotationShape;
+
+/// 将指定索引的文本标注还原为活跃编辑会话，支持就地二次修改。
+pub fn start_editing_text_annotation(state: &mut SnipperState, index: usize) -> bool {
+    let is_text = matches!(
+        state.editor.annotations.shape_at(index),
+        Some(AnnotationShape::Text(_))
+    );
+    if !is_text {
+        return false;
+    }
+    let Some(AnnotationShape::Text(action)) = state.editor.annotations.take_at(index) else {
+        return false;
+    };
+
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Text);
+    let mut opts = state.editor.annotation.toolbar.sub_options;
+    let (r, g, b, a) = action.color.to_tuple();
+    opts.color = tiny_skia::Color::from_rgba8(r, g, b, a);
+    opts.text_bold = action.bold;
+    opts.text_italic = action.italic;
+    opts.text_background_enabled = action.background_color.is_some();
+    state.editor.annotation.toolbar.sub_options = opts;
+
+    let session = TextInputSession::from_text_action(action);
+    state.editor.annotation.active_text_input = Some(session);
+    clear(state);
+    true
+}
 
 /// 标注编辑拖拽会话：始终基于按下瞬间的原始图元重建，避免逐帧累积误差
 #[derive(Debug, Clone)]

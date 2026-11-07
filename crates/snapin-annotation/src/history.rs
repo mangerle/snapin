@@ -130,12 +130,18 @@ impl AnnotationHistory {
     /// 智能打码需要按文字区域增删单个马赛克图元，不能误删与其相交的其他标注，
     /// 因此这里提供精确索引删除，而不是复用矩形相交擦除。
     pub fn remove_at(&mut self, index: usize) -> bool {
-        if self.document.remove_at(index).is_some() {
+        self.take_at(index).is_some()
+    }
+
+    /// 移除并取出指定索引的图元；成功时清空 redo 栈。
+    ///
+    /// 用于对已提交标注（如文字标注）唤起就地重新编辑。
+    pub fn take_at(&mut self, index: usize) -> Option<AnnotationShape> {
+        let shape = self.document.remove_at(index);
+        if shape.is_some() {
             self.redo_stack.clear();
-            true
-        } else {
-            false
         }
+        shape
     }
 
     /// 清空所有标注历史。

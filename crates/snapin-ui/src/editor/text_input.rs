@@ -30,6 +30,8 @@ pub struct TextInputSession {
     pub background_opacity: u8,
     pub background_padding: f32,
     pub background_corner_radius: f32,
+    /// 触发就地重新编辑时的原始图元备份；若用户放弃编辑可无损复原。
+    pub original_shape: Option<AnnotationShape>,
 }
 
 impl TextInputSession {
@@ -50,6 +52,31 @@ impl TextInputSession {
             background_opacity: 0,
             background_padding: 4.0,
             background_corner_radius: 4.0,
+            original_shape: None,
+        }
+    }
+
+    /// 从已有的持久化文本标注恢复为二次编辑会话。
+    pub fn from_text_action(action: TextAction) -> Self {
+        let original_shape = Some(AnnotationShape::Text(action.clone()));
+        Self {
+            pos: action.pos,
+            text: action.text,
+            preedit: String::new(),
+            color: action.color.to_tuple(),
+            font_size: action.font_size,
+            bold: action.bold,
+            italic: action.italic,
+            font_family: action.font_family,
+            stroke_width: action.stroke_width,
+            stroke_color: action.stroke_color.to_tuple(),
+            background_color: action
+                .background_color
+                .map(snapin_annotation::ColorRgba::to_tuple),
+            background_opacity: action.background_opacity,
+            background_padding: action.padding,
+            background_corner_radius: action.corner_radius,
+            original_shape,
         }
     }
 

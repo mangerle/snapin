@@ -107,11 +107,23 @@ fn handle_locked_press(
         return handle_toolbar_press(state, pointer.x, pointer.y, original_rgba);
     }
 
+    // 判定双击事件：350毫秒内且光标位移在 6 像素容差范围内
+    let now = std::time::Instant::now();
+    let is_double_click = state
+        .editor
+        .last_click
+        .is_some_and(|(prev_time, prev_pos)| {
+            now.duration_since(prev_time).as_millis() < 350
+                && (prev_pos.0 - pointer.x).abs() < 6.0
+                && (prev_pos.1 - pointer.y).abs() < 6.0
+        });
+    state.editor.last_click = Some((now, (pointer.x, pointer.y)));
+
     // 点击画布表示离开二级栏数值控件；后续滚轮恢复默认粗细调节。
     state.editor.annotation.toolbar.clear_sub_focus();
     commit_active_text_input(state);
 
-    if let Some(handled) = handle_annotation_press(state, pointer.x, pointer.y) {
+    if let Some(handled) = handle_annotation_press(state, pointer.x, pointer.y, is_double_click) {
         return handled;
     }
     if let Some(handle) = selection_handle_at(state, rect, pointer.x, pointer.y) {
@@ -146,13 +158,61 @@ fn handle_toolbar_press(
 }
 
 /// 处理已提交标注的编辑、锁定提示与文字工具入口。
-fn handle_annotation_press(state: &mut SnipperState, cx: f32, cy: f32) -> Option<bool> {
+fn handle_annotation_press(
+    state: &mut SnipperState,
+    cx: f32,
+    cy: f32,
+    is_double_click: bool,
+) -> Option<bool> {
     let allow_locked_annotation = state.viewport.modifiers.alt_key();
 
+    // 0. 双击优先唤起文字就地编辑
+    if is_double_click {
+        let hit_index = state
+            .editor
+            .selected_annotation
+            .map(|id| id.get())
+            .filter(|&idx| {
+                state
+                    .editor
+                    .annotations
+                    .bounds_at(idx)
+                    .is_some_and(|b| b.contains(cx, cy))
+            })
+            .or_else(|| {
+                crate::snipper::window::annotation_edit::hit_test_editable(
+                    state,
+                    (cx, cy),
+                    allow_locked_annotation,
+                )
+            });
+
+        if let Some(index) = hit_index {
+            if crate::snipper::window::annotation_edit::start_editing_text_annotation(state, index)
+            {
+                return Some(true);
+            }
+        }
+    }
+
     // 1. 如果用户显式切换并激活了文字工具（Tool::Text）：
-    // 用户的明确意图是在点击位置添加文字标注，绝不能拦截并误选上一次绘制的矩形或图形。
-    // 只有在按住 Alt 键显式请求时，才覆盖当前工具去选择已有图元。
     if state.editor.annotation.toolbar.active_tool == Some(Tool::Text) && !allow_locked_annotation {
+        // 如果点击命中了已存在的文字标注，优先唤起就地重新编辑，而不是覆盖新建
+        if let Some(index) = crate::snipper::window::annotation_edit::hit_test_editable(
+            state,
+            (cx, cy),
+            allow_locked_annotation,
+        ) {
+            if matches!(
+                state.editor.annotations.shape_at(index),
+                Some(AnnotationShape::Text(_))
+            ) && crate::snipper::window::annotation_edit::start_editing_text_annotation(
+                state, index,
+            ) {
+                return Some(true);
+            }
+        }
+
         crate::snipper::window::annotation_edit::clear(state);
         return Some(handle_text_tool_click(state, cx, cy));
     }

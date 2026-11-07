@@ -7,6 +7,7 @@ use super::types::SnipperOutcome;
 use crate::editor::toolbar::Tool;
 use crate::snipper::selection::{SelectionConstraint, SelectionState};
 use image::RgbaImage;
+use snapin_annotation::AnnotationShape;
 use winit::event::ElementState;
 use winit::keyboard::{Key, NamedKey};
 
@@ -58,7 +59,19 @@ fn handle_named_key(state: &mut SnipperState, key: NamedKey, original_rgba: &Rgb
             true
         }
         NamedKey::Enter if state.viewport.modifiers.control_key() => handle_qr_open_link(state),
-        NamedKey::Enter | NamedKey::F3 => handle_pin_or_finish_line(state, original_rgba),
+        NamedKey::Enter if !state.viewport.modifiers.control_key() => {
+            if let Some(index) = state.editor.selected_annotation.map(|id| id.get()) {
+                if matches!(
+                    state.editor.annotations.shape_at(index),
+                    Some(AnnotationShape::Text(_))
+                ) && super::annotation_edit::start_editing_text_annotation(state, index)
+                {
+                    return true;
+                }
+            }
+            handle_pin_or_finish_line(state, original_rgba)
+        }
+        NamedKey::F3 => handle_pin_or_finish_line(state, original_rgba),
         _ => false,
     }
 }
@@ -380,9 +393,11 @@ pub fn handle_escape(state: &mut SnipperState) -> bool {
         state.ocr.redaction_preview = None;
         state.clear_status_message();
         true
-    } else if state.editor.annotation.active_text_input.is_some() {
-        // Esc 统一取消当前输入，与贴图侧保持一致。
-        state.editor.annotation.active_text_input = None;
+    } else if let Some(mut session) = state.editor.annotation.active_text_input.take() {
+        // Esc 统一取消当前输入；若为二次编辑则恢复原图元避免文字丢失
+        if let Some(original) = session.original_shape.take() {
+            state.editor.annotations.push(original);
+        }
         true
     } else if state.editor.annotation.toolbar.active_tool.is_some() {
         state.editor.annotation.toolbar.active_tool = None;

@@ -16,6 +16,8 @@ pub(crate) struct SnipperEditor {
     pub(crate) selected_annotation: Option<ShapeId>,
     /// 标注拖动或手柄拉伸会话。
     pub(crate) annotation_drag: Option<AnnotationDrag>,
+    /// 记录最近一次鼠标左键点击的时间与坐标，用于精准判定双击交互。
+    pub(crate) last_click: Option<(std::time::Instant, (f32, f32))>,
 }
 
 impl SnipperEditor {
@@ -26,6 +28,7 @@ impl SnipperEditor {
             annotations: AnnotationHistory::default(),
             selected_annotation: None,
             annotation_drag: None,
+            last_click: None,
         }
     }
 }
