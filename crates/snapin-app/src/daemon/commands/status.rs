@@ -2,15 +2,15 @@
 
 use snapin_daemon::{DaemonErrorCode, DaemonResponse};
 use snapin_platform::send_desktop_notification;
-use snapin_ui::paster::GroupId;
-use snapin_ui::workspace::{is_valid_group_id, PasterWorkspaceProxy, TOTAL_PIN_GROUPS};
+use snapin_ports::{GroupId, WorkspaceDriver};
+use snapin_ui::workspace::{is_valid_group_id, TOTAL_PIN_GROUPS};
 use std::time::Duration;
 use tokio::time::timeout;
 
 const STATUS_QUERY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// 切换当前活动分组全部贴图的显隐。
-pub(super) fn toggle(workspace: &PasterWorkspaceProxy) -> DaemonResponse {
+pub(super) fn toggle(workspace: &dyn WorkspaceDriver) -> DaemonResponse {
     if let Err(error) = workspace.toggle_visibility() {
         DaemonResponse::error(
             DaemonErrorCode::Unavailable,
@@ -22,7 +22,7 @@ pub(super) fn toggle(workspace: &PasterWorkspaceProxy) -> DaemonResponse {
 }
 
 /// 显示当前活动分组，作为打开贴图工作区的实际实现。
-pub(super) fn show(workspace: &PasterWorkspaceProxy) -> DaemonResponse {
+pub(super) fn show(workspace: &dyn WorkspaceDriver) -> DaemonResponse {
     if let Err(error) = workspace.show_workspace() {
         DaemonResponse::error(
             DaemonErrorCode::Unavailable,
@@ -35,7 +35,7 @@ pub(super) fn show(workspace: &PasterWorkspaceProxy) -> DaemonResponse {
 
 /// 切换活动贴图分组并发送结果通知。
 pub(super) async fn switch_group(
-    workspace: &PasterWorkspaceProxy,
+    workspace: &dyn WorkspaceDriver,
     target_id: Option<usize>,
 ) -> DaemonResponse {
     if let Some(id) = target_id {
@@ -82,7 +82,7 @@ pub(super) async fn switch_group(
 }
 
 /// 查询当前活动分组与贴图数量。
-pub(super) async fn query(workspace: &PasterWorkspaceProxy) -> DaemonResponse {
+pub(super) async fn query(workspace: &dyn WorkspaceDriver) -> DaemonResponse {
     match timeout(STATUS_QUERY_TIMEOUT, workspace.get_status()).await {
         Ok(Ok(status)) => DaemonResponse::Status {
             active_group: status.active_group.get(),

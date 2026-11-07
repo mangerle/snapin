@@ -12,3 +12,5 @@ snapin-annotation.workspace = true
 snapin-config.workspace = true
 snapin-foundation.workspace = true
 image.workspace = true
+tiny-skia.workspace = true
+async-trait.workspace = true

@@ -3,11 +3,9 @@
 use anyhow::{bail, Context, Result};
 use snapin_foundation::AppPaths;
 use snapin_platform::{read_clipboard_image, read_clipboard_text, send_desktop_notification};
+use snapin_ports::{PasterItem, WorkspaceDriver};
 use snapin_runtime::CancellationToken;
-use snapin_ui::paster::{
-    render_color_swatch_card, render_simple_text_card, try_parse_hex_color, PasterItem,
-};
-use snapin_ui::workspace::PasterWorkspaceProxy;
+use snapin_ui::paster::{render_color_swatch_card, render_simple_text_card, try_parse_hex_color};
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use tiny_skia::Pixmap;
@@ -75,7 +73,7 @@ pub(crate) enum PasteDispatchOutcome {
 ///
 /// 剪贴板读取、后台解析、卡片渲染、窗口事件投递或通知发送失败时返回错误。
 pub async fn paste_clipboard_to_workspace(
-    proxy: &PasterWorkspaceProxy,
+    proxy: &dyn WorkspaceDriver,
     cancel: &CancellationToken,
 ) -> Result<PasteDispatchOutcome> {
     tracing::info!("正在检查剪贴板内容以生成贴图...");
@@ -90,7 +88,7 @@ pub async fn paste_clipboard_to_workspace(
     if let Some(item) = item {
         proxy
             .open_paster(item)
-            .context("向集中工作区投递贴图失败")?;
+            .map_err(|e| anyhow::anyhow!("向集中工作区投递贴图失败: {e}"))?;
     } else if let Err(error) = send_desktop_notification(
         snapin_foundation::i18n::tr("Snapin 贴图提示"),
         snapin_foundation::i18n::tr("当前剪贴板为空，无法生成贴图"),

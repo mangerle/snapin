@@ -9,17 +9,13 @@ use crate::ports::{
 };
 use crate::snipper::window::jobs::SnipperJobKind;
 use crate::snipper::SnipperLaunch;
+use async_trait::async_trait;
 use snapin_config::config::Config;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use winit::event_loop::EventLoopProxy;
 
-/// 工作区当前状态快照
-#[derive(Debug, Clone)]
-pub struct WorkspaceStatus {
-    pub active_group: GroupId,
-    pub paster_count: usize,
-}
+pub use snapin_ports::{WorkspaceDriver, WorkspaceStatus};
 
 /// 集中贴图工作区支持的用户事件指令
 pub enum PasterAppEvent {
@@ -264,6 +260,59 @@ impl PasterWorkspaceProxy {
             .map_err(|_| UiError::Window {
                 message: "贴图工作区在停机前已退出".to_string(),
             })
+    }
+}
+
+#[async_trait]
+impl WorkspaceDriver for PasterWorkspaceProxy {
+    fn open_snipper(&self, launch: SnipperLaunch) -> Result<(), PortError> {
+        self.open_snipper(launch)
+            .map_err(|e| PortError::new("open_snipper", e.to_string()))
+    }
+
+    fn open_paster(&self, item: PasterItem) -> Result<(), PortError> {
+        self.open_paster(item)
+            .map_err(|e| PortError::new("open_paster", e.to_string()))
+    }
+
+    fn reload_config(&self, cfg: Config) -> Result<(), PortError> {
+        self.reload_config(cfg)
+            .map_err(|e| PortError::new("reload_config", e.to_string()))
+    }
+
+    fn wake_host(&self) {
+        self.wake_host();
+    }
+
+    fn toggle_visibility(&self) -> Result<(), PortError> {
+        self.toggle_visibility()
+            .map_err(|e| PortError::new("toggle_visibility", e.to_string()))
+    }
+
+    fn show_workspace(&self) -> Result<(), PortError> {
+        self.show_workspace()
+            .map_err(|e| PortError::new("show_workspace", e.to_string()))
+    }
+
+    fn switch_group(&self, group_id: Option<GroupId>) -> Result<(), PortError> {
+        self.switch_group(group_id)
+            .map_err(|e| PortError::new("switch_group", e.to_string()))
+    }
+
+    async fn get_status(&self) -> Result<WorkspaceStatus, PortError> {
+        self.get_status()
+            .await
+            .map_err(|e| PortError::new("get_status", e.to_string()))
+    }
+
+    fn request_shutdown(&self) {
+        self.request_shutdown();
+    }
+
+    async fn shutdown_and_wait(&self) -> Result<(), PortError> {
+        self.shutdown_and_wait()
+            .await
+            .map_err(|e| PortError::new("shutdown_and_wait", e.to_string()))
     }
 }
 

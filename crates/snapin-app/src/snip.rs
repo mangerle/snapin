@@ -12,8 +12,7 @@ use snapin_platform::{
     capture_fullscreen_snapshot, enumerate_visible_windows, send_desktop_notification,
     WindowRect as PlatformWindowRect,
 };
-use snapin_ui::snipper::{SnipperLaunch, SnipperOutcome, SnipperRuntime, WindowRect};
-use snapin_ui::workspace::PasterWorkspaceProxy;
+use snapin_ports::{SnipperLaunch, SnipperOutcome, SnipperRuntime, WindowRect, WorkspaceDriver};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -143,7 +142,7 @@ async fn wait_snipper_delay(services: &Arc<AppServices>, delay_seconds: u32) -> 
 /// 任务受统一运行时追踪，守护进程停机时会等待其结束。
 pub(crate) async fn start_snipper_task(
     services: Arc<AppServices>,
-    workspace: PasterWorkspaceProxy,
+    workspace: Arc<dyn WorkspaceDriver>,
     request: SnipStartRequest,
 ) {
     match prepare_snipper_launch(&services, request).await {
@@ -181,7 +180,7 @@ pub(crate) async fn start_snipper_task(
 pub(crate) async fn handle_snipper_outcome(
     config: &Config,
     outcome: SnipperOutcome,
-    workspace: &PasterWorkspaceProxy,
+    workspace: &dyn WorkspaceDriver,
 ) -> Result<()> {
     match outcome {
         SnipperOutcome::CopiedImage => {
@@ -215,7 +214,7 @@ pub(crate) async fn handle_snipper_outcome(
             register_paster_placement(&title, x, y).await;
             workspace
                 .open_paster(item)
-                .context("向常驻集中工作区投递贴图失败")?;
+                .map_err(|e| anyhow::anyhow!("向常驻集中工作区投递贴图失败: {e}"))?;
             confirm_paster_placement(&title, x, y).await;
         }
         SnipperOutcome::Cancelled => {
@@ -239,5 +238,71 @@ fn to_ui_window_rect(rect: PlatformWindowRect) -> WindowRect {
         y: rect.y,
         width: rect.width,
         height: rect.height,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use snapin_ports::{GroupId, MockWorkspaceDriver, PasterId, PasterItem};
+    use std::sync::atomic::Ordering;
+    use tiny_skia::Pixmap;
+
+    #[tokio::test]
+    async fn test_handle_snipper_outcome_pinned_and_events() {
+        let config = Config::default();
+        let driver = MockWorkspaceDriver::new(GroupId::new(0), 0);
+
+        let pixmap = Pixmap::new(100, 80).expect("分配测试像素位图失败");
+        let item = PasterItem::new(
+            PasterId::from(999_u64),
+            "test_snip_pin".to_string(),
+            pixmap,
+            (100, 200),
+        );
+
+        let outcome = SnipperOutcome::Pinned(item);
+        let res = handle_snipper_outcome(&config, outcome, &driver).await;
+        assert!(res.is_ok(), "处理 Pinned 贴图结局应当成功");
+        assert_eq!(driver.paster_count.load(Ordering::SeqCst), 1);
+        {
+            let items = driver.paster_items.lock().unwrap();
+            assert_eq!(items.len(), 1);
+            assert_eq!(items[0].title, "test_snip_pin");
+            assert_eq!(items[0].position, (100, 200));
+        }
+
+        assert!(
+            handle_snipper_outcome(&config, SnipperOutcome::CopiedImage, &driver)
+                .await
+                .is_ok()
+        );
+        assert!(handle_snipper_outcome(
+            &config,
+            SnipperOutcome::CopiedText("测试文本".to_string()),
+            &driver
+        )
+        .await
+        .is_ok());
+        assert!(
+            handle_snipper_outcome(&config, SnipperOutcome::Cancelled, &driver)
+                .await
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_to_ui_window_rect_conversion() {
+        let platform_rect = PlatformWindowRect {
+            x: 10,
+            y: 20,
+            width: 300,
+            height: 200,
+        };
+        let ui_rect = to_ui_window_rect(platform_rect);
+        assert_eq!(ui_rect.x, 10);
+        assert_eq!(ui_rect.y, 20);
+        assert_eq!(ui_rect.width, 300);
+        assert_eq!(ui_rect.height, 200);
     }
 }

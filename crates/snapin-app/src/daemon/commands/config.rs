@@ -3,10 +3,10 @@
 use crate::services::AppServices;
 use snapin_config::config;
 use snapin_daemon::{DaemonErrorCode, DaemonResponse};
-use snapin_ui::workspace::PasterWorkspaceProxy;
+use snapin_ports::WorkspaceDriver;
 
 pub(super) async fn reload_config(
-    workspace: &PasterWorkspaceProxy,
+    workspace: &dyn WorkspaceDriver,
     services: &AppServices,
 ) -> DaemonResponse {
     let loaded = tokio::task::spawn_blocking(|| config::load_or_create_config(None)).await;

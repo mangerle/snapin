@@ -25,6 +25,8 @@ mod desktop;
 mod error;
 mod id;
 mod jobs;
+pub mod model;
+pub mod runner;
 mod types;
 
 #[cfg(test)]
@@ -38,4 +40,13 @@ pub use desktop::{DesktopPort, NoopDesktop, WorkspaceState, WorkspaceStateStore}
 pub use error::{PortError, PortErrorKind};
 pub use id::{GroupId, PasterId};
 pub use jobs::{JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, PasterJobKind};
+pub use model::{
+    flip_pixmap_horizontal, flip_pixmap_vertical, rotate_pixmap_ccw, rotate_pixmap_cw, PasterItem,
+    PasterTransform, ShapeId,
+};
+pub use runner::{
+    MockWorkspaceDriver, SnipperLaunch, SnipperOutcome, SnipperRuntime, WindowRect,
+    WorkspaceDriver, WorkspaceStatus,
+};
+pub use snapin_foundation::SnipMode;
 pub use types::{OcrExportFormat, OcrTextItem, QrCodeItem};

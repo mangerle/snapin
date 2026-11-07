@@ -11,9 +11,8 @@ use crate::services::AppServices;
 use crate::snip::{handle_snipper_outcome, start_snipper_task, SnipStartRequest};
 use snapin_daemon::{DaemonErrorCode, DaemonRequest, DaemonResponse};
 use snapin_platform::spawn_independent_process;
+use snapin_ports::{SnipperOutcome, WorkspaceDriver};
 use snapin_runtime::{CancellationToken, TaskRuntime};
-use snapin_ui::snipper::SnipperOutcome;
-use snapin_ui::workspace::PasterWorkspaceProxy;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 
@@ -66,7 +65,7 @@ impl Drop for ResponseSlot {
 pub(super) async fn handle_snipper_result(
     outcome: SnipperOutcome,
     services: &Arc<AppServices>,
-    workspace: &PasterWorkspaceProxy,
+    workspace: &dyn WorkspaceDriver,
 ) {
     let config = (*services.config()).clone();
     if let Err(error) = handle_snipper_outcome(&config, outcome, workspace).await {
@@ -82,7 +81,7 @@ pub(super) async fn handle_snipper_result(
 pub(super) fn handle_ipc_request(
     invocation: snapin_daemon::IpcInvocation,
     services: &Arc<AppServices>,
-    workspace: &PasterWorkspaceProxy,
+    workspace: &Arc<dyn WorkspaceDriver>,
 ) -> bool {
     if matches!(invocation.request, DaemonRequest::Shutdown) {
         let _ = invocation.responder.send(snapin_daemon::DaemonResponse::Ok);
@@ -95,7 +94,7 @@ pub(super) fn handle_ipc_request(
     let task_responder = Arc::clone(&responder);
     let cancelled = invocation.cancelled;
     let services = Arc::clone(services);
-    let workspace = workspace.clone();
+    let workspace = Arc::clone(workspace);
     if let Err(error) = services.runtime().spawn(async move {
         let response = handle_command(request, &workspace, &services, &cancelled).await;
         if let Some(response) = response {
@@ -114,11 +113,11 @@ pub(super) fn handle_ipc_request(
 /// 提交一次截图覆盖层任务。
 pub(super) fn spawn_snipper(
     services: &Arc<AppServices>,
-    workspace: &PasterWorkspaceProxy,
+    workspace: &Arc<dyn WorkspaceDriver>,
     request: SnipStartRequest,
 ) {
     let services = Arc::clone(services);
-    let workspace = workspace.clone();
+    let workspace = Arc::clone(workspace);
     if let Err(error) = services.runtime().spawn(async move {
         start_snipper_task(services, workspace, request).await;
     }) {
@@ -132,12 +131,12 @@ pub(super) fn spawn_snipper(
 /// 动作分发逻辑随新增命令而漂移。
 pub(super) fn spawn_workspace_command(
     services: &Arc<AppServices>,
-    workspace: &PasterWorkspaceProxy,
+    workspace: &Arc<dyn WorkspaceDriver>,
     request: DaemonRequest,
 ) {
     let runtime = services.runtime();
     let services = Arc::clone(services);
-    let workspace = workspace.clone();
+    let workspace = Arc::clone(workspace);
     spawn_daemon_command(runtime, async move {
         let cancel = CancellationToken::new();
         let _ = handle_command(request, &workspace, &services, &cancel).await;

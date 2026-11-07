@@ -4,9 +4,8 @@ use crate::daemon::commands::DaemonResponse;
 use crate::placement::{confirm_paster_placement, register_paster_placement};
 use snapin_daemon::DaemonErrorCode;
 use snapin_foundation::AppPaths;
+use snapin_ports::{PasterItem, WorkspaceDriver};
 use snapin_runtime::CancellationToken;
-use snapin_ui::paster::PasterItem;
-use snapin_ui::workspace::PasterWorkspaceProxy;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use tiny_skia::Pixmap;
@@ -84,7 +83,7 @@ impl Drop for RuntimePixmapFile {
 
 /// 创建贴图窗口；返回 `None` 表示在产生 GUI 或系统副作用前已取消。
 pub(super) async fn create(
-    workspace: &PasterWorkspaceProxy,
+    workspace: &dyn WorkspaceDriver,
     request: CreatePasterRequest,
     cancel: &CancellationToken,
 ) -> Option<DaemonResponse> {
@@ -165,7 +164,7 @@ async fn load_runtime_pixmap(
 
 /// 将已读取的贴图投递到工作区并确认 Wayland 精确放置。
 async fn open_paster(
-    workspace: &PasterWorkspaceProxy,
+    workspace: &dyn WorkspaceDriver,
     request: OpenPasterRequest,
 ) -> Option<DaemonResponse> {
     let OpenPasterRequest {

@@ -7,7 +7,7 @@ use super::actions::{handle_hotkey_action, handle_tray_action};
 use crate::services::AppServices;
 use snapin_config::config::Config;
 use snapin_platform::{HotkeyAction, PlatformHotkeyListener, PlatformTray, TrayAction};
-use snapin_ui::workspace::PasterWorkspaceProxy;
+use snapin_ports::WorkspaceDriver;
 use std::sync::Arc;
 use tokio::sync::mpsc::{error::TrySendError, Receiver, Sender};
 
@@ -26,7 +26,7 @@ pub(super) const HOST_ACTION_QUEUE_CAPACITY: usize = 32;
 /// 在主线程创建原生托盘；Windows/macOS 的原生托盘必须在主线程初始化。
 pub(super) fn create_daemon_tray(
     sender: &Sender<HostAction>,
-    workspace: &PasterWorkspaceProxy,
+    workspace: &Arc<dyn WorkspaceDriver>,
 ) -> Option<PlatformTray> {
     let tray_icon = image::load_from_memory(include_bytes!("../../../../assets/icons/32x32.png"))
         .ok()
@@ -35,10 +35,10 @@ pub(super) fn create_daemon_tray(
             (rgba.as_raw().clone(), rgba.width(), rgba.height())
         });
     let sender = sender.clone();
-    let workspace = workspace.clone();
+    let workspace = Arc::clone(workspace);
     PlatformTray::new(tray_icon, move |action| {
         tracing::debug!("托盘触发操作: {action:?}");
-        push_host_action(&sender, &workspace, HostAction::Tray(action));
+        push_host_action(&sender, workspace.as_ref(), HostAction::Tray(action));
     })
     .map_err(|error| tracing::warn!("初始化跨平台原生系统托盘失败: {error}"))
     .ok()
@@ -48,13 +48,13 @@ pub(super) fn create_daemon_tray(
 pub(super) fn create_hotkey_listener(
     cfg: &Config,
     sender: &Sender<HostAction>,
-    workspace: &PasterWorkspaceProxy,
+    workspace: &Arc<dyn WorkspaceDriver>,
 ) -> Option<PlatformHotkeyListener> {
     let sender = sender.clone();
-    let workspace = workspace.clone();
+    let workspace = Arc::clone(workspace);
     PlatformHotkeyListener::new(&cfg.hotkeys, move |action| {
         tracing::debug!("系统全局热键触发: {action:?}");
-        push_host_action(&sender, &workspace, HostAction::Hotkey(action));
+        push_host_action(&sender, workspace.as_ref(), HostAction::Hotkey(action));
     })
     .map_err(|error| tracing::warn!("初始化跨平台全局热键监听器失败: {error}"))
     .ok()
@@ -66,7 +66,7 @@ pub(super) fn create_hotkey_listener(
 /// 轻量用户事件唤醒，真正的分发在 GUI 线程完成。
 fn push_host_action(
     sender: &Sender<HostAction>,
-    workspace: &PasterWorkspaceProxy,
+    workspace: &dyn WorkspaceDriver,
     action: HostAction,
 ) {
     match sender.try_send(action) {
@@ -86,7 +86,7 @@ pub(super) fn build_host_wake(
     hotkey_listener: Option<PlatformHotkeyListener>,
     mut receiver: Receiver<HostAction>,
     services: Arc<AppServices>,
-    workspace: PasterWorkspaceProxy,
+    workspace: Arc<dyn WorkspaceDriver>,
 ) -> Option<Box<dyn FnMut()>> {
     if tray.is_none() && hotkey_listener.is_none() {
         return None;

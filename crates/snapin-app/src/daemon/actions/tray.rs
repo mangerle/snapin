@@ -9,14 +9,14 @@ use crate::snip::SnipStartRequest;
 use snapin_daemon::DaemonRequest;
 use snapin_foundation::{PostCaptureAction, SnipMode};
 use snapin_platform::TrayAction;
-use snapin_ui::workspace::PasterWorkspaceProxy;
+use snapin_ports::WorkspaceDriver;
 use std::sync::Arc;
 
 /// 处理托盘动作；返回 `false` 表示请求退出守护进程。
 pub(crate) fn handle_tray_action(
     action: TrayAction,
     services: &Arc<AppServices>,
-    workspace: &PasterWorkspaceProxy,
+    workspace: &Arc<dyn WorkspaceDriver>,
 ) -> bool {
     if let Some(request) = snip_request(action) {
         spawn_snipper(services, workspace, request);

@@ -13,7 +13,7 @@
 //! 不会无限等待 GUI 确认。
 
 use crate::services::AppServices;
-use snapin_ui::workspace::PasterWorkspaceProxy;
+use snapin_ports::WorkspaceDriver;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -47,7 +47,7 @@ pub(super) struct ShutdownCoordinator {
 
 /// 一次守护进程停机所需的协作对象。
 pub(super) struct ShutdownRequest<'a> {
-    pub workspace: &'a PasterWorkspaceProxy,
+    pub workspace: &'a Arc<dyn WorkspaceDriver>,
     pub gui_closed: &'a watch::Receiver<bool>,
     pub shutdown_tx: &'a watch::Sender<bool>,
     pub listener_handle: JoinHandle<()>,

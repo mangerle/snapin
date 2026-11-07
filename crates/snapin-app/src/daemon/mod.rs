@@ -29,11 +29,11 @@ use shutdown::{ShutdownCoordinator, ShutdownRequest};
 use snapin_config::config::Config;
 use snapin_daemon::{probe_daemon, DaemonProbe, IpcListener};
 use snapin_platform::{send_desktop_notification, sync_hotkeys_to_gnome};
+use snapin_ports::{SnipperOutcome, WorkspaceDriver};
 use snapin_runtime::{TaskPool, TaskRuntime};
-use snapin_ui::snipper::SnipperOutcome;
 use snapin_ui::workspace::{
     create_paster_workspace, run_paster_workspace_loop, PasterWorkspaceOptions,
-    PasterWorkspaceProxy, SnipperFinishedCallback,
+    SnipperFinishedCallback,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -68,18 +68,19 @@ pub fn run_daemon_process(cfg: Config) -> Result<()> {
             Ok(workspace) => workspace,
             Err(error) => return fail_startup(runtime, error),
         };
+    let workspace_driver: Arc<dyn WorkspaceDriver> = Arc::new(workspace_proxy);
     let (snipper_callback, snipper_rx) = create_snipper_channel(&services);
-    let options = match build_workspace_options(&cfg, &services, &workspace_proxy, snipper_callback)
-    {
-        Ok(options) => options,
-        Err(error) => return fail_startup(runtime, error),
-    };
+    let options =
+        match build_workspace_options(&cfg, &services, &workspace_driver, snipper_callback) {
+            Ok(options) => options,
+            Err(error) => return fail_startup(runtime, error),
+        };
     let (gui_closed_tx, gui_closed_rx) = watch::channel(false);
     let server = spawn_daemon_server(
         &handle,
         DaemonServerRuntime {
             cfg,
-            workspace_proxy: workspace_proxy.clone(),
+            workspace: workspace_driver,
             services: services.clone(),
             snipper_rx,
             gui_closed: gui_closed_rx,
@@ -199,7 +200,7 @@ fn create_snipper_channel(
 /// 启动后台服务；服务异常时必须关闭 GUI，避免留下无服务空壳进程。
 struct DaemonServerRuntime {
     cfg: Config,
-    workspace_proxy: PasterWorkspaceProxy,
+    workspace: Arc<dyn WorkspaceDriver>,
     services: Arc<AppServices>,
     snipper_rx: mpsc::Receiver<SnipperOutcome>,
     gui_closed: watch::Receiver<bool>,
@@ -210,11 +211,11 @@ fn spawn_daemon_server(
     handle: &tokio::runtime::Handle,
     runtime: DaemonServerRuntime,
 ) -> JoinHandle<Result<()>> {
-    let shutdown_proxy = runtime.workspace_proxy.clone();
+    let shutdown_driver = Arc::clone(&runtime.workspace);
     handle.spawn(async move {
         let result = run_daemon_server(runtime).await;
         if result.is_err() {
-            let _ = shutdown_proxy.shutdown_and_wait().await;
+            let _ = shutdown_driver.shutdown_and_wait().await;
         }
         result
     })
@@ -224,19 +225,19 @@ fn spawn_daemon_server(
 fn build_workspace_options(
     cfg: &Config,
     services: &Arc<AppServices>,
-    workspace_proxy: &PasterWorkspaceProxy,
+    workspace: &Arc<dyn WorkspaceDriver>,
     snipper_callback: SnipperFinishedCallback,
 ) -> Result<PasterWorkspaceOptions> {
     let (host_tx, host_rx) = mpsc::channel::<HostAction>(HOST_ACTION_QUEUE_CAPACITY);
-    let tray = create_daemon_tray(&host_tx, workspace_proxy);
-    let hotkey_listener = create_hotkey_listener(cfg, &host_tx, workspace_proxy);
+    let tray = create_daemon_tray(&host_tx, workspace);
+    let hotkey_listener = create_hotkey_listener(cfg, &host_tx, workspace);
     drop(host_tx);
     let on_host_wake = build_host_wake(
         tray,
         hotkey_listener,
         host_rx,
         services.clone(),
-        workspace_proxy.clone(),
+        Arc::clone(workspace),
     );
     let state_store = crate::workspace_state::AppWorkspaceStateStore::new(services.runtime())
         .context("创建工作区状态存储失败")?;
@@ -302,7 +303,7 @@ async fn run_startup_hotkeys_and_extension(cfg: &Config) {
 async fn run_daemon_server(runtime: DaemonServerRuntime) -> Result<()> {
     let DaemonServerRuntime {
         cfg,
-        workspace_proxy,
+        workspace,
         services,
         snipper_rx,
         gui_closed,
@@ -320,12 +321,12 @@ async fn run_daemon_server(runtime: DaemonServerRuntime) -> Result<()> {
         sigterm,
     );
 
-    run_daemon_event_loop(&mut sources, &services, &workspace_proxy).await;
+    run_daemon_event_loop(&mut sources, &services, &workspace).await;
 
     let gui_closed = sources.into_gui_closed();
     ShutdownCoordinator::new()
         .shutdown(ShutdownRequest {
-            workspace: &workspace_proxy,
+            workspace: &workspace,
             gui_closed: &gui_closed,
             shutdown_tx: &shutdown_tx,
             listener_handle,
@@ -339,7 +340,7 @@ async fn run_daemon_server(runtime: DaemonServerRuntime) -> Result<()> {
 async fn run_daemon_event_loop(
     sources: &mut DaemonEventSources,
     services: &Arc<AppServices>,
-    workspace: &PasterWorkspaceProxy,
+    workspace: &Arc<dyn WorkspaceDriver>,
 ) {
     loop {
         match sources.next_event().await {
@@ -369,12 +370,12 @@ async fn run_daemon_event_loop(
 fn dispatch_snipper_result(
     outcome: SnipperOutcome,
     services: &Arc<AppServices>,
-    workspace_proxy: &PasterWorkspaceProxy,
+    workspace: &Arc<dyn WorkspaceDriver>,
 ) {
     let services = Arc::clone(services);
-    let workspace = workspace_proxy.clone();
+    let workspace = Arc::clone(workspace);
     if let Err(error) = services.runtime().spawn(async move {
-        handle_snipper_result(outcome, &services, &workspace).await;
+        handle_snipper_result(outcome, &services, workspace.as_ref()).await;
     }) {
         tracing::warn!("提交截图结果处理任务失败: {error}");
     }

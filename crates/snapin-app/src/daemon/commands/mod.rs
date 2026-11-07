@@ -11,8 +11,8 @@ use crate::paste::{paste_clipboard_to_workspace, PasteDispatchOutcome};
 use crate::services::AppServices;
 use paster::CreatePasterRequest;
 use snapin_daemon::{DaemonErrorCode, DaemonRequest, DaemonResponse};
+use snapin_ports::WorkspaceDriver;
 use snapin_runtime::CancellationToken;
-use snapin_ui::workspace::PasterWorkspaceProxy;
 use std::sync::Arc;
 
 /// 处理单条守护进程指令。
@@ -22,7 +22,7 @@ use std::sync::Arc;
 /// 系统集成则必须完整收尾，避免命令只执行一半。
 pub async fn handle_command(
     command: DaemonRequest,
-    workspace: &PasterWorkspaceProxy,
+    workspace: &Arc<dyn WorkspaceDriver>,
     services: &Arc<AppServices>,
     cancel: &CancellationToken,
 ) -> Option<DaemonResponse> {
@@ -32,7 +32,7 @@ pub async fn handle_command(
 
     match command {
         DaemonRequest::ReloadConfig => {
-            Some(config::reload_config(workspace, services.as_ref()).await)
+            Some(config::reload_config(workspace.as_ref(), services.as_ref()).await)
         }
         DaemonRequest::StartSnip {
             mode,
@@ -47,7 +47,7 @@ pub async fn handle_command(
                 post_action,
             },
         )),
-        DaemonRequest::Paste => paste_clipboard(workspace, cancel).await,
+        DaemonRequest::Paste => paste_clipboard(workspace.as_ref(), cancel).await,
         DaemonRequest::CreatePaster {
             width,
             height,
@@ -57,7 +57,7 @@ pub async fn handle_command(
             raw_path,
         } => {
             paster::create(
-                workspace,
+                workspace.as_ref(),
                 CreatePasterRequest {
                     width,
                     height,
@@ -70,15 +70,15 @@ pub async fn handle_command(
             )
             .await
         }
-        DaemonRequest::TogglePasters => Some(status::toggle(workspace)),
+        DaemonRequest::TogglePasters => Some(status::toggle(workspace.as_ref())),
         DaemonRequest::SwitchGroup(target_id) => {
-            Some(status::switch_group(workspace, target_id).await)
+            Some(status::switch_group(workspace.as_ref(), target_id).await)
         }
-        DaemonRequest::OpenWorkspace => Some(status::show(workspace)),
+        DaemonRequest::OpenWorkspace => Some(status::show(workspace.as_ref())),
         DaemonRequest::ClearHistory => Some(clear_history().await),
         DaemonRequest::Shutdown => Some(DaemonResponse::Ok),
         DaemonRequest::Ping => Some(DaemonResponse::Pong),
-        DaemonRequest::GetStatus => Some(status::query(workspace).await),
+        DaemonRequest::GetStatus => Some(status::query(workspace.as_ref()).await),
         DaemonRequest::CloseClipboardPanel => Some(DaemonResponse::error(
             DaemonErrorCode::Unsupported,
             "守护进程不处理剪贴板历史面板关闭请求",
@@ -89,11 +89,11 @@ pub async fn handle_command(
 /// 提交截图覆盖层任务；任务拥有独立的服务与工作区句柄。
 fn start_snip(
     services: &Arc<AppServices>,
-    workspace: &PasterWorkspaceProxy,
+    workspace: &Arc<dyn WorkspaceDriver>,
     request: crate::snip::SnipStartRequest,
 ) -> DaemonResponse {
     let services = Arc::clone(services);
-    let workspace = workspace.clone();
+    let workspace = Arc::clone(workspace);
     match services.runtime().spawn(async move {
         crate::snip::start_snipper_task(services, workspace, request).await;
     }) {
@@ -118,7 +118,7 @@ async fn clear_history() -> DaemonResponse {
 
 /// 从剪贴板生成贴图并投递到集中工作区。
 async fn paste_clipboard(
-    workspace: &PasterWorkspaceProxy,
+    workspace: &dyn WorkspaceDriver,
     cancel: &CancellationToken,
 ) -> Option<DaemonResponse> {
     match paste_clipboard_to_workspace(workspace, cancel).await {
@@ -131,5 +131,69 @@ async fn paste_clipboard(
                 format!("剪贴板贴图失败: {error}"),
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use snapin_ports::{GroupId, MockWorkspaceDriver};
+    use snapin_runtime::TaskRuntime;
+
+    fn create_test_services(handle: &tokio::runtime::Handle) -> Arc<AppServices> {
+        let runtime = TaskRuntime::from_handle(handle.clone(), 2);
+        let cfg = snapin_config::config::Config::default();
+        Arc::new(AppServices::with_runtime(cfg, runtime).unwrap())
+    }
+
+    #[tokio::test]
+    async fn test_daemon_commands_with_mock_driver() {
+        let handle = tokio::runtime::Handle::current();
+        let services = create_test_services(&handle);
+        let driver: Arc<dyn WorkspaceDriver> =
+            Arc::new(MockWorkspaceDriver::new(GroupId::new(1), 5));
+        let cancel = CancellationToken::new();
+
+        // 1. 查询初始状态
+        let res = handle_command(DaemonRequest::GetStatus, &driver, &services, &cancel).await;
+        assert_eq!(
+            res,
+            Some(DaemonResponse::Status {
+                active_group: 1,
+                paster_count: 5,
+            })
+        );
+
+        // 2. 切换显隐
+        let res = handle_command(DaemonRequest::TogglePasters, &driver, &services, &cancel).await;
+        assert_eq!(res, Some(DaemonResponse::Ok));
+
+        // 3. 显式打开工作区
+        let res = handle_command(DaemonRequest::OpenWorkspace, &driver, &services, &cancel).await;
+        assert_eq!(res, Some(DaemonResponse::Ok));
+
+        // 4. 切换活动分组至分组 2
+        let res = handle_command(
+            DaemonRequest::SwitchGroup(Some(2)),
+            &driver,
+            &services,
+            &cancel,
+        )
+        .await;
+        assert_eq!(res, Some(DaemonResponse::Ok));
+
+        // 5. 验证切换后的状态
+        let res = handle_command(DaemonRequest::GetStatus, &driver, &services, &cancel).await;
+        assert_eq!(
+            res,
+            Some(DaemonResponse::Status {
+                active_group: 2,
+                paster_count: 5,
+            })
+        );
+
+        // 6. Ping 测试
+        let res = handle_command(DaemonRequest::Ping, &driver, &services, &cancel).await;
+        assert_eq!(res, Some(DaemonResponse::Pong));
     }
 }
