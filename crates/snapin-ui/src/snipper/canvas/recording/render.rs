@@ -11,7 +11,7 @@ use crate::snipper::window::state::{
 };
 use snapin_editor::toolbar::icons::{render_item_icon, IconRenderSpec};
 use snapin_editor::toolbar::{ToolbarAction, ToolbarItem};
-use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
+use snapin_render::{with_thread_local_text_renderer, TextDrawOptions, TextMeasureOptions};
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, PixmapMut, Transform};
 
 /// 录制工具栏完整渲染参数。
@@ -197,18 +197,27 @@ fn draw_fps(pixmap: &mut PixmapMut, session: &RecordingSession, rect: &Rect, sca
         draw_hover(pixmap, rect, scale);
     }
     let text = format!("{}FPS", session.fps());
+    let font_size = 11.5 * scale;
     with_thread_local_text_renderer(|renderer| {
+        let metrics = renderer.measure_text_input(
+            &text,
+            TextMeasureOptions::new(font_size, font_size * 1.25, rect.width, rect.height),
+        );
+        let (x, y) = centered_text_origin(rect, metrics.max_line_width, metrics.total_height);
         renderer.draw_text_rgba(
             pixmap,
             &text,
-            TextDrawOptions::new(
-                rect.x + 4.0 * scale,
-                rect.y + 13.0 * scale,
-                11.5 * scale,
-                (75, 85, 99, 255),
-            ),
+            TextDrawOptions::new(x, y, font_size, (75, 85, 99, 255)),
         );
     });
+}
+
+/// 计算单行文字在矩形内的居中绘制起点。
+fn centered_text_origin(rect: &Rect, text_width: f32, text_height: f32) -> (f32, f32) {
+    (
+        rect.x + (rect.width - text_width).max(0.0) / 2.0,
+        rect.y + (rect.height - text_height).max(0.0) / 2.0,
+    )
 }
 
 struct ItemDrawContext<'a> {
@@ -432,5 +441,21 @@ pub(super) fn format_elapsed(seconds: u64) -> String {
         format!("{hours:02}:{minutes:02}:{seconds:02}")
     } else {
         format!("{minutes:02}:{seconds:02}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_centered_text_origin_centers_both_axes() {
+        let rect = Rect {
+            x: 100.0,
+            y: 20.0,
+            width: 80.0,
+            height: 40.0,
+        };
+        assert_eq!(centered_text_origin(&rect, 48.0, 20.0), (116.0, 30.0));
     }
 }
