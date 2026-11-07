@@ -1,8 +1,8 @@
 //! 文本输入会话核心状态与字符增删选区维护。
 
 use super::cursor::{find_line_end, find_line_home, next_char_boundary, prev_char_boundary};
-use crate::editor::toolbar::SubToolOptions;
 use crate::geometry::Point;
+use crate::toolbar::SubToolOptions;
 use snapin_annotation::action::AnnotationShape;
 use snapin_annotation::shapes::TextAction;
 use snapin_render::{with_thread_local_text_renderer, TextMeasureOptions};
@@ -151,8 +151,7 @@ impl TextInputSession {
         self.insert_char(ch);
     }
 
-    /// 追加字符串切片（仅供测试快速追加）
-    #[cfg(test)]
+    /// 追加字符串切片并移动光标。
     pub fn push_str(&mut self, s: &str) {
         self.insert_str(s);
     }

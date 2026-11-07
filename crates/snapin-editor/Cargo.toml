@@ -1,0 +1,17 @@
+[package]
+name = "snapin-editor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Snapin 通用标注交互引擎：工具栏、参数调控面板、图元草稿工厂与文字编辑输入会话"
+
+[dependencies]
+snapin-annotation.workspace = true
+snapin-config.workspace = true
+snapin-foundation.workspace = true
+snapin-render.workspace = true
+tiny-skia.workspace = true
+image.workspace = true
+winit.workspace = true

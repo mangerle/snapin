@@ -4,8 +4,8 @@
 //! 与提交规则容易分叉。本类型只承载“当前这一笔”的数据，具体坐标约束、样式
 //! 预览与图元提交仍由两侧的会话逻辑完成。
 
-use crate::editor::toolbar::Tool;
 use crate::geometry::Point;
+use crate::toolbar::Tool;
 
 /// 当前一笔标注草稿。
 #[derive(Debug, Default)]

@@ -1,7 +1,7 @@
 //! 可复用标注图元工厂与即时预览渲染。
 
-use crate::editor::toolbar::{MosaicMode, Tool, Toolbar};
 use crate::geometry::{Point, Rect};
+use crate::toolbar::{MosaicMode, Tool, Toolbar};
 use snapin_annotation::action::AnnotationShape;
 use snapin_annotation::shapes::{
     ArrowAction, BadgeAction, BlurAction, EllipseAction, MagnifierAction, MagnifierConnector,

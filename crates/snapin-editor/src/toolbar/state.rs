@@ -9,7 +9,7 @@ use std::sync::{Mutex, MutexGuard};
 static REMEMBERED_SUB_OPTIONS: Mutex<Option<SubToolOptions>> = Mutex::new(None);
 
 /// 读取上次截图的工具栏选项。
-pub(crate) fn remembered_sub_options() -> Option<SubToolOptions> {
+pub fn remembered_sub_options() -> Option<SubToolOptions> {
     lock_remembered_options().as_ref().copied()
 }
 
@@ -19,7 +19,7 @@ pub(crate) fn store_remembered_sub_options(options: SubToolOptions) {
 }
 
 /// 清除跨截图工具栏选项。
-pub(crate) fn clear_remembered_sub_options() {
+pub fn clear_remembered_sub_options() {
     *lock_remembered_options() = None;
 }
 
@@ -46,7 +46,7 @@ pub struct Toolbar {
     /// 当前鼠标悬停的项目
     pub hovered_item: Option<ToolbarItem>,
     /// 当前鼠标悬停的二级栏控件
-    pub(crate) hovered_sub_control: Option<SubControl>,
+    pub hovered_sub_control: Option<SubControl>,
     /// 二级属性
     pub sub_options: SubToolOptions,
     /// 主工具栏当前在屏幕上的包围盒
@@ -78,7 +78,7 @@ pub struct Toolbar {
     /// 打开该开关会展示并不存在的快捷键，因此在贴图工具栏中关闭。
     pub show_shortcut_hints: bool,
     /// 是否将当前标注工具栏选项复用到下一次截图。
-    pub(crate) remember_sub_options: bool,
+    pub remember_sub_options: bool,
 }
 
 impl Default for Toolbar {

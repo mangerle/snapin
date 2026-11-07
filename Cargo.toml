@@ -8,6 +8,7 @@ members = [
     "crates/snapin-platform",
     "crates/snapin-render",
     "crates/snapin-ports",
+    "crates/snapin-editor",
     "crates/snapin-ui",
     "crates/snapin-service",
     "crates/snapin-settings",
@@ -35,6 +36,7 @@ snapin-app = { path = "crates/snapin-app" }
 snapin-annotation = { path = "crates/snapin-annotation" }
 snapin-config = { path = "crates/snapin-config" }
 snapin-daemon = { path = "crates/snapin-daemon" }
+snapin-editor = { path = "crates/snapin-editor" }
 snapin-foundation = { path = "crates/snapin-foundation" }
 snapin-platform = { path = "crates/snapin-platform" }
 snapin-ports = { path = "crates/snapin-ports" }

@@ -1,10 +1,10 @@
 //! 截图工具栏布局计算与交互行为单元测试。
 
 use super::*;
-use crate::editor::toolbar::items::preset_colors;
-use crate::editor::toolbar::items::{Tool, ToolbarItem};
-use crate::editor::toolbar::layout::SubControl;
 use crate::geometry::Rect;
+use crate::toolbar::items::preset_colors;
+use crate::toolbar::items::{Tool, ToolbarItem};
+use crate::toolbar::layout::SubControl;
 
 #[test]
 fn test_toolbar_layout_adaptation() {

@@ -1,7 +1,7 @@
 //! 箭头样式与端点预览绘制。
 
 use super::{stroke_sample, LineSampleSpec, PreviewSpan};
-use crate::editor::toolbar::icons::make_paint;
+use crate::toolbar::icons::make_paint;
 use snapin_annotation::{ArrowHeadStyle, ArrowStyle};
 use tiny_skia::{PathBuilder, PixmapMut, Stroke, Transform};
 

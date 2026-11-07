@@ -3,15 +3,15 @@
 //! 主栏根据选区与屏幕边界自适应定位；二级栏按当前工具的可用选项生成控件序列，
 //! 控件坐标只在此处计算一次，渲染与命中测试共用同一份结果，避免两处各写一套坐标而漂移。
 
-use crate::editor::toolbar::items::{
+use crate::geometry::Rect;
+use crate::toolbar::items::{
     preset_colors, tool_descriptor, MosaicMode, Tool, ToolDescriptor, FONT_FAMILY_PRESETS,
 };
-use crate::editor::toolbar::metrics::{button_size, padding};
-use crate::geometry::Rect;
+use crate::toolbar::metrics::{button_size, padding};
 
 mod types;
 
-pub(crate) use types::{DropdownLayout, SubControl, SubDropdown, SubEntry, SubLayout};
+pub use types::{DropdownLayout, SubControl, SubDropdown, SubEntry, SubLayout};
 
 /// 影响二级栏控件集合的运行时选项。
 #[derive(Debug, Clone, Copy)]
@@ -443,7 +443,7 @@ fn dropdown_row_count(kind: SubDropdown) -> usize {
         SubDropdown::Line => snapin_annotation::LineStyle::ALL.len(),
         SubDropdown::Badge => 2,
         SubDropdown::Arrow => 3,
-        SubDropdown::FontSize => crate::editor::toolbar::items::FONT_SIZE_PRESETS.len(),
+        SubDropdown::FontSize => crate::toolbar::items::FONT_SIZE_PRESETS.len(),
         SubDropdown::StartArrow | SubDropdown::EndArrow => {
             snapin_annotation::style::ArrowHeadStyle::ALL.len()
         }

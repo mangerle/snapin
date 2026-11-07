@@ -5833,6 +5833,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "snapin-editor"
+version = "1.4.0"
+dependencies = [
+ "image",
+ "snapin-annotation",
+ "snapin-config",
+ "snapin-foundation",
+ "snapin-render",
+ "tiny-skia 0.12.0",
+ "winit",
+]
+
+[[package]]
 name = "snapin-foundation"
 version = "1.4.0"
 dependencies = [
@@ -5978,6 +5991,7 @@ dependencies = [
  "rustix 0.38.44",
  "snapin-annotation",
  "snapin-config",
+ "snapin-editor",
  "snapin-foundation",
  "snapin-ports",
  "snapin-render",

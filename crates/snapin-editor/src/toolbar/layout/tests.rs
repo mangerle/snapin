@@ -69,8 +69,8 @@ fn main_rect() -> Rect {
 /// 全屏选区的工具条必须回落到屏幕内，不能停到屏幕底边之外
 #[test]
 fn test_fullscreen_selection_toolbar_inside_screen() {
-    use crate::editor::toolbar::metrics::main_toolbar_width;
-    use crate::editor::toolbar::Toolbar;
+    use crate::toolbar::metrics::main_toolbar_width;
+    use crate::toolbar::Toolbar;
 
     let selection = Rect {
         x: 0.0,
@@ -362,7 +362,7 @@ fn test_reference_toolbar_controls_are_complete() {
 /// 所有二级栏只能使用“非空控件组之间的单条分隔线”，禁止首尾或连续分隔线。
 #[test]
 fn test_sub_bar_separators_only_split_non_empty_groups() {
-    use crate::editor::toolbar::items::TOOL_DESCRIPTORS;
+    use crate::toolbar::items::TOOL_DESCRIPTORS;
 
     for descriptor in TOOL_DESCRIPTORS.iter().filter(|entry| entry.has_sub_bar) {
         let layout = layout_for(&main_rect(), Some(descriptor.tool), (1920.0, 1080.0), 1.0)

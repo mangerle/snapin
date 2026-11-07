@@ -5,11 +5,11 @@ use tiny_skia::{Color, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 二级栏图标的中心、缩放与颜色。
 #[derive(Clone, Copy)]
-pub(in crate::editor::toolbar::render) struct SubBarIconSpec {
-    pub(in crate::editor::toolbar::render) center_x: f32,
-    pub(in crate::editor::toolbar::render) center_y: f32,
-    pub(in crate::editor::toolbar::render) scale: f32,
-    pub(in crate::editor::toolbar::render) color: Color,
+pub(in crate::toolbar::render) struct SubBarIconSpec {
+    pub(in crate::toolbar::render) center_x: f32,
+    pub(in crate::toolbar::render) center_y: f32,
+    pub(in crate::toolbar::render) scale: f32,
+    pub(in crate::toolbar::render) color: Color,
 }
 
 /// 图标内部的逻辑矩形（相对图标中心）。

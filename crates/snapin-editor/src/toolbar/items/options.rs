@@ -151,7 +151,7 @@ impl SubToolOptions {
     }
 
     /// 将界面百分比转换为图元实际使用的 8 位 alpha。
-    pub(crate) fn text_background_alpha(&self) -> u8 {
+    pub fn text_background_alpha(&self) -> u8 {
         let percent = u16::from(self.text_background_opacity.min(100));
         ((percent * 255 + 50) / 100) as u8
     }
@@ -160,7 +160,7 @@ impl SubToolOptions {
     ///
     /// 智能打码会把该值映射为马赛克颗粒度，滚轮调节与效果强度滑块必须维护同一份档位状态，
     /// 避免界面数值与后续图元样式不一致。
-    pub(crate) fn set_custom_stroke_width(&mut self, width: f32) {
+    pub fn set_custom_stroke_width(&mut self, width: f32) {
         self.custom_stroke_width = width.clamp(1.0, 48.0);
         self.stroke_width = if self.custom_stroke_width <= 2.5 {
             StrokeWidthLevel::Thin

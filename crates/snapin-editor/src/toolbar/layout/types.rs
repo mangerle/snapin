@@ -1,11 +1,11 @@
 //! 二级栏控件、下拉菜单与布局结果的数据契约。
 
-use crate::editor::toolbar::items::Tool;
 use crate::geometry::Rect;
+use crate::toolbar::items::Tool;
 
 /// 二级栏下拉菜单种类
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SubDropdown {
+pub enum SubDropdown {
     /// 描边线型（实线/虚线/点线）
     Line,
     /// 序号底板样式（实心/空心）
@@ -34,7 +34,7 @@ pub(crate) enum SubDropdown {
 
 /// 二级栏可交互控件
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SubControl {
+pub enum SubControl {
     ShapeRect,
     ShapeEllipse,
     /// 当前工具的连续尺寸数值
@@ -165,7 +165,7 @@ impl SubControl {
 
 /// 二级栏中的一个布局槽位（控件或纯视觉分隔线）
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct SubEntry {
+pub struct SubEntry {
     /// `None` 表示分隔线等不可交互的占位
     pub control: Option<SubControl>,
     pub rect: Rect,
@@ -173,7 +173,7 @@ pub(crate) struct SubEntry {
 
 /// 下拉菜单布局
 #[derive(Debug, Clone)]
-pub(crate) struct DropdownLayout {
+pub struct DropdownLayout {
     pub kind: SubDropdown,
     pub rect: Rect,
     /// 每一行选项的热区，顺序与渲染顺序一致
@@ -182,7 +182,7 @@ pub(crate) struct DropdownLayout {
 
 /// 二级栏完整布局：面板、控件序列与可选的下拉菜单
 #[derive(Debug, Clone)]
-pub(crate) struct SubLayout {
+pub struct SubLayout {
     pub rect: Rect,
     pub entries: Vec<SubEntry>,
     pub dropdown: Option<DropdownLayout>,

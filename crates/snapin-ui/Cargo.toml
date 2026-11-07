@@ -10,6 +10,7 @@ description = "Snapin 基于 Winit 与 Tiny-Skia 的全屏软光栅化截图选�
 [dependencies]
 snapin-annotation.workspace = true
 snapin-config.workspace = true
+snapin-editor.workspace = true
 snapin-foundation.workspace = true
 snapin-ports.workspace = true
 snapin-render.workspace = true

@@ -25,12 +25,12 @@ fn calculate_sub_layout_options(options: &super::items::SubToolOptions) -> SubLa
 
 impl Toolbar {
     /// 返回最近聚焦或通过滚轮调整的二级栏控件。
-    pub(crate) fn focused_sub_control(&self) -> Option<SubControl> {
+    pub fn focused_sub_control(&self) -> Option<SubControl> {
         self.focused_sub_control
     }
 
     /// 返回主栏指定按钮当前屏幕矩形，供右键菜单等浮层锚定。
-    pub(crate) fn main_item_rect(&self, item: ToolbarItem) -> Option<Rect> {
+    pub fn main_item_rect(&self, item: ToolbarItem) -> Option<Rect> {
         super::interaction::main_item_rects(&self.main_rect, self.main_items, self.ui_scale)
             .into_iter()
             .find_map(|(candidate, rect)| (candidate == item).then_some(rect))
@@ -149,7 +149,7 @@ impl Toolbar {
     ///
     /// 贴图窗口需要把工具栏锚定在图像内部，必须提前知道面板宽度才能摆放；
     /// 与命中测试、渲染共用同一份度量函数，避免三处坐标漂移。
-    pub(crate) fn main_width(&self) -> f32 {
+    pub fn main_width(&self) -> f32 {
         let handle = if self.draggable {
             metrics::drag_handle_width(self.ui_scale)
         } else {
@@ -159,7 +159,7 @@ impl Toolbar {
     }
 
     /// 主栏面板高度（含上下内边距）。
-    pub(crate) fn main_height(&self) -> f32 {
+    pub fn main_height(&self) -> f32 {
         metrics::padding(self.ui_scale) * 2.0 + metrics::button_size(self.ui_scale)
     }
 
@@ -184,12 +184,12 @@ impl Toolbar {
     }
 
     /// 当前二级栏布局（供渲染层读取控件热区）
-    pub(crate) fn sub_layout(&self) -> Option<&SubLayout> {
+    pub fn sub_layout(&self) -> Option<&SubLayout> {
         self.sub_layout.as_ref()
     }
 
     /// 当前展开下拉菜单的面板矩形（供窗口输入区域计算使用）。
-    pub(crate) fn dropdown_rect(&self) -> Option<Rect> {
+    pub fn dropdown_rect(&self) -> Option<Rect> {
         self.sub_layout
             .as_ref()
             .and_then(|layout| layout.dropdown.as_ref())
@@ -209,7 +209,7 @@ impl Toolbar {
     }
 
     /// 清除数值控件焦点；点击画布后滚轮恢复默认当前工具的尺寸行为。
-    pub(crate) fn clear_sub_focus(&mut self) {
+    pub fn clear_sub_focus(&mut self) {
         self.focused_sub_control = None;
     }
 

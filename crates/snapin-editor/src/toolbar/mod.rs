@@ -9,7 +9,7 @@ mod controller;
 pub mod icons;
 mod interaction;
 pub mod items;
-mod layout;
+pub mod layout;
 mod metrics;
 pub mod render;
 mod sub_controls;
@@ -18,10 +18,9 @@ mod sub_controls;
 mod tests;
 
 pub use items::{LineMode, MosaicMode, SubToolOptions, Tool, ToolbarAction, ToolbarItem};
-pub(crate) use layout::SubControl;
+pub use layout::SubControl;
 mod state;
-pub use state::Toolbar;
-pub(crate) use state::{clear_remembered_sub_options, remembered_sub_options};
+pub use state::{clear_remembered_sub_options, remembered_sub_options, Toolbar};
 
 /// 记录并拒绝错误的二级栏控件路由。
 ///

@@ -3,11 +3,9 @@
 //! 负责工具栏各按钮的鼠标悬停碰撞检测、点击工具切换、
 //! 二级属性栏颜色与线宽调整，以及滚轮快捷阶梯切换线宽。
 
-use crate::editor::toolbar::items::ToolbarItem;
-use crate::editor::toolbar::metrics::{
-    button_size, divider_width, has_separator_before, padding, spacing,
-};
 use crate::geometry::Rect;
+use crate::toolbar::items::ToolbarItem;
+use crate::toolbar::metrics::{button_size, divider_width, has_separator_before, padding, spacing};
 
 /// 计算主栏每个按钮的矩形（含分隔线占位）。
 ///

@@ -4,25 +4,25 @@
 //! 避免截图与贴图各自维护一套字段和生命周期规则；标注历史、图像写入、选择与拖拽
 //! 等差异仍由各自窗口状态负责。
 
-use crate::editor::stroke_session::StrokeSession;
-use crate::editor::text_input::TextInputSession;
-use crate::editor::toolbar::Toolbar;
+use crate::stroke_session::StrokeSession;
+use crate::text_input::TextInputSession;
+use crate::toolbar::Toolbar;
 
 /// 当前标注工具的交互会话。
-pub(crate) struct AnnotationSession {
+pub struct AnnotationSession {
     /// 当前工具栏与样式状态。
-    pub(crate) toolbar: Toolbar,
+    pub toolbar: Toolbar,
     /// 当前一笔标注草稿。
-    pub(crate) stroke: StrokeSession,
+    pub stroke: StrokeSession,
     /// 当前文字输入会话。
-    pub(crate) active_text_input: Option<TextInputSession>,
+    pub active_text_input: Option<TextInputSession>,
     /// 是否正处于鼠标拖拽选中文本状态。
-    pub(crate) is_selecting_text: bool,
+    pub is_selecting_text: bool,
 }
 
 impl AnnotationSession {
     /// 使用指定工具栏创建交互会话。
-    pub(crate) fn new(toolbar: Toolbar) -> Self {
+    pub fn new(toolbar: Toolbar) -> Self {
         Self {
             toolbar,
             stroke: StrokeSession::new(),

@@ -8,7 +8,7 @@ use snapin_annotation::MarkerShape;
 use tiny_skia::{PathBuilder, PixmapMut, Transform};
 
 /// 绘制马赛克、模糊或智能打码模式图标。
-pub(in crate::editor::toolbar::render) fn render_mosaic_mode_icon(
+pub(in crate::toolbar::render) fn render_mosaic_mode_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
     mode: MosaicMode,
@@ -105,7 +105,7 @@ fn render_smart_redact_icon(pixmap: &mut PixmapMut, spec: SubBarIconSpec) {
 }
 
 /// 绘制马赛克画笔或矩形选择图标。
-pub(in crate::editor::toolbar::render) fn render_mosaic_shape_icon(
+pub(in crate::toolbar::render) fn render_mosaic_shape_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
     brush: bool,

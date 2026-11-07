@@ -189,28 +189,28 @@ mod tests {
     /// 主栏必须同时包含可激活工具与一次性动作，且动作不会成为激活态。
     #[test]
     fn test_main_items_contain_both_tools_and_actions() {
-        let tool_count = crate::editor::toolbar::Toolbar::MAIN_ITEMS
+        let tool_count = crate::toolbar::Toolbar::MAIN_ITEMS
             .iter()
             .filter(|item| item.as_tool().is_some())
             .count();
-        let action_count = crate::editor::toolbar::Toolbar::MAIN_ITEMS
+        let action_count = crate::toolbar::Toolbar::MAIN_ITEMS
             .iter()
             .filter(|item| matches!(item, ToolbarItem::Action(_)))
             .count();
         assert_eq!(tool_count, 11);
         assert_eq!(action_count, 9);
 
-        let text_index = crate::editor::toolbar::Toolbar::MAIN_ITEMS
+        let text_index = crate::toolbar::Toolbar::MAIN_ITEMS
             .iter()
             .position(|item| *item == ToolbarItem::Tool(Tool::Text))
             .expect("文字工具必须存在");
         assert_eq!(
-            crate::editor::toolbar::Toolbar::MAIN_ITEMS.get(text_index + 1),
+            crate::toolbar::Toolbar::MAIN_ITEMS.get(text_index + 1),
             Some(&ToolbarItem::Action(ToolbarAction::Qr)),
             "二维码按钮必须紧跟文字工具"
         );
         assert!(
-            !crate::editor::toolbar::Toolbar::MAIN_ITEMS
+            !crate::toolbar::Toolbar::MAIN_ITEMS
                 .contains(&ToolbarItem::Action(ToolbarAction::SmartRedact)),
             "智能打码应合入马赛克二级栏，不能占据主栏"
         );

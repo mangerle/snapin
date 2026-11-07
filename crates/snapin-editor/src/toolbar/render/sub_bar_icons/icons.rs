@@ -11,7 +11,7 @@ use snapin_render::{with_thread_local_text_renderer, CenteredTextOptions};
 use tiny_skia::{PathBuilder, PixmapMut, Transform};
 
 /// 绘制直线或折线模式图标。
-pub(in crate::editor::toolbar::render) fn render_line_mode_icon(
+pub(in crate::toolbar::render) fn render_line_mode_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
     mode: LineMode,
@@ -41,7 +41,7 @@ pub(in crate::editor::toolbar::render) fn render_line_mode_icon(
 }
 
 /// 绘制箭头总开关图标；关闭态增加斜杠明确禁用语义。
-pub(in crate::editor::toolbar::render) fn render_arrow_toggle_icon(
+pub(in crate::toolbar::render) fn render_arrow_toggle_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
     enabled: bool,
@@ -68,7 +68,7 @@ pub(in crate::editor::toolbar::render) fn render_arrow_toggle_icon(
 }
 
 /// 绘制橡皮擦的画笔或框选模式图标。
-pub(in crate::editor::toolbar::render) fn render_eraser_mode_icon(
+pub(in crate::toolbar::render) fn render_eraser_mode_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
     rectangle: bool,
@@ -96,7 +96,7 @@ pub(in crate::editor::toolbar::render) fn render_eraser_mode_icon(
 }
 
 /// 绘制清空全部标注的垃圾桶图标。
-pub(in crate::editor::toolbar::render) fn render_clear_annotations_icon(
+pub(in crate::toolbar::render) fn render_clear_annotations_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
 ) {
@@ -133,7 +133,7 @@ pub(in crate::editor::toolbar::render) fn render_clear_annotations_icon(
 }
 
 /// 绘制文字描边开关图标。
-pub(in crate::editor::toolbar::render) fn render_text_stroke_icon(
+pub(in crate::toolbar::render) fn render_text_stroke_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
 ) {
@@ -143,7 +143,7 @@ pub(in crate::editor::toolbar::render) fn render_text_stroke_icon(
 }
 
 /// 绘制文字背景开关图标。
-pub(in crate::editor::toolbar::render) fn render_text_background_icon(
+pub(in crate::toolbar::render) fn render_text_background_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
 ) {
@@ -174,7 +174,7 @@ pub(in crate::editor::toolbar::render) fn render_text_background_icon(
 }
 
 /// 绘制遮罩强度图标，使用明暗对半的圆表示明暗对比程度。
-pub(in crate::editor::toolbar::render) fn render_opacity_icon(
+pub(in crate::toolbar::render) fn render_opacity_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
 ) {
@@ -204,7 +204,7 @@ pub(in crate::editor::toolbar::render) fn render_opacity_icon(
 }
 
 /// 绘制文字背景内边距图标。
-pub(in crate::editor::toolbar::render) fn render_padding_icon(
+pub(in crate::toolbar::render) fn render_padding_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
 ) {
@@ -237,7 +237,7 @@ pub(in crate::editor::toolbar::render) fn render_padding_icon(
 }
 
 /// 绘制聚光灯描边开关图标。
-pub(in crate::editor::toolbar::render) fn render_spotlight_outline_icon(
+pub(in crate::toolbar::render) fn render_spotlight_outline_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
 ) {
@@ -260,7 +260,7 @@ pub(in crate::editor::toolbar::render) fn render_spotlight_outline_icon(
 }
 
 /// 绘制荧光笔线条或矩形模式图标。
-pub(in crate::editor::toolbar::render) fn render_marker_shape_icon(
+pub(in crate::toolbar::render) fn render_marker_shape_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
     shape: MarkerShape,
@@ -279,7 +279,7 @@ pub(in crate::editor::toolbar::render) fn render_marker_shape_icon(
 }
 
 /// 绘制荧光笔正片叠底或普通混合图标。
-pub(in crate::editor::toolbar::render) fn render_marker_blend_icon(
+pub(in crate::toolbar::render) fn render_marker_blend_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
     mode: MarkerBlendMode,
@@ -308,7 +308,7 @@ pub(in crate::editor::toolbar::render) fn render_marker_blend_icon(
 }
 
 /// 绘制字体族图标，使用外框与字母 A 表示可选字体集合。
-pub(in crate::editor::toolbar::render) fn render_font_family_icon(
+pub(in crate::toolbar::render) fn render_font_family_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
 ) {
@@ -336,7 +336,7 @@ pub(in crate::editor::toolbar::render) fn render_font_family_icon(
 }
 
 /// 绘制放大镜抗锯齿开关图标。
-pub(in crate::editor::toolbar::render) fn render_magnifier_smooth_icon(
+pub(in crate::toolbar::render) fn render_magnifier_smooth_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
 ) {
@@ -354,7 +354,7 @@ pub(in crate::editor::toolbar::render) fn render_magnifier_smooth_icon(
 }
 
 /// 绘制放大镜阴影开关图标。
-pub(in crate::editor::toolbar::render) fn render_magnifier_shadow_icon(
+pub(in crate::toolbar::render) fn render_magnifier_shadow_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
 ) {
@@ -383,7 +383,7 @@ pub(in crate::editor::toolbar::render) fn render_magnifier_shadow_icon(
 }
 
 /// 绘制序号格式图标，直接展示当前格式的第 1 个样本。
-pub(in crate::editor::toolbar::render) fn render_badge_sequence_icon(
+pub(in crate::toolbar::render) fn render_badge_sequence_icon(
     pixmap: &mut PixmapMut,
     spec: SubBarIconSpec,
     sequence: BadgeSequence,
