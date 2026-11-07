@@ -367,8 +367,8 @@ mod tests {
         assert!(temp_path.to_string_lossy().contains("test_"));
         assert!(temp_path.to_string_lossy().ends_with(".raw"));
 
-        let extension_dir = AppPaths::gnome_extension_dir("snapin@wangle.local");
-        assert!(extension_dir.ends_with("gnome-shell/extensions/snapin@wangle.local"));
+        let extension_dir = AppPaths::gnome_extension_dir("snapin@wangle");
+        assert!(extension_dir.ends_with("gnome-shell/extensions/snapin@wangle"));
     }
 
     #[test]

@@ -18,6 +18,11 @@ const EXT_JAVASCRIPT: &str = include_str!("../../../extension/extension.js");
 #[cfg(target_os = "linux")]
 const EXT_ICON_SVG: &[u8] = include_bytes!("../../../assets/icons/snapin.svg");
 #[cfg(target_os = "linux")]
+const GNOME_EXTENSION_UUID: &str = "snapin@wangle";
+#[cfg(target_os = "linux")]
+const LEGACY_GNOME_EXTENSION_UUIDS: &[&str] =
+    &["snapin@wangle.local", "snapin-helper@wangle.local"];
+#[cfg(target_os = "linux")]
 const GNOME_EXTENSION_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// 安装配套 GNOME Shell 扩展到用户目录并向系统请求启用
@@ -34,7 +39,7 @@ pub fn install_gnome_extension() -> Result<()> {
 
     #[cfg(target_os = "linux")]
     {
-        let uuid = "snapin@wangle.local";
+        let uuid = GNOME_EXTENSION_UUID;
         let target_dir = snapin_foundation::AppPaths::gnome_extension_dir(uuid);
 
         let icons_dir = target_dir.join("icons");
@@ -68,7 +73,31 @@ pub fn install_gnome_extension() -> Result<()> {
                 tracing::warn!("执行 GNOME 扩展启用命令失败: {error}");
             }
         }
+        cleanup_legacy_extensions();
         Ok(())
+    }
+}
+
+/// 清理曾经使用过的扩展 UUID，避免旧扩展继续遮蔽正式扩展。
+#[cfg(target_os = "linux")]
+fn cleanup_legacy_extensions() {
+    for uuid in LEGACY_GNOME_EXTENSION_UUIDS {
+        let mut command = std::process::Command::new("gnome-extensions");
+        command.args(["disable", uuid]);
+        if let Err(error) = output_with_timeout(command, GNOME_EXTENSION_COMMAND_TIMEOUT) {
+            tracing::debug!("停用历史 GNOME 扩展时未完成，UUID: {uuid}，原因: {error}");
+        }
+        let path = snapin_foundation::AppPaths::gnome_extension_dir(uuid);
+        if path.exists() {
+            if let Err(error) = std::fs::remove_dir_all(&path) {
+                tracing::warn!(
+                    "清理历史 GNOME 扩展目录失败，路径: {}，原因: {error}",
+                    path.display()
+                );
+            } else {
+                tracing::info!("已清理历史 GNOME 扩展目录: {}", path.display());
+            }
+        }
     }
 }
 
@@ -93,6 +122,11 @@ fn write_embedded_file(target: std::path::PathBuf, bytes: &[u8]) -> Result<()> {
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_embedded_extension_contract_uses_stable_uuid() {
+        assert!(EXT_METADATA.contains("\"uuid\": \"snapin@wangle\""));
+    }
 
     #[test]
     fn test_write_embedded_file_atomically_replaces_existing_content() {

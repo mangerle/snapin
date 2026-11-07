@@ -131,15 +131,15 @@ sudo apt-get install -y \
 sudo apt install ./snapin_*_amd64.deb
 ```
 
-安装完成后请注销并重新登录一次。GNOME Shell 会缓存扩展模块，首次安装或升级扩展代码后，
-必须重新登录才能加载新版本；未重新登录前截图会自动降级到 XDG Portal 通道（可用，但带快门闪屏）。
+安装器会部署正式 UUID `snapin@wangle` 并确保扩展处于启用状态。GNOME Shell 会缓存已加载
+的扩展模块，首次从历史 UUID 迁移或扩展接口升级后，需要注销并重新登录一次。
 
 检查安装状态：
 
 ```bash
 snapin --version
 systemctl --user status snapin
-gnome-extensions info snapin@wangle.local
+gnome-extensions info snapin@wangle
 ```
 
 打开设置中心：
@@ -310,12 +310,11 @@ snapin exit            # 退出当前守护进程
 
 ### 截图出现快门闪屏，或窗口无法置顶
 
-这通常表示 GNOME Shell 扩展没有加载，截图走了 XDG Portal 降级通道。安装或升级扩展后必须
-注销并重新登录一次，然后检查：
+这通常表示 GNOME Shell 扩展没有加载。先重新部署扩展，并确认正式 UUID `snapin@wangle` 处于启用状态：
 
 ```bash
-gnome-extensions info snapin@wangle.local
-gnome-extensions enable snapin@wangle.local
+gnome-extensions info snapin@wangle
+gnome-extensions enable snapin@wangle
 ```
 
 ### OCR 提示模型缺失或无法初始化
@@ -342,8 +341,8 @@ systemctl --user status snapin
 ### 卸载后扩展目录仍然存在
 
 deb 在安装时会把扩展同步到当前用户的
-`~/.local/share/gnome-shell/extensions/snapin@wangle.local`。卸载后如仍残留，可手动删除该目录
-并注销重新登录。
+`~/.local/share/gnome-shell/extensions/snapin@wangle`。卸载后如仍残留，可手动删除该目录。
+历史目录 `snapin@wangle.local` 会被新版安装器自动停用并清理。
 
 ## 已知限制
 
