@@ -17,9 +17,14 @@ pub fn handle_mouse_button(
         state.viewport.cursor_pos.1 as f32,
     );
 
-    if let Some(handled) =
-        super::ocr::handle_ocr_overlay_press(state, button, button_state, cx, cy, original_rgba)
-    {
+    let event = super::PointerButtonEvent {
+        button,
+        button_state,
+        position: (cx, cy),
+        original_rgba,
+    };
+
+    if let Some(handled) = super::ocr::handle_ocr_overlay_press(state, &event) {
         return handled;
     }
 

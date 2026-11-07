@@ -7,46 +7,39 @@ use crate::snipper::window::jobs::SnipperJobKind;
 use crate::snipper::window::ocr_editor::{OcrEditorButton, ScrollbarHit};
 use crate::snipper::window::ocr_menu::{OcrContextMenuState, OcrMenuAction};
 
+use super::PointerButtonEvent;
+
 /// 优先处理文字识别编辑框、右键菜单及其按钮入口；未命中时返回 `None`。
 pub(super) fn handle_ocr_overlay_press(
     state: &mut SnipperState,
-    button: MouseButton,
-    button_state: ElementState,
-    cx: f32,
-    cy: f32,
-    original_rgba: &RgbaImage,
+    event: &PointerButtonEvent<'_>,
 ) -> Option<bool> {
     if state.ocr.editor.is_some() {
-        handle_editor_mouse_press(state, button, button_state, cx, cy, original_rgba);
+        handle_editor_mouse_press(state, event);
         return Some(true);
     }
 
     if state.ocr.menu.is_some() {
-        handle_open_menu_press(state, button, button_state, cx, cy, original_rgba);
+        handle_open_menu_press(state, event);
         return Some(true);
     }
 
-    if button == MouseButton::Right
-        && button_state == ElementState::Pressed
+    let (cx, cy) = event.position;
+    if event.button == MouseButton::Right
+        && event.button_state == ElementState::Pressed
         && state.editor.annotation.toolbar.hit_test_main(cx, cy)
             == Some(ToolbarItem::Action(ToolbarAction::Ocr))
     {
-        open_ocr_menu(state, original_rgba);
+        open_ocr_menu(state, event.original_rgba);
         return Some(true);
     }
     None
 }
 
 /// 处理已展开菜单的按下与释放；菜单项在释放时执行，避免释放事件穿透到画布。
-fn handle_open_menu_press(
-    state: &mut SnipperState,
-    button: MouseButton,
-    button_state: ElementState,
-    cx: f32,
-    cy: f32,
-    original_rgba: &RgbaImage,
-) {
-    if button == MouseButton::Left && button_state == ElementState::Released {
+fn handle_open_menu_press(state: &mut SnipperState, event: &PointerButtonEvent<'_>) {
+    let (cx, cy) = event.position;
+    if event.button == MouseButton::Left && event.button_state == ElementState::Released {
         let action = state
             .ocr
             .menu
@@ -54,9 +47,9 @@ fn handle_open_menu_press(
             .and_then(|menu| menu.hit_test(cx, cy));
         state.ocr.menu = None;
         if let Some(action) = action {
-            dispatch_ocr_menu_action(state, action, original_rgba);
+            dispatch_ocr_menu_action(state, action, event.original_rgba);
         }
-    } else if button == MouseButton::Right && button_state == ElementState::Pressed {
+    } else if event.button == MouseButton::Right && event.button_state == ElementState::Pressed {
         state.ocr.menu = None;
     }
 }
@@ -92,21 +85,16 @@ fn dispatch_ocr_menu_action(
 }
 
 /// 处理文字识别全文编辑框的鼠标按下与释放。
-fn handle_editor_mouse_press(
-    state: &mut SnipperState,
-    button: MouseButton,
-    button_state: ElementState,
-    cx: f32,
-    cy: f32,
-    original_rgba: &RgbaImage,
-) {
-    if button != MouseButton::Left {
+fn handle_editor_mouse_press(state: &mut SnipperState, event: &PointerButtonEvent<'_>) {
+    if event.button != MouseButton::Left {
         return;
     }
 
-    let screen_w = original_rgba.width() as f32;
-    let screen_h = original_rgba.height() as f32;
+    let (cx, cy) = event.position;
+    let screen_w = event.original_rgba.width() as f32;
+    let screen_h = event.original_rgba.height() as f32;
     let scale = state.editor.annotation.toolbar.ui_scale;
+    let button_state = event.button_state;
 
     let Some(editor) = state.ocr.editor.as_mut() else {
         return;

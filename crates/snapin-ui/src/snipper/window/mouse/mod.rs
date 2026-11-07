@@ -30,5 +30,14 @@ use snapin_annotation::AnnotationShape;
 use toolbar_action::dispatch_toolbar_action;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 
+/// 鼠标按键交互事件对象，收敛散落的坐标、按键状态与图片引用。
+#[derive(Clone, Copy)]
+pub(super) struct PointerButtonEvent<'a> {
+    pub button: MouseButton,
+    pub button_state: ElementState,
+    pub position: (f32, f32),
+    pub original_rgba: &'a RgbaImage,
+}
+
 #[cfg(test)]
 mod tests;
