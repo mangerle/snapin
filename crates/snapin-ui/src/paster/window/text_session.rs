@@ -22,16 +22,32 @@ impl PasterWindowState {
         self.interaction.annotation.active_text_input.is_some()
     }
 
+    /// 判定并处理点击在已有文本输入框内部的光标定位。
+    pub(crate) fn handle_text_session_press(&mut self, screen_pos: (f32, f32)) -> bool {
+        let scale = self.document.item.transform.scale().max(f32::EPSILON);
+        if let Some(session) = &mut self.interaction.annotation.active_text_input {
+            if session.contains_screen_point(screen_pos.0, screen_pos.1, scale) {
+                let shift = self.modifiers.shift_key();
+                session.set_cursor_from_screen_point(screen_pos.0, screen_pos.1, shift, scale);
+                return true;
+            }
+        }
+        false
+    }
+
     /// 在点击位置开启文字会话；点击点必须落在缩放后的图像内部。
     ///
-    /// 若已有会话，会先按常规路径提交（空文本自动丢弃），再在新位置开启；
-    /// 坐标在这里一次性换算为图像像素，后续 IME 事件与渲染都不再重复换算。
+    /// 若已有会话且点击落在其内部，则直接定位光标；若在外部则提交原会话并开启新会话。
     pub(crate) fn begin_text_session(&mut self, screen_pos: (f32, f32)) -> bool {
         if self.interaction.annotation.toolbar.active_tool != Some(Tool::Text) {
             return false;
         }
         if !self.screen_point_inside_image(screen_pos) {
             return false;
+        }
+
+        if self.handle_text_session_press(screen_pos) {
+            return true;
         }
 
         self.commit_text_session();
@@ -68,10 +84,7 @@ impl PasterWindowState {
             .is_some()
     }
 
-    /// 处理会话中的按键：回车提交、Esc 取消、退格删除、其余可见字符直接录入。
-    ///
-    /// 该分支由 [`super::events::handle_paster_key`] 在会话激活时优先调用，
-    /// 因此 Esc 不会继续落到「关闭贴图」的全局分支上。
+    /// 处理会话中的按键：回车提交、Esc 取消、退格删除、方向键导航、剪贴板读写等。
     pub(crate) fn handle_text_session_key(&mut self, key: &Key) -> bool {
         let modifiers = crate::editor::text_input::KeyModifiers::new(
             self.modifiers.control_key(),
@@ -90,6 +103,27 @@ impl PasterWindowState {
             }
             crate::editor::text_input::TextSessionAction::Cancel => {
                 self.cancel_text_session();
+                true
+            }
+            crate::editor::text_input::TextSessionAction::Copy(text) => {
+                self.copy_text_to_clipboard(
+                    text,
+                    snapin_foundation::i18n::tr("已复制文字到剪贴板").to_string(),
+                    "复制文字",
+                );
+                true
+            }
+            crate::editor::text_input::TextSessionAction::Cut(text) => {
+                self.copy_text_to_clipboard(
+                    text,
+                    snapin_foundation::i18n::tr("已剪切文字到剪贴板").to_string(),
+                    "剪切文字",
+                );
+                true
+            }
+
+            crate::editor::text_input::TextSessionAction::PasteRequest => {
+                self.request_clipboard_text_for_input();
                 true
             }
             crate::editor::text_input::TextSessionAction::Ignored => false,
@@ -341,5 +375,89 @@ mod tests {
         assert!(state.interaction.annotation.active_text_input.is_none());
         assert!(!state.should_close, "Esc 取消会话时不得关闭贴图");
         assert!(state.document.annotations.undo_stack().is_empty());
+    }
+
+    /// 点击当前输入框内部时移动光标，不提交也不重新创建会话
+    #[test]
+    fn 点击输入框内部定位光标不提交() {
+        let mut state = text_state(200, 100);
+        assert!(state.begin_text_session((10.0, 10.0)));
+        state
+            .interaction
+            .annotation
+            .active_text_input
+            .as_mut()
+            .unwrap()
+            .insert_str("Hello World");
+        assert_eq!(
+            state
+                .interaction
+                .annotation
+                .active_text_input
+                .as_ref()
+                .unwrap()
+                .cursor,
+            11
+        );
+
+        // 点击输入框左侧开头位置 (12.0, 12.0)
+        assert!(state.begin_text_session((12.0, 12.0)));
+        assert!(
+            state.interaction.annotation.active_text_input.is_some(),
+            "会话必须保持激活状态"
+        );
+        assert_eq!(
+            state
+                .interaction
+                .annotation
+                .active_text_input
+                .as_ref()
+                .unwrap()
+                .cursor,
+            0,
+            "光标应被移动到开头"
+        );
+        assert!(
+            state.document.annotations.undo_stack().is_empty(),
+            "未提交不产生图元"
+        );
+    }
+
+    /// 方向键在贴图会话中能够左右移动光标
+    #[test]
+    fn 方向键左右移动光标() {
+        let mut state = text_state(200, 100);
+        assert!(state.begin_text_session((10.0, 10.0)));
+        state
+            .interaction
+            .annotation
+            .active_text_input
+            .as_mut()
+            .unwrap()
+            .insert_str("AB");
+
+        assert!(state.handle_text_session_key(&Key::Named(NamedKey::ArrowLeft)));
+        assert_eq!(
+            state
+                .interaction
+                .annotation
+                .active_text_input
+                .as_ref()
+                .unwrap()
+                .cursor,
+            1
+        );
+
+        assert!(state.handle_text_session_key(&Key::Named(NamedKey::ArrowRight)));
+        assert_eq!(
+            state
+                .interaction
+                .annotation
+                .active_text_input
+                .as_ref()
+                .unwrap()
+                .cursor,
+            2
+        );
     }
 }

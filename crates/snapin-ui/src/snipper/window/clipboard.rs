@@ -2,7 +2,9 @@
 
 use super::state::SnipperState;
 use super::types::SnipperOutcome;
-use crate::ports::{ClipboardJobId, ClipboardResult, ClipboardTarget, ClipboardWrite, PortError};
+use crate::ports::{
+    ClipboardJobId, ClipboardPayload, ClipboardResult, ClipboardTarget, ClipboardWrite, PortError,
+};
 use image::RgbaImage;
 
 /// 剪贴板写入成功后的截图会话语义。
@@ -21,6 +23,8 @@ pub(crate) enum SnipperClipboardAction {
         /// 写入失败时用于定位动作的中文名称。
         failure_label: &'static str,
     },
+    /// 读取剪贴板文本并插入到当前活动的文字标注会话中。
+    PasteIntoTextInput,
 }
 
 impl SnipperClipboardAction {
@@ -31,6 +35,7 @@ impl SnipperClipboardAction {
             Self::PickColor(_) => "复制颜色值",
             Self::CopyText(_) => "复制识别文字",
             Self::TransientStatus { failure_label, .. } => failure_label,
+            Self::PasteIntoTextInput => "粘贴文字",
         }
     }
 }
@@ -102,6 +107,31 @@ impl SnipperState {
         }
     }
 
+    /// 提交纯文本剪贴板读取，异步将文本写入当前文本输入会话中。
+    pub(crate) fn request_clipboard_paste(&mut self) -> bool {
+        if self.has_pending_clipboard() {
+            return false;
+        }
+
+        let events = self.jobs.clipboard_events.clone();
+        let sink = Box::new(move |job_id, result| {
+            events(ClipboardTarget::Snipper, job_id, result);
+        });
+        match self.session.desktop.read_clipboard(sink) {
+            Ok(id) => {
+                self.jobs.pending_clipboard = Some(PendingClipboardJob {
+                    id,
+                    action: SnipperClipboardAction::PasteIntoTextInput,
+                });
+                true
+            }
+            Err(error) => {
+                tracing::warn!("读取剪贴板失败: {error}");
+                false
+            }
+        }
+    }
+
     /// 处理剪贴板写入完成事件；返回是否匹配当前在途任务。
     pub(crate) fn handle_clipboard_finished(
         &mut self,
@@ -132,13 +162,23 @@ impl SnipperState {
                 } => {
                     self.set_status_message(success_message);
                 }
+                SnipperClipboardAction::PasteIntoTextInput => {}
             },
-            Ok(ClipboardResult::Payload(_)) => {
-                self.set_status_message(format!(
-                    "{}失败: 返回了不匹配的剪贴板结果",
-                    pending.action.failure_label()
-                ));
-            }
+            Ok(ClipboardResult::Payload(payload)) => match pending.action {
+                SnipperClipboardAction::PasteIntoTextInput => {
+                    if let ClipboardPayload::Text(text) = payload {
+                        if let Some(session) = &mut self.editor.annotation.active_text_input {
+                            session.insert_str(&text);
+                        }
+                    }
+                }
+                _ => {
+                    self.set_status_message(format!(
+                        "{}失败: 返回了不匹配的剪贴板结果",
+                        pending.action.failure_label()
+                    ));
+                }
+            },
             Err(error) => {
                 self.set_status_message(format!("{}失败: {error}", pending.action.failure_label()));
             }

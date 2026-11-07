@@ -756,3 +756,54 @@ fn test_text_tool_click_on_existing_text_allows_dragging_and_double_click_edits(
     let active = state.editor.annotation.active_text_input.as_ref().unwrap();
     assert_eq!(active.text, "原文字");
 }
+
+#[test]
+fn test_click_inside_active_text_input_moves_cursor_without_commit() {
+    let mut state = SnipperState::new();
+    state.editor.annotation.toolbar.ui_scale = 1.0;
+    state.viewport.selection = SelectionState::Locked {
+        rect: Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 800.0,
+            height: 600.0,
+        },
+        active_drag: None,
+    };
+    let original = RgbaImage::new(800, 600);
+
+    // 1. 手动设置正在编辑的会话，光标在末尾
+    let mut session = TextInputSession::new((100.0, 100.0), (255, 0, 0, 255), 20.0);
+    session.insert_str("Hello World");
+    assert_eq!(session.cursor, 11);
+    state.editor.annotation.active_text_input = Some(session);
+
+    // 2. 点击输入框内部靠前位置 (102.0, 102.0)
+    assert!(handle_left_press(&mut state, 102.0, 102.0, &original));
+
+    // 3. 验证输入会话保持未提交，且光标移动到开头
+    assert!(
+        state.editor.annotation.active_text_input.is_some(),
+        "点击输入框内不得提交会话"
+    );
+    let cur = state
+        .editor
+        .annotation
+        .active_text_input
+        .as_ref()
+        .unwrap()
+        .cursor;
+    assert_eq!(cur, 0, "光标应被定位到开头");
+    assert!(
+        state.editor.annotations.undo_stack().is_empty(),
+        "点击框内不得提前产生历史图元"
+    );
+
+    // 4. 点击输入框外部 (500.0, 500.0)
+    assert!(handle_left_press(&mut state, 500.0, 500.0, &original));
+    assert_eq!(
+        state.editor.annotations.undo_stack().len(),
+        1,
+        "点击输入框外部必须提交原会话"
+    );
+}

@@ -177,6 +177,8 @@ pub fn tr(zh: &str) -> &str {
         "创建贴图缓冲区失败" => "Failed to allocate the pin buffer",
         "单击复制颜色，Esc 取消" => "Click to copy the color; Esc to cancel",
         "已复制图像到剪贴板" => "Image copied to clipboard",
+        "已复制文字到剪贴板" => "Text copied to clipboard",
+        "已剪切文字到剪贴板" => "Text cut to clipboard",
         "未获得有效翻译结果" => "No valid translation result",
         "正在翻译文字..." => "Translating text...",
         "正在识别文字..." => "Recognizing text...",

@@ -121,6 +121,16 @@ fn handle_locked_press(
 
     // 点击画布表示离开二级栏数值控件；后续滚轮恢复默认粗细调节。
     state.editor.annotation.toolbar.clear_sub_focus();
+
+    // 若当前正在输入文字且点击落在输入框内，将光标定位到点击字符并保留会话
+    if let Some(session) = &mut state.editor.annotation.active_text_input {
+        if session.contains_screen_point(pointer.x, pointer.y, 1.0) {
+            let shift = state.viewport.modifiers.shift_key();
+            session.set_cursor_from_screen_point(pointer.x, pointer.y, shift, 1.0);
+            state.editor.annotation.is_selecting_text = true;
+            return true;
+        }
+    }
     commit_active_text_input(state);
 
     if let Some(handled) = handle_annotation_press(state, pointer.x, pointer.y, is_double_click) {
@@ -354,6 +364,12 @@ pub(super) fn handle_left_release(
         original_rgba,
         pressed_window: state.viewport.press_window.take(),
     };
+
+    let was_selecting = state.editor.annotation.is_selecting_text;
+    state.editor.annotation.is_selecting_text = false;
+    if was_selecting {
+        return true;
+    }
 
     // 标注拖动或手柄拉伸结束：编辑结果已实时写入历史栈，直接消费本次释放
     if finish_drag_interactions(state) {

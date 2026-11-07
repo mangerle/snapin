@@ -78,6 +78,19 @@ pub fn handle_paster_cursor_move(
 ) -> bool {
     state.viewport.cursor_pos = (pos.0 as f32, pos.1 as f32);
 
+    if state.interaction.annotation.is_selecting_text {
+        let scale = state.document.item.transform.scale().max(f32::EPSILON);
+        if let Some(session) = &mut state.interaction.annotation.active_text_input {
+            session.set_cursor_from_screen_point(
+                state.viewport.cursor_pos.0,
+                state.viewport.cursor_pos.1,
+                true,
+                scale,
+            );
+            return true;
+        }
+    }
+
     if state.interaction.annotation.stroke.is_drawing {
         return state.update_stroke(state.viewport.cursor_pos);
     }
@@ -158,6 +171,14 @@ pub fn handle_paster_mouse_button(
     button_state: ElementState,
     window: &Window,
 ) -> bool {
+    let in_text_box = button_state == ElementState::Pressed
+        && button == MouseButton::Left
+        && state.handle_text_session_press(state.viewport.cursor_pos);
+    if in_text_box {
+        state.interaction.annotation.is_selecting_text = true;
+        return true;
+    }
+
     // 任何按下动作都意味着离开当前文字输入位置：先提交会话再分发
     // 工具栏切换、右键菜单或图像外拖拽，保证已输入内容不会丢失。
     let committed_text = button_state == ElementState::Pressed && state.commit_text_session();
@@ -282,9 +303,16 @@ fn apply_double_click_action(state: &mut PasterWindowState) {
 
 /// 左键松开：把当前笔迹提交进图像与标注历史，并清空预览状态。
 fn handle_left_release(state: &mut PasterWindowState) -> bool {
+    let was_selecting = state.interaction.annotation.is_selecting_text;
+    state.interaction.annotation.is_selecting_text = false;
+    if was_selecting {
+        return true;
+    }
+
     if !state.interaction.annotation.stroke.is_drawing {
         return false;
     }
+
     state.update_stroke(state.viewport.cursor_pos);
     state.commit_pending_stroke();
     // 即使空笔迹被丢弃也要重绘一次，确保画布上的拖拽预览被清掉

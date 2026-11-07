@@ -25,6 +25,12 @@ pub fn handle_cursor_move(
     };
 
     // 标注编辑拖拽优先于选区与工具栏悬停处理
+    if state.editor.annotation.is_selecting_text {
+        if let Some(session) = &mut state.editor.annotation.active_text_input {
+            session.set_cursor_from_screen_point(frame.x, frame.y, true, 1.0);
+            return true;
+        }
+    }
     if state.editor.annotation_drag.is_some() {
         return crate::snipper::window::annotation_edit::handle_drag_move(state, frame.x, frame.y);
     }

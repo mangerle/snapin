@@ -16,6 +16,8 @@ pub(crate) struct AnnotationSession {
     pub(crate) stroke: StrokeSession,
     /// 当前文字输入会话。
     pub(crate) active_text_input: Option<TextInputSession>,
+    /// 是否正处于鼠标拖拽选中文本状态。
+    pub(crate) is_selecting_text: bool,
 }
 
 impl AnnotationSession {
@@ -25,6 +27,7 @@ impl AnnotationSession {
             toolbar,
             stroke: StrokeSession::new(),
             active_text_input: None,
+            is_selecting_text: false,
         }
     }
 }

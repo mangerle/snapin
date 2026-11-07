@@ -375,6 +375,31 @@ fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
             state.editor.annotation.active_text_input = None;
             true
         }
+        crate::editor::text_input::TextSessionAction::Copy(text) => {
+            state.submit_clipboard_text(
+                text,
+                super::clipboard::SnipperClipboardAction::TransientStatus {
+                    success_message: snapin_foundation::i18n::tr("已复制文字到剪贴板").to_string(),
+                    failure_label: "复制文字",
+                },
+            );
+            true
+        }
+        crate::editor::text_input::TextSessionAction::Cut(text) => {
+            state.submit_clipboard_text(
+                text,
+                super::clipboard::SnipperClipboardAction::TransientStatus {
+                    success_message: snapin_foundation::i18n::tr("已剪切文字到剪贴板").to_string(),
+                    failure_label: "剪切文字",
+                },
+            );
+            true
+        }
+
+        crate::editor::text_input::TextSessionAction::PasteRequest => {
+            state.request_clipboard_paste();
+            true
+        }
         crate::editor::text_input::TextSessionAction::Ignored => false,
     }
 }

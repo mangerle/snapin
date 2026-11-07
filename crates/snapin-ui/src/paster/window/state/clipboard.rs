@@ -23,6 +23,8 @@ pub(crate) enum PasterClipboardAction {
         /// 失败提示前缀。
         failure_label: &'static str,
     },
+    /// 读取剪贴板纯文本并插入到文本标注会话中。
+    PasteIntoTextInput,
 }
 
 /// 当前在途剪贴板任务。
@@ -109,8 +111,20 @@ impl PasterWindowState {
             PasterClipboardAction::ReplaceFromClipboard => {
                 self.handle_replace_finished(result, window);
             }
+            PasterClipboardAction::PasteIntoTextInput => {
+                if let Ok(ClipboardResult::Payload(ClipboardPayload::Text(text))) = result {
+                    if let Some(session) = &mut self.interaction.annotation.active_text_input {
+                        session.insert_str(&text);
+                    }
+                }
+            }
         }
         true
+    }
+
+    /// 请求读取系统剪贴板纯文本并插入到文本标注会话中。
+    pub(crate) fn request_clipboard_text_for_input(&mut self) -> bool {
+        self.submit_clipboard_request(PasterClipboardAction::PasteIntoTextInput)
     }
 
     /// 处理图像复制结果。

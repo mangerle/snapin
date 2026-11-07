@@ -10,7 +10,7 @@ pub mod text;
 pub use beautify::render_beautified;
 pub use error::RenderError;
 pub use layout::CenteredTextOptions;
-pub use measure::TextInputMetrics;
+pub use measure::{SelectionRect, TextInputMetrics};
 pub use snapin_foundation::beautify::{BeautifyBackground, BeautifyOptions, SocialSize};
 pub use text::{
     with_thread_local_text_renderer, StyledTextDrawOptions, TextBoxOptions, TextDrawOptions,
