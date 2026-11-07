@@ -108,11 +108,22 @@ impl<'a> SnipperCanvas<'a> {
 
     /// 绘制选区底图、标注、实时交互反馈、边框与工具栏。
     fn render_selection_contents(&self, pixmap: &mut PixmapMut, rect: &Rect) {
-        self.fast_cutout_restore(
-            pixmap,
-            rect,
-            CanvasSize::new(pixmap.width(), pixmap.height()),
-        );
+        let recording_active = self
+            .recording
+            .is_some_and(|session| session.status().is_busy());
+        if recording_active {
+            self.clear_selection_alpha(
+                pixmap,
+                rect,
+                CanvasSize::new(pixmap.width(), pixmap.height()),
+            );
+        } else {
+            self.fast_cutout_restore(
+                pixmap,
+                rect,
+                CanvasSize::new(pixmap.width(), pixmap.height()),
+            );
+        }
         if let Some(history) = self.annotations {
             history.replay_all(pixmap);
         }
@@ -132,9 +143,6 @@ impl<'a> SnipperCanvas<'a> {
         }
         self.render_detection_previews(pixmap);
         self.render_active_brush_cursor(pixmap, rect);
-        let recording_active = self
-            .recording
-            .is_some_and(|session| session.status().is_busy());
         if !recording_active {
             self.render_selection_borders_and_handles(pixmap, rect);
             if let Some(selected) = self.selected_annotation {

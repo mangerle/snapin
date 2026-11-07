@@ -20,7 +20,7 @@ use zbus::zvariant::Type;
 const EXT_BUS_NAME: &str = "org.gnome.Shell";
 const EXT_OBJECT_PATH: &str = "/org/gnome/Shell/Extensions/Snapin";
 const EXT_INTERFACE: &str = "org.gnome.Shell.Extensions.Snapin";
-const EXT_DBUS_TIMEOUT: Duration = Duration::from_secs(3);
+const EXT_DBUS_TIMEOUT: Duration = Duration::from_secs(12);
 const UNKNOWN_METHOD_ERROR: &str = "org.freedesktop.DBus.Error.UnknownMethod";
 const EXTENSION_TOKEN_FILE: &str = "extension.token";
 const EXTENSION_TOKEN_MAX_BYTES: usize = 128;
@@ -221,6 +221,45 @@ pub async fn capture_fullscreen_extension_excluding_title(
     let arguments = (token.as_str(), target_path, exclude_title, include_cursor);
     let (success,): (bool,) = call_extension("CaptureFullscreenExcludingTitle", &arguments).await?;
     Ok(success)
+}
+
+/// 请求 GNOME 扩展建立连续录屏流并返回 PipeWire 节点号。
+///
+/// # Errors
+///
+/// 扩展不可用、会话被系统锁定、ScreenCast 创建失败或等待节点超时时返回平台错误。
+pub async fn start_recording_stream(
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    include_cursor: bool,
+) -> Result<u32, PlatformError> {
+    let token = read_extension_token().await?;
+    let (node_id,): (u32,) = call_extension(
+        "StartRecordingStream",
+        &(
+            token.as_str(),
+            x.min(i32::MAX as u32) as i32,
+            y.min(i32::MAX as u32) as i32,
+            width.min(i32::MAX as u32) as i32,
+            height.min(i32::MAX as u32) as i32,
+            include_cursor,
+        ),
+    )
+    .await?;
+    Ok(node_id)
+}
+
+/// 停止 GNOME 扩展持有的连续录屏流。
+///
+/// # Errors
+///
+/// 扩展不可用或 D-Bus 调用失败时返回平台错误。
+pub async fn stop_recording_stream() -> Result<(), PlatformError> {
+    let token = read_extension_token().await?;
+    let (_success,): (bool,) = call_extension("StopRecordingStream", &(token.as_str(),)).await?;
+    Ok(())
 }
 
 /// 请求扩展枚举当前活动工作区可见窗口的物理像素矩形。

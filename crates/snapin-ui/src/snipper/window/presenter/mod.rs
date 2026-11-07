@@ -7,7 +7,8 @@ use crate::snipper::magnifier::MagnifierViewport;
 use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::window::events::SnipperState;
 use crate::surface::{
-    blit_pixmap_to_surface, blit_words_to_surface, swizzle_pixmap_full, swizzle_pixmap_region,
+    blit_pixmap_to_surface_alpha, blit_words_to_surface, swizzle_pixmap_full_alpha,
+    swizzle_pixmap_region_alpha,
 };
 use image::RgbaImage;
 use std::num::NonZeroU32;
@@ -88,7 +89,7 @@ impl SnipperPresenter {
         let base_bg = create_base_pixmap(bg_image, width, height, dimmed)?;
         // 映射窗口前先预刷背景底图，避免出现瞬间白屏或未初始化内容；
         // 预刷只是过渡画面，失败时由随后的首次正式渲染兜底，故仅记录调试日志。
-        if let Err(error) = blit_pixmap_to_surface(&mut surface, &base_bg) {
+        if let Err(error) = blit_pixmap_to_surface_alpha(&mut surface, &base_bg) {
             tracing::debug!("预刷截图背景底图失败，等待首次正式渲染覆盖: {error}");
         }
         let render_pixmap =
@@ -204,7 +205,7 @@ impl SnipperPresenter {
             canvas.render(&mut pixmap_mut);
         }
 
-        swizzle_pixmap_full(&self.render_pixmap, &mut self.frame_words);
+        swizzle_pixmap_full_alpha(&self.render_pixmap, &mut self.frame_words);
         self.overlay = Self::capture_overlay(state, &self.render_pixmap);
     }
 
@@ -288,7 +289,7 @@ impl SnipperPresenter {
         ];
         for region in dirty.into_iter().flatten() {
             if let Some(bounds) = covering_pixel_bounds(&region, sync.width, sync.height) {
-                swizzle_pixmap_region(&self.render_pixmap, &mut self.frame_words, bounds);
+                swizzle_pixmap_region_alpha(&self.render_pixmap, &mut self.frame_words, bounds);
             }
         }
     }

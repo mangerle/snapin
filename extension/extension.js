@@ -38,6 +38,19 @@ const IFACE_XML = `
       <arg type="b" direction="in" name="includeCursor"/>
       <arg type="b" direction="out" name="success"/>
     </method>
+    <method name="StartRecordingStream">
+      <arg type="s" direction="in" name="authToken"/>
+      <arg type="i" direction="in" name="x"/>
+      <arg type="i" direction="in" name="y"/>
+      <arg type="i" direction="in" name="width"/>
+      <arg type="i" direction="in" name="height"/>
+      <arg type="b" direction="in" name="includeCursor"/>
+      <arg type="u" direction="out" name="nodeId"/>
+    </method>
+    <method name="StopRecordingStream">
+      <arg type="s" direction="in" name="authToken"/>
+      <arg type="b" direction="out" name="success"/>
+    </method>
     <method name="ListWindows">
       <arg type="s" direction="in" name="authToken"/>
       <arg type="s" direction="out" name="windowsJson"/>
@@ -67,6 +80,10 @@ export default class SnapinHelperExtension extends Extension {
         this._pendingPlacements = new Map();
         // 已连接的窗口标题监听器，disable 时统一断开，防止扩展重载后闭包泄漏
         this._titleWatchers = new Set();
+        this._recordingRemoteDesktopPath = null;
+        this._recordingScreenCastPath = null;
+        this._recordingStreamPath = null;
+        this._recordingSignalId = 0;
 
         // 2. 监听全局窗口创建事件：贴图窗口一诞生立即强制置顶，并设为 UTILITY 类型从 Dock 隐藏
         this._windowCreatedId = global.display.connect('window-created', (_display, metaWin) => {
@@ -84,6 +101,7 @@ export default class SnapinHelperExtension extends Extension {
     }
 
     disable() {
+        this._closeRecordingStream();
         if (this._windowCreatedId) {
             global.display.disconnect(this._windowCreatedId);
             this._windowCreatedId = null;
@@ -453,6 +471,142 @@ export default class SnapinHelperExtension extends Extension {
                 actor.set_opacity(opacity);
             }
         }
+    }
+
+    /**
+     * 建立一次连续录屏流并返回 PipeWire 节点号。
+     *
+     * 物理像素区域会按显示器缩放换算成 Mutter stage 坐标；录制期间不再逐帧隐藏
+     * Snapin 窗口，从而避免屏幕闪烁。
+     */
+    async StartRecordingStream(authToken, x, y, width, height, includeCursor) {
+        if (!this._isAuthorized(authToken) || width <= 0 || height <= 0)
+            throw new Error('录屏流参数无效');
+        await this._closeRecordingStream();
+        try {
+            const remoteReply = await this._mutterCall(
+                'org.gnome.Mutter.RemoteDesktop',
+                '/org/gnome/Mutter/RemoteDesktop',
+                'org.gnome.Mutter.RemoteDesktop',
+                'CreateSession', null, '(o)');
+            const remotePath = remoteReply.deep_unpack()[0];
+            this._recordingRemoteDesktopPath = remotePath;
+            const sidReply = await this._mutterCall(
+                'org.gnome.Mutter.RemoteDesktop', remotePath,
+                'org.freedesktop.DBus.Properties', 'Get',
+                new GLib.Variant('(ss)', [
+                    'org.gnome.Mutter.RemoteDesktop.Session', 'SessionId',
+                ]), '(v)');
+            const sessionId = sidReply.deep_unpack()[0].deep_unpack();
+            const screenReply = await this._mutterCall(
+                'org.gnome.Mutter.ScreenCast', '/org/gnome/Mutter/ScreenCast',
+                'org.gnome.Mutter.ScreenCast', 'CreateSession',
+                new GLib.Variant('(a{sv})', [{
+                    'remote-desktop-session-id': GLib.Variant.new_string(sessionId),
+                }]), '(o)');
+            this._recordingScreenCastPath = screenReply.deep_unpack()[0];
+            await this._mutterCall(
+                'org.gnome.Mutter.RemoteDesktop', remotePath,
+                'org.gnome.Mutter.RemoteDesktop.Session', 'Start', null, null);
+            const area = this._physicalAreaToStage(x, y, width, height);
+            const streamReply = await this._mutterCall(
+                'org.gnome.Mutter.ScreenCast', this._recordingScreenCastPath,
+                'org.gnome.Mutter.ScreenCast.Session', 'RecordArea',
+                new GLib.Variant('(iiiia{sv})', [
+                    area.x, area.y, area.width, area.height, {
+                        'cursor-mode': GLib.Variant.new_uint32(includeCursor ? 1 : 0),
+                        'is-recording': GLib.Variant.new_boolean(true),
+                    },
+                ]), '(o)');
+            this._recordingStreamPath = streamReply.deep_unpack()[0];
+            const nodePromise = new Promise((resolve, reject) => {
+                this._recordingSignalId = Gio.DBus.session.signal_subscribe(
+                    'org.gnome.Mutter.ScreenCast',
+                    'org.gnome.Mutter.ScreenCast.Stream',
+                    'PipeWireStreamAdded', this._recordingStreamPath, null,
+                    Gio.DBusSignalFlags.NONE,
+                    (_connection, _sender, _path, _iface, _signal, parameters) => {
+                        const [nodeId] = parameters.deep_unpack();
+                        resolve(nodeId);
+                    });
+                GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, () => {
+                    reject(new Error('等待 PipeWire 录屏节点超时'));
+                    return GLib.SOURCE_REMOVE;
+                });
+            });
+            await this._mutterCall(
+                'org.gnome.Mutter.ScreenCast', this._recordingStreamPath,
+                'org.gnome.Mutter.ScreenCast.Stream', 'Start', null, null);
+            return await nodePromise;
+        } catch (e) {
+            console.error('Snapin 启动连续录屏流失败:', e);
+            await this._closeRecordingStream();
+            throw e;
+        }
+    }
+
+    /** 停止连续录屏流并释放 Mutter 会话。 */
+    async StopRecordingStream(authToken) {
+        if (!this._isAuthorized(authToken)) return false;
+        await this._closeRecordingStream();
+        return true;
+    }
+
+    async _closeRecordingStream() {
+        if (this._recordingSignalId) {
+            Gio.DBus.session.signal_unsubscribe(this._recordingSignalId);
+            this._recordingSignalId = 0;
+        }
+        if (this._recordingStreamPath) {
+            try {
+                await this._mutterCall(
+                    'org.gnome.Mutter.ScreenCast', this._recordingStreamPath,
+                    'org.gnome.Mutter.ScreenCast.Stream', 'Stop', null, null);
+            } catch (e) {
+                console.debug('停止 PipeWire 录屏流时会话已关闭:', e.message);
+            }
+            this._recordingStreamPath = null;
+        }
+        if (this._recordingRemoteDesktopPath) {
+            try {
+                await this._mutterCall(
+                    'org.gnome.Mutter.RemoteDesktop', this._recordingRemoteDesktopPath,
+                    'org.gnome.Mutter.RemoteDesktop.Session', 'Stop', null, null);
+            } catch (e) {
+                console.debug('停止 RemoteDesktop 录屏会话时已关闭:', e.message);
+            }
+            this._recordingRemoteDesktopPath = null;
+        }
+        this._recordingScreenCastPath = null;
+    }
+
+    _mutterCall(destination, path, iface, method, parameters, replyType) {
+        return new Promise((resolve, reject) => {
+            Gio.DBus.session.call(
+                destination, path, iface, method, parameters,
+                replyType ? GLib.VariantType.new(replyType) : null,
+                Gio.DBusCallFlags.NONE, 10000, null,
+                (connection, result) => {
+                    try {
+                        resolve(connection.call_finish(result));
+                    } catch (e) {
+                        reject(e);
+                    }
+                });
+        });
+    }
+
+    /** 将截图物理坐标换算为当前显示器 stage 坐标。 */
+    _physicalAreaToStage(x, y, width, height) {
+        const primary = global.display.get_primary_monitor();
+        const scale = global.display.get_monitor_scale(primary);
+        const geometry = global.display.get_monitor_geometry(primary);
+        return {
+            x: Math.round(geometry.x + x / scale),
+            y: Math.round(geometry.y + y / scale),
+            width: Math.max(2, Math.round(width / scale)),
+            height: Math.max(2, Math.round(height / scale)),
+        };
     }
 
     /**

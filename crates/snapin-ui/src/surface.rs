@@ -17,19 +17,28 @@ fn pack_rgb(src: [u8; 4]) -> u32 {
     0xFF00_0000 | (rgba & 0x0000_FF00) | ((rgba & 0x0000_00FF) << 16) | ((rgba >> 16) & 0x0000_00FF)
 }
 
-/// 将整幅位图重排到 ARGB 字缓冲。
-///
-/// 目标缓冲必须与位图像素数量一致；长度不符时按较短一方截断，不越界写入。
-pub fn swizzle_pixmap_full(pixmap: &Pixmap, words: &mut [u32]) {
+/// 保留 Alpha 的预乘 RGBA 打包，用于需要真实透明区域的截图层。
+#[inline]
+fn pack_rgba(src: [u8; 4]) -> u32 {
+    (u32::from(src[3]) << 24)
+        | (u32::from(src[0]) << 16)
+        | (u32::from(src[1]) << 8)
+        | u32::from(src[2])
+}
+
+/// 将整幅位图按保留 Alpha 的 ARGB 格式重排。
+pub fn swizzle_pixmap_full_alpha(pixmap: &Pixmap, words: &mut [u32]) {
     for (dest, src) in words.iter_mut().zip(pixmap.data().as_chunks::<4>().0) {
-        *dest = pack_rgb(*src);
+        *dest = pack_rgba(*src);
     }
 }
 
-/// 将位图中指定像素区域重排到 ARGB 字缓冲，区域按位图边界裁剪。
-///
-/// 增量重绘路径只更新光标覆盖层覆盖的局部区域，避免每帧对整屏数百万像素做字节重排。
-pub fn swizzle_pixmap_region(pixmap: &Pixmap, words: &mut [u32], region: (u32, u32, u32, u32)) {
+/// 将指定区域按保留 Alpha 的 ARGB 格式重排。
+pub fn swizzle_pixmap_region_alpha(
+    pixmap: &Pixmap,
+    words: &mut [u32],
+    region: (u32, u32, u32, u32),
+) {
     let width = pixmap.width();
     let height = pixmap.height();
     let (rx, ry, rw, rh) = region;
@@ -41,7 +50,6 @@ pub fn swizzle_pixmap_region(pixmap: &Pixmap, words: &mut [u32], region: (u32, u
     if rw == 0 || rh == 0 {
         return;
     }
-
     let stride = width as usize;
     let src = pixmap.data();
     for row in ry as usize..ry as usize + rh {
@@ -53,9 +61,40 @@ pub fn swizzle_pixmap_region(pixmap: &Pixmap, words: &mut [u32], region: (u32, u
             return;
         };
         for (dest, chunk) in dest_row.iter_mut().zip(src_row.as_chunks::<4>().0) {
-            *dest = pack_rgb(*chunk);
+            *dest = pack_rgba(*chunk);
         }
     }
+}
+
+/// 将位图以保留 Alpha 的格式复制到 softbuffer 表面。
+///
+/// # Errors
+///
+/// 表面尺寸与位图不一致或提交失败时返回错误。
+pub fn blit_pixmap_to_surface_alpha(
+    surface: &mut softbuffer::Surface<Arc<Window>, Arc<Window>>,
+    pixmap: &Pixmap,
+) -> Result<(), UiError> {
+    let mut buffer = surface.buffer_mut().map_err(|error| UiError::Softbuffer {
+        message: format!("获取透明绘图表面缓冲区失败: {error}"),
+    })?;
+    let src_chunks = pixmap.data().as_chunks::<4>().0;
+    if src_chunks.len() != buffer.len() {
+        return Err(UiError::Render {
+            message: format!(
+                "透明绘图表面容量与源位图不匹配，缓冲区: {}，源位图: {}",
+                buffer.len(),
+                src_chunks.len()
+            ),
+        });
+    }
+    for (dest, src) in buffer.iter_mut().zip(src_chunks) {
+        *dest = pack_rgba(*src);
+    }
+    buffer.present().map_err(|error| UiError::Softbuffer {
+        message: format!("透明帧缓冲提交显示失败: {error}"),
+    })?;
+    Ok(())
 }
 
 /// 将 ARGB 字缓冲整体提交到 softbuffer 表面并呈现。
@@ -133,6 +172,15 @@ mod tests {
 
     /// 区域重排必须与整屏重排逐像素一致（含边界裁剪）
     #[test]
+    fn test_alpha_swizzle_preserves_transparent_pixels() {
+        let mut pixmap = Pixmap::new(1, 1).expect("测试位图分配必须成功");
+        pixmap.data_mut().copy_from_slice(&[10, 20, 30, 40]);
+        let mut words = [0_u32; 1];
+        swizzle_pixmap_full_alpha(&pixmap, &mut words);
+        assert_eq!(words[0], 0x280A_141E);
+    }
+
+    #[test]
     fn test_swizzle_region_matches_full() {
         let mut pixmap = Pixmap::new(8, 6).expect("测试位图分配必须成功");
         pixmap.fill(Color::from_rgba8(10, 20, 30, 255));
@@ -151,10 +199,10 @@ mod tests {
         }
 
         let mut full = vec![0u32; 8 * 6];
-        swizzle_pixmap_full(&pixmap, &mut full);
+        swizzle_pixmap_full_alpha(&pixmap, &mut full);
 
         let mut partial = vec![0u32; 8 * 6];
-        swizzle_pixmap_region(&pixmap, &mut partial, (3, 2, 4, 3));
+        swizzle_pixmap_region_alpha(&pixmap, &mut partial, (3, 2, 4, 3));
         // 未覆盖区域保持初始值
         assert_eq!(partial[0], 0);
         // 覆盖区域与整屏结果一致
@@ -167,7 +215,7 @@ mod tests {
 
         // 区域越界时必须安全裁剪且不越界写入
         let mut clamped = vec![0u32; 8 * 6];
-        swizzle_pixmap_region(&pixmap, &mut clamped, (6, 5, 100, 100));
+        swizzle_pixmap_region_alpha(&pixmap, &mut clamped, (6, 5, 100, 100));
         assert_eq!(clamped[5 * 8 + 6], full[5 * 8 + 6]);
         assert_eq!(clamped[5 * 8 + 7], full[5 * 8 + 7]);
     }

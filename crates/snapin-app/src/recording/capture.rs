@@ -1,15 +1,16 @@
 //! xcap 原生帧采集、选区裁剪与流式编码循环。
 
-use super::{create_encoder, EncoderDimensions, RecordingControl};
+use super::RecordingControl;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use super::{create_encoder, EncoderDimensions};
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 use image::RgbaImage;
 use snapin_ports::{RecordingEvent, RecordingEventSink, RecordingOptions};
-#[cfg(target_os = "linux")]
-use snapin_runtime::TaskRuntime;
 use std::path::PathBuf;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-#[cfg(target_os = "linux")]
-use std::sync::Mutex;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::time::{Duration, Instant};
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use xcap::Monitor;
@@ -32,6 +33,7 @@ pub(super) struct CaptureRequest {
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 const STOP_DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
 /// 进度事件最小推送间隔，兼顾界面秒表流畅度与事件循环负载。
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Windows 与 macOS 原生帧流录制循环；函数返回时采集器和编码器均已释放。
@@ -151,157 +153,6 @@ pub(super) fn capture_native_and_encode(request: CaptureRequest) -> Result<PathB
     Ok(path)
 }
 
-/// Linux 跨桌面逐帧录制循环。
-///
-/// Linux 的 xcap 录像后端会引入 PipeWire 系统开发包，破坏现有零系统头文件构建约束。
-/// 因此这里复用项目已经具备的 GNOME 扩展与 XDG Portal 抓屏通道，在目标帧率节拍上
-/// 逐帧获取全屏快照，再交给同一编码器。该路径的帧率和延迟弱于原生视频流，但能覆盖
-/// X11、Wayland 以及两者各自的权限模型，并保持构建依赖可控。
-#[cfg(target_os = "linux")]
-pub(super) async fn capture_linux_and_encode(
-    request: CaptureRequest,
-    runtime: TaskRuntime,
-) -> Result<PathBuf, String> {
-    let CaptureRequest {
-        options,
-        file,
-        path,
-        sink,
-        control,
-    } = request;
-    let encoder = runtime
-        .run_blocking_detached(move || {
-            create_encoder(
-                options.format,
-                file,
-                EncoderDimensions {
-                    width: options.region.width,
-                    height: options.region.height,
-                    fps: options.fps,
-                },
-            )
-        })
-        .await
-        .map_err(|error| format!("初始化录屏编码器失败: {error}"))??;
-    let encoder = Arc::new(Mutex::new(Some(encoder)));
-    sink(RecordingEvent::Started);
-    emit_degradation_warnings(options, &sink);
-
-    let frame_interval = Duration::from_secs_f64(1.0 / f64::from(options.fps.max(1)));
-    let nominal_frame_ms = (1000_u32 / options.fps.max(1)).max(1);
-    let mut next_frame_at = Instant::now();
-    let mut last_progress_at = Instant::now();
-    let mut frame_count = 0_u64;
-    let mut result = Ok(());
-
-    loop {
-        if control.cancelled.load(Ordering::Acquire)
-            || control.stop_requested.load(Ordering::Acquire)
-        {
-            break;
-        }
-        let now = Instant::now();
-        if now < next_frame_at {
-            tokio::time::sleep(next_frame_at.duration_since(now)).await;
-            continue;
-        }
-        next_frame_at = now + frame_interval;
-        if control.paused.load(Ordering::Acquire) {
-            continue;
-        }
-
-        let snapshot = match tokio::time::timeout(
-            Duration::from_secs(15),
-            snapin_platform::capture_fullscreen_snapshot_excluding_window("Snapin"),
-        )
-        .await
-        {
-            Ok(Ok(snapshot)) => snapshot,
-            Ok(Err(error)) => {
-                result = Err(format!("Linux 屏幕帧捕获失败: {error}"));
-                break;
-            }
-            Err(_) => {
-                result = Err("Linux 屏幕帧捕获超时（15 秒）".to_string());
-                break;
-            }
-        };
-        let cropped = match crop_frame(CropRequest {
-            raw: snapshot.as_raw(),
-            frame_size: (snapshot.width(), snapshot.height()),
-            origin: (options.region.x, options.region.y),
-            size: (options.region.width, options.region.height),
-        }) {
-            Ok(cropped) => cropped,
-            Err(message) => {
-                result = Err(message);
-                break;
-            }
-        };
-        let encode_target = Arc::clone(&encoder);
-        let overlay_control = control.clone();
-        if let Err(message) = runtime
-            .run_blocking_detached(move || {
-                let mut cropped = cropped;
-                apply_overlay(&mut cropped, &overlay_control);
-                let mut guard = encode_target
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                guard
-                    .as_mut()
-                    .ok_or_else(|| "录屏编码器已经关闭".to_string())?
-                    .write_frame(&cropped, nominal_frame_ms)
-            })
-            .await
-            .map_err(|error| format!("录屏编码任务异常: {error}"))
-            .and_then(|result| result)
-        {
-            result = Err(message);
-            break;
-        }
-        frame_count = frame_count.saturating_add(1);
-        if now.duration_since(last_progress_at) >= PROGRESS_INTERVAL {
-            sink(RecordingEvent::Progress {
-                elapsed: Duration::from_millis(
-                    frame_count.saturating_mul(u64::from(nominal_frame_ms)),
-                ),
-                frames: frame_count,
-            });
-            last_progress_at = now;
-        }
-    }
-
-    if control.cancelled.load(Ordering::Acquire) {
-        drop(encoder);
-        remove_partial_file(&path);
-        return Ok(path);
-    }
-    if let Err(message) = result {
-        drop(encoder);
-        remove_partial_file(&path);
-        return Err(message);
-    }
-    if frame_count == 0 {
-        drop(encoder);
-        remove_partial_file(&path);
-        return Err("没有采集到任何视频帧".to_string());
-    }
-    let finish_encoder = Arc::clone(&encoder);
-    runtime
-        .run_blocking_detached(move || {
-            finish_encoder
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .take()
-                .ok_or_else(|| "录屏编码器已经关闭".to_string())?
-                .finish()
-        })
-        .await
-        .map_err(|error| format!("录屏编码收尾任务异常: {error}"))?
-        .inspect_err(|_| remove_partial_file(&path))?;
-    Ok(path)
-}
-
 /// 录制目标显示器及其虚拟桌面左上角原点。
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 struct MonitorTarget {
@@ -418,6 +269,7 @@ fn region_in_monitor(
 }
 
 /// 单帧裁剪参数。
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 struct CropRequest<'a> {
     raw: &'a [u8],
     frame_size: (u32, u32),
@@ -426,6 +278,7 @@ struct CropRequest<'a> {
 }
 
 /// 从整屏帧中裁剪 RGBA 选区，预分配目标缓冲区并逐行复制。
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 fn crop_frame(request: CropRequest<'_>) -> Result<RgbaImage, String> {
     let CropRequest {
         raw,
@@ -477,6 +330,7 @@ fn drain_stopped_frames(receiver: &std::sync::mpsc::Receiver<xcap::Frame>) {
 }
 
 /// 将 UI 标注透明层叠加到当前采集帧。
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 fn apply_overlay(frame: &mut RgbaImage, control: &RecordingControl) {
     let overlay = control
         .overlay
@@ -501,7 +355,7 @@ pub(super) fn remove_partial_file(path: &std::path::Path) {
 }
 
 /// 明确告知用户当前原生采集通道的能力降级，避免开关看似生效但实际静默无效。
-fn emit_degradation_warnings(options: RecordingOptions, sink: &RecordingEventSink) {
+pub(super) fn emit_degradation_warnings(options: RecordingOptions, sink: &RecordingEventSink) {
     if options.include_system_audio {
         sink(RecordingEvent::Warning {
             message: "当前系统声音采集尚未接入，本次将录制无声视频".to_string(),

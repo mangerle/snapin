@@ -37,7 +37,10 @@ pub use error::PlatformError;
 pub use window::WindowRect;
 
 #[cfg(target_os = "linux")]
-pub use extension_client::{capture_fullscreen_extension, list_windows, place_paster_window};
+pub use extension_client::{
+    capture_fullscreen_extension, list_windows, place_paster_window, start_recording_stream,
+    stop_recording_stream,
+};
 
 pub use hotkey_manager::{
     hotkey_to_gnome_accelerator, sync_global_hotkeys, sync_hotkeys_to_gnome, HotkeyAction,

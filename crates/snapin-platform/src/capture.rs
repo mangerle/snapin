@@ -254,12 +254,18 @@ fn capture_xcap_blocking() -> Result<RgbaImage, PlatformError> {
         });
     }
     if monitors.len() == 1 {
+        #[cfg(target_os = "windows")]
         let mut image = capture_single_monitor(&monitors[0])?;
+        #[cfg(not(target_os = "windows"))]
+        let image = capture_single_monitor(&monitors[0])?;
         #[cfg(target_os = "windows")]
         normalize_windows_capture_alpha(&mut image);
         return Ok(image);
     }
+    #[cfg(target_os = "windows")]
     let mut image = capture_monitor_desktop(&monitors)?;
+    #[cfg(not(target_os = "windows"))]
+    let image = capture_monitor_desktop(&monitors)?;
     #[cfg(target_os = "windows")]
     normalize_windows_capture_alpha(&mut image);
     Ok(image)

@@ -29,6 +29,29 @@ impl<'a> SnipperCanvas<'a> {
         }
     }
 
+    /// 将选区内部清为透明，让录制流直接看到合成器下方的实时桌面。
+    pub(super) fn clear_selection_alpha(
+        &self,
+        pixmap: &mut PixmapMut,
+        rect: &Rect,
+        canvas: CanvasSize,
+    ) {
+        let (px, py, pw, ph) = rect.to_pixel_bounds(canvas.width, canvas.height);
+        if pw == 0 || ph == 0 {
+            return;
+        }
+        let stride = canvas.width as usize * 4;
+        let row_bytes = pw as usize * 4;
+        let data = pixmap.data_mut();
+        for row in 0..ph as usize {
+            let start = (py as usize + row) * stride + px as usize * 4;
+            let Some(slice) = data.get_mut(start..start + row_bytes) else {
+                return;
+            };
+            slice.fill(0);
+        }
+    }
+
     /// 绘制窗口截图悬停高亮：只画主题色边框，不显示缩放锚点
     pub(super) fn render_window_hover_border(&self, pixmap: &mut PixmapMut, rect: &Rect) {
         let Some(skia_rect) = SkiaRect::from_xywh(rect.x, rect.y, rect.width, rect.height) else {

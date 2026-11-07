@@ -18,14 +18,16 @@
 
 mod capture;
 mod encoder;
+#[cfg(target_os = "linux")]
+mod screencast;
 
 use crate::config::{config_snapshot, SharedConfig};
-#[cfg(target_os = "linux")]
-use capture::capture_linux_and_encode;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use capture::capture_native_and_encode;
 use capture::CaptureRequest;
 use encoder::{open_encoder, EncoderInit, FrameEncoder};
+#[cfg(target_os = "linux")]
+use screencast::capture_screencast_and_encode;
 use snapin_ports::{
     PortError, PortErrorKind, RecordingEvent, RecordingEventSink, RecordingFormat, RecordingHandle,
     RecordingOptions, ScreenRecorder,
@@ -109,7 +111,7 @@ impl ScreenRecorder for RecordingService {
                         .await
                         .map_err(|error| format!("录屏后台任务异常: {error}"))?;
                     #[cfg(target_os = "linux")]
-                    let result = capture_linux_and_encode(request, runtime.clone()).await;
+                    let result = capture_screencast_and_encode(request, runtime.clone()).await;
                     if result.is_err() {
                         capture::remove_partial_file(&path);
                     }

@@ -180,6 +180,7 @@ mod tests {
     fn test_embedded_extension_contract_uses_stable_uuid_and_exclusion_method() {
         assert!(EXT_METADATA.contains("\"uuid\": \"snapin@wangle\""));
         assert!(EXT_JAVASCRIPT.contains("CaptureFullscreenExcludingTitle"));
+        assert!(EXT_JAVASCRIPT.contains("StartRecordingStream"));
     }
 
     #[test]

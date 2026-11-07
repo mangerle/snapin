@@ -109,6 +109,7 @@ fn create_overlay_window(
         .with_decorations(false)
         .with_window_level(WindowLevel::AlwaysOnTop)
         .with_content_protected(true)
+        .with_transparent(true)
         .with_fullscreen(Some(Fullscreen::Borderless(None)))
         .with_inner_size(PhysicalSize::new(screen_w, screen_h));
     let window = window_target
