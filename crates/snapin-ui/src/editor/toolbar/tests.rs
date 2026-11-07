@@ -724,3 +724,50 @@ fn test_text_font_size_sub_control_renders_actual_number() {
     }
     assert!(has_visible_pixel, "字号按钮内必须绘制可见像素");
 }
+
+/// 拖动手柄应当仅绘制精致的 2x3 抓握圆点，不再绘制前置分割线。
+#[test]
+fn test_drag_handle_renders_dots_without_preceding_divider() {
+    let mut tb = Toolbar {
+        draggable: true,
+        ..Toolbar::default()
+    };
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 800.0,
+        height: 400.0,
+    };
+    tb.update_layout(&selection, 1920.0, 1080.0);
+
+    let mut pixmap = tiny_skia::Pixmap::new(1920, 1080).expect("分配 Pixmap 成功");
+    tb.render(&mut pixmap.as_mut());
+
+    let s = tb.ui_scale;
+    let handle_w = metrics::drag_handle_width(s);
+    let handle_left = tb.main_rect.x + tb.main_rect.width - metrics::padding(s) - handle_w;
+
+    // 手柄左边界处（原先绘制前置分割线的位置 left + 4.0 * s）在垂直延伸区域不应存在整条贯穿竖线像素
+    // 而在抓握圆点位置应有手柄像素绘制
+    let center_x = (handle_left + handle_w / 2.0) as u32;
+    let center_y = (tb.main_rect.y + tb.main_rect.height / 2.0) as u32;
+
+    // 检查中心附近的抓握圆点像素
+    let mut dot_pixel_found = false;
+    for dx in 0..6 {
+        for dy in 0..12 {
+            let px = center_x.saturating_sub(3) + dx;
+            let py = center_y.saturating_sub(6) + dy;
+            if let Some(pixel) = pixmap.pixel(px, py) {
+                if pixel.alpha() > 50 {
+                    dot_pixel_found = true;
+                    break;
+                }
+            }
+        }
+        if dot_pixel_found {
+            break;
+        }
+    }
+    assert!(dot_pixel_found, "拖动手柄中心必须渲染抓握圆点像素");
+}

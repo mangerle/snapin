@@ -8,17 +8,11 @@ use super::widgets::{fill_button_highlight, render_active_bottom_bar, render_div
 use crate::geometry::Rect;
 use tiny_skia::{Color, PathBuilder, PixmapMut, Transform};
 
-/// 绘制主栏右端的拖动手柄：前置分隔线 + 2x3 抓握圆点
+/// 绘制主栏右端的拖动手柄：2x3 抓握圆点
 pub(super) fn render_drag_handle(pixmap: &mut PixmapMut, main_rect: &Rect, s: f32) {
-    let left = main_rect.x + main_rect.width - padding(s) - drag_handle_width(s);
-    render_divider(
-        pixmap,
-        left + 4.0 * s,
-        main_rect.y + main_rect.height / 2.0,
-        s,
-    );
-
-    let center_x = left + 12.0 * s;
+    let handle_w = drag_handle_width(s);
+    let left = main_rect.x + main_rect.width - padding(s) - handle_w;
+    let center_x = left + handle_w / 2.0;
     let center_y = main_rect.y + main_rect.height / 2.0;
     let mut pb = PathBuilder::new();
     for col in [-1.0_f32, 1.0] {
