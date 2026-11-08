@@ -19,8 +19,8 @@ use crate::config::{config_snapshot, SharedConfig};
 use arc_swap::ArcSwap;
 use snapin_foundation::Rect;
 use snapin_platform::{
-    capture_fullscreen_snapshot, open_path_in_file_manager, open_url, read_clipboard_image,
-    read_clipboard_text, send_desktop_notification, write_image_to_clipboard,
+    capture_fullscreen_snapshot_excluding_window, open_path_in_file_manager, open_url,
+    read_clipboard_image, read_clipboard_text, send_desktop_notification, write_image_to_clipboard,
     write_text_to_clipboard,
 };
 use snapin_ports::{
@@ -38,7 +38,7 @@ use tokio::sync::mpsc::{self, error::TrySendError};
 /// 桌面写操作队列容量；按用户交互频率设置上限，满队列时快速失败。
 const DESKTOP_WRITE_QUEUE_CAPACITY: usize = 8;
 /// 隐藏截图覆盖层后等待窗口系统完成合成器更新的稳定时间。
-const LONG_CAPTURE_HIDE_SETTLE: Duration = Duration::from_millis(30);
+const LONG_CAPTURE_HIDE_SETTLE: Duration = Duration::from_millis(80);
 /// 模拟底层滚动后等待目标应用完成重绘的稳定时间。
 const LONG_CAPTURE_SCROLL_SETTLE: Duration = Duration::from_millis(80);
 
@@ -389,13 +389,17 @@ async fn capture_long_capture_frame_async(delta_y: f32) -> Result<image::RgbaIma
             )
         })?;
     tokio::time::sleep(LONG_CAPTURE_SCROLL_SETTLE).await;
-    capture_fullscreen_snapshot(false).await.map_err(|error| {
-        PortError::with_kind(
-            PortErrorKind::Unavailable,
-            "抓取长截图滚动帧",
-            error.to_string(),
-        )
-    })
+    // 即使 winit 的隐藏请求尚未被合成器完全应用，也要在抓帧瞬间由扩展临时隐藏
+    // Snapin actor，避免把透明覆盖层合成出的黑色区域写入长截图底图。
+    capture_fullscreen_snapshot_excluding_window("Snapin")
+        .await
+        .map_err(|error| {
+            PortError::with_kind(
+                PortErrorKind::Unavailable,
+                "抓取长截图滚动帧",
+                error.to_string(),
+            )
+        })
 }
 
 fn worker_start_error(operation: &str, error: snapin_runtime::TaskRuntimeError) -> PortError {

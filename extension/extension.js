@@ -153,6 +153,44 @@ export default class SnapinHelperExtension extends Extension {
     }
 
     /**
+     * 将键盘与滚轮焦点转移到指针下方的普通窗口。
+     *
+     * 长截图抓屏前 Snapin 覆盖层会隐藏，但 Wayland 不保证焦点立即回退到下方的
+     * 目标应用；若虚拟滚轮仍发往隐藏的覆盖层，页面就不会滚动。这里按 Mutter 的
+     * 窗口堆叠顺序从顶层向下查找指针命中的非 Snapin 窗口并显式聚焦。
+     * @returns {boolean} 是否找到并尝试聚焦目标窗口
+     */
+    _focusWindowAtPointer() {
+        try {
+            const [pointerX, pointerY] = global.get_pointer();
+            const workspace = global.workspace_manager.get_active_workspace();
+            const actors = global.get_window_actors();
+            for (let index = actors.length - 1; index >= 0; index--) {
+                const win = actors[index].get_meta_window();
+                if (!win || win.minimized) continue;
+                if (!win.located_on_workspace(workspace) && !win.is_on_all_workspaces()) continue;
+                const title = win.get_title() || '';
+                const wmClass = (win.get_wm_class() || '').toLowerCase();
+                if (title === 'Snapin' || wmClass.includes('snapin')) continue;
+                const rect = win.get_frame_rect();
+                if (pointerX < rect.x || pointerX >= rect.x + rect.width
+                    || pointerY < rect.y || pointerY >= rect.y + rect.height) {
+                    continue;
+                }
+                if (typeof global.display.focus_window === 'function') {
+                    global.display.focus_window(win);
+                } else {
+                    win.activate(global.get_current_time());
+                }
+                return true;
+            }
+        } catch (e) {
+            console.debug('Snapin 聚焦滚轮目标窗口失败:', e.message);
+        }
+        return false;
+    }
+
+    /**
      * 读取或生成扩展能力令牌。
      *
      * 令牌位于 0700 运行时目录且文件权限为 0600，宿主沙箱内的普通应用无法读取，
@@ -473,6 +511,7 @@ export default class SnapinHelperExtension extends Extension {
             return false;
 
         try {
+            this._focusWindowAtPointer();
             const direction = deltaY > 0
                 ? Clutter.ScrollDirection.UP
                 : Clutter.ScrollDirection.DOWN;
