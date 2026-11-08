@@ -23,15 +23,15 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
     };
 
     if let Some(session) = state.long_capture.as_mut() {
-        if let SelectionState::Locked { rect, .. } = state.viewport.selection {
-            let (cx, cy) = (
-                state.viewport.cursor_pos.0 as f32,
-                state.viewport.cursor_pos.1 as f32,
-            );
-            if !rect.contains(cx, cy) {
-                return false;
-            }
-            if session.is_editing {
+        if session.is_editing {
+            if let SelectionState::Locked { rect, .. } = state.viewport.selection {
+                let (cx, cy) = (
+                    state.viewport.cursor_pos.0 as f32,
+                    state.viewport.cursor_pos.1 as f32,
+                );
+                if !rect.contains(cx, cy) {
+                    return false;
+                }
                 let viewport_span = match session.direction {
                     StitchDirection::Vertical => rect.height,
                     StitchDirection::Horizontal => rect.width,
@@ -39,12 +39,13 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
                 session.scroll_viewport(delta_y * 48.0, viewport_span);
                 return true;
             }
-            if session.is_capturing {
-                // 真正的原生滚动与覆盖层隐藏由事件分发器协调，抓屏完成后才投喂新帧。
-                // 反向自动裁剪统一交由拼接器在新帧位移确认后执行，避免滚轮事件阶段
-                // 与帧分析阶段重复裁剪同一位移。
-                return true;
-            }
+        }
+        if session.is_capturing {
+            // 捕获阶段不能在选区命中后直接返回。用户通常刚点击上方控制栏，光标仍停在
+            // 选区外；只要长截图模式仍处于捕获态，任何滚轮事件都应交给事件分发器启动
+            // 底层滚动抓屏，否则会出现“点击长截图后滚轮完全无反应”。
+            // 反向自动裁剪统一交由拼接器在新帧位移确认后执行，避免重复裁剪。
+            return true;
         }
     }
 

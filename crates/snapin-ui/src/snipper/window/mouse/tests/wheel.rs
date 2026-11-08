@@ -232,9 +232,9 @@ fn test_magnifier_wheel_outside_image_adjusts_border_width() {
     }
 }
 
-/// 长截图录制只响应当前选区内部的滚轮，避免隐藏覆盖层后在选区外误滚动。
+/// 长截图捕获阶段不能要求光标仍在选区内，否则点击上方控制栏后滚轮会被忽略。
 #[test]
-fn test_long_capture_wheel_requires_cursor_inside_selection() {
+fn test_long_capture_wheel_works_after_clicking_toolbar() {
     let mut state = SnipperState::new();
     state.viewport.selection = SelectionState::Locked {
         rect: Rect {
@@ -248,7 +248,7 @@ fn test_long_capture_wheel_requires_cursor_inside_selection() {
     state.long_capture = Some(LongCaptureSession::new(RgbaImage::new(400, 300)));
 
     state.viewport.cursor_pos = (50.0, 50.0);
-    assert!(!handle_mouse_wheel(
+    assert!(handle_mouse_wheel(
         &mut state,
         MouseScrollDelta::LineDelta(0.0, -1.0)
     ));

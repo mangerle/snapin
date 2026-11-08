@@ -158,6 +158,7 @@ fn start_long_capture_frame(
         return;
     };
 
+    tracing::debug!("启动长截图滚动抓屏，请求序号: {request_id}，滚动增量: {delta_y:.3}");
     context.window.set_visible(false);
     let screen_capture_events = context.state.jobs.screen_capture_events.clone();
     let desktop = context.state.session.desktop.clone();
