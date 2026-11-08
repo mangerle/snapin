@@ -5,6 +5,7 @@ mod error;
 mod layout;
 mod measure;
 mod raster;
+pub mod stitching;
 pub mod text;
 
 pub use beautify::render_beautified;
@@ -12,6 +13,9 @@ pub use error::RenderError;
 pub use layout::CenteredTextOptions;
 pub use measure::{SelectionRect, TextInputMetrics};
 pub use snapin_foundation::beautify::{BeautifyBackground, BeautifyOptions, SocialSize};
+pub use stitching::{
+    LongCaptureStitcher, MatchResult, StitchDirection, StitchOptions, ViewportWindow,
+};
 pub use text::{
     with_thread_local_text_renderer, StyledTextDrawOptions, TextBoxOptions, TextDrawOptions,
     TextMeasureOptions, TextRenderer, TextStyleOptions,

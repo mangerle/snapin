@@ -455,3 +455,35 @@ pub(super) fn render_icon_screen_recording(pixmap: &mut PixmapMut, painter: &Ico
         );
     }
 }
+
+/// 图标: 长截图（纵向卷轴与向下滚动箭头）
+pub(super) fn render_icon_long_capture(pixmap: &mut PixmapMut, painter: &IconPainter) {
+    let (cx, cy, s) = (painter.center_x, painter.center_y, painter.scale);
+    let (paint, stroke) = (&painter.paint, &painter.stroke);
+    let mut pb = PathBuilder::new();
+    // 1. 竖向长页外框（带微圆角）
+    add_round_rect(
+        &mut pb,
+        RoundRect {
+            x: cx - 5.0 * s,
+            y: cy - 7.0 * s,
+            width: 10.0 * s,
+            height: 14.0 * s,
+            radius: 1.5 * s,
+        },
+    );
+    // 2. 页面内部内容骨架线
+    pb.move_to(cx - 3.0 * s, cy - 4.0 * s);
+    pb.line_to(cx + 3.0 * s, cy - 4.0 * s);
+    pb.move_to(cx - 3.0 * s, cy - 1.5 * s);
+    pb.line_to(cx + 1.5 * s, cy - 1.5 * s);
+    // 3. 底部向下滚动箭头指示器
+    pb.move_to(cx, cy + 1.0 * s);
+    pb.line_to(cx, cy + 4.8 * s);
+    pb.move_to(cx - 1.8 * s, cy + 3.0 * s);
+    pb.line_to(cx, cy + 4.8 * s);
+    pb.line_to(cx + 1.8 * s, cy + 3.0 * s);
+    if let Some(path) = pb.finish() {
+        pixmap.stroke_path(&path, paint, stroke, Transform::identity(), None);
+    }
+}

@@ -10,6 +10,7 @@ use crate::ports::{
 use crate::snipper::window::jobs::SnipperJobKind;
 use crate::snipper::SnipperLaunch;
 use async_trait::async_trait;
+use image::RgbaImage;
 use snapin_config::config::Config;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
@@ -40,6 +41,13 @@ pub enum PasterAppEvent {
         kind: SnipperJobKind,
         /// 任务结果
         outcome: MediaJobOutcome,
+    },
+    /// 截图覆盖层异步抓屏完成；请求标识用于丢弃会话重建后的陈旧结果。
+    SnipperScreenCaptured {
+        /// 截图会话分配的抓屏请求标识
+        request_id: u64,
+        /// 完整屏幕帧或可展示的中文错误
+        result: Result<RgbaImage, PortError>,
     },
     /// 批量切换当前分组内所有贴图的显隐状态
     ToggleVisibility,

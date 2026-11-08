@@ -18,7 +18,7 @@ use super::types::{SnipMode, SnipperLaunch, SnipperOutcome, SnipperRuntime};
 use crate::error::UiError;
 use crate::ports::{
     ClipboardEventSink, ClipboardJobId, ClipboardResult, PortError, RecordingEvent,
-    RecordingEventSink,
+    RecordingEventSink, ScreenCaptureEventSink,
 };
 use crate::snipper::selection::{Rect, SelectionState};
 use image::RgbaImage;
@@ -38,6 +38,8 @@ pub struct SnipperViewInit {
     pub recording_sink: RecordingEventSink,
     /// 剪贴板任务完成回传。
     pub clipboard_events: ClipboardEventSink,
+    /// 长截图抓屏完成回传。
+    pub screen_capture_events: ScreenCaptureEventSink,
 }
 
 /// 全屏截图覆盖层视图。
@@ -60,6 +62,7 @@ impl SnipperView {
             job_sink,
             recording_sink,
             clipboard_events,
+            screen_capture_events,
         } = init;
         let SnipperLaunch {
             bg_image,
@@ -85,6 +88,7 @@ impl SnipperView {
             job_sink,
             recording_sink,
             clipboard_events,
+            screen_capture_events,
         });
         super::apply_ui_scale(&window, &mut state, screen_w, screen_h);
 
@@ -133,6 +137,7 @@ struct SnipperStateInit {
     job_sink: SnipperJobSink,
     recording_sink: RecordingEventSink,
     clipboard_events: ClipboardEventSink,
+    screen_capture_events: ScreenCaptureEventSink,
 }
 
 /// 根据启动参数构建截图交互状态。
@@ -145,6 +150,7 @@ fn build_initial_state(init: SnipperStateInit) -> SnipperState {
         job_sink,
         recording_sink,
         clipboard_events,
+        screen_capture_events,
     } = init;
     let mut state = SnipperState::from_config(runtime.config, mode, runtime.desktop);
     state.session.post_action = runtime.post_action;
@@ -171,6 +177,7 @@ fn build_initial_state(init: SnipperStateInit) -> SnipperState {
     state.session.recording_events = recording_sink;
     state.jobs.runtime = Some(Arc::new(SnipperJobRuntime::new(runtime.media, job_sink)));
     state.jobs.clipboard_events = clipboard_events;
+    state.jobs.screen_capture_events = screen_capture_events;
     state
 }
 
@@ -254,6 +261,44 @@ impl SnipperView {
             self.state
                 .set_status_message(snapin_foundation::i18n::tr(&message).to_string());
         }
+    }
+
+    /// 处理异步长截图抓屏结果，恢复覆盖层并把画面投喂给拼接器。
+    ///
+    /// 抓屏期间覆盖层被隐藏以确保捕获到底层应用；无论成功、失败还是结果已过期，
+    /// 都必须先恢复窗口，避免因一次抓屏异常让整个截图界面永久不可见。
+    pub fn handle_screen_capture_finished(
+        &mut self,
+        request_id: u64,
+        result: Result<RgbaImage, PortError>,
+    ) {
+        self.window.set_visible(true);
+        self.window.focus_window();
+        if !self.state.jobs.finish_screen_capture(request_id) {
+            return;
+        }
+        match result {
+            Ok(frame) => {
+                self.state.apply_long_capture_frame(&frame);
+                if self
+                    .state
+                    .long_capture
+                    .as_ref()
+                    .is_some_and(|session| session.is_capturing)
+                {
+                    self.bg_image = frame;
+                    if let Err(error) = self.presenter.replace_background(&self.bg_image, true) {
+                        tracing::warn!("更新长截图实时底图失败: {error}");
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::warn!("长截图抓屏失败，请求序号: {request_id}，原因: {error}");
+                self.state
+                    .set_status_message(format!("长截图抓屏失败: {error}"));
+            }
+        }
+        self.window.request_redraw();
     }
 
     /// 取出会话结果；存在结果时会取消仍在执行的后台任务。

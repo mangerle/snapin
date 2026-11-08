@@ -89,6 +89,7 @@ fn render_action_icon(pixmap: &mut PixmapMut, action: ToolbarAction, painter: &I
         ToolbarAction::ClearAnnotations => actions::render_icon_close(pixmap, painter),
         ToolbarAction::Translate => actions::render_icon_translate(pixmap, painter),
         ToolbarAction::ScreenRecording => actions::render_icon_screen_recording(pixmap, painter),
+        ToolbarAction::LongCapture => actions::render_icon_long_capture(pixmap, painter),
         ToolbarAction::MouseThrough => actions::render_icon_mouse_through(pixmap, painter),
     }
 }

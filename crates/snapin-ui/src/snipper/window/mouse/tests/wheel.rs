@@ -3,6 +3,7 @@
 use super::super::*;
 use crate::editor::toolbar::items::StrokeWidthLevel;
 use crate::editor::toolbar::SubControl;
+use crate::snipper::window::state::LongCaptureSession;
 use snapin_annotation::action::AnnotationShape;
 use snapin_annotation::shapes::{MagnifierAction, MagnifierConnector, MagnifierShape, RectAction};
 use snapin_annotation::{ColorRgba, LineStyle};
@@ -229,6 +230,63 @@ fn test_magnifier_wheel_outside_image_adjusts_border_width() {
         }
         other => panic!("应为放大镜图元，实际: {other:?}"),
     }
+}
+
+/// 长截图录制只响应当前选区内部的滚轮，避免隐藏覆盖层后在选区外误滚动。
+#[test]
+fn test_long_capture_wheel_requires_cursor_inside_selection() {
+    let mut state = SnipperState::new();
+    state.viewport.selection = SelectionState::Locked {
+        rect: Rect {
+            x: 100.0,
+            y: 100.0,
+            width: 400.0,
+            height: 300.0,
+        },
+        active_drag: None,
+    };
+    state.long_capture = Some(LongCaptureSession::new(RgbaImage::new(400, 300)));
+
+    state.viewport.cursor_pos = (50.0, 50.0);
+    assert!(!handle_mouse_wheel(
+        &mut state,
+        MouseScrollDelta::LineDelta(0.0, -1.0)
+    ));
+
+    state.viewport.cursor_pos = (200.0, 200.0);
+    assert!(handle_mouse_wheel(
+        &mut state,
+        MouseScrollDelta::LineDelta(0.0, -1.0)
+    ));
+}
+
+/// 反向滚轮不在事件阶段提前裁剪，等新帧位移确认后由拼接器统一执行。
+#[test]
+fn test_long_capture_reverse_wheel_does_not_double_crop() {
+    let mut state = SnipperState::new();
+    state.viewport.selection = SelectionState::Locked {
+        rect: Rect {
+            x: 100.0,
+            y: 100.0,
+            width: 400.0,
+            height: 300.0,
+        },
+        active_drag: None,
+    };
+    state.long_capture = Some(LongCaptureSession::new(RgbaImage::new(400, 300)));
+    state.viewport.cursor_pos = (200.0, 200.0);
+
+    assert!(handle_mouse_wheel(
+        &mut state,
+        MouseScrollDelta::LineDelta(0.0, 1.0)
+    ));
+    assert_eq!(
+        state
+            .long_capture
+            .as_ref()
+            .map(|session| session.stitcher.canvas().height()),
+        Some(300)
+    );
 }
 
 /// 选中已提交的文字标注后，滚轮必须能够直接调节该文字标注的字号。

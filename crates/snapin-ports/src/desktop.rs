@@ -3,9 +3,22 @@
 use super::clipboard::{
     ClipboardJobId, ClipboardPayload, ClipboardResult, ClipboardSink, ClipboardWrite,
 };
-use super::error::PortError;
+use super::error::{PortError, PortErrorKind};
+use image::RgbaImage;
 use snapin_foundation::Rect;
 use std::path::PathBuf;
+use std::sync::Arc;
+
+/// 单次长截图抓屏完成回调；结果只回传给发起请求的截图会话。
+pub type ScreenCaptureSink = Box<dyn FnOnce(Result<RgbaImage, PortError>) + Send>;
+
+/// 将异步抓屏结果安全投递回 GUI 事件循环的线程安全回调。
+pub type ScreenCaptureEventSink = Arc<dyn Fn(u64, Result<RgbaImage, PortError>) + Send + Sync>;
+
+/// 构造不执行任何动作的抓屏事件投递器，供无宿主测试和纯渲染场景使用。
+pub fn noop_screen_capture_event_sink() -> ScreenCaptureEventSink {
+    Arc::new(|_, _| {})
+}
 
 /// 桌面副作用端口。
 ///
@@ -53,6 +66,26 @@ pub trait DesktopPort: Send + Sync {
     /// UI 只描述发生了复制动作，通知开关与发送通道由应用层实现决定；
     /// 这样贴图窗口即可在保持纯表现层的同时保留原有通知行为。
     fn notify_copy(&self, body: &str);
+
+    /// 请求抓取一帧底层应用滚动后的屏幕画面。
+    ///
+    /// 实现方必须先让截图覆盖层退出合成，再模拟滚动并异步抓屏，最后通过 `sink`
+    /// 回传结果。该方法只负责提交任务，不得在 GUI 线程等待抓屏完成。
+    ///
+    /// # Errors
+    ///
+    /// 宿主不支持抓屏或后台任务队列无法接收请求时返回 [`PortError`]。
+    fn capture_long_capture_frame(
+        &self,
+        _delta_y: f32,
+        _sink: ScreenCaptureSink,
+    ) -> Result<(), PortError> {
+        Err(PortError::with_kind(
+            PortErrorKind::Unavailable,
+            "提交长截图抓屏任务",
+            "当前宿主未提供长截图抓屏能力",
+        ))
+    }
 }
 
 /// 工作区运行时状态。

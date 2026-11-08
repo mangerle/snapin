@@ -2,6 +2,7 @@
 
 mod editor;
 mod jobs;
+pub(crate) mod long_capture;
 mod ocr;
 mod phase;
 mod recording;
@@ -15,8 +16,9 @@ use crate::ports::{DesktopPort, JobCancel, JobId, NoopDesktop};
 use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::window_rect::WindowRect;
 use editor::SnipperEditor;
-use image::RgbaImage;
+use image::{GenericImageView, RgbaImage};
 use jobs::{PendingMediaJob, SnipperJobs};
+pub use long_capture::{LongCaptureAction, LongCaptureSession};
 use ocr::SnipperOcr;
 pub use phase::SnipperPhase;
 pub use recording::{
@@ -44,6 +46,8 @@ pub struct SnipperState {
     pub(crate) ocr: SnipperOcr,
     /// 选区屏幕录制会话。
     pub(crate) recording: Option<RecordingSession>,
+    /// 滚动拼接长截图会话状态（若激活）。
+    pub(crate) long_capture: Option<LongCaptureSession>,
 }
 
 impl SnipperState {
@@ -66,6 +70,7 @@ impl SnipperState {
             jobs: SnipperJobs::new(),
             ocr: SnipperOcr::default(),
             recording: None,
+            long_capture: None,
         }
     }
 
@@ -76,11 +81,12 @@ impl SnipperState {
         }
     }
 
-    /// 取消当前后台任务（若存在）。
+    /// 取消当前媒体任务与在途长截图抓屏请求（若存在）。
     pub fn cancel_pending_job(&mut self) {
         if let Some(pending) = self.jobs.pending_media.take() {
             (pending.cancel)();
         }
+        self.jobs.cancel_screen_capture();
     }
 
     /// 是否存在尚未完成的媒体任务。
@@ -156,6 +162,32 @@ impl SnipperState {
     /// 清除画布顶部提示信息。
     pub fn clear_status_message(&mut self) {
         self.session.status_message = None;
+    }
+
+    /// 将异步抓取的完整屏幕帧裁剪到当前选区，并投喂给长截图拼接器。
+    ///
+    /// 返回 `true` 表示位移估计达到置信阈值并成功把新内容拼入长图。抓屏回包可能晚于
+    /// 用户停止或关闭长截图，因此会话不存在或已停止时只安全丢弃，不影响普通截图流程。
+    pub(crate) fn apply_long_capture_frame(&mut self, full_frame: &RgbaImage) -> bool {
+        let SelectionState::Locked { rect, .. } = self.viewport.selection else {
+            return false;
+        };
+        let x = (rect.x.max(0.0) as u32).min(full_frame.width());
+        let y = (rect.y.max(0.0) as u32).min(full_frame.height());
+        let width = (rect.width as u32).min(full_frame.width().saturating_sub(x));
+        let height = (rect.height as u32).min(full_frame.height().saturating_sub(y));
+        if width == 0 || height == 0 {
+            return false;
+        }
+
+        let Some(session) = self.long_capture.as_mut() else {
+            return false;
+        };
+        if !session.is_capturing {
+            return false;
+        }
+        let selection_frame = full_frame.view(x, y, width, height).to_image();
+        session.feed_frame(&selection_frame)
     }
 
     /// 根据用户配置、触发模式与宿主端口构建初始状态。

@@ -5951,6 +5951,7 @@ dependencies = [
  "arboard",
  "arc-swap",
  "ashpd 0.13.13",
+ "core-graphics",
  "global-hotkey",
  "image",
  "ksni",
@@ -5989,6 +5990,7 @@ name = "snapin-render"
 version = "1.4.2"
 dependencies = [
  "cosmic-text",
+ "image",
  "serde",
  "snapin-foundation",
  "thiserror 1.0.69",

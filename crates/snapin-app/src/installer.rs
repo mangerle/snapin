@@ -20,8 +20,11 @@ const EXT_ICON_SVG: &[u8] = include_bytes!("../../../assets/icons/snapin.svg");
 #[cfg(target_os = "linux")]
 const GNOME_EXTENSION_UUID: &str = "snapin@wangle";
 #[cfg(target_os = "linux")]
-const LEGACY_GNOME_EXTENSION_UUIDS: &[&str] =
-    &["snapin@wangle.local", "snapin-helper@wangle.local"];
+const LEGACY_GNOME_EXTENSION_UUIDS: &[&str] = &[
+    "snapin@wangle.local",
+    "snapin-helper@wangle.local",
+    "snapin-helper@wangle",
+];
 #[cfg(target_os = "linux")]
 const GNOME_EXTENSION_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(target_os = "linux")]
@@ -181,6 +184,7 @@ mod tests {
         assert!(EXT_METADATA.contains("\"uuid\": \"snapin@wangle\""));
         assert!(EXT_JAVASCRIPT.contains("CaptureFullscreenExcludingTitle"));
         assert!(EXT_JAVASCRIPT.contains("StartRecordingStream"));
+        assert!(EXT_JAVASCRIPT.contains("SimulateScroll"));
     }
 
     #[test]

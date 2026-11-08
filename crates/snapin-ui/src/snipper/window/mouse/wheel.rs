@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::editor::toolbar::{MosaicMode, SubControl};
+use snapin_render::stitching::StitchDirection;
 
 /// 处理截图会话中的鼠标滚轮事件 (连续动态调节当前标注与后续标注大小)
 pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> bool {
@@ -20,6 +21,32 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
     let Some(delta_y) = normalized_wheel_delta(delta) else {
         return false;
     };
+
+    if let Some(session) = state.long_capture.as_mut() {
+        if let SelectionState::Locked { rect, .. } = state.viewport.selection {
+            let (cx, cy) = (
+                state.viewport.cursor_pos.0 as f32,
+                state.viewport.cursor_pos.1 as f32,
+            );
+            if !rect.contains(cx, cy) {
+                return false;
+            }
+            if session.is_editing {
+                let viewport_span = match session.direction {
+                    StitchDirection::Vertical => rect.height,
+                    StitchDirection::Horizontal => rect.width,
+                };
+                session.scroll_viewport(delta_y * 48.0, viewport_span);
+                return true;
+            }
+            if session.is_capturing {
+                // 真正的原生滚动与覆盖层隐藏由事件分发器协调，抓屏完成后才投喂新帧。
+                // 反向自动裁剪统一交由拼接器在新帧位移确认后执行，避免滚轮事件阶段
+                // 与帧分析阶段重复裁剪同一位移。
+                return true;
+            }
+        }
+    }
 
     if state.editor.annotation.toolbar.active_tool == Some(Tool::Magnifier)
         && !state.editor.annotation.toolbar.contains_point(
@@ -82,7 +109,7 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
 }
 
 /// 将平台滚轮事件归一化为可处理增量，过滤零值、非有限值和抖动。
-fn normalized_wheel_delta(delta: MouseScrollDelta) -> Option<f32> {
+pub(crate) fn normalized_wheel_delta(delta: MouseScrollDelta) -> Option<f32> {
     let delta_y = match delta {
         MouseScrollDelta::LineDelta(_, y) => y,
         MouseScrollDelta::PixelDelta(position) => position.y as f32 / 20.0,

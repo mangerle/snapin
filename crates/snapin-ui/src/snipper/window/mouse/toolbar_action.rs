@@ -4,9 +4,10 @@ use super::super::actions::{handle_action_copy, handle_action_pin, handle_action
 use super::super::events::{commit_active_text_input, SnipperState};
 use super::super::types::SnipperOutcome;
 use crate::editor::text_input::TextInputSession;
-use crate::editor::toolbar::ToolbarAction;
+use crate::editor::toolbar::{SubControl, ToolbarAction};
 use crate::snipper::selection::SelectionState;
 use image::RgbaImage;
+use snapin_annotation::action::AnnotationShape;
 
 /// 执行工具栏一次性动作；返回是否需要重绘。
 ///
@@ -63,6 +64,10 @@ pub fn dispatch_toolbar_action(
             super::super::actions::handle_action_start_recording(state, original_rgba);
             true
         }
+        ToolbarAction::LongCapture => {
+            super::super::actions::handle_action_long_capture(state, original_rgba);
+            true
+        }
         ToolbarAction::Close => {
             state.session.outcome = Some(SnipperOutcome::Cancelled);
             true
@@ -100,4 +105,52 @@ pub fn handle_text_tool_click(state: &mut SnipperState, cx: f32, cy: f32) -> boo
     }
     commit_active_text_input(state);
     false
+}
+
+/// 处理工具栏范围内的按下；无论是否命中控件都拦截穿透。
+pub(super) fn handle_toolbar_press(
+    state: &mut SnipperState,
+    cx: f32,
+    cy: f32,
+    original_rgba: &RgbaImage,
+) -> bool {
+    commit_active_text_input(state);
+    let hit = state.editor.annotation.toolbar.hit_test_main(cx, cy);
+    tracing::debug!(
+        "截图工具栏点击，坐标: ({cx:.1}, {cy:.1})，工具栏: ({:.1}, {:.1}) {:.1}x{:.1}，命中: {hit:?}",
+        state.editor.annotation.toolbar.main_rect.x,
+        state.editor.annotation.toolbar.main_rect.y,
+        state.editor.annotation.toolbar.main_rect.width,
+        state.editor.annotation.toolbar.main_rect.height,
+    );
+    let prev_tool = state.editor.annotation.toolbar.active_tool;
+    if state.editor.annotation.toolbar.begin_drag(cx, cy) {
+        crate::snipper::window::annotation_edit::clear(state);
+        return true;
+    }
+    if let Some(item) = state.editor.annotation.toolbar.handle_click(cx, cy) {
+        dispatch_toolbar_action(state, item, original_rgba);
+    }
+    if state.editor.annotation.toolbar.active_tool != prev_tool {
+        crate::snipper::window::annotation_edit::clear(state);
+    }
+    if let Some(index) = state
+        .editor
+        .selected_annotation
+        .map(crate::model::ShapeId::get)
+    {
+        if matches!(
+            state.editor.annotations.shape_at(index),
+            Some(AnnotationShape::Text(_) | AnnotationShape::Translation(_))
+        ) {
+            state
+                .editor
+                .annotations
+                .adjust_font_size_at(index, state.editor.annotation.toolbar.sub_options.font_size);
+        }
+    }
+    if state.editor.annotation.toolbar.focused_sub_control() == Some(SubControl::EffectStrength) {
+        crate::snipper::window::redaction::sync_redaction_style(state, SubControl::EffectStrength);
+    }
+    true
 }

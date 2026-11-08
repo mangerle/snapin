@@ -277,6 +277,21 @@ pub async fn list_windows() -> Result<Vec<WindowRect>, PlatformError> {
     parse_windows_json(&json)
 }
 
+/// 请求 GNOME 扩展通过 Clutter 虚拟指针向当前焦点应用注入垂直滚轮事件。
+///
+/// 该通路不依赖 `/dev/uinput` 写权限或 `ydotool` 守护进程，适用于 GNOME Wayland。
+/// `delta_y` 沿用 Winit 语义：正数向上滚动，负数向下滚动。
+///
+/// # Errors
+///
+/// 扩展不在线、能力令牌不可用、D-Bus 调用超时或返回值解析失败时返回 [`PlatformError`]。
+pub async fn simulate_mouse_wheel_extension(delta_y: f32) -> Result<bool, PlatformError> {
+    let token = read_extension_token().await?;
+    let arguments = (token.as_str(), f64::from(delta_y));
+    let (success,): (bool,) = call_extension("SimulateScroll", &arguments).await?;
+    Ok(success)
+}
+
 /// 解析扩展返回的窗口 JSON，并把逻辑坐标换算为物理像素。
 fn parse_windows_json(json: &str) -> Result<Vec<WindowRect>, PlatformError> {
     let raw: Vec<RawWindowRect> =

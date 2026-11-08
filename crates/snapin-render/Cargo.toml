@@ -12,4 +12,5 @@ snapin-foundation.workspace = true
 serde.workspace = true
 cosmic-text.workspace = true
 tiny-skia.workspace = true
+image.workspace = true
 thiserror.workspace = true

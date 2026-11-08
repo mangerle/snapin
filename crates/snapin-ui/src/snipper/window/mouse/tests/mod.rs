@@ -11,7 +11,9 @@ use crate::ports::{NoopScreenRecorder, OcrTextItem};
 use crate::snipper::canvas::recording::{calculate_recording_layout, RecordingLayoutRequest};
 use crate::snipper::window::ocr_menu::OcrMenuAction;
 use crate::snipper::window::redaction::{apply_redaction, is_redaction_applied, RedactionPreview};
-use crate::snipper::window::state::{RecordingAction, RecordingItem, RecordingSession};
+use crate::snipper::window::state::{
+    LongCaptureAction, LongCaptureSession, RecordingAction, RecordingItem, RecordingSession,
+};
 use snapin_annotation::action::AnnotationShape;
 use snapin_annotation::shapes::RectAction;
 use snapin_annotation::LineStyle;
@@ -77,6 +79,77 @@ fn test_recording_fps_click_uses_current_toolbar_position() {
     assert_eq!(
         state.recording.as_ref().map(|session| session.fps()),
         Some(60)
+    );
+}
+
+/// 拖动长截图控制栏右端手柄时只能移动工具栏，不得改变锁定选区。
+#[test]
+fn test_long_capture_toolbar_drag_does_not_move_selection() {
+    let mut state = SnipperState::new();
+    let selection = Rect {
+        x: 100.0,
+        y: 120.0,
+        width: 800.0,
+        height: 600.0,
+    };
+    state.viewport.selection = SelectionState::Locked {
+        rect: selection,
+        active_drag: None,
+    };
+
+    let mut session = LongCaptureSession::new(RgbaImage::new(800, 600));
+    let toolbar_rect = Rect {
+        x: 100.0,
+        y: 76.0,
+        width: 440.0,
+        height: 36.0,
+    };
+    session.toolbar_rect = Some(toolbar_rect);
+    let defs =
+        crate::snipper::canvas::long_capture::long_capture_main_button_defs(&session, 800, 600);
+    let mut cur_x = toolbar_rect.x
+        + 6.0
+        + crate::snipper::canvas::long_capture::long_capture_size_readout_width(800, 600)
+        + 8.0;
+    let mut handle_center = None;
+    for (index, def) in defs.iter().enumerate() {
+        if index > 0 {
+            cur_x += 3.0;
+        }
+        if def.action == LongCaptureAction::DragToolbar {
+            handle_center = Some((cur_x + def.width / 2.0, toolbar_rect.y + 18.0));
+        }
+        cur_x += def.width;
+    }
+    let (handle_x, handle_y) = handle_center.expect("长截图工具栏必须包含右端拖动手柄");
+    state.long_capture = Some(session);
+    let original = RgbaImage::new(1920, 1080);
+
+    assert!(handle_left_press(&mut state, handle_x, handle_y, &original));
+    assert!(handle_cursor_move(
+        &mut state,
+        ((handle_x + 80.0) as f64, (handle_y + 40.0) as f64),
+        1920.0,
+        1080.0,
+    ));
+    assert!(handle_left_release(
+        &mut state,
+        handle_x + 80.0,
+        handle_y + 40.0,
+        &original,
+    ));
+
+    let SelectionState::Locked { rect, active_drag } = state.viewport.selection else {
+        panic!("测试选区应保持锁定");
+    };
+    assert_eq!(rect, selection);
+    assert!(active_drag.is_none());
+    assert_eq!(
+        state
+            .long_capture
+            .as_ref()
+            .and_then(|session| session.toolbar_position),
+        Some((toolbar_rect.x + 80.0, toolbar_rect.y + 40.0))
     );
 }
 

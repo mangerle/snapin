@@ -8,6 +8,7 @@ use super::proxy::{PasterAppEvent, WorkspaceStatus};
 use super::window_builder::create_new_paster_window;
 use super::WorkspaceRuntime;
 use crate::model::GroupId;
+use crate::ports::ScreenCaptureEventSink;
 use crate::snipper::window::jobs::SnipperJobSink;
 use crate::snipper::window::{SnipperView, SnipperViewInit};
 use crate::snipper::SnipperOutcome;
@@ -65,6 +66,12 @@ pub(crate) fn handle_workspace_user_event(
                 view.request_redraw();
             }
             finish_snipper_if_ready(runtime);
+        }
+        PasterAppEvent::SnipperScreenCaptured { request_id, result } => {
+            if let Some(view) = runtime.snipper.as_mut() {
+                view.handle_screen_capture_finished(request_id, result);
+                view.request_redraw();
+            }
         }
         PasterAppEvent::HostWake => {
             if let Some(on_host_wake) = runtime.on_host_wake.as_mut() {
@@ -203,6 +210,8 @@ fn open_snipper(
     // EventLoopProxy 在 macOS 上为 Send 但不是 Sync；媒体任务线程需要共享回调，
     // 因此用短临界区互斥锁包裹代理，既满足跨线程约束又只在投递结果时短暂持锁。
     let event_proxy = Arc::new(Mutex::new(runtime.event_proxy.clone()));
+    let capture_proxy = event_proxy.clone();
+    let recording_proxy = event_proxy.clone();
     let sink: SnipperJobSink = Arc::new(move |job_id, kind, outcome| {
         let proxy = event_proxy
             .lock()
@@ -214,18 +223,24 @@ fn open_snipper(
         });
     });
 
-    let event_proxy = Arc::new(Mutex::new(runtime.event_proxy.clone()));
     let recording_sink: crate::ports::RecordingEventSink = Arc::new(move |event| {
-        let proxy = event_proxy
+        let proxy = recording_proxy
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _ = proxy.send_event(PasterAppEvent::SnipperRecordingEvent { event });
+    });
+    let screen_capture_events: ScreenCaptureEventSink = Arc::new(move |request_id, result| {
+        let proxy = capture_proxy
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _ = proxy.send_event(PasterAppEvent::SnipperScreenCaptured { request_id, result });
     });
     let init = SnipperViewInit {
         launch,
         job_sink: sink,
         recording_sink,
         clipboard_events: runtime.clipboard_events.clone(),
+        screen_capture_events,
     };
     match SnipperView::new(elwt, init) {
         Ok(view) => {

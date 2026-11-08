@@ -1,6 +1,7 @@
 //! 鼠标移动、选区约束与画笔光标判定。
 
 use super::*;
+use snapin_render::stitching::StitchDirection;
 
 /// 鼠标移动事件统一处理 (更新光标坐标、选区创建与调整手柄拖拽)
 pub fn handle_cursor_move(
@@ -45,6 +46,17 @@ pub fn handle_cursor_move(
     }
     if state.editor.annotation.toolbar.is_dragging() {
         return state.editor.annotation.toolbar.drag_to(frame.x, frame.y);
+    }
+    if let Some(session) = state.long_capture.as_mut() {
+        if session.is_dragging_toolbar() {
+            return session.drag_toolbar_to(
+                frame.x,
+                frame.y,
+                frame.screen_width,
+                frame.screen_height,
+                state.editor.annotation.toolbar.ui_scale,
+            );
+        }
     }
 
     match state.viewport.selection {
@@ -177,6 +189,29 @@ fn handle_locked_cursor(
         update_selection_drag(state, rect, drag, frame);
         return true;
     }
+    // 长截图捕获阶段优先更新专用控制条悬停态，并拦截其区域内的画布命中。
+    if let Some(session) = state.long_capture.as_mut() {
+        if !session.is_editing {
+            let ui_scale = state.editor.annotation.toolbar.ui_scale;
+            let (sel_w, sel_h) = (rect.width.round() as u32, rect.height.round() as u32);
+            let next_hovered = crate::snipper::canvas::long_capture::hit_test_long_capture_bar(
+                session, frame.x, frame.y, ui_scale, sel_w, sel_h,
+            );
+            if session.hovered_action != next_hovered {
+                session.hovered_action = next_hovered;
+                return true;
+            }
+            if session
+                .toolbar_rect
+                .is_some_and(|r| r.contains(frame.x, frame.y))
+                || session
+                    .crop_submenu_rect
+                    .is_some_and(|r| r.contains(frame.x, frame.y))
+            {
+                return false;
+            }
+        }
+    }
     if state.recording.is_none()
         && state
             .editor
@@ -212,8 +247,48 @@ fn handle_locked_cursor(
 
 /// 更新选区移动或缩放手柄拖动，并同步工具栏布局。
 fn update_selection_drag(state: &mut SnipperState, rect: Rect, drag: DragMode, frame: CursorFrame) {
-    let (next_rect, next_drag) =
+    let (mut next_rect, next_drag) =
         crate::snipper::window::drag_calculator::calculate_drag(&rect, &drag, (frame.x, frame.y));
+    if let Some(session) = &mut state.long_capture {
+        if session.is_capturing && matches!(drag, DragMode::Move { .. }) {
+            // 1. 录制态锁定单轴移动：纵向截图只允许沿上下拖动，横向截图只允许沿左右拖动
+            match session.direction {
+                StitchDirection::Vertical => next_rect.x = rect.x,
+                StitchDirection::Horizontal => next_rect.y = rect.y,
+            }
+
+            // 2. 自动裁剪核心状态机：根据移动方向确定拼接方向，反向移动时自动裁剪
+            let cur_pos = match session.direction {
+                StitchDirection::Vertical => next_rect.y,
+                StitchDirection::Horizontal => next_rect.x,
+            };
+
+            if let Some(last_pos) = session.last_drag_coord {
+                let delta = cur_pos - last_pos;
+                if delta.abs() >= 1.0 {
+                    // 若尚未确立拼接方向，根据第一波移动确立主方向
+                    if session.locked_direction.is_none() && delta.abs() >= 3.0 {
+                        session.locked_direction = Some(if delta > 0.0 { 1 } else { -1 });
+                    }
+
+                    if let Some(dir) = session.locked_direction {
+                        let movement_dir = if delta > 0.0 { 1 } else { -1 };
+                        if movement_dir != dir && session.auto_crop {
+                            // 检测到反方向移动：自动裁剪！
+                            let crop_pixels = delta.abs().round() as u32;
+                            session.crop_tail(crop_pixels);
+
+                            // 时机 4: 截图区域框与长截图缩略图尺寸一致时（退回原点），重新更新拼接方向
+                            if session.is_at_initial_size() {
+                                session.reset_direction();
+                            }
+                        }
+                    }
+                }
+            }
+            session.last_drag_coord = Some(cur_pos);
+        }
+    }
     state.viewport.selection = SelectionState::Locked {
         rect: next_rect,
         active_drag: Some(next_drag),

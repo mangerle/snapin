@@ -279,7 +279,33 @@ pub fn tr(zh: &str) -> &str {
         "合成截图失败" => "Failed to compose screenshot",
         "保存截图失败" => "Failed to save screenshot",
         "导出 OCR 文本失败" => "Failed to export OCR text",
-        "美化渲染失败" => "Beautification failed",
+        "长截图" => "Long Capture",
+        "选区过小，无法进入长截图" => "Selection is too small to enter long capture",
+        "选区过小，无法开始长截图录制" => "Selection is too small to start long capture",
+        "长截图录制中：在选区内滚动鼠标自动拼接" => {
+            "Long capture recording: scroll mouse in selection to stitch automatically"
+        }
+        "长截图已停止：可调整选区或裁剪，点击开始重新录制" => {
+            "Long capture stopped: adjust the selection or crop, then start again"
+        }
+        "已切换长截图主方向并重置本轮拼接" => {
+            "Switched long capture direction and reset the current stitch"
+        }
+        "已执行上裁剪 (30px)" => "Cropped head (30px)",
+        "已执行下裁剪 (30px)" => "Cropped tail (30px)",
+        "已执行左裁剪 (30px)" => "Cropped left edge (30px)",
+        "已执行右裁剪 (30px)" => "Cropped right edge (30px)",
+        "已开启反向滚动自动裁剪" => "Auto-crop on reverse scrolling enabled",
+        "已关闭反向滚动自动裁剪" => "Auto-crop on reverse scrolling disabled",
+        "尺寸手柄" => "Size Grip",
+        "垂直" => "Vertical",
+        "水平" => "Horizontal",
+        "裁剪" => "Crop",
+        "自动裁剪" => "Auto Crop",
+        "长图预览" => "Long Capture Preview",
+        "已进入长图编辑框：滚轮滚动浏览长图，可使用标注工具" => {
+            "Entered long capture editor: scroll to navigate, annotation tools available"
+        }
         _ => zh,
     }
 }

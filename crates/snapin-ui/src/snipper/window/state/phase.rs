@@ -32,6 +32,10 @@ pub enum SnipperPhase {
     Busy,
     /// 选区录屏工具栏正在工作
     Recording,
+    /// 正在进行长截图录制捕获或停止待命
+    LongCapturing,
+    /// 长截图拼接完成，正在进行全功能长图滚动标注编辑
+    LongCaptureEditing,
 }
 
 impl SnipperPhase {
@@ -60,6 +64,12 @@ impl SnipperPhase {
 impl SnipperState {
     /// 推导当前会话所处的高层交互阶段。
     pub fn phase(&self) -> SnipperPhase {
+        if let Some(session) = &self.long_capture {
+            if session.is_editing {
+                return SnipperPhase::LongCaptureEditing;
+            }
+            return SnipperPhase::LongCapturing;
+        }
         if self.recording.is_some() {
             return SnipperPhase::Recording;
         }

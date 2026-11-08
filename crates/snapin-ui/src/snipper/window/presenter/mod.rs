@@ -152,6 +152,27 @@ impl SnipperPresenter {
         Ok(())
     }
 
+    /// 用新的完整屏幕帧替换预计算底图，并强制下一帧全量重绘。
+    ///
+    /// 长截图每次滚动抓屏后都需要同步显示当前底层画面，否则选区会停留在旧快照，
+    /// 用户无法判断目标应用是否已滚动到期望位置。只替换底图而不重建表面，
+    /// 避免高频抓屏时反复分配窗口帧缓冲。
+    ///
+    /// # Errors
+    ///
+    /// 新底图尺寸与灰度蒙层分配失败时返回 [`UiError::PixmapAlloc`]。
+    pub fn replace_background(
+        &mut self,
+        bg_image: &RgbaImage,
+        dimmed: bool,
+    ) -> Result<(), UiError> {
+        let width = self.render_pixmap.width();
+        let height = self.render_pixmap.height();
+        self.base_bg = create_base_pixmap(bg_image, width, height, dimmed)?;
+        self.overlay = None;
+        Ok(())
+    }
+
     /// 执行全屏离屏光栅化并将成果绘制呈现至物理屏幕表面。
     ///
     /// 空闲态（未选区）下光标移动只改动放大镜、悬停边框与状态提示，
@@ -162,7 +183,7 @@ impl SnipperPresenter {
     /// 像素缓冲分配、表面调整或呈现失败时返回 [`UiError`]。
     pub fn render_and_present(
         &mut self,
-        state: &SnipperState,
+        state: &mut SnipperState,
         bg_image: &RgbaImage,
     ) -> Result<(), UiError> {
         if self.can_incremental(state) {
@@ -192,9 +213,9 @@ impl SnipperPresenter {
     }
 
     /// 全量重绘：恢复底图后绘制全部图层，并记录可供下一次增量复用的覆盖层快照。
-    fn render_full(&mut self, state: &SnipperState, bg_image: &RgbaImage) {
+    fn render_full(&mut self, state: &mut SnipperState, bg_image: &RgbaImage) {
         self.sync_preview_cache(state);
-        let canvas = Self::build_canvas(
+        let mut canvas = Self::build_canvas(
             &self.base_bg,
             state,
             bg_image,
@@ -209,7 +230,7 @@ impl SnipperPresenter {
     }
 
     /// 增量重绘：抹除上一帧光标覆盖层，重绘悬停边框、放大镜与状态提示，只同步局部像素。
-    fn render_incremental(&mut self, state: &SnipperState, bg_image: &RgbaImage) {
+    fn render_incremental(&mut self, state: &mut SnipperState, bg_image: &RgbaImage) {
         let Some(prev) = self.overlay.take() else {
             return;
         };
@@ -231,7 +252,7 @@ impl SnipperPresenter {
     }
 
     /// 悬停区域未变化时只重绘边框、放大镜与状态提示。
-    fn redraw_incremental_overlay(&mut self, state: &SnipperState, bg_image: &RgbaImage) {
+    fn redraw_incremental_overlay(&mut self, state: &mut SnipperState, bg_image: &RgbaImage) {
         let canvas = Self::build_canvas(&self.base_bg, state, bg_image, None);
         let mut pixmap_mut = self.render_pixmap.as_mut();
         canvas.render_idle_overlay(&mut pixmap_mut, false);
@@ -323,7 +344,7 @@ impl SnipperPresenter {
     /// 基于当前状态构建画布渲染上下文
     fn build_canvas<'a>(
         base_bg: &'a Pixmap,
-        state: &'a SnipperState,
+        state: &'a mut SnipperState,
         bg_image: &'a RgbaImage,
         recording_preview: Option<&'a Pixmap>,
     ) -> SnipperCanvas<'a> {
@@ -345,6 +366,8 @@ impl SnipperPresenter {
                 }
             });
 
+        let selected = selected_annotation_view(state);
+
         SnipperCanvas {
             base_bg,
             original_rgba: bg_image,
@@ -360,13 +383,14 @@ impl SnipperPresenter {
             pending_stroke,
             active_text_input: state.editor.annotation.active_text_input.as_ref(),
             status_message: state.session.status_message.as_deref(),
-            selected_annotation: selected_annotation_view(state),
+            selected_annotation: selected,
             redaction_preview: state.ocr.redaction_preview.as_ref(),
             qr_codes: state.ocr.qr_result.as_deref(),
             ocr_menu: state.ocr.menu.as_ref(),
             ocr_editor: state.ocr.editor.as_ref(),
             recording: state.recording.as_ref(),
             recording_preview,
+            long_capture: state.long_capture.as_mut(),
         }
     }
 

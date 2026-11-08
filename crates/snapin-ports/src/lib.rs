@@ -37,7 +37,10 @@ pub use clipboard::{
     noop_clipboard_event_sink, ClipboardEventSink, ClipboardJobId, ClipboardPayload,
     ClipboardResult, ClipboardSink, ClipboardTarget, ClipboardWrite,
 };
-pub use desktop::{DesktopPort, NoopDesktop, WorkspaceState, WorkspaceStateStore};
+pub use desktop::{
+    noop_screen_capture_event_sink, DesktopPort, NoopDesktop, ScreenCaptureEventSink,
+    ScreenCaptureSink, WorkspaceState, WorkspaceStateStore,
+};
 pub use error::{PortError, PortErrorKind};
 pub use id::{GroupId, PasterId};
 pub use jobs::{JobCancel, JobId, MediaJob, MediaJobOutcome, MediaJobRunner, PasterJobKind};

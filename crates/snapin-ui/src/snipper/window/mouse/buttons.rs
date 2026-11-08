@@ -1,9 +1,9 @@
 //! 鼠标按键按下、释放与自动后处理触发。
 
 use super::*;
-use crate::editor::toolbar::SubControl;
 use crate::geometry::Point;
 use crate::snipper::selection::ResizeHandle;
+use tracing::debug;
 
 /// 鼠标按键点击事件处理
 pub fn handle_mouse_button(
@@ -109,6 +109,25 @@ fn handle_locked_press(
     pointer: Point,
     original_rgba: &RgbaImage,
 ) -> bool {
+    // 长截图捕获阶段使用独立控制条，命中后不再落入常规画布或工具栏逻辑。
+    if let Some(session) = &state.long_capture {
+        if !session.is_editing {
+            let in_bar = session
+                .toolbar_rect
+                .is_some_and(|r| r.contains(pointer.x, pointer.y));
+            let in_sub = session
+                .crop_submenu_rect
+                .is_some_and(|r| r.contains(pointer.x, pointer.y));
+            if in_bar || in_sub {
+                return super::long_capture::handle_long_capture_press(
+                    state,
+                    pointer,
+                    original_rgba,
+                );
+            }
+        }
+    }
+
     // 录屏状态下普通截图工具栏只保留状态但不可见，必须彻底禁用其命中路由，
     // 否则漏出录屏栏的点击会重复进入“屏幕录制”动作并造成界面循环。
     if state.recording.is_none()
@@ -118,7 +137,12 @@ fn handle_locked_press(
             .toolbar
             .contains_point(pointer.x, pointer.y)
     {
-        return handle_toolbar_press(state, pointer.x, pointer.y, original_rgba);
+        return super::toolbar_action::handle_toolbar_press(
+            state,
+            pointer.x,
+            pointer.y,
+            original_rgba,
+        );
     }
 
     // 判定双击事件：350毫秒内且光标位移在 6 像素容差范围内
@@ -159,54 +183,6 @@ fn handle_locked_press(
         return handle_inside_selection_press(state, rect, pointer.x, pointer.y);
     }
     reset_selection_from_canvas(state, pointer.x, pointer.y);
-    true
-}
-
-/// 处理工具栏范围内的按下；无论是否命中控件都拦截穿透。
-fn handle_toolbar_press(
-    state: &mut SnipperState,
-    cx: f32,
-    cy: f32,
-    original_rgba: &RgbaImage,
-) -> bool {
-    commit_active_text_input(state);
-    let hit = state.editor.annotation.toolbar.hit_test_main(cx, cy);
-    tracing::debug!(
-        "截图工具栏点击，坐标: ({cx:.1}, {cy:.1})，工具栏: ({:.1}, {:.1}) {:.1}x{:.1}，命中: {hit:?}",
-        state.editor.annotation.toolbar.main_rect.x,
-        state.editor.annotation.toolbar.main_rect.y,
-        state.editor.annotation.toolbar.main_rect.width,
-        state.editor.annotation.toolbar.main_rect.height,
-    );
-    let prev_tool = state.editor.annotation.toolbar.active_tool;
-    if state.editor.annotation.toolbar.begin_drag(cx, cy) {
-        crate::snipper::window::annotation_edit::clear(state);
-        return true;
-    }
-    if let Some(item) = state.editor.annotation.toolbar.handle_click(cx, cy) {
-        dispatch_toolbar_action(state, item, original_rgba);
-    }
-    if state.editor.annotation.toolbar.active_tool != prev_tool {
-        crate::snipper::window::annotation_edit::clear(state);
-    }
-    if let Some(index) = state
-        .editor
-        .selected_annotation
-        .map(crate::model::ShapeId::get)
-    {
-        if matches!(
-            state.editor.annotations.shape_at(index),
-            Some(AnnotationShape::Text(_) | AnnotationShape::Translation(_))
-        ) {
-            state
-                .editor
-                .annotations
-                .adjust_font_size_at(index, state.editor.annotation.toolbar.sub_options.font_size);
-        }
-    }
-    if state.editor.annotation.toolbar.focused_sub_control() == Some(SubControl::EffectStrength) {
-        crate::snipper::window::redaction::sync_redaction_style(state, SubControl::EffectStrength);
-    }
     true
 }
 
@@ -299,6 +275,15 @@ pub(super) fn handle_left_release(
     let was_selecting = state.editor.annotation.is_selecting_text;
     state.editor.annotation.is_selecting_text = false;
     if was_selecting {
+        return true;
+    }
+
+    // 控制栏拖动只更新工具栏位置，不能落入选区拖动或标注提交分支。
+    if state
+        .long_capture
+        .as_mut()
+        .is_some_and(|session| session.end_toolbar_drag())
+    {
         return true;
     }
 
@@ -447,6 +432,26 @@ fn finish_locked_drag(state: &mut SnipperState, rect: Rect, release: &PointerRel
         release.original_rgba.width() as f32,
         release.original_rgba.height() as f32,
     );
+
+    if let Some(session) = &mut state.long_capture {
+        if session.is_capturing {
+            let x = (rect.x.max(0.0) as u32).min(release.original_rgba.width());
+            let y = (rect.y.max(0.0) as u32).min(release.original_rgba.height());
+            let w = (rect.width as u32).min(release.original_rgba.width().saturating_sub(x));
+            let h = (rect.height as u32).min(release.original_rgba.height().saturating_sub(y));
+            if w > 0 && h > 0 {
+                use image::GenericImageView;
+                let frame = release.original_rgba.view(x, y, w, h).to_image();
+                let matched = session.feed_frame(&frame);
+                debug!(
+                    "长截图选区拖拽拼接: 匹配={}, 上次投喂间隔={}ms",
+                    matched,
+                    session.last_feed_elapsed().as_millis()
+                );
+            }
+            session.last_drag_coord = None;
+        }
+    }
 }
 
 /// 选区锁定后执行一次性自动复制或自动翻译。

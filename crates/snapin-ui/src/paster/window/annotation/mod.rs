@@ -194,7 +194,7 @@ pub(crate) fn handle_toolbar_click(
             ToolbarAction::ClearAnnotations => {
                 state.clear_annotations();
             }
-            ToolbarAction::Pin => {}
+            ToolbarAction::Pin | ToolbarAction::LongCapture => {}
         }
     }
     true

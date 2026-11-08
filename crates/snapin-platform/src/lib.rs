@@ -20,6 +20,7 @@ mod window;
 pub(crate) mod dbus_session;
 
 mod dialog;
+mod mouse_input;
 
 pub use autostart::sync_autostart;
 pub use capabilities::{
@@ -38,8 +39,8 @@ pub use window::WindowRect;
 
 #[cfg(target_os = "linux")]
 pub use extension_client::{
-    capture_fullscreen_extension, list_windows, place_paster_window, start_recording_stream,
-    stop_recording_stream,
+    capture_fullscreen_extension, list_windows, place_paster_window,
+    simulate_mouse_wheel_extension, start_recording_stream, stop_recording_stream,
 };
 
 pub use hotkey_manager::{
@@ -50,6 +51,7 @@ pub use lifecycle::{
     open_path_in_file_manager, open_url, run_bounded_system_command, spawn_independent_process,
     start_daemon_process, stop_systemd_service,
 };
+pub use mouse_input::{simulate_mouse_wheel, simulate_mouse_wheel_async};
 pub use notification::send_desktop_notification;
 
 pub use dialog::{pick_config_export_path, pick_config_import_path, pick_save_path};

@@ -3,6 +3,7 @@ import Gio from 'gi://Gio';
 import Shell from 'gi://Shell';
 import Meta from 'gi://Meta';
 import GLib from 'gi://GLib';
+import Clutter from 'gi://Clutter';
 
 // 定义 D-Bus 接口：
 //   1. PlaceWindowByTitle —— Wayland 禁止客户端自行摆放或提级窗口，贴图窗口的绝对定位与
@@ -10,6 +11,7 @@ import GLib from 'gi://GLib';
 //   2. CaptureFullscreen   —— 用合成器内部对象直接把整屏写进给定文件流，无快门白闪。
 //      CaptureFullscreenWithCursor 为同一能力的显式指针开关版本。
 //   3. ListWindows         —— 枚举 Mutter 当前所有可见窗口几何，为快速吸附提供依据。
+//   4. SimulateScroll      —— 通过 Clutter 虚拟指针向当前焦点应用注入滚轮事件。
 const IFACE_XML = `
 <node>
   <interface name="org.gnome.Shell.Extensions.Snapin">
@@ -55,6 +57,11 @@ const IFACE_XML = `
       <arg type="s" direction="in" name="authToken"/>
       <arg type="s" direction="out" name="windowsJson"/>
     </method>
+    <method name="SimulateScroll">
+      <arg type="s" direction="in" name="authToken"/>
+      <arg type="d" direction="in" name="deltaY"/>
+      <arg type="b" direction="out" name="success"/>
+    </method>
   </interface>
 </node>`;
 
@@ -69,6 +76,7 @@ const AUTH_TOKEN_FILE = 'extension.token';
 export default class SnapinHelperExtension extends Extension {
     enable() {
         this._authToken = this._loadOrCreateAuthToken();
+        this._virtualPointer = null;
         // 1. 导出 Mutter 特权窗口操作与原生截屏 D-Bus 服务
         this._dbusImpl = Gio.DBusExportedObject.wrapJSObject(IFACE_XML, this);
         this._dbusImpl.export(
@@ -113,12 +121,35 @@ export default class SnapinHelperExtension extends Extension {
         this._titleWatchers.clear();
 
         this._pendingPlacements = new Map();
+        this._virtualPointer = null;
 
         if (this._dbusImpl) {
             this._dbusImpl.unexport();
             this._dbusImpl = null;
         }
         this._authToken = null;
+    }
+
+    /**
+     * 获取可注入滚轮事件的 Clutter 虚拟指针。
+     *
+     * 仅 GNOME Shell 扩展进程拥有合成器输入权限。缓存设备可避免每次滚轮都重新创建设备，
+     * 同时让虚拟事件与真实输入走同一条 Wayland 分发链路。
+     * @returns {Clutter.VirtualInputDevice|null}
+     */
+    _getVirtualPointer() {
+        if (this._virtualPointer)
+            return this._virtualPointer;
+        try {
+            const seat = global.stage.context.get_backend().get_default_seat();
+            this._virtualPointer = seat.create_virtual_device(
+                Clutter.InputDeviceType.POINTER_DEVICE
+            );
+            return this._virtualPointer;
+        } catch (e) {
+            console.error('Snapin 创建 Clutter 虚拟指针失败:', e);
+            return null;
+        }
     }
 
     /**
@@ -421,6 +452,41 @@ export default class SnapinHelperExtension extends Extension {
             return true;
         } catch (e) {
             console.error('Snapin 原生截屏（含指针选项）失败:', e);
+            return false;
+        }
+    }
+
+    /**
+     * 向当前焦点应用注入离散垂直滚轮事件。
+     *
+     * 使用离散滚动而非伪造输入设备节点，避免依赖 ydotool/uinput 权限；
+     * deltaY 的正负遵循 Clutter 滚轮方向，正数向上、负数向下。
+     * @param {number} deltaY 滚轮增量
+     * @returns {boolean} 是否成功注入
+     */
+    SimulateScroll(authToken, deltaY) {
+        if (!this._isAuthorized(authToken) || !Number.isFinite(deltaY) || deltaY === 0)
+            return false;
+
+        const device = this._getVirtualPointer();
+        if (!device)
+            return false;
+
+        try {
+            const direction = deltaY > 0
+                ? Clutter.ScrollDirection.UP
+                : Clutter.ScrollDirection.DOWN;
+            const steps = Math.max(1, Math.min(30, Math.round(Math.abs(deltaY))));
+            for (let index = 0; index < steps; index++) {
+                device.notify_discrete_scroll(
+                    GLib.get_monotonic_time(),
+                    direction,
+                    Clutter.ScrollSource.WHEEL
+                );
+            }
+            return true;
+        } catch (e) {
+            console.error('Snapin 注入滚轮事件失败:', e);
             return false;
         }
     }

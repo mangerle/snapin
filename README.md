@@ -57,6 +57,8 @@ Snapin 是纯 Rust 打造的跨平台截图与贴图工具，支持 Linux、Wind
 - 工具栏按钮悬浮提示：在按钮下方固定显示工具名与快捷键；贴图窗口没有截图侧的键位，只显示名称。
 - `snip --auto-copy` 框选后自动复制；`snip --translate` 框选后自动翻译。
 - `snip --fullscreen` 直接锁定整屏选区，保留标注工具栏，可继续复制、保存、贴图、OCR 或翻译。
+- 滚动拼接长截图：支持纵向与横向滚动、固定栏识别、反向自动裁剪、侧边预览及长图二次标注。
+- 选区屏幕录制：支持 MP4、WebP 与 GIF 导出，录制期间可直接标注并预览结果。
 - `snip --delay N` 在捕获前等待 N 秒（0 到 60），方便截取菜单或悬浮提示。
 - `snapin pick-color` 打开全屏取色器，按设置的 HEX/RGB/HSL 格式复制光标颜色；单击复制，Esc 取消。
 
@@ -341,7 +343,8 @@ systemctl --user status snapin
 ### 卸载后扩展目录仍然存在
 
 deb 在安装时会把扩展同步到当前用户的
-`~/.local/share/gnome-shell/extensions/snapin@wangle`。卸载后如仍残留，可手动删除该目录。
+`~/.local/share/gnome-shell/extensions/snapin@wangle`。卸载后如仍残留，可手动删除该目录
+并注销重新登录。
 历史目录 `snapin@wangle.local` 会被新版安装器自动停用并清理。
 
 ## 已知限制
@@ -349,7 +352,8 @@ deb 在安装时会把扩展同步到当前用户的
 - **[Linux]** Wayland 会话为完整体验的前提；X11 未做适配，不保证可用。
 - **[Linux]** GNOME Shell 扩展是完整体验的前提。其他桌面环境只能使用 XDG Portal 截屏等部分能力，
   全局快捷键、托盘与窗口置顶可能不可用。
-- 暂不支持跨显示器拼接截图或滚动截图。
+- 暂不支持跨显示器拼接截图；长截图依赖滚轮注入能力，Linux 需要 GNOME 扩展或
+  `ydotool` / `xdotool` 提供输入注入。
 - 截图默认不包含鼠标指针；Linux GNOME 扩展通道可原生包含，Windows / macOS 当前截屏通道仍不包含。
 - 不提供云端上传、分享链接与历史图库。
 - **[Linux]** GNOME Shell 扩展的 JavaScript 无法热更新，升级扩展代码后必须注销并重新登录。

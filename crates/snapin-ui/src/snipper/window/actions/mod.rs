@@ -18,6 +18,18 @@ pub fn crop_selection_image(
     super::annotation_builder::commit_annotation(state);
     super::events::commit_active_text_input(state);
 
+    if let Some(session) = &state.long_capture {
+        let long_canvas = session.stitcher.canvas();
+        let (lw, lh) = long_canvas.dimensions();
+        if !state.editor.annotations.can_undo() {
+            return Some(long_canvas.clone());
+        }
+        let mut pixmap = tiny_skia::Pixmap::new(lw, lh)?;
+        pixmap.data_mut().copy_from_slice(long_canvas.as_raw());
+        state.editor.annotations.replay_all(&mut pixmap.as_mut());
+        return RgbaImage::from_raw(lw, lh, pixmap.take());
+    }
+
     if let SelectionState::Locked { rect, .. } = &state.viewport.selection {
         let (px, py, pw, ph) = rect.to_pixel_bounds(original_rgba.width(), original_rgba.height());
         if pw > 0 && ph > 0 {
@@ -358,6 +370,27 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
             cover_mode: state.session.config.translate.cover_mode,
         },
     );
+}
+
+/// 开启长截图滚动拼接模式
+pub fn handle_action_long_capture(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    state.clear_status_message();
+    let (px, py, pw, ph) = match &state.viewport.selection {
+        SelectionState::Locked { rect, .. } => {
+            rect.to_pixel_bounds(original_rgba.width(), original_rgba.height())
+        }
+        _ => return,
+    };
+    if pw < 10 || ph < 10 {
+        state.set_status_message(snapin_foundation::i18n::tr("选区过小，无法进入长截图"));
+        return;
+    }
+
+    let first_frame = original_rgba.view(px, py, pw, ph).to_image();
+    state.long_capture = Some(super::state::LongCaptureSession::new(first_frame));
+    state.set_status_message(snapin_foundation::i18n::tr(
+        "长截图录制中：在选区内滚动鼠标自动拼接",
+    ));
 }
 
 #[cfg(test)]

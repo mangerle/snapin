@@ -3,7 +3,9 @@
 use super::cursor::refresh_cursor;
 use super::events::handle_key_input;
 use super::events::SnipperState;
-use super::mouse::{handle_cursor_move, handle_mouse_button, handle_mouse_wheel};
+use super::mouse::{
+    handle_cursor_move, handle_mouse_button, handle_mouse_wheel, normalized_wheel_delta,
+};
 use super::presenter::SnipperPresenter;
 use super::types::SnipperOutcome;
 use image::RgbaImage;
@@ -125,7 +127,52 @@ fn handle_cursor_position(
 
 /// 处理鼠标滚轮并请求重绘。
 fn handle_wheel(context: &mut SnipperDispatchContext<'_>, delta: winit::event::MouseScrollDelta) {
-    if handle_mouse_wheel(context.state, delta) {
+    if context.state.jobs.has_pending_screen_capture() {
+        return;
+    }
+    let capture_after_wheel = context
+        .state
+        .long_capture
+        .as_ref()
+        .is_some_and(|session| session.is_capturing && !session.is_editing);
+    if !handle_mouse_wheel(context.state, delta) {
+        return;
+    }
+    if capture_after_wheel {
+        start_long_capture_frame(context, delta);
+    } else {
+        context.window.request_redraw();
+    }
+}
+
+/// 隐藏覆盖层、请求底层滚动抓屏，并登记唯一在途请求。
+fn start_long_capture_frame(
+    context: &mut SnipperDispatchContext<'_>,
+    delta: winit::event::MouseScrollDelta,
+) {
+    let Some(delta_y) = normalized_wheel_delta(delta) else {
+        context.window.request_redraw();
+        return;
+    };
+    let Some(request_id) = context.state.jobs.begin_screen_capture() else {
+        return;
+    };
+
+    context.window.set_visible(false);
+    let screen_capture_events = context.state.jobs.screen_capture_events.clone();
+    let desktop = context.state.session.desktop.clone();
+    let submitted = desktop.capture_long_capture_frame(
+        delta_y,
+        Box::new(move |result| screen_capture_events(request_id, result)),
+    );
+    if let Err(error) = submitted {
+        context.state.jobs.finish_screen_capture(request_id);
+        context.window.set_visible(true);
+        context.window.focus_window();
+        tracing::warn!("提交长截图抓屏任务失败，请求序号: {request_id}，原因: {error}");
+        context
+            .state
+            .set_status_message(format!("提交长截图抓屏任务失败: {error}"));
         context.window.request_redraw();
     }
 }
