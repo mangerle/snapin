@@ -215,6 +215,7 @@ fn handle_action_character(
         "t" => super::actions::handle_action_translate(state, original_rgba),
         "r" => super::actions::handle_action_redact(state, original_rgba),
         "q" => super::actions::handle_action_qr(state, original_rgba),
+        "l" => super::actions::handle_action_long_capture(state, original_rgba),
         "g" => super::actions::handle_action_start_recording(state, original_rgba),
         _ => return None,
     }

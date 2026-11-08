@@ -1,10 +1,13 @@
 use super::*;
+use crate::ports::NoopScreenRecorder;
 use crate::snipper::magnifier::ColorFormat;
 use crate::snipper::selection::Rect;
+use crate::snipper::window::state::{LongCaptureSession, RecordingSession};
 use image::Rgba;
 use snapin_annotation::action::AnnotationShape;
 use snapin_annotation::shapes::RectAction;
 use snapin_annotation::LineStyle;
+use std::sync::Arc;
 
 /// 取色器按 HEX/RGB 格式输出，并在坐标越界时夹取到边缘
 #[test]
@@ -174,6 +177,38 @@ fn test_handle_action_translate_zero_or_idle_selection() {
     };
     handle_action_translate(&mut state, &original);
     assert!(!state.editor.annotations.can_undo());
+}
+
+/// 长截图与屏幕录制必须互斥，避免长截图过程中误开录屏并请求 RemoteDesktop 权限。
+#[test]
+fn test_long_capture_and_recording_sessions_are_mutually_exclusive() {
+    let mut state = SnipperState::new();
+    state.viewport.selection = SelectionState::Locked {
+        rect: Rect {
+            x: 10.0,
+            y: 10.0,
+            width: 50.0,
+            height: 50.0,
+        },
+        active_drag: None,
+    };
+    let original = RgbaImage::from_pixel(100, 100, Rgba([255, 255, 255, 255]));
+
+    state.long_capture = Some(LongCaptureSession::new(
+        original.view(10, 10, 50, 50).to_image(),
+    ));
+    handle_action_start_recording(&mut state, &original);
+    assert!(state.recording.is_none());
+    assert!(state.session.status_message.is_some());
+
+    state.long_capture = None;
+    state.recording = Some(RecordingSession::new(
+        Arc::new(NoopScreenRecorder),
+        Arc::new(|_| {}),
+    ));
+    handle_action_long_capture(&mut state, &original);
+    assert!(state.long_capture.is_none());
+    assert!(state.session.status_message.is_some());
 }
 
 /// 美化配置必须转换为社交画布尺寸，后台渲染与保存路径共用同一组参数。

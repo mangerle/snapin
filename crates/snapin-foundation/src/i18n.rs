@@ -282,6 +282,13 @@ pub fn tr(zh: &str) -> &str {
         "长截图" => "Long Capture",
         "选区过小，无法进入长截图" => "Selection is too small to enter long capture",
         "选区过小，无法开始长截图录制" => "Selection is too small to start long capture",
+        "请先结束屏幕录制，再进入长截图" => {
+            "Finish screen recording before entering long capture"
+        }
+        "长截图已在进行中" => "Long capture is already in progress",
+        "请先完成或关闭长截图，再开始屏幕录制" => {
+            "Finish or close long capture before starting screen recording"
+        }
         "长截图录制中：在选区内滚动鼠标自动拼接" => {
             "Long capture recording: scroll mouse in selection to stitch automatically"
         }

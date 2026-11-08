@@ -374,6 +374,16 @@ pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaIma
 
 /// 开启长截图滚动拼接模式
 pub fn handle_action_long_capture(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    if state.recording.is_some() {
+        state.set_status_message(snapin_foundation::i18n::tr(
+            "请先结束屏幕录制，再进入长截图",
+        ));
+        return;
+    }
+    if state.long_capture.is_some() {
+        state.set_status_message(snapin_foundation::i18n::tr("长截图已在进行中"));
+        return;
+    }
     state.clear_status_message();
     let (px, py, pw, ph) = match &state.viewport.selection {
         SelectionState::Locked { rect, .. } => {
@@ -402,6 +412,12 @@ mod tests;
 /// 录制区域会向下取整为偶数像素，保证 OpenH264 的 YUV420 输入满足宽高整除约束。
 pub fn handle_action_start_recording(state: &mut SnipperState, original_rgba: &RgbaImage) {
     if state.recording.is_some() {
+        return;
+    }
+    if state.long_capture.is_some() {
+        state.set_status_message(snapin_foundation::i18n::tr(
+            "请先完成或关闭长截图，再开始屏幕录制",
+        ));
         return;
     }
     state.clear_status_message();

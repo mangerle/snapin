@@ -24,6 +24,7 @@ const LEGACY_GNOME_EXTENSION_UUIDS: &[&str] = &[
     "snapin@wangle.local",
     "snapin-helper@wangle.local",
     "snapin-helper@wangle",
+    "snapin-recordtest@wangle",
 ];
 #[cfg(target_os = "linux")]
 const GNOME_EXTENSION_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
