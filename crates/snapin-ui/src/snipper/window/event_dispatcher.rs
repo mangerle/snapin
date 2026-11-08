@@ -49,7 +49,16 @@ impl SnipperEventDispatcher {
             }
             WindowEvent::CloseRequested => {
                 context.state.cancel_pending_job();
-                context.state.session.outcome = Some(SnipperOutcome::Cancelled);
+                let completed_path = context
+                    .state
+                    .recording
+                    .as_ref()
+                    .and_then(|session| session.artifact())
+                    .map(|artifact| artifact.path.clone());
+                context.state.session.outcome = Some(
+                    completed_path
+                        .map_or(SnipperOutcome::Cancelled, SnipperOutcome::RecordingSaved),
+                );
             }
             _ => {}
         }

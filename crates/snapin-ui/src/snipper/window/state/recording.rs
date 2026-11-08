@@ -1,95 +1,23 @@
 //! 截图选区内的屏幕录制会话状态。
 
-use crate::editor::toolbar::Tool;
+mod actions;
+mod preview;
+mod status;
+mod timer;
+mod toolbar;
+
 use crate::ports::{
-    PortError, RecordingEvent, RecordingEventSink, RecordingFormat, RecordingHandle,
-    RecordingOptions, RecordingRegion, ScreenRecorder,
+    PortError, RecordingArtifact, RecordingEvent, RecordingEventSink, RecordingFormat,
+    RecordingHandle, RecordingOptions, RecordingPreviewFrame, RecordingRegion, ScreenRecorder,
 };
+pub use actions::{RecordingAction, RecordingItem};
+use preview::RecordingPreview;
+pub use status::RecordingStatus;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
-
-/// 录制工具栏中的一次性动作。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RecordingAction {
-    /// 开始、停止或进入编码收尾
-    ToggleCapture,
-    /// 暂停或恢复
-    TogglePause,
-    /// 切换系统声音请求
-    ToggleAudio,
-    /// 切换鼠标指针采集
-    ToggleCursor,
-    /// 打开或关闭格式菜单
-    ToggleSettings,
-    /// 切换帧率
-    CycleFps,
-    /// 撤销标注
-    Undo,
-    /// 拖动整条录制工具栏
-    DragHandle,
-    /// 移动工具栏或选区
-    Move,
-    /// 关闭并取消
-    Close,
-    /// 放弃当前录制并立即重新开始
-    Restart,
-}
-
-impl RecordingAction {
-    /// 工具栏悬浮提示名称。
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::ToggleCapture => "开始或停止录制",
-            Self::TogglePause => "暂停或继续",
-            Self::ToggleAudio => "系统声音",
-            Self::ToggleCursor => "鼠标指针",
-            Self::ToggleSettings => "录制设置",
-            Self::CycleFps => "切换帧率",
-            Self::Undo => "撤销标注",
-            Self::DragHandle => "拖动工具栏",
-            Self::Move => "移动",
-            Self::Close => "关闭",
-            Self::Restart => "重新开始",
-        }
-    }
-}
-
-/// 录制工具栏按钮：录制动作与现有标注工具共用同一布局。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RecordingItem {
-    /// 录制控制动作
-    Action(RecordingAction),
-    /// 复用主工具栏的标注工具
-    Tool(Tool),
-}
-
-/// 录制会话所处的明确阶段。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RecordingStatus {
-    /// 尚未按下录制
-    Idle,
-    /// 已提交后台任务，等待原生采集器就绪
-    Starting,
-    /// 正在采集
-    Active,
-    /// 已暂停采集
-    Paused,
-    /// 已停止采集，正在编码收尾
-    Stopping,
-}
-
-impl RecordingStatus {
-    /// 是否处于已经开始且尚未进入编码收尾的状态。
-    pub const fn is_recording(self) -> bool {
-        matches!(self, Self::Active | Self::Paused)
-    }
-
-    /// 是否仍会接收录制控制。
-    pub const fn is_busy(self) -> bool {
-        !matches!(self, Self::Idle)
-    }
-}
+use std::time::{Duration, Instant};
+use timer::RecordingElapsedTimer;
+use toolbar::ToolbarInteraction;
 
 /// 录制事件对 UI 的后续影响。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,21 +42,13 @@ pub struct RecordingSession {
     fps: u32,
     include_system_audio: bool,
     include_cursor: bool,
-    elapsed: Duration,
+    timer: RecordingElapsedTimer,
     region: Option<RecordingRegion>,
     settings_open: bool,
     hovered: Option<RecordingItem>,
     restart_pending: bool,
-    toolbar_offset: (f32, f32),
-    toolbar_drag: Option<ToolbarDrag>,
-    mouse_press_consumed: bool,
-}
-
-/// 一次工具栏拖动会话的固定起点。
-#[derive(Debug, Clone, Copy)]
-struct ToolbarDrag {
-    pointer: (f32, f32),
-    offset: (f32, f32),
+    toolbar: ToolbarInteraction,
+    preview: RecordingPreview,
 }
 
 impl RecordingSession {
@@ -140,17 +60,16 @@ impl RecordingSession {
             handle: None,
             status: RecordingStatus::Idle,
             format: RecordingFormat::Mp4,
-            fps: 60,
+            fps: 30,
             include_system_audio: false,
             include_cursor: false,
-            elapsed: Duration::ZERO,
+            timer: RecordingElapsedTimer::new(),
             region: None,
             settings_open: false,
             hovered: None,
             restart_pending: false,
-            toolbar_offset: (0.0, 0.0),
-            toolbar_drag: None,
-            mouse_press_consumed: false,
+            toolbar: ToolbarInteraction::new(),
+            preview: RecordingPreview::new(),
         }
     }
 
@@ -170,8 +89,48 @@ impl RecordingSession {
     }
 
     /// 当前已录制时长。
-    pub const fn elapsed(&self) -> Duration {
-        self.elapsed
+    pub fn elapsed(&self) -> Duration {
+        self.timer.elapsed()
+    }
+
+    /// 已完成的录制产物；未完成时返回 `None`。
+    pub fn artifact(&self) -> Option<&RecordingArtifact> {
+        self.preview.artifact()
+    }
+
+    /// 当前内嵌预览帧。
+    pub fn preview_frame(&self) -> Option<&RecordingPreviewFrame> {
+        self.preview.frame()
+    }
+
+    /// 内嵌预览当前是否正在播放。
+    pub const fn preview_playing(&self) -> bool {
+        self.preview.playing()
+    }
+
+    /// 当前内嵌预览帧索引。
+    pub const fn preview_frame_index(&self) -> usize {
+        self.preview.frame_index()
+    }
+
+    /// 内嵌预览下一帧的唤醒时刻。
+    pub const fn preview_deadline(&self) -> Option<Instant> {
+        self.preview.deadline()
+    }
+
+    /// 当前回放进度，范围为 0.0 到 1.0。
+    pub fn preview_progress(&self) -> f32 {
+        self.preview.progress()
+    }
+
+    /// 当前回放位置与总时长。
+    pub fn preview_elapsed(&self) -> Option<(Duration, Duration)> {
+        self.preview.elapsed()
+    }
+
+    /// 是否正在拖动回放进度条。
+    pub const fn is_seeking_preview(&self) -> bool {
+        self.preview.is_seeking()
     }
 
     /// 系统声音开关是否开启。
@@ -196,55 +155,37 @@ impl RecordingSession {
 
     /// 工具栏相对默认位置的拖动偏移。
     pub const fn toolbar_offset(&self) -> (f32, f32) {
-        self.toolbar_offset
+        self.toolbar.offset()
     }
 
     /// 是否正在拖动整条工具栏。
     pub const fn is_dragging_toolbar(&self) -> bool {
-        self.toolbar_drag.is_some()
+        self.toolbar.is_dragging()
     }
 
     /// 开始拖动整条工具栏。
     pub fn begin_toolbar_drag(&mut self, pointer: (f32, f32)) -> bool {
-        if self.toolbar_drag.is_some() {
-            return false;
-        }
-        self.toolbar_drag = Some(ToolbarDrag {
-            pointer,
-            offset: self.toolbar_offset,
-        });
-        true
+        self.toolbar.begin_drag(pointer)
     }
 
     /// 根据当前鼠标位置更新工具栏偏移。
     pub fn drag_toolbar_to(&mut self, pointer: (f32, f32)) -> bool {
-        let Some(drag) = self.toolbar_drag else {
-            return false;
-        };
-        let next = (
-            drag.offset.0 + pointer.0 - drag.pointer.0,
-            drag.offset.1 + pointer.1 - drag.pointer.1,
-        );
-        if next == self.toolbar_offset {
-            return false;
-        }
-        self.toolbar_offset = next;
-        true
+        self.toolbar.drag_to(pointer)
     }
 
     /// 结束工具栏拖动。
     pub fn end_toolbar_drag(&mut self) -> bool {
-        self.toolbar_drag.take().is_some()
+        self.toolbar.end_drag()
     }
 
     /// 标记当前鼠标按下事件已由录制工具栏消费。
     pub fn consume_mouse_press(&mut self) {
-        self.mouse_press_consumed = true;
+        self.toolbar.consume_mouse_press();
     }
 
     /// 读取并清除鼠标按下事件的消费标记。
     pub fn take_mouse_press_consumed(&mut self) -> bool {
-        std::mem::take(&mut self.mouse_press_consumed)
+        self.toolbar.take_mouse_press_consumed()
     }
 
     /// 更新悬停状态，返回是否需要重绘。
@@ -276,7 +217,8 @@ impl RecordingSession {
         self.handle = Some(self.recorder.start(options, self.sink.clone())?);
         self.region = Some(region);
         self.status = RecordingStatus::Starting;
-        self.elapsed = Duration::ZERO;
+        self.timer.reset();
+        self.preview.reset();
         Ok(())
     }
 
@@ -294,10 +236,13 @@ impl RecordingSession {
                     .as_ref()
                     .ok_or_else(|| PortError::new("停止屏幕录制", "录制控制器不存在"))?;
                 handle.stop()?;
+                self.timer.pause(Instant::now());
                 self.status = RecordingStatus::Stopping;
                 Ok(())
             }
-            RecordingStatus::Starting | RecordingStatus::Stopping => Ok(()),
+            RecordingStatus::Starting | RecordingStatus::Stopping | RecordingStatus::Completed => {
+                Ok(())
+            }
         }
     }
 
@@ -314,13 +259,18 @@ impl RecordingSession {
         match self.status {
             RecordingStatus::Active => {
                 handle.pause()?;
+                self.timer.pause(Instant::now());
                 self.status = RecordingStatus::Paused;
             }
             RecordingStatus::Paused => {
                 handle.resume()?;
+                self.timer.resume(Instant::now());
                 self.status = RecordingStatus::Active;
             }
-            RecordingStatus::Idle | RecordingStatus::Starting | RecordingStatus::Stopping => {}
+            RecordingStatus::Idle
+            | RecordingStatus::Starting
+            | RecordingStatus::Stopping
+            | RecordingStatus::Completed => {}
         }
         Ok(())
     }
@@ -366,6 +316,60 @@ impl RecordingSession {
         }
     }
 
+    /// 切换结果页内嵌预览的播放状态。
+    pub fn toggle_preview_playback(&mut self, now: Instant) {
+        if self.status != RecordingStatus::Completed {
+            return;
+        }
+        self.preview.toggle(now);
+    }
+
+    /// 开始拖动回放进度条。
+    pub fn begin_preview_seek(&mut self) {
+        if self.status == RecordingStatus::Completed {
+            self.preview.begin_seek();
+        }
+    }
+
+    /// 按比例跳转回放位置。
+    pub fn seek_preview(&mut self, progress: f32) {
+        if self.status == RecordingStatus::Completed {
+            self.preview.seek(progress);
+        }
+    }
+
+    /// 结束拖动回放进度条。
+    pub fn end_preview_seek(&mut self) -> bool {
+        self.preview.end_seek()
+    }
+
+    /// 推进录制秒表；返回显示秒数是否发生变化。
+    pub fn refresh_recording_elapsed(&mut self, now: Instant) -> bool {
+        self.timer.refresh(now)
+    }
+
+    /// 按时间推进预览帧；返回是否发生画面变化。
+    pub fn advance_preview(&mut self, now: Instant) -> bool {
+        if self.status != RecordingStatus::Completed {
+            return false;
+        }
+        self.preview.advance(now)
+    }
+
+    /// 从结果页立即开始新一轮录制。
+    ///
+    /// # Errors
+    ///
+    /// 录制端口拒绝重新启动时返回端口错误。
+    pub fn restart_completed(&mut self, region: RecordingRegion) -> Result<(), PortError> {
+        if self.status != RecordingStatus::Completed {
+            return Err(PortError::new("重新录制", "当前没有可重新录制的完成结果"));
+        }
+        self.status = RecordingStatus::Idle;
+        self.preview.reset();
+        self.start(region)
+    }
+
     /// 请求关闭前取消仍在进行的录制。
     pub fn cancel(&mut self) {
         if let Some(handle) = &self.handle {
@@ -376,7 +380,10 @@ impl RecordingSession {
 
     /// 取消当前录制并标记完成后立即重启。
     pub fn request_restart(&mut self) {
-        if self.status == RecordingStatus::Idle {
+        if matches!(
+            self.status,
+            RecordingStatus::Idle | RecordingStatus::Completed
+        ) {
             return;
         }
         self.restart_pending = true;
@@ -399,29 +406,39 @@ impl RecordingSession {
     pub fn handle_event(&mut self, event: RecordingEvent) -> RecordingTransition {
         match event {
             RecordingEvent::Started => {
+                self.timer.start(Instant::now());
                 self.status = RecordingStatus::Active;
                 RecordingTransition::Updated
             }
             RecordingEvent::Progress { elapsed, .. } => {
-                self.elapsed = elapsed;
+                self.timer.observe(elapsed, Instant::now());
                 RecordingTransition::Updated
             }
             RecordingEvent::Paused => {
+                self.timer.pause(Instant::now());
                 self.status = RecordingStatus::Paused;
                 RecordingTransition::Updated
             }
             RecordingEvent::Resumed => {
+                self.timer.resume(Instant::now());
                 self.status = RecordingStatus::Active;
                 RecordingTransition::Updated
             }
-            RecordingEvent::Finished { path } => {
-                self.status = RecordingStatus::Stopping;
+            RecordingEvent::Finished { artifact } => {
+                self.timer.finish(artifact.duration);
+                self.status = RecordingStatus::Completed;
                 self.handle = None;
+                self.hovered = None;
+                let path = artifact.path.clone();
+                self.preview.finish(artifact, Instant::now());
                 RecordingTransition::Finished(path)
             }
             RecordingEvent::Cancelled => {
+                self.timer.reset();
                 self.status = RecordingStatus::Idle;
                 self.handle = None;
+                self.hovered = None;
+                self.preview.reset();
                 if self.restart_pending {
                     self.restart_pending = false;
                     RecordingTransition::Restart
@@ -430,8 +447,11 @@ impl RecordingSession {
                 }
             }
             RecordingEvent::Failed { .. } => {
+                self.timer.reset();
                 self.status = RecordingStatus::Idle;
                 self.handle = None;
+                self.hovered = None;
+                self.preview.reset();
                 RecordingTransition::Updated
             }
             RecordingEvent::Warning { .. } => RecordingTransition::Updated,
@@ -442,7 +462,7 @@ impl RecordingSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use snapin_ports::{RecordingRegion, ScreenRecorder};
+    use snapin_ports::{RecordingPreviewFrame, RecordingRegion, ScreenRecorder};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
 
@@ -509,13 +529,13 @@ mod tests {
             }),
             Arc::new(|_| {}),
         );
+        assert_eq!(session.fps(), 30);
+        session.cycle_fps();
         assert_eq!(session.fps(), 60);
         session.cycle_fps();
         assert_eq!(session.fps(), 24);
         session.cycle_fps();
         assert_eq!(session.fps(), 30);
-        session.cycle_fps();
-        assert_eq!(session.fps(), 60);
     }
 
     #[test]
@@ -540,10 +560,22 @@ mod tests {
         assert!(control.stopped.load(Ordering::Acquire));
         assert_eq!(session.status(), RecordingStatus::Stopping);
         let path = PathBuf::from("/tmp/snapin-recording.mp4");
+        let artifact = RecordingArtifact {
+            path: path.clone(),
+            duration: Duration::from_secs(3),
+            preview_frames: Arc::new(vec![
+                RecordingPreviewFrame::new(2, 2, Vec::new()),
+                RecordingPreviewFrame::new(2, 2, Vec::new()),
+            ]),
+        };
         assert_eq!(
-            session.handle_event(RecordingEvent::Finished { path: path.clone() }),
+            session.handle_event(RecordingEvent::Finished { artifact }),
             RecordingTransition::Finished(path)
         );
+        assert_eq!(session.status(), RecordingStatus::Completed);
+        assert_eq!(session.elapsed(), Duration::from_secs(3));
+        assert!(session.preview_playing());
+        assert!(session.preview_frame().is_some());
     }
 
     #[test]
@@ -557,6 +589,61 @@ mod tests {
         session.consume_mouse_press();
         assert!(session.take_mouse_press_consumed());
         assert!(!session.take_mouse_press_consumed());
+    }
+
+    #[test]
+    fn test_completed_preview_advances_only_while_playing() {
+        let mut session = RecordingSession::new(
+            Arc::new(MockRecorder {
+                control: Arc::new(MockControl::default()),
+            }),
+            Arc::new(|_| {}),
+        );
+        session.handle_event(RecordingEvent::Started);
+        session.handle_event(RecordingEvent::Finished {
+            artifact: RecordingArtifact {
+                path: PathBuf::from("/tmp/snapin-preview.mp4"),
+                duration: Duration::from_secs(2),
+                preview_frames: Arc::new(vec![
+                    RecordingPreviewFrame::new(2, 2, Vec::new()),
+                    RecordingPreviewFrame::new(2, 2, Vec::new()),
+                    RecordingPreviewFrame::new(2, 2, Vec::new()),
+                ]),
+            },
+        });
+        let now = Instant::now();
+        assert!(session.preview_playing());
+        let deadline = session.preview_deadline().expect("播放中必须有下一帧时刻");
+        assert!(session.advance_preview(deadline));
+        assert_eq!(session.preview_frame_index(), 1);
+
+        session.toggle_preview_playback(now);
+        assert!(!session.preview_playing());
+        assert!(!session.advance_preview(now + Duration::from_secs(1)));
+        assert_eq!(session.preview_frame_index(), 1);
+    }
+
+    #[test]
+    fn test_completed_result_can_restart_recording() {
+        let control = Arc::new(MockControl::default());
+        let recorder = Arc::new(MockRecorder {
+            control: control.clone(),
+        });
+        let mut session = RecordingSession::new(recorder, Arc::new(|_| {}));
+        session.handle_event(RecordingEvent::Started);
+        session.handle_event(RecordingEvent::Finished {
+            artifact: RecordingArtifact {
+                path: PathBuf::from("/tmp/snapin-restart.mp4"),
+                duration: Duration::from_secs(1),
+                preview_frames: Arc::new(Vec::new()),
+            },
+        });
+        assert_eq!(session.status(), RecordingStatus::Completed);
+        session
+            .restart_completed(region())
+            .expect("结果页应可立即重新录制");
+        assert_eq!(session.status(), RecordingStatus::Starting);
+        assert!(session.artifact().is_none());
     }
 
     #[test]

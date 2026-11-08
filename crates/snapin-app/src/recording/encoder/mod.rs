@@ -73,6 +73,7 @@ mod tests {
     use image::Rgba;
     use std::fs::OpenOptions;
     use std::io::Read;
+    use std::time::Duration;
     use tempfile::tempdir;
 
     fn test_file(path: &std::path::Path) -> File {
@@ -165,5 +166,58 @@ mod tests {
             reader.tracks().values().next().map(|track| track.width()),
             Some(16)
         );
+    }
+
+    #[test]
+    fn test_mp4_encoder_preserves_variable_frame_durations() {
+        let dir = tempdir().expect("临时目录应可创建");
+        let path = dir.path().join("variable-duration.mp4");
+        let mut encoder = open_encoder(EncoderInit {
+            format: RecordingFormat::Mp4,
+            file: test_file(&path),
+            width: 16,
+            height: 16,
+            fps: 30,
+        })
+        .expect("MP4 编码器应初始化");
+        let durations = [120_u32, 80, 200];
+        for (index, duration) in durations.iter().copied().enumerate() {
+            let value = (index * 60) as u8;
+            encoder
+                .write_frame(&test_frame(16, 16, Rgba([value, 0, 0, 255])), duration)
+                .expect("MP4 帧应写入");
+        }
+        encoder.finish().expect("MP4 应收尾");
+
+        let file = File::open(&path).expect("MP4 应可读取");
+        let mut reader = ::mp4::Mp4Reader::read_header(
+            file,
+            std::fs::metadata(path).expect("MP4 元数据应存在").len(),
+        )
+        .expect("MP4 应可解析");
+        let track_id = reader
+            .tracks()
+            .keys()
+            .next()
+            .copied()
+            .expect("MP4 应包含视频轨");
+        assert_eq!(
+            reader.sample_count(track_id).expect("应可读取 MP4 样本数"),
+            durations.len() as u32
+        );
+
+        let mut expected_start = 0_u64;
+        for (index, duration_ms) in durations.iter().copied().enumerate() {
+            let sample_id = u32::try_from(index).expect("测试样本索引应可转换") + 1;
+            let sample = reader
+                .read_sample(track_id, sample_id)
+                .expect("应可读取 MP4 样本")
+                .expect("MP4 样本应存在");
+            let expected_duration = duration_ms.saturating_mul(90);
+            assert_eq!(sample.start_time, expected_start);
+            assert_eq!(sample.duration, expected_duration);
+            expected_start = expected_start.saturating_add(u64::from(expected_duration));
+        }
+        assert_eq!(reader.duration(), Duration::from_millis(400));
     }
 }

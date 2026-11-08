@@ -5,7 +5,7 @@ use gif::{Encoder, Frame, Repeat};
 use image::RgbaImage;
 use std::fs::File;
 
-/// 按固定帧时长持续追加全帧 GIF 图像。
+/// 按每帧动态时长持续追加全帧 GIF 图像。
 pub(super) struct GifEncoder {
     encoder: Encoder<File>,
     width: u16,

@@ -51,8 +51,10 @@ pub(crate) fn handle_workspace_user_event(
                 view.handle_recording_event(event);
                 view.request_redraw();
             }
+            sync_snipper_ui_ticker(runtime);
             finish_snipper_if_ready(runtime);
         }
+        PasterAppEvent::SnipperUiTick => handle_snipper_ui_tick(runtime),
         PasterAppEvent::SnipperJobFinished {
             job_id,
             kind,
@@ -192,6 +194,7 @@ fn open_snipper(
     runtime: &mut WorkspaceRuntime,
     elwt: &ActiveEventLoop,
 ) {
+    runtime.ui_ticker = None;
     if let Some(mut previous) = runtime.snipper.take() {
         previous.cancel();
         tracing::warn!("已有截图覆盖层未结束，已取消旧会话并打开新会话");
@@ -248,7 +251,40 @@ pub(crate) fn finish_snipper_if_ready(runtime: &mut WorkspaceRuntime) {
     if let Some(mut view) = runtime.snipper.take() {
         view.cancel();
     }
+    runtime.ui_ticker = None;
     notify_snipper_finished(runtime, outcome);
+}
+
+/// 推进录制秒表或结果页预览，并同步受管定时线程的生命周期。
+fn handle_snipper_ui_tick(runtime: &mut WorkspaceRuntime) {
+    let now = std::time::Instant::now();
+    let mut redraw = false;
+    if let Some(view) = runtime.snipper.as_mut() {
+        redraw |= view.refresh_recording_elapsed(now);
+        redraw |= view.advance_recording_preview(now);
+    }
+    if redraw {
+        if let Some(view) = runtime.snipper.as_ref() {
+            view.request_redraw();
+        }
+    }
+    sync_snipper_ui_ticker(runtime);
+}
+
+/// 根据当前录屏阶段启动或回收秒表与预览定时线程。
+fn sync_snipper_ui_ticker(runtime: &mut WorkspaceRuntime) {
+    let should_run = runtime
+        .snipper
+        .as_ref()
+        .is_some_and(SnipperView::needs_periodic_ui_tick);
+    match (should_run, runtime.ui_ticker.is_some()) {
+        (true, false) => match super::RecordingUiTicker::start(runtime.event_proxy.clone()) {
+            Ok(ticker) => runtime.ui_ticker = Some(ticker),
+            Err(error) => tracing::warn!("{error}"),
+        },
+        (false, true) => runtime.ui_ticker = None,
+        (true, true) | (false, false) => {}
+    }
 }
 
 /// 投递截图结果；回调由应用层负责转换为有界通道消息。

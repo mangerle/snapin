@@ -76,7 +76,7 @@ fn test_recording_fps_click_uses_current_toolbar_position() {
     ));
     assert_eq!(
         state.recording.as_ref().map(|session| session.fps()),
-        Some(24)
+        Some(60)
     );
 }
 

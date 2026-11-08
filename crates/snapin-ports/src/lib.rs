@@ -46,8 +46,8 @@ pub use model::{
     PasterTransform, ShapeId,
 };
 pub use recording::{
-    NoopScreenRecorder, RecordingEvent, RecordingEventSink, RecordingFormat, RecordingHandle,
-    RecordingOptions, RecordingRegion, ScreenRecorder,
+    NoopScreenRecorder, RecordingArtifact, RecordingEvent, RecordingEventSink, RecordingFormat,
+    RecordingHandle, RecordingOptions, RecordingPreviewFrame, RecordingRegion, ScreenRecorder,
 };
 pub use runner::{
     MockWorkspaceDriver, SnipperLaunch, SnipperOutcome, SnipperRuntime, WindowRect,

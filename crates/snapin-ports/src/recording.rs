@@ -101,12 +101,52 @@ impl RecordingOptions {
     }
 }
 
+/// 一帧压缩后的回放预览。
+///
+/// 预览以 JPEG 字节保存而不是常驻 RGBA，可将高分辨率预览的内存占用压缩到原来的
+/// 几十分之一；界面只解码当前显示帧，因此清晰度提升不会转化为整段录制的高额内存。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordingPreviewFrame {
+    /// 预览像素宽度。
+    pub width: u32,
+    /// 预览像素高度。
+    pub height: u32,
+    /// JPEG 编码数据。
+    pub data: Arc<[u8]>,
+}
+
+impl RecordingPreviewFrame {
+    /// 使用已编码预览数据创建帧。
+    pub fn new(width: u32, height: u32, data: impl Into<Arc<[u8]>>) -> Self {
+        Self {
+            width,
+            height,
+            data: data.into(),
+        }
+    }
+}
+
+/// 一次成功录制返回的最终产物与内嵌预览数据。
+///
+/// 预览帧由采集循环按固定间隔生成高分辨率 JPEG，而不是录制结束后重新解码媒体文件。
+/// 这样 GIF、WebP 与 MP4 共用同一条预览通路，也避免常驻保存大量 RGBA 像素；
+/// 代价是预览帧率低于最终视频，界面显示当前帧时需要执行一次内存解码。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordingArtifact {
+    /// 最终媒体文件路径。
+    pub path: PathBuf,
+    /// 有效录制时长，不包含暂停区间。
+    pub duration: Duration,
+    /// 高分辨率压缩预览帧，按时间顺序排列。
+    pub preview_frames: Arc<Vec<RecordingPreviewFrame>>,
+}
+
 /// 录制后台回传事件。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecordingEvent {
     /// 原生采集器与编码器已准备就绪，计时从此开始。
     Started,
-    /// 录制进度；仅用于界面计时和状态提示。
+    /// 录制进度；用于状态提示，并作为界面单调时钟的防回退兜底。
     Progress {
         /// 已录制时长。
         elapsed: Duration,
@@ -119,8 +159,8 @@ pub enum RecordingEvent {
     Resumed,
     /// 录制完成并成功落盘。
     Finished {
-        /// 最终媒体文件路径。
-        path: PathBuf,
+        /// 最终文件路径、有效时长与高分辨率压缩预览帧。
+        artifact: RecordingArtifact,
     },
     /// 用户取消，部分文件已清理。
     Cancelled,

@@ -1,6 +1,7 @@
 use crate::editor::toolbar::Toolbar;
 use crate::geometry::Rect;
 use crate::ports::NoopScreenRecorder;
+use crate::ports::{RecordingArtifact, RecordingEvent, RecordingPreviewFrame};
 use crate::snipper::canvas::recording::render::format_elapsed;
 use crate::snipper::canvas::recording::{
     calculate_recording_layout, render_recording_toolbar, RecordingLayoutRequest,
@@ -8,6 +9,7 @@ use crate::snipper::canvas::recording::{
 };
 use crate::snipper::window::state::RecordingSession;
 use std::sync::Arc;
+use std::time::Duration;
 use tiny_skia::{Color, Pixmap};
 
 #[test]
@@ -49,6 +51,51 @@ fn test_render_recording_toolbar_with_settings_menu() {
         .pixel(sample_x, sample_y)
         .expect("工具栏采样像素应存在");
     assert!(pixel.alpha() > 0, "工具栏底板必须实际绘制");
+}
+
+#[test]
+fn test_render_completed_toolbar_uses_result_actions() {
+    let mut pixmap = Pixmap::new(900, 180).expect("测试位图应可分配");
+    pixmap.fill(Color::from_rgba8(68, 112, 140, 255));
+    let mut session = RecordingSession::new(Arc::new(NoopScreenRecorder), Arc::new(|_| {}));
+    session.handle_event(RecordingEvent::Started);
+    session.handle_event(RecordingEvent::Finished {
+        artifact: RecordingArtifact {
+            path: std::path::PathBuf::from("/tmp/snapin-completed.mp4"),
+            duration: Duration::from_secs(8),
+            preview_frames: Arc::new(vec![RecordingPreviewFrame::new(32, 18, Vec::new())]),
+        },
+    });
+    let toolbar = Toolbar::default();
+    let selection = Rect::new(40.0, 40.0, 820.0, 100.0);
+    let layout = calculate_recording_layout(RecordingLayoutRequest {
+        session: &session,
+        selection: &selection,
+        screen_width: 900.0,
+        screen_height: 180.0,
+        scale: 1.0,
+    });
+    assert!(layout.slots.iter().any(|slot| {
+        slot.item
+            == Some(crate::snipper::window::state::RecordingItem::Action(
+                crate::snipper::window::state::RecordingAction::OpenFile,
+            ))
+    }));
+    render_recording_toolbar(
+        &mut pixmap.as_mut(),
+        RecordingRenderContext {
+            session: &session,
+            toolbar: &toolbar,
+            selection: &selection,
+            screen_size: (900, 180),
+            ui_scale: 1.0,
+        },
+    );
+    let sample_x = layout.bar_rect.x as u32 + 4;
+    let sample_y = layout.bar_rect.y as u32 + 4;
+    assert!(pixmap
+        .pixel(sample_x, sample_y)
+        .is_some_and(|pixel| pixel.alpha() > 0));
 }
 
 #[test]

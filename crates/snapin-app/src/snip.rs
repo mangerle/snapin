@@ -207,6 +207,12 @@ pub(crate) async fn handle_snipper_outcome(
                 notify_or_debug("Snapin 截图已保存", &message).await;
             }
         }
+        SnipperOutcome::RecordingSaved(path) => {
+            if config.output.notify_on_save {
+                let message = format!("屏幕录制已保存至: {}", path.display());
+                notify_or_debug("Snapin 屏幕录制已保存", &message).await;
+            }
+        }
         SnipperOutcome::Pinned(item) => {
             let title = item.title.clone();
             let (x, y) = item.position;

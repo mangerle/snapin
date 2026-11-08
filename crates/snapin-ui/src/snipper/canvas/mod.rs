@@ -21,7 +21,8 @@ use crate::status_badge;
 use image::RgbaImage;
 use snapin_annotation::AnnotationHistory;
 use tiny_skia::{
-    Paint, PathBuilder, Pixmap, PixmapMut, Rect as SkiaRect, Stroke, StrokeDash, Transform,
+    FilterQuality, Paint, PathBuilder, Pixmap, PixmapMut, PixmapPaint, Rect as SkiaRect, Stroke,
+    StrokeDash, Transform,
 };
 
 /// 正在拉伸绘制中的待提交标注笔触元数据 (工具类型, 轨迹点集合, 预设色值)
@@ -79,6 +80,8 @@ pub struct SnipperCanvas<'a> {
     pub ocr_editor: Option<&'a OcrTextEditorState>,
     /// 选区屏幕录制会话（若激活）
     pub recording: Option<&'a RecordingSession>,
+    /// 结果页当前内嵌预览帧。
+    pub recording_preview: Option<&'a Pixmap>,
 }
 
 impl<'a> SnipperCanvas<'a> {
@@ -108,42 +111,55 @@ impl<'a> SnipperCanvas<'a> {
 
     /// 绘制选区底图、标注、实时交互反馈、边框与工具栏。
     fn render_selection_contents(&self, pixmap: &mut PixmapMut, rect: &Rect) {
-        let recording_active = self
-            .recording
-            .is_some_and(|session| session.status().is_busy());
-        if recording_active {
-            self.clear_selection_alpha(
-                pixmap,
-                rect,
-                CanvasSize::new(pixmap.width(), pixmap.height()),
-            );
+        let recording_status = self.recording.map(RecordingSession::status);
+        let recording_active = recording_status.is_some_and(|status| status.is_capturing());
+        let recording_completed = recording_status.is_some_and(|status| {
+            status == crate::snipper::window::state::RecordingStatus::Completed
+        });
+        if recording_completed {
+            if let Some(preview) = self.recording_preview {
+                self.draw_recording_preview(pixmap, rect, preview);
+            } else {
+                self.fast_cutout_restore(
+                    pixmap,
+                    rect,
+                    CanvasSize::new(pixmap.width(), pixmap.height()),
+                );
+            }
         } else {
+            // 录制视频来自独立的实时 PipeWire 流，覆盖层无需透明透出桌面。
+            // Wayland 全屏透明表面会把透明选区合成为黑色，因此录制态继续显示冻结底图，
+            // 只更新计时、工具栏与标注；该冻结底图不会进入排除 Snapin 窗口的录制流。
             self.fast_cutout_restore(
                 pixmap,
                 rect,
                 CanvasSize::new(pixmap.width(), pixmap.height()),
             );
         }
-        if let Some(history) = self.annotations {
-            history.replay_all(pixmap);
+        if !recording_completed {
+            if let Some(history) = self.annotations {
+                history.replay_all(pixmap);
+            }
+            if let Some(text_session) = self.active_text_input {
+                text_session.render(pixmap);
+            }
+            if let (Some(toolbar), Some((tool, points, badge))) =
+                (self.toolbar, self.pending_stroke)
+            {
+                self.render_pending_preview(
+                    pixmap,
+                    selection::PendingPreviewSpec {
+                        toolbar,
+                        tool,
+                        points,
+                        badge_number: badge,
+                    },
+                );
+            }
+            self.render_detection_previews(pixmap);
+            self.render_active_brush_cursor(pixmap, rect);
         }
-        if let Some(text_session) = self.active_text_input {
-            text_session.render(pixmap);
-        }
-        if let (Some(toolbar), Some((tool, points, badge))) = (self.toolbar, self.pending_stroke) {
-            self.render_pending_preview(
-                pixmap,
-                selection::PendingPreviewSpec {
-                    toolbar,
-                    tool,
-                    points,
-                    badge_number: badge,
-                },
-            );
-        }
-        self.render_detection_previews(pixmap);
-        self.render_active_brush_cursor(pixmap, rect);
-        if !recording_active {
+        if !recording_active && !recording_completed {
             self.render_selection_borders_and_handles(pixmap, rect);
             if let Some(selected) = self.selected_annotation {
                 self.render_annotation_selection(pixmap, &selected);

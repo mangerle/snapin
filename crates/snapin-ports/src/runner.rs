@@ -73,6 +73,8 @@ pub enum SnipperOutcome {
     CopiedColor(String),
     /// 已保存至磁盘文件
     Saved(PathBuf),
+    /// 屏幕录制已完成并保存至磁盘
+    RecordingSaved(PathBuf),
     /// 已定在屏幕上转换为置顶贴图
     Pinned(PasterItem),
     /// 用户主动取消并退出

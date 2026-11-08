@@ -4,8 +4,9 @@
 //! 提供事件分发、分组显隐批量切换以及动态窗口生命周期管理，
 //! 彻底消除每个贴图窗口独立创建进程与独立事件循环的反模式。
 //!
-//! 工作区只消费宿主注入的端口与配置快照，不自行读取配置文件、不创建后台线程；
-//! GUI 线程的派生与后台执行器生命周期属于应用层职责。
+//! 工作区只消费宿主注入的端口与配置快照，不自行读取配置文件；除录屏秒表与结果页
+//! 预览所需的受管定时唤醒线程外，不创建后台任务，GUI 线程的派生与后台执行器生命周期
+//! 属于应用层职责。
 
 pub(crate) mod clipboard_events;
 pub(crate) mod event_handler;
@@ -13,6 +14,7 @@ pub(crate) mod job_events;
 pub(crate) mod paster_events;
 pub(crate) mod persistence;
 pub(crate) mod proxy;
+mod ui_ticker;
 pub(crate) mod window_builder;
 
 pub use event_handler::{is_valid_group_id, TOTAL_PIN_GROUPS};
@@ -34,6 +36,7 @@ use snapin_config::config::Config;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+use ui_ticker::RecordingUiTicker;
 use window_builder::PasterInstance;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -103,6 +106,8 @@ pub(crate) struct WorkspaceRuntime {
     pub snipper: Option<SnipperView>,
     /// 用于把截图任务结果投递回本事件循环的代理
     pub event_proxy: EventLoopProxy<PasterAppEvent>,
+    /// 录屏秒表与结果页预览定时唤醒器
+    pub ui_ticker: Option<RecordingUiTicker>,
     /// 截图覆盖层结束回调；常驻守护进程用它把结果送回应用层
     pub on_snipper_finished: Option<SnipperFinishedCallback>,
     /// 宿主动作唤醒回调；托盘或全局热键投递 [`PasterAppEvent::HostWake`] 后在
@@ -234,6 +239,7 @@ pub fn run_paster_workspace_loop(
         state_store,
         snipper: None,
         event_proxy,
+        ui_ticker: None,
         on_snipper_finished,
         on_host_wake,
         clipboard_events,

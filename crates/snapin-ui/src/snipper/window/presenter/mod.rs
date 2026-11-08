@@ -2,14 +2,11 @@
 
 use super::presenter_support::{covering_pixel_bounds, scale_pixmap_to, selected_annotation_view};
 use crate::error::UiError;
+use crate::paster::surface::PasterSurface;
 use crate::snipper::canvas::SnipperCanvas;
 use crate::snipper::magnifier::MagnifierViewport;
 use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::window::events::SnipperState;
-use crate::surface::{
-    blit_pixmap_to_surface_alpha, blit_words_to_surface, swizzle_pixmap_full_alpha,
-    swizzle_pixmap_region_alpha,
-};
 use image::RgbaImage;
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -31,32 +28,28 @@ struct OverlaySnapshot {
     magnifier_signature: MagnifierSignature,
 }
 
-/// 覆盖层脏区同步所需的新旧快照与画布尺寸。
-#[derive(Clone, Copy)]
-struct OverlayRegionSync<'a> {
-    previous: &'a OverlaySnapshot,
-    next: &'a OverlaySnapshot,
-    width: u32,
-    height: u32,
+/// 结果页当前预览帧的 Tiny-Skia 缓存。
+struct PreviewFrameCache {
+    artifact_ptr: usize,
+    frame_index: usize,
+    pixmap: Pixmap,
 }
 
 mod support;
 
 #[cfg(test)]
 pub use support::create_dimmed_pixmap_fast;
-use support::{
-    create_base_pixmap, create_frame_words, create_softbuffer_surface, magnifier_signature,
-};
+use support::{create_base_pixmap, magnifier_signature};
 
-/// 截图全屏窗口呈现器：管理双缓冲帧缓冲区与 softbuffer 表面呈现
+/// 截图全屏窗口呈现器：管理帧缓冲区与 ARGB8888 共享内存表面呈现。
 pub struct SnipperPresenter {
-    surface: softbuffer::Surface<Arc<Window>, Arc<Window>>,
+    surface: PasterSurface,
     base_bg: Pixmap,
     render_pixmap: Pixmap,
-    /// 与 render_pixmap 逐像素对应的 ARGB 提交缓冲；增量帧只更新脏区，再整体提交
-    frame_words: Vec<u32>,
     /// 上一帧光标覆盖层快照；为空表示下一帧必须全量重绘
     overlay: Option<OverlaySnapshot>,
+    /// 当前结果预览帧缓存，避免每次重绘都复制缩略图像素。
+    preview_cache: Option<PreviewFrameCache>,
 }
 
 /// 截图呈现器初始化参数。
@@ -85,22 +78,22 @@ impl SnipperPresenter {
             bg_image,
             dimmed,
         } = init;
-        let mut surface = create_softbuffer_surface(window, width, height)?;
+        let mut surface = PasterSurface::new(window)?;
+        surface.resize(width, height)?;
         let base_bg = create_base_pixmap(bg_image, width, height, dimmed)?;
         // 映射窗口前先预刷背景底图，避免出现瞬间白屏或未初始化内容；
         // 预刷只是过渡画面，失败时由随后的首次正式渲染兜底，故仅记录调试日志。
-        if let Err(error) = blit_pixmap_to_surface_alpha(&mut surface, &base_bg) {
+        if let Err(error) = surface.present(&base_bg) {
             tracing::debug!("预刷截图背景底图失败，等待首次正式渲染覆盖: {error}");
         }
         let render_pixmap =
             Pixmap::new(width, height).ok_or(UiError::PixmapAlloc { width, height })?;
-        let frame_words = create_frame_words(width, height)?;
         Ok(Self {
             surface,
             base_bg,
             render_pixmap,
-            frame_words,
             overlay: None,
+            preview_cache: None,
         })
     }
 
@@ -129,11 +122,7 @@ impl SnipperPresenter {
             return Ok(());
         }
 
-        self.surface
-            .resize(w, h)
-            .map_err(|error| UiError::Softbuffer {
-                message: format!("调整截图帧缓冲尺寸失败: {error}"),
-            })?;
+        self.surface.resize(w.get(), h.get())?;
 
         self.base_bg = scale_pixmap_to(&self.base_bg, width, height)
             .ok_or(UiError::PixmapAlloc { width, height })?;
@@ -159,7 +148,6 @@ impl SnipperPresenter {
         }
         self.render_pixmap =
             Pixmap::new(width, height).ok_or(UiError::PixmapAlloc { width, height })?;
-        self.frame_words = create_frame_words(width, height)?;
         self.overlay = None;
         Ok(())
     }
@@ -183,7 +171,13 @@ impl SnipperPresenter {
             self.render_full(state, bg_image);
         }
 
-        blit_words_to_surface(&mut self.surface, &self.frame_words)
+        let _ = self.surface.present(&self.render_pixmap)?;
+        Ok(())
+    }
+
+    /// 返回透明表面延迟提交后的下一次重试时刻。
+    pub(crate) fn present_retry_deadline(&self) -> Option<std::time::Instant> {
+        self.surface.present_retry_deadline()
     }
 
     /// 判断本帧能否复用上一帧画面，只重绘光标覆盖层。
@@ -199,13 +193,18 @@ impl SnipperPresenter {
 
     /// 全量重绘：恢复底图后绘制全部图层，并记录可供下一次增量复用的覆盖层快照。
     fn render_full(&mut self, state: &SnipperState, bg_image: &RgbaImage) {
-        let canvas = Self::build_canvas(&self.base_bg, state, bg_image);
+        self.sync_preview_cache(state);
+        let canvas = Self::build_canvas(
+            &self.base_bg,
+            state,
+            bg_image,
+            self.preview_cache.as_ref().map(|cache| &cache.pixmap),
+        );
         {
             let mut pixmap_mut = self.render_pixmap.as_mut();
             canvas.render(&mut pixmap_mut);
         }
 
-        swizzle_pixmap_full_alpha(&self.render_pixmap, &mut self.frame_words);
         self.overlay = Self::capture_overlay(state, &self.render_pixmap);
     }
 
@@ -218,12 +217,6 @@ impl SnipperPresenter {
         self.restore_previous_overlay(&prev, bg_image);
         self.redraw_incremental_overlay(state, bg_image);
         let next = self.next_overlay_snapshot(state, width, height);
-        self.sync_overlay_regions(OverlayRegionSync {
-            previous: &prev,
-            next: &next,
-            width,
-            height,
-        });
         self.overlay = Some(next);
     }
 
@@ -239,7 +232,7 @@ impl SnipperPresenter {
 
     /// 悬停区域未变化时只重绘边框、放大镜与状态提示。
     fn redraw_incremental_overlay(&mut self, state: &SnipperState, bg_image: &RgbaImage) {
-        let canvas = Self::build_canvas(&self.base_bg, state, bg_image);
+        let canvas = Self::build_canvas(&self.base_bg, state, bg_image, None);
         let mut pixmap_mut = self.render_pixmap.as_mut();
         canvas.render_idle_overlay(&mut pixmap_mut, false);
         canvas.render_status_message(&mut pixmap_mut);
@@ -276,21 +269,6 @@ impl SnipperPresenter {
             magnifier_rect,
             status_rect,
             magnifier_signature: magnifier_signature(&state.viewport.magnifier),
-        }
-    }
-
-    /// 将新旧覆盖区域同步到提交缓冲，避免局部像素停留在旧帧。
-    fn sync_overlay_regions(&mut self, sync: OverlayRegionSync<'_>) {
-        let dirty = [
-            sync.previous.magnifier_rect,
-            sync.previous.status_rect,
-            sync.next.magnifier_rect,
-            sync.next.status_rect,
-        ];
-        for region in dirty.into_iter().flatten() {
-            if let Some(bounds) = covering_pixel_bounds(&region, sync.width, sync.height) {
-                swizzle_pixmap_region_alpha(&self.render_pixmap, &mut self.frame_words, bounds);
-            }
         }
     }
 
@@ -347,6 +325,7 @@ impl SnipperPresenter {
         base_bg: &'a Pixmap,
         state: &'a SnipperState,
         bg_image: &'a RgbaImage,
+        recording_preview: Option<&'a Pixmap>,
     ) -> SnipperCanvas<'a> {
         let pending_stroke = state
             .editor
@@ -387,7 +366,51 @@ impl SnipperPresenter {
             ocr_menu: state.ocr.menu.as_ref(),
             ocr_editor: state.ocr.editor.as_ref(),
             recording: state.recording.as_ref(),
+            recording_preview,
         }
+    }
+
+    /// 同步结果页当前预览帧到可绘制的 Tiny-Skia 位图缓存。
+    fn sync_preview_cache(&mut self, state: &SnipperState) {
+        let Some(session) = state.recording.as_ref() else {
+            self.preview_cache = None;
+            return;
+        };
+        let Some(artifact) = session.artifact() else {
+            self.preview_cache = None;
+            return;
+        };
+        let Some(frame) = session.preview_frame() else {
+            self.preview_cache = None;
+            return;
+        };
+        let artifact_ptr = std::sync::Arc::as_ptr(&artifact.preview_frames) as usize;
+        let frame_index = session.preview_frame_index();
+        if self.preview_cache.as_ref().is_some_and(|cache| {
+            cache.artifact_ptr == artifact_ptr && cache.frame_index == frame_index
+        }) {
+            return;
+        }
+        let Ok(decoded) = image::load_from_memory(&frame.data) else {
+            tracing::warn!(
+                "解码录屏预览帧失败，预览尺寸: {}x{}",
+                frame.width,
+                frame.height
+            );
+            self.preview_cache = None;
+            return;
+        };
+        let rgba = decoded.to_rgba8();
+        let Some(mut pixmap) = Pixmap::new(rgba.width(), rgba.height()) else {
+            self.preview_cache = None;
+            return;
+        };
+        pixmap.data_mut().copy_from_slice(rgba.as_raw());
+        self.preview_cache = Some(PreviewFrameCache {
+            artifact_ptr,
+            frame_index,
+            pixmap,
+        });
     }
 
     /// 按当前状态记录光标覆盖层快照；非空闲态返回 None，强制下一帧全量重绘。

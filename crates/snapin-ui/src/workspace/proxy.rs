@@ -30,6 +30,8 @@ pub enum PasterAppEvent {
         /// 录制后台状态
         event: RecordingEvent,
     },
+    /// 录屏秒表与结果页内嵌预览的定时推进信号
+    SnipperUiTick,
     /// 截图覆盖层媒体任务完成
     SnipperJobFinished {
         /// 执行器分配的任务 ID

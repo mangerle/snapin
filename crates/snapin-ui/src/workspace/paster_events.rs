@@ -176,6 +176,18 @@ fn handle_redraw_event(inst: &mut PasterInstance) -> bool {
 pub(crate) fn handle_workspace_about_to_wait(runtime: &mut WorkspaceRuntime) -> Option<Instant> {
     let now = Instant::now();
     let mut earliest: Option<Instant> = None;
+    if let Some(view) = runtime.snipper.as_mut() {
+        if view.advance_recording_preview(now) {
+            view.request_redraw();
+        }
+        if let Some(deadline) = view.next_redraw_deadline() {
+            if deadline <= now {
+                view.request_redraw();
+            } else {
+                earliest = Some(earliest.map_or(deadline, |current| current.min(deadline)));
+            }
+        }
+    }
     for inst in runtime.instances.values_mut() {
         if inst.state.clear_expired_status(now) {
             inst.window.request_redraw();

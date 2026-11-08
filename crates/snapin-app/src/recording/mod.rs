@@ -12,31 +12,35 @@
 //!
 //! # 代价与权衡
 //!
-//! xcap 的原生帧流没有统一时间戳，帧间隔按目标帧率节流并写入固定帧时长；
-//! 系统负载较高时可能略低于目标帧率，但不会因补帧而重复写入同一画面。
+//! xcap 的原生帧流没有统一时间戳，采集循环使用单调时钟计算真实有效帧间隔并写入
+//! 动态时长；系统负载较高时可能略低于目标帧率，但不会因补帧而重复写入同一画面。
 //! 当前系统声音采集尚未接入，开启该选项会明确回传降级提示而不是静默忽略。
 
 mod capture;
 mod encoder;
+mod preview;
 #[cfg(target_os = "linux")]
 mod screencast;
+mod timer;
 
 use crate::config::{config_snapshot, SharedConfig};
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use capture::capture_native_and_encode;
 use capture::CaptureRequest;
 use encoder::{open_encoder, EncoderInit, FrameEncoder};
+use preview::PreviewCollector;
 #[cfg(target_os = "linux")]
 use screencast::capture_screencast_and_encode;
 use snapin_ports::{
-    PortError, PortErrorKind, RecordingEvent, RecordingEventSink, RecordingFormat, RecordingHandle,
-    RecordingOptions, ScreenRecorder,
+    PortError, PortErrorKind, RecordingArtifact, RecordingEvent, RecordingEventSink,
+    RecordingFormat, RecordingHandle, RecordingOptions, ScreenRecorder,
 };
 use snapin_runtime::{TaskHandle, TaskPool, TaskRuntime};
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// 应用级屏幕录制服务。
 pub(crate) struct RecordingService {
@@ -105,6 +109,8 @@ impl ScreenRecorder for RecordingService {
                         sink: worker_sink,
                         control: worker_control,
                     };
+                    // 给窗口系统留出切换透明覆盖层并完成几何校正的时间，避免首帧错位。
+                    tokio::time::sleep(Duration::from_millis(250)).await;
                     #[cfg(any(target_os = "windows", target_os = "macos"))]
                     let result = runtime
                         .run_blocking_detached(move || capture_native_and_encode(request))
@@ -116,9 +122,13 @@ impl ScreenRecorder for RecordingService {
                         capture::remove_partial_file(&path);
                     }
                     match result {
-                        Ok(path) if !task_control.cancelled.load(Ordering::Acquire) => {
-                            tracing::info!("屏幕录制完成，文件路径: {}", path.display());
-                            task_sink(RecordingEvent::Finished { path });
+                        Ok(artifact) if !task_control.cancelled.load(Ordering::Acquire) => {
+                            tracing::info!(
+                                "屏幕录制完成，文件路径: {}，预览帧数: {}",
+                                artifact.path.display(),
+                                artifact.preview_frames.len()
+                            );
+                            task_sink(RecordingEvent::Finished { artifact });
                             Ok(())
                         }
                         Ok(_) => {
@@ -160,10 +170,30 @@ impl ScreenRecorder for RecordingService {
 #[derive(Default)]
 struct RecordingControl {
     paused: AtomicBool,
+    pause_requested_at: Mutex<Option<Instant>>,
     stop_requested: AtomicBool,
+    stop_requested_at: Mutex<Option<Instant>>,
     cancelled: AtomicBool,
     finished: AtomicBool,
     overlay: Mutex<Option<image::RgbaImage>>,
+}
+
+impl RecordingControl {
+    /// 读取后台应冻结秒表的精确暂停时刻。
+    fn pause_requested_at(&self) -> Option<Instant> {
+        *self
+            .pause_requested_at
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// 读取后台应冻结秒表的精确停止时刻。
+    fn stop_requested_at(&self) -> Option<Instant> {
+        *self
+            .stop_requested_at
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 }
 
 /// 应用层录制控制器。
@@ -178,6 +208,12 @@ impl RecordingHandle for ApplicationRecordingHandle {
         if self.control.finished.load(Ordering::Acquire) {
             return Err(recording_finished_error());
         }
+        let requested_at = Instant::now();
+        *self
+            .control
+            .pause_requested_at
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(requested_at);
         self.control.paused.store(true, Ordering::Release);
         (self.sink)(RecordingEvent::Paused);
         Ok(())
@@ -188,6 +224,11 @@ impl RecordingHandle for ApplicationRecordingHandle {
             return Err(recording_finished_error());
         }
         self.control.paused.store(false, Ordering::Release);
+        *self
+            .control
+            .pause_requested_at
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         (self.sink)(RecordingEvent::Resumed);
         Ok(())
     }
@@ -196,6 +237,12 @@ impl RecordingHandle for ApplicationRecordingHandle {
         if self.control.finished.load(Ordering::Acquire) {
             return Err(recording_finished_error());
         }
+        let requested_at = Instant::now();
+        *self
+            .control
+            .stop_requested_at
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(requested_at);
         self.control.stop_requested.store(true, Ordering::Release);
         Ok(())
     }
@@ -209,6 +256,12 @@ impl RecordingHandle for ApplicationRecordingHandle {
     }
 
     fn cancel(&self) {
+        let requested_at = Instant::now();
+        *self
+            .control
+            .stop_requested_at
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(requested_at);
         self.control.cancelled.store(true, Ordering::Release);
         self.control.stop_requested.store(true, Ordering::Release);
         if self.control.finished.load(Ordering::Acquire) {
@@ -220,6 +273,12 @@ impl RecordingHandle for ApplicationRecordingHandle {
 impl Drop for ApplicationRecordingHandle {
     fn drop(&mut self) {
         if !self.control.finished.load(Ordering::Acquire) {
+            let requested_at = Instant::now();
+            *self
+                .control
+                .stop_requested_at
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(requested_at);
             self.control.cancelled.store(true, Ordering::Release);
             self.control.stop_requested.store(true, Ordering::Release);
         }
@@ -297,6 +356,19 @@ fn create_encoder(
         height: dimensions.height,
         fps: dimensions.fps,
     })
+}
+
+/// 汇总录制路径、有效时长与预览帧，形成跨边界结果对象。
+fn recording_artifact(
+    path: PathBuf,
+    duration: Duration,
+    preview: PreviewCollector,
+) -> RecordingArtifact {
+    RecordingArtifact {
+        path,
+        duration,
+        preview_frames: Arc::new(preview.into_frames()),
+    }
 }
 
 #[cfg(test)]

@@ -1,10 +1,18 @@
 //! xcap 原生帧采集、选区裁剪与流式编码循环。
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use super::preview::{make_preview_frame, PreviewCollector};
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use super::recording_artifact;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use super::timer::ActiveRecordingTimer;
 use super::RecordingControl;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use super::{create_encoder, EncoderDimensions};
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
 use image::RgbaImage;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use snapin_ports::RecordingArtifact;
 use snapin_ports::{RecordingEvent, RecordingEventSink, RecordingOptions};
 use std::path::PathBuf;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -38,7 +46,9 @@ const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Windows 与 macOS 原生帧流录制循环；函数返回时采集器和编码器均已释放。
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-pub(super) fn capture_native_and_encode(request: CaptureRequest) -> Result<PathBuf, String> {
+pub(super) fn capture_native_and_encode(
+    request: CaptureRequest,
+) -> Result<RecordingArtifact, String> {
     let CaptureRequest {
         options,
         file,
@@ -65,22 +75,27 @@ pub(super) fn capture_native_and_encode(request: CaptureRequest) -> Result<PathB
         .start()
         .map_err(|error| format!("启动屏幕帧采集失败: {error}"))?;
 
+    let started_at = Instant::now();
     sink(RecordingEvent::Started);
     emit_degradation_warnings(options, &sink);
 
     let frame_interval = Duration::from_secs_f64(1.0 / f64::from(options.fps.max(1)));
     let nominal_frame_ms = (1000_u32 / options.fps.max(1)).max(1);
     let mut last_frame_at: Option<Instant> = None;
-    let mut last_progress_at = Instant::now();
+    let mut active_timer = ActiveRecordingTimer::new(started_at);
+    let mut last_progress_at = started_at;
     let mut frame_count = 0_u64;
+    let mut preview = PreviewCollector::new();
     let mut result = Ok(());
 
     loop {
         if control.cancelled.load(Ordering::Acquire) {
+            active_timer.pause(control.stop_requested_at().unwrap_or_else(Instant::now));
             result = Ok(());
             break;
         }
         if control.stop_requested.load(Ordering::Acquire) {
+            active_timer.pause(control.stop_requested_at().unwrap_or_else(Instant::now));
             break;
         }
 
@@ -93,10 +108,12 @@ pub(super) fn capture_native_and_encode(request: CaptureRequest) -> Result<PathB
             }
         };
         if control.paused.load(Ordering::Acquire) {
+            active_timer.pause(control.pause_requested_at().unwrap_or_else(Instant::now));
             continue;
         }
 
         let now = Instant::now();
+        active_timer.resume(now);
         if last_frame_at.is_some_and(|previous| now.duration_since(previous) < frame_interval) {
             continue;
         }
@@ -108,21 +125,25 @@ pub(super) fn capture_native_and_encode(request: CaptureRequest) -> Result<PathB
         })?;
         let mut cropped = cropped;
         apply_overlay(&mut cropped, &control);
-        if let Err(message) = encoder.write_frame(&cropped, nominal_frame_ms) {
+        let elapsed = active_timer.elapsed(now);
+        if preview.sample_due(elapsed) {
+            preview.record(make_preview_frame(&cropped), elapsed);
+        }
+        let frame_duration_ms = active_timer.frame_duration_ms(now, nominal_frame_ms);
+        if let Err(message) = encoder.write_frame(&cropped, frame_duration_ms) {
             result = Err(message);
             break;
         }
         frame_count = frame_count.saturating_add(1);
         last_frame_at = Some(now);
 
-        if now.duration_since(last_progress_at) >= PROGRESS_INTERVAL {
+        let progress_now = Instant::now();
+        if progress_now.duration_since(last_progress_at) >= PROGRESS_INTERVAL {
             sink(RecordingEvent::Progress {
-                elapsed: Duration::from_millis(
-                    frame_count.saturating_mul(u64::from(nominal_frame_ms)),
-                ),
+                elapsed: active_timer.elapsed(progress_now),
                 frames: frame_count,
             });
-            last_progress_at = now;
+            last_progress_at = progress_now;
         }
     }
 
@@ -132,12 +153,13 @@ pub(super) fn capture_native_and_encode(request: CaptureRequest) -> Result<PathB
         }
     }
     drain_stopped_frames(&receiver);
+    let final_duration = active_timer.elapsed(Instant::now());
 
     let cancelled = control.cancelled.load(Ordering::Acquire);
     if cancelled {
         drop(encoder);
         remove_partial_file(&path);
-        return Ok(path);
+        return Ok(recording_artifact(path, final_duration, preview));
     }
     if let Err(message) = result {
         drop(encoder);
@@ -150,7 +172,7 @@ pub(super) fn capture_native_and_encode(request: CaptureRequest) -> Result<PathB
         return Err("没有采集到任何视频帧".to_string());
     }
     encoder.finish()?;
-    Ok(path)
+    Ok(recording_artifact(path, final_duration, preview))
 }
 
 /// 录制目标显示器及其虚拟桌面左上角原点。

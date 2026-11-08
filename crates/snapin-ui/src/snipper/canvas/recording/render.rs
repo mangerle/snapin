@@ -1,5 +1,7 @@
 //! 录制工具栏绘制实现。
 
+mod result;
+
 use super::icons::*;
 use super::layout::{calculate_recording_layout, RecordingLayoutRequest, RecordingSlotKind};
 use super::menu::{draw_settings_menu, draw_tooltip, SettingsMenuContext};
@@ -9,6 +11,7 @@ use crate::geometry::Rect;
 use crate::snipper::window::state::{
     RecordingAction, RecordingItem, RecordingSession, RecordingStatus,
 };
+use result::{draw_preview_progress, draw_result_file};
 use snapin_editor::toolbar::icons::{render_item_icon, IconRenderSpec};
 use snapin_editor::toolbar::{ToolbarAction, ToolbarItem};
 use snapin_render::{with_thread_local_text_renderer, TextDrawOptions, TextMeasureOptions};
@@ -54,6 +57,9 @@ pub(crate) fn render_recording_toolbar(
         match slot.kind {
             RecordingSlotKind::Timer => draw_timer(pixmap, session, &slot.rect, ui_scale),
             RecordingSlotKind::Fps => draw_fps(pixmap, session, &slot.rect, ui_scale),
+            RecordingSlotKind::ResultFile => {
+                draw_result_file(pixmap, session, &slot.rect, ui_scale)
+            }
             RecordingSlotKind::Separator => draw_separator(pixmap, &slot.rect, ui_scale),
             RecordingSlotKind::DragHandle => {
                 if session.hovered() == Some(RecordingItem::Action(RecordingAction::DragHandle)) {
@@ -96,6 +102,9 @@ pub(crate) fn render_recording_toolbar(
                 scale: ui_scale,
             },
         );
+    }
+    if let Some(rect) = layout.preview_progress_rect {
+        draw_preview_progress(pixmap, session, &rect, ui_scale);
     }
     draw_tooltip(pixmap, session, &layout.bar_rect, ui_scale);
 }
@@ -339,6 +348,35 @@ fn draw_action(pixmap: &mut PixmapMut, context: ActionDrawContext<'_>) {
                 scale,
                 hovered,
                 variant: IconVariant::Settings,
+            },
+        ),
+        RecordingAction::TogglePreview => draw_icon(
+            pixmap,
+            IconSpec {
+                rect,
+                scale,
+                hovered,
+                variant: IconVariant::Playback {
+                    playing: session.preview_playing(),
+                },
+            },
+        ),
+        RecordingAction::OpenFile => draw_icon(
+            pixmap,
+            IconSpec {
+                rect,
+                scale,
+                hovered,
+                variant: IconVariant::OpenFile,
+            },
+        ),
+        RecordingAction::CopyPath => draw_icon(
+            pixmap,
+            IconSpec {
+                rect,
+                scale,
+                hovered,
+                variant: IconVariant::CopyPath,
             },
         ),
         RecordingAction::CycleFps => {}

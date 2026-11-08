@@ -29,27 +29,25 @@ impl<'a> SnipperCanvas<'a> {
         }
     }
 
-    /// 将选区内部清为透明，让录制流直接看到合成器下方的实时桌面。
-    pub(super) fn clear_selection_alpha(
+    /// 将结果页的低分辨率预览帧缩放绘制到锁定选区内。
+    pub(super) fn draw_recording_preview(
         &self,
         pixmap: &mut PixmapMut,
         rect: &Rect,
-        canvas: CanvasSize,
+        preview: &Pixmap,
     ) {
-        let (px, py, pw, ph) = rect.to_pixel_bounds(canvas.width, canvas.height);
-        if pw == 0 || ph == 0 {
+        if preview.width() == 0 || preview.height() == 0 || rect.width <= 0.0 || rect.height <= 0.0
+        {
             return;
         }
-        let stride = canvas.width as usize * 4;
-        let row_bytes = pw as usize * 4;
-        let data = pixmap.data_mut();
-        for row in 0..ph as usize {
-            let start = (py as usize + row) * stride + px as usize * 4;
-            let Some(slice) = data.get_mut(start..start + row_bytes) else {
-                return;
-            };
-            slice.fill(0);
-        }
+        let scale_x = rect.width / preview.width() as f32;
+        let scale_y = rect.height / preview.height() as f32;
+        let transform = Transform::from_scale(scale_x, scale_y).post_translate(rect.x, rect.y);
+        let paint = PixmapPaint {
+            quality: FilterQuality::Bicubic,
+            ..PixmapPaint::default()
+        };
+        pixmap.draw_pixmap(0, 0, preview.as_ref(), &paint, transform, None);
     }
 
     /// 绘制窗口截图悬停高亮：只画主题色边框，不显示缩放锚点

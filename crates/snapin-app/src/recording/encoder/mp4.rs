@@ -21,8 +21,8 @@ pub(super) struct H264Mp4Encoder {
     encoder: Encoder,
     width: u16,
     height: u16,
-    frame_duration: u32,
-    timestamp_ms: u64,
+    /// 下一帧相对视频轨时间轴的起始位置（MP4 timescale 单位）。
+    timestamp: u64,
     frame_count: u64,
 }
 
@@ -45,15 +45,13 @@ impl H264Mp4Encoder {
             .bitrate(openh264::encoder::BitRate::from_bps(8_000_000));
         let encoder = Encoder::with_api_config(OpenH264API::from_source(), config)
             .map_err(|error| format!("初始化 H.264 编码器失败: {error}"))?;
-        let frame_duration = MP4_TIMESCALE / fps;
         Ok(Self {
             writer: file_writer(file)?,
             track_ready: false,
             encoder,
             width,
             height,
-            frame_duration,
-            timestamp_ms: 0,
+            timestamp: 0,
             frame_count: 0,
         })
     }
@@ -64,7 +62,8 @@ impl H264Mp4Encoder {
             (usize::from(self.width), usize::from(self.height)),
         );
         let yuv = YUVBuffer::from_rgba8_source(rgba);
-        let timestamp = Timestamp::from_millis(self.timestamp_ms);
+        let timestamp =
+            Timestamp::from_millis(self.timestamp.saturating_mul(1_000) / u64::from(MP4_TIMESCALE));
         let bitstream = self
             .encoder
             .encode_at(&yuv, timestamp)
@@ -115,16 +114,22 @@ impl FrameEncoder for H264Mp4Encoder {
     fn write_frame(&mut self, frame: &RgbaImage, duration_ms: u32) -> Result<(), String> {
         let packet = self.encode_packet(frame)?;
         if packet.sample.is_empty() {
-            return Err("H.264 编码结果不包含可写入的视频 NAL".to_string());
+            // OpenH264 在高分辨率首帧或码控重收敛阶段可能暂时只返回参数集甚至空包。
+            // 单帧无 NAL 不应立即终止整段录制；若始终没有有效帧，finish 会给出明确错误。
+            return Ok(());
         }
         self.ensure_track(&packet)?;
         let writer = &mut self.writer;
-        let duration = self.frame_duration;
+        let duration = u32::try_from(
+            u64::from(duration_ms.max(1)).saturating_mul(u64::from(MP4_TIMESCALE)) / 1_000,
+        )
+        .unwrap_or(u32::MAX)
+        .max(1);
         writer
             .write_sample(
                 1,
                 &Mp4Sample {
-                    start_time: self.timestamp_ms,
+                    start_time: self.timestamp,
                     duration,
                     rendering_offset: 0,
                     is_sync: packet.is_sync,
@@ -132,9 +137,7 @@ impl FrameEncoder for H264Mp4Encoder {
                 },
             )
             .map_err(|error| format!("写入 MP4 视频样本失败: {error}"))?;
-        self.timestamp_ms = self
-            .timestamp_ms
-            .saturating_add(u64::from(duration_ms.max(1)));
+        self.timestamp = self.timestamp.saturating_add(u64::from(duration));
         self.frame_count = self.frame_count.saturating_add(1);
         Ok(())
     }

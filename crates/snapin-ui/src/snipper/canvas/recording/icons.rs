@@ -3,6 +3,8 @@
 //! 标注类图标继续复用编辑工具栏，录制、音频、鼠标、设置和窗口控制图标在本模块
 //! 按同一线宽与圆角风格补充，确保新增控件不会引入另一套视觉语言。
 
+mod result_icons;
+
 use crate::drawing::{add_round_rect, make_paint, RoundRect};
 use crate::geometry::Rect;
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, PixmapMut, Stroke, Transform};
@@ -57,6 +59,12 @@ pub(super) enum IconVariant {
     Close,
     /// 重新开始。
     Restart,
+    /// 播放或暂停内嵌预览。
+    Playback { playing: bool },
+    /// 打开录制文件。
+    OpenFile,
+    /// 复制录制文件路径。
+    CopyPath,
 }
 
 /// 单个图标绘制参数。
@@ -95,6 +103,9 @@ pub(super) fn draw_icon(pixmap: &mut PixmapMut, spec: IconSpec<'_>) {
         IconVariant::Move => draw_move(pixmap, &visual),
         IconVariant::Close => draw_close(pixmap, &visual),
         IconVariant::Restart => draw_restart(pixmap, &visual),
+        IconVariant::Playback { playing } => result_icons::draw_playback(pixmap, &visual, playing),
+        IconVariant::OpenFile => result_icons::draw_open_file(pixmap, &visual),
+        IconVariant::CopyPath => result_icons::draw_copy_path(pixmap, &visual),
     }
 }
 

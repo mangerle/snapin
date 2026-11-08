@@ -3,7 +3,9 @@
 use crate::editor::toolbar::Tool;
 use crate::geometry::Rect;
 use crate::ports::RecordingFormat;
-use crate::snipper::window::state::{RecordingAction, RecordingItem, RecordingSession};
+use crate::snipper::window::state::{
+    RecordingAction, RecordingItem, RecordingSession, RecordingStatus,
+};
 
 /// 工具栏槽位的渲染类别。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,6 +14,8 @@ pub(crate) enum RecordingSlotKind {
     Timer,
     /// 帧率文字。
     Fps,
+    /// 完成后的文件名与时长摘要。
+    ResultFile,
     /// 分组分隔线。
     Separator,
     /// 下拉箭头。
@@ -42,6 +46,8 @@ pub(crate) struct RecordingLayout {
     pub(crate) bar_rect: Rect,
     /// 按从左到右顺序排列的槽位。
     pub(crate) slots: Vec<RecordingSlot>,
+    /// 结果页回放进度条；仅完成态存在。
+    pub(crate) preview_progress_rect: Option<Rect>,
     /// 设置菜单面板。
     pub(crate) menu_rect: Option<Rect>,
     /// 设置菜单中的格式选项。
@@ -67,7 +73,11 @@ impl RecordingLayout {
 
     /// 是否位于工具栏或展开菜单内。
     pub(crate) fn contains(&self, x: f32, y: f32) -> bool {
-        self.bar_rect.contains(x, y) || self.menu_rect.is_some_and(|rect| rect.contains(x, y))
+        self.bar_rect.contains(x, y)
+            || self
+                .preview_progress_rect
+                .is_some_and(|rect| rect.contains(x, y))
+            || self.menu_rect.is_some_and(|rect| rect.contains(x, y))
     }
 }
 
@@ -105,58 +115,85 @@ pub(crate) fn calculate_recording_layout(request: RecordingLayoutRequest<'_>) ->
         scale,
         bar_height,
     };
-    push_special(
-        &mut slots,
-        &mut cursor,
-        RecordingSlotKind::Timer,
-        58.0 * scale,
-    );
-    push_special(
-        &mut slots,
-        &mut cursor,
-        RecordingSlotKind::Fps,
-        62.0 * scale,
-    );
-    if let Some(slot) = slots.last_mut() {
-        slot.item = Some(RecordingItem::Action(RecordingAction::CycleFps));
-    }
-    for action in [
-        RecordingAction::ToggleCapture,
-        RecordingAction::TogglePause,
-        RecordingAction::ToggleAudio,
-        RecordingAction::ToggleCursor,
-        RecordingAction::ToggleSettings,
-    ] {
-        push_action(&mut slots, &mut cursor, action, 30.0 * scale);
-    }
-    push_separator(&mut slots, &mut cursor);
-    for tool in [
-        Tool::Rect,
-        Tool::Pen,
-        Tool::Badge,
-        Tool::Text,
-        Tool::Line,
-        Tool::Arrow,
-        Tool::Spotlight,
-        Tool::Mosaic,
-    ] {
-        push_tool(&mut slots, &mut cursor, tool);
-    }
-    push_special(
-        &mut slots,
-        &mut cursor,
-        RecordingSlotKind::Chevron,
-        14.0 * scale,
-    );
-    push_separator(&mut slots, &mut cursor);
-    push_action(&mut slots, &mut cursor, RecordingAction::Undo, 30.0 * scale);
-    push_separator(&mut slots, &mut cursor);
-    for action in [
-        RecordingAction::Move,
-        RecordingAction::Close,
-        RecordingAction::Restart,
-    ] {
-        push_action(&mut slots, &mut cursor, action, 30.0 * scale);
+    if session.status() == RecordingStatus::Completed {
+        push_special(
+            &mut slots,
+            &mut cursor,
+            RecordingSlotKind::Timer,
+            70.0 * scale,
+        );
+        push_special(
+            &mut slots,
+            &mut cursor,
+            RecordingSlotKind::ResultFile,
+            210.0 * scale,
+        );
+        push_separator(&mut slots, &mut cursor);
+        for action in [
+            RecordingAction::TogglePreview,
+            RecordingAction::OpenFile,
+            RecordingAction::CopyPath,
+        ] {
+            push_action(&mut slots, &mut cursor, action, 32.0 * scale);
+        }
+        push_separator(&mut slots, &mut cursor);
+        for action in [RecordingAction::Restart, RecordingAction::Close] {
+            push_action(&mut slots, &mut cursor, action, 32.0 * scale);
+        }
+    } else {
+        push_special(
+            &mut slots,
+            &mut cursor,
+            RecordingSlotKind::Timer,
+            58.0 * scale,
+        );
+        push_special(
+            &mut slots,
+            &mut cursor,
+            RecordingSlotKind::Fps,
+            62.0 * scale,
+        );
+        if let Some(slot) = slots.last_mut() {
+            slot.item = Some(RecordingItem::Action(RecordingAction::CycleFps));
+        }
+        for action in [
+            RecordingAction::ToggleCapture,
+            RecordingAction::TogglePause,
+            RecordingAction::ToggleAudio,
+            RecordingAction::ToggleCursor,
+            RecordingAction::ToggleSettings,
+        ] {
+            push_action(&mut slots, &mut cursor, action, 30.0 * scale);
+        }
+        push_separator(&mut slots, &mut cursor);
+        for tool in [
+            Tool::Rect,
+            Tool::Pen,
+            Tool::Badge,
+            Tool::Text,
+            Tool::Line,
+            Tool::Arrow,
+            Tool::Spotlight,
+            Tool::Mosaic,
+        ] {
+            push_tool(&mut slots, &mut cursor, tool);
+        }
+        push_special(
+            &mut slots,
+            &mut cursor,
+            RecordingSlotKind::Chevron,
+            14.0 * scale,
+        );
+        push_separator(&mut slots, &mut cursor);
+        push_action(&mut slots, &mut cursor, RecordingAction::Undo, 30.0 * scale);
+        push_separator(&mut slots, &mut cursor);
+        for action in [
+            RecordingAction::Move,
+            RecordingAction::Close,
+            RecordingAction::Restart,
+        ] {
+            push_action(&mut slots, &mut cursor, action, 30.0 * scale);
+        }
     }
     push_special(
         &mut slots,
@@ -193,6 +230,16 @@ pub(crate) fn calculate_recording_layout(request: RecordingLayoutRequest<'_>) ->
         width,
         height: bar_height,
     };
+    let preview_progress_rect = (session.status() == RecordingStatus::Completed).then(|| {
+        let available = (selection.width - 64.0 * scale).max(1.0);
+        let width = available.min(620.0 * scale);
+        Rect {
+            x: selection.x + (selection.width - width) / 2.0,
+            y: selection.y + selection.height - 50.0 * scale,
+            width,
+            height: 34.0 * scale,
+        }
+    });
     for slot in &mut slots {
         slot.rect.x += x;
         slot.rect.y += y;
@@ -200,7 +247,7 @@ pub(crate) fn calculate_recording_layout(request: RecordingLayoutRequest<'_>) ->
 
     let mut menu_rect = None;
     let mut menu_rows = Vec::new();
-    if session.settings_open() {
+    if session.settings_open() && session.status() != RecordingStatus::Completed {
         let menu_width = 126.0 * scale;
         let row_height = 30.0 * scale;
         let padding = 6.0 * scale;
@@ -251,6 +298,7 @@ pub(crate) fn calculate_recording_layout(request: RecordingLayoutRequest<'_>) ->
         scale,
         bar_rect,
         slots,
+        preview_progress_rect,
         menu_rect,
         menu_rows,
     }
@@ -371,6 +419,23 @@ mod tests {
         RecordingSession::new(Arc::new(NoopScreenRecorder), Arc::new(|_| {}))
     }
 
+    fn completed_session() -> RecordingSession {
+        use crate::ports::RecordingEvent;
+        use crate::ports::{RecordingArtifact, RecordingPreviewFrame};
+        use std::time::Duration;
+
+        let mut session = test_session();
+        session.handle_event(RecordingEvent::Started);
+        session.handle_event(RecordingEvent::Finished {
+            artifact: RecordingArtifact {
+                path: std::path::PathBuf::from("/tmp/snapin-result.mp4"),
+                duration: Duration::from_secs(5),
+                preview_frames: Arc::new(vec![RecordingPreviewFrame::new(4, 3, Vec::new())]),
+            },
+        });
+        session
+    }
+
     #[test]
     fn test_layout_stays_inside_screen_and_hits_controls() {
         let session = test_session();
@@ -427,6 +492,39 @@ mod tests {
         });
         assert!(layout.scale < 2.0);
         assert!(layout.bar_rect.x + layout.bar_rect.width <= 1280.0 - 8.0 * layout.scale);
+    }
+
+    #[test]
+    fn test_completed_layout_exposes_result_actions_only() {
+        let session = completed_session();
+        let selection = Rect::new(40.0, 40.0, 900.0, 500.0);
+        let layout = calculate_recording_layout(RecordingLayoutRequest {
+            session: &session,
+            selection: &selection,
+            screen_width: 1280.0,
+            screen_height: 720.0,
+            scale: 1.0,
+        });
+        let items: Vec<_> = layout.slots.iter().filter_map(|slot| slot.item).collect();
+        for action in [
+            RecordingAction::TogglePreview,
+            RecordingAction::OpenFile,
+            RecordingAction::CopyPath,
+            RecordingAction::Restart,
+            RecordingAction::Close,
+        ] {
+            assert!(
+                items.contains(&RecordingItem::Action(action)),
+                "结果工具栏缺少 {action:?}"
+            );
+        }
+        assert!(!items.contains(&RecordingItem::Action(RecordingAction::ToggleCapture)));
+        assert!(!items.contains(&RecordingItem::Action(RecordingAction::ToggleSettings)));
+        let progress = layout
+            .preview_progress_rect
+            .expect("完成态必须提供回放进度条");
+        assert!(selection.contains(progress.x, progress.y));
+        assert!(selection.contains(progress.x + progress.width, progress.y + progress.height));
     }
 
     #[test]

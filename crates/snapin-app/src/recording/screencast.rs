@@ -1,11 +1,12 @@
 //! Linux Mutter ScreenCast 连续帧采集。
 
 use super::capture::{emit_degradation_warnings, CaptureRequest};
-use super::{create_encoder, EncoderDimensions};
-use snapin_ports::RecordingEvent;
+use super::preview::{make_preview_frame, PreviewCollector};
+use super::timer::ActiveRecordingTimer;
+use super::{create_encoder, recording_artifact, EncoderDimensions};
+use snapin_ports::{RecordingArtifact, RecordingEvent};
 use snapin_runtime::TaskRuntime;
 use std::collections::VecDeque;
-use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -17,6 +18,40 @@ use tokio::task::JoinHandle;
 const FRAME_READ_TIMEOUT: Duration = Duration::from_secs(8);
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
 const STDERR_LIMIT_BYTES: usize = 8192;
+
+/// 将 Mutter 返回的 PipeWire 节点 ID 解析为 GStreamer 所需的 object.serial。
+async fn resolve_pipewire_serial(node_id: u32) -> Result<u32, String> {
+    let node = node_id.to_string();
+    let mut last_error = format!("PipeWire 节点 {node_id} 缺少 object.serial 属性");
+    for _ in 0..30 {
+        let output = tokio::time::timeout(
+            Duration::from_secs(2),
+            Command::new("pw-cli")
+                .args(["info", &node])
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await
+        .map_err(|_| format!("查询 PipeWire 节点 {node_id} 超时"))?
+        .map_err(|error| format!("执行 pw-cli 查询 PipeWire 节点失败: {error}"))?;
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if let Some(serial) = stdout.lines().find_map(|line| {
+                let (_, value) = line.split_once("object.serial = \"")?;
+                value.split('"').next()?.parse::<u32>().ok()
+            }) {
+                return Ok(serial);
+            }
+        } else {
+            last_error = format!(
+                "pw-cli 查询 PipeWire 节点 {node_id} 失败: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    Err(last_error)
+}
 
 /// 连续 PipeWire 录屏帧源。
 struct GstCapture {
@@ -36,12 +71,41 @@ impl GstCapture {
         )
         .await
         .map_err(|error| format!("创建 Mutter 连续录屏流失败: {error}"))?;
-        let pipeline = format!(
-            "pipewiresrc path={node_id} do-timestamp=true ! videoconvert ! videoscale ! videorate ! video/x-raw,format=RGBA,width={},height={},framerate={}/1 ! fdsink fd=1 sync=false",
-            options.region.width, options.region.height, options.fps
-        );
+        let target_serial = match resolve_pipewire_serial(node_id).await {
+            Ok(serial) => serial,
+            Err(message) => {
+                let _ = snapin_platform::stop_recording_stream().await;
+                return Err(message);
+            }
+        };
+        // Mutter 在发出节点号后才完成 PipeWire 参数协商；过早连接会一直等待首帧。
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let width = options.region.width.to_string();
+        let height = options.region.height.to_string();
+        let framerate = format!("{}/1", options.fps);
         let mut child = match Command::new("gst-launch-1.0")
-            .args(["-q", pipeline.as_str()])
+            .arg("-q")
+            .arg("pipewiresrc")
+            .arg(format!("target-object={target_serial}"))
+            .arg("do-timestamp=true")
+            .arg(format!(
+                "keepalive-time={}",
+                (1000 / options.fps.max(1)).max(1)
+            ))
+            .arg("!")
+            .arg("videoconvert")
+            .arg("!")
+            .arg("videoscale")
+            .arg("!")
+            .arg("videorate")
+            .arg("!")
+            .arg(format!(
+                "video/x-raw,format=RGBA,width={width},height={height},framerate={framerate}"
+            ))
+            .arg("!")
+            .arg("fdsink")
+            .arg("fd=1")
+            .arg("sync=false")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -143,7 +207,7 @@ fn drain_stderr(mut stderr: tokio::process::ChildStderr) -> JoinHandle<Vec<u8>> 
 pub(super) async fn capture_screencast_and_encode(
     request: CaptureRequest,
     runtime: TaskRuntime,
-) -> Result<PathBuf, String> {
+) -> Result<RecordingArtifact, String> {
     let CaptureRequest {
         options,
         file,
@@ -167,6 +231,7 @@ pub(super) async fn capture_screencast_and_encode(
         .map_err(|error| format!("初始化录屏编码器失败: {error}"))??;
     let encoder = Arc::new(Mutex::new(Some(encoder)));
     let mut source = GstCapture::start(options).await?;
+    let started_at = Instant::now();
     sink(RecordingEvent::Started);
     emit_degradation_warnings(options, &sink);
 
@@ -179,14 +244,24 @@ pub(super) async fn capture_screencast_and_encode(
     }
     let mut frame = vec![0_u8; frame_size];
     let mut frame_count = 0_u64;
-    let mut last_progress_at = Instant::now();
+    let mut preview = PreviewCollector::new();
+    let mut active_timer = ActiveRecordingTimer::new(started_at);
+    let mut last_progress_at = started_at;
     let mut result = Ok(());
+    let nominal_frame_ms = (1000_u32 / options.fps.max(1)).max(1);
 
     loop {
         if control.cancelled.load(Ordering::Acquire)
             || control.stop_requested.load(Ordering::Acquire)
         {
+            active_timer.pause(control.stop_requested_at().unwrap_or_else(Instant::now));
             break;
+        }
+        let loop_now = Instant::now();
+        if control.paused.load(Ordering::Acquire) {
+            active_timer.pause(control.pause_requested_at().unwrap_or_else(Instant::now));
+        } else {
+            active_timer.resume(loop_now);
         }
         match source.read_frame(&mut frame).await {
             Ok(true) => {}
@@ -198,6 +273,10 @@ pub(super) async fn capture_screencast_and_encode(
                 result = Err(message);
                 break;
             }
+        }
+        if control.stop_requested.load(Ordering::Acquire) {
+            active_timer.pause(control.stop_requested_at().unwrap_or_else(Instant::now));
+            break;
         }
         if control.paused.load(Ordering::Acquire) {
             continue;
@@ -212,23 +291,31 @@ pub(super) async fn capture_screencast_and_encode(
             }
         };
         let encode_target = Arc::clone(&encoder);
-        let nominal_frame_ms = (1000_u32 / options.fps.max(1)).max(1);
+        let elapsed = active_timer.elapsed(Instant::now());
+        let preview_due = preview.sample_due(elapsed);
+        let frame_duration_ms = active_timer.frame_duration_ms(Instant::now(), nominal_frame_ms);
         let encoded = runtime
             .run_blocking_detached(move || {
+                let preview_frame = preview_due.then(|| make_preview_frame(&image));
                 let mut guard = encode_target
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 let result = match guard.as_mut() {
-                    Some(encoder) => encoder.write_frame(&image, nominal_frame_ms),
+                    Some(encoder) => encoder.write_frame(&image, frame_duration_ms),
                     None => Err("录屏编码器已经关闭".to_string()),
                 };
-                (result, image.into_raw())
+                (result, image.into_raw(), preview_frame)
             })
             .await
             .map_err(|error| format!("录屏编码任务异常: {error}"));
         match encoded {
-            Ok((Ok(()), raw)) => frame = raw,
-            Ok((Err(message), _)) => {
+            Ok((Ok(()), raw, preview_frame)) => {
+                frame = raw;
+                if let Some(preview_frame) = preview_frame {
+                    preview.record(preview_frame, elapsed);
+                }
+            }
+            Ok((Err(message), _, _)) => {
                 result = Err(message);
                 break;
             }
@@ -241,9 +328,7 @@ pub(super) async fn capture_screencast_and_encode(
         let now = Instant::now();
         if now.duration_since(last_progress_at) >= PROGRESS_INTERVAL {
             sink(RecordingEvent::Progress {
-                elapsed: Duration::from_millis(
-                    frame_count.saturating_mul(u64::from(nominal_frame_ms)),
-                ),
+                elapsed: active_timer.elapsed(now),
                 frames: frame_count,
             });
             last_progress_at = now;
@@ -251,8 +336,9 @@ pub(super) async fn capture_screencast_and_encode(
     }
 
     let stderr = source.stop().await;
+    let final_duration = active_timer.elapsed(Instant::now());
     if control.cancelled.load(Ordering::Acquire) {
-        return Ok(path);
+        return Ok(recording_artifact(path, final_duration, preview));
     }
     if let Err(message) = result {
         return Err(if stderr.is_empty() {
@@ -275,5 +361,5 @@ pub(super) async fn capture_screencast_and_encode(
         })
         .await
         .map_err(|error| format!("录屏编码收尾任务异常: {error}"))??;
-    Ok(path)
+    Ok(recording_artifact(path, final_duration, preview))
 }

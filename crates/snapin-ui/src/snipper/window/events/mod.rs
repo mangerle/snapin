@@ -37,6 +37,14 @@ pub fn handle_key_input(
         return handle_text_key_input(state, key);
     }
 
+    if state
+        .recording
+        .as_ref()
+        .is_some_and(|session| session.status() == super::state::RecordingStatus::Completed)
+    {
+        return handle_completed_recording_key(state, key);
+    }
+
     if state.ocr.redaction_preview.is_some() && handle_redaction_preview_key(state, key) {
         return true;
     }
@@ -45,6 +53,51 @@ pub fn handle_key_input(
         Key::Named(named) => handle_named_key(state, *named, original_rgba),
         Key::Character(character) => handle_character_key(state, character, original_rgba),
         _ => false,
+    }
+}
+
+/// 结果页键盘操作；未识别按键也消费，避免误触截图保存、复制等旧快捷键。
+fn handle_completed_recording_key(state: &mut SnipperState, key: &Key) -> bool {
+    match key {
+        Key::Named(NamedKey::Escape) => handle_escape(state),
+        Key::Named(NamedKey::Enter) => {
+            if let Some(path) = state
+                .recording
+                .as_ref()
+                .and_then(|session| session.artifact())
+                .map(|artifact| artifact.path.clone())
+            {
+                state.session.desktop.open_in_file_manager(path);
+            }
+            true
+        }
+        Key::Character(character)
+            if state.viewport.modifiers.control_key() && character.eq_ignore_ascii_case("c") =>
+        {
+            if let Some(path) = state
+                .recording
+                .as_ref()
+                .and_then(|session| session.artifact())
+                .map(|artifact| artifact.path.to_string_lossy().into_owned())
+            {
+                state.submit_clipboard_text(
+                    path,
+                    SnipperClipboardAction::TransientStatus {
+                        success_message: snapin_foundation::i18n::tr("已复制录制文件路径")
+                            .to_string(),
+                        failure_label: "复制录制文件路径",
+                    },
+                );
+            }
+            true
+        }
+        Key::Named(NamedKey::Space) => {
+            if let Some(session) = state.recording.as_mut() {
+                session.toggle_preview_playback(std::time::Instant::now());
+            }
+            true
+        }
+        _ => true,
     }
 }
 
@@ -377,9 +430,15 @@ fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
 
 /// 逐级退出处理 (先提交文本 -> 再收起二级栏/工具 -> 再取消标注选中 -> 再取消选区 -> 再退出窗口)
 pub fn handle_escape(state: &mut SnipperState) -> bool {
+    let completed_path = state
+        .recording
+        .as_ref()
+        .and_then(|session| session.artifact())
+        .map(|artifact| artifact.path.clone());
     if let Some(mut session) = state.recording.take() {
         session.cancel();
-        state.session.outcome = Some(SnipperOutcome::Cancelled);
+        state.session.outcome =
+            Some(completed_path.map_or(SnipperOutcome::Cancelled, SnipperOutcome::RecordingSaved));
         return true;
     }
     if state.ocr.menu.is_some() {

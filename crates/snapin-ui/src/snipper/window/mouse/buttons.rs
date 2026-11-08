@@ -170,6 +170,14 @@ fn handle_toolbar_press(
     original_rgba: &RgbaImage,
 ) -> bool {
     commit_active_text_input(state);
+    let hit = state.editor.annotation.toolbar.hit_test_main(cx, cy);
+    tracing::debug!(
+        "截图工具栏点击，坐标: ({cx:.1}, {cy:.1})，工具栏: ({:.1}, {:.1}) {:.1}x{:.1}，命中: {hit:?}",
+        state.editor.annotation.toolbar.main_rect.x,
+        state.editor.annotation.toolbar.main_rect.y,
+        state.editor.annotation.toolbar.main_rect.width,
+        state.editor.annotation.toolbar.main_rect.height,
+    );
     let prev_tool = state.editor.annotation.toolbar.active_tool;
     if state.editor.annotation.toolbar.begin_drag(cx, cy) {
         crate::snipper::window::annotation_edit::clear(state);

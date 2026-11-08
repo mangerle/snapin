@@ -13,7 +13,7 @@ fn test_create_dimmed_pixmap_fast_algorithm() {
     assert_eq!(dimmed.height(), 2);
 
     let data = dimmed.data();
-    // 验证纯白像素暗化结果：(255 * 107) >> 8 = 27285 >> 8 = 106
+    // 验证纯白像素暗化结果：(255 * 107) >> 8 = 106
     assert_eq!(data[0], 106);
     assert_eq!(data[1], 106);
     assert_eq!(data[2], 106);

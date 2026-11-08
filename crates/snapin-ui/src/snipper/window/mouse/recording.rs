@@ -1,13 +1,16 @@
 //! 录屏工具栏的鼠标悬停与点击路由。
 
 use super::super::annotation_builder::commit_annotation;
+use super::super::clipboard::SnipperClipboardAction;
 use super::super::events::SnipperState;
 use super::super::types::SnipperOutcome;
 use super::PointerButtonEvent;
+use crate::geometry::Rect;
 use crate::ports::RecordingRegion;
 use crate::snipper::canvas::recording::{calculate_recording_layout, RecordingLayoutRequest};
 use crate::snipper::selection::SelectionState;
 use crate::snipper::window::state::{RecordingAction, RecordingItem};
+use std::time::Instant;
 use winit::event::{ElementState, MouseButton};
 
 /// 处理录制工具栏悬停；返回是否需要重绘。
@@ -35,6 +38,18 @@ pub(crate) fn handle_recording_cursor_move(
             scale,
         })
     };
+    if state
+        .recording
+        .as_mut()
+        .is_some_and(|session| session.is_seeking_preview())
+    {
+        if let Some(rect) = layout.preview_progress_rect {
+            if let Some(session) = state.recording.as_mut() {
+                seek_preview_at(session, rect, position.0);
+            }
+        }
+        return Some(true);
+    }
     let hovered = if layout.contains(position.0, position.1) {
         layout.hit(position.0, position.1)
     } else {
@@ -61,9 +76,10 @@ pub(crate) fn handle_recording_button(
     }
     if event.button_state == ElementState::Released {
         let handled = state.recording.as_mut().is_some_and(|session| {
+            let was_seeking = session.end_preview_seek();
             let was_dragging = session.end_toolbar_drag();
             let press_consumed = session.take_mouse_press_consumed();
-            was_dragging || press_consumed
+            was_seeking || was_dragging || press_consumed
         });
         return handled.then_some(true);
     }
@@ -83,6 +99,16 @@ pub(crate) fn handle_recording_button(
             scale,
         })
     };
+    if let Some(rect) = layout.preview_progress_rect {
+        if rect.contains(event.position.0, event.position.1) {
+            if let Some(session) = state.recording.as_mut() {
+                session.consume_mouse_press();
+                session.begin_preview_seek();
+                seek_preview_at(session, rect, event.position.0);
+            }
+            return Some(true);
+        }
+    }
     if let Some(format) = layout.hit_menu(event.position.0, event.position.1) {
         if let Some(session) = state.recording.as_mut() {
             session.consume_mouse_press();
@@ -120,6 +146,14 @@ pub(crate) fn handle_recording_button(
             }
             return Some(true);
         }
+        if state.recording.as_ref().is_some_and(|session| {
+            session.status() == super::super::state::RecordingStatus::Completed
+        }) {
+            if let Some(session) = state.recording.as_mut() {
+                session.consume_mouse_press();
+            }
+            return Some(true);
+        }
         return None;
     }
     if let Some(session) = state.recording.as_mut() {
@@ -142,6 +176,12 @@ pub(crate) fn handle_recording_button(
         RecordingItem::Action(action) => handle_action(state, action, event.original_rgba),
     }
     Some(true)
+}
+
+/// 将鼠标横坐标映射为回放进度。
+fn seek_preview_at(session: &mut super::super::state::RecordingSession, rect: Rect, x: f32) {
+    let progress = ((x - rect.x) / rect.width.max(1.0)).clamp(0.0, 1.0);
+    session.seek_preview(progress);
 }
 
 fn handle_action(
@@ -226,14 +266,69 @@ fn handle_action(
         RecordingAction::Move => {
             state.set_status_message(snapin_foundation::i18n::tr("录制期间选区位置已锁定"));
         }
+        RecordingAction::OpenFile => {
+            if let Some(path) = state
+                .recording
+                .as_ref()
+                .and_then(|session| session.artifact())
+                .map(|artifact| artifact.path.clone())
+            {
+                state.session.desktop.open_in_file_manager(path);
+            }
+        }
+        RecordingAction::CopyPath => {
+            if let Some(path) = state
+                .recording
+                .as_ref()
+                .and_then(|session| session.artifact())
+                .map(|artifact| artifact.path.to_string_lossy().into_owned())
+            {
+                state.submit_clipboard_text(
+                    path,
+                    SnipperClipboardAction::TransientStatus {
+                        success_message: snapin_foundation::i18n::tr("已复制录制文件路径")
+                            .to_string(),
+                        failure_label: "复制录制文件路径",
+                    },
+                );
+            }
+        }
+        RecordingAction::TogglePreview => {
+            if let Some(session) = state.recording.as_mut() {
+                session.toggle_preview_playback(Instant::now());
+            }
+        }
         RecordingAction::Close => {
-            if let Some(mut session) = state.recording.take() {
+            let completed_path = state
+                .recording
+                .as_ref()
+                .and_then(|session| session.artifact())
+                .map(|artifact| artifact.path.clone());
+            if let Some(session) = state.recording.as_mut() {
                 session.cancel();
             }
-            state.session.outcome = Some(SnipperOutcome::Cancelled);
+            state.recording = None;
+            state.session.outcome = Some(
+                completed_path.map_or(SnipperOutcome::Cancelled, SnipperOutcome::RecordingSaved),
+            );
         }
         RecordingAction::Restart => {
-            if let Some(session) = state.recording.as_mut() {
+            let completed = state.recording.as_ref().is_some_and(|session| {
+                session.status() == super::super::state::RecordingStatus::Completed
+            });
+            if completed {
+                let Some(region) = recording_region(state, original_rgba) else {
+                    state.set_status_message(snapin_foundation::i18n::tr("录制区域无效"));
+                    return;
+                };
+                if let Some(session) = state.recording.as_mut() {
+                    if let Err(error) = session.restart_completed(region) {
+                        state.set_status_message(error.message);
+                    } else {
+                        state.sync_recording_overlay();
+                    }
+                }
+            } else if let Some(session) = state.recording.as_mut() {
                 session.request_restart();
             }
         }

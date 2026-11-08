@@ -99,6 +99,9 @@ impl SnipperView {
 }
 
 /// 创建覆盖层全屏窗口。
+///
+/// 初始框选和录屏全程复用同一个无边框全屏窗口，不在录制开始时切换普通窗口，
+/// 因而既不会脱离顶栏和 Dock 的工作区覆盖，也不会产生一次缩小再还原的错位。
 fn create_overlay_window(
     window_target: &ActiveEventLoop,
     screen_w: u32,
@@ -228,9 +231,7 @@ impl SnipperView {
             .as_mut()
             .map(|session| session.handle_event(event));
         match transition {
-            Some(RecordingTransition::Finished(path)) => {
-                self.state.session.outcome = Some(SnipperOutcome::Saved(path));
-            }
+            Some(RecordingTransition::Finished(_path)) => self.state.clear_status_message(),
             Some(RecordingTransition::Cancelled) => {
                 self.state.recording = None;
             }
@@ -265,6 +266,55 @@ impl SnipperView {
             }
         }
         outcome
+    }
+
+    /// 推进录制中的单调时钟秒表；返回显示秒数是否变化。
+    pub fn refresh_recording_elapsed(&mut self, now: std::time::Instant) -> bool {
+        self.state
+            .recording
+            .as_mut()
+            .is_some_and(|session| session.refresh_recording_elapsed(now))
+    }
+
+    /// 当前阶段是否需要周期性 UI 唤醒。
+    ///
+    /// 录制中用于独立刷新秒表，结果页用于推进内嵌预览；暂停和编码收尾阶段无需
+    /// 保持高频唤醒，以降低常驻事件循环负载。
+    pub fn needs_periodic_ui_tick(&self) -> bool {
+        self.state.recording.as_ref().is_some_and(|session| {
+            matches!(
+                session.status(),
+                super::state::RecordingStatus::Active | super::state::RecordingStatus::Completed
+            )
+        })
+    }
+
+    /// 推进结果页内嵌预览；返回是否需要重绘。
+    pub fn advance_recording_preview(&mut self, now: std::time::Instant) -> bool {
+        let changed = self
+            .state
+            .recording
+            .as_mut()
+            .is_some_and(|session| session.advance_preview(now));
+        if changed {
+            if let Some(session) = self.state.recording.as_ref() {
+                tracing::trace!("录屏预览已推进到第 {} 帧", session.preview_frame_index());
+            }
+        }
+        changed
+    }
+
+    /// 返回覆盖层下一次必须主动重绘的时刻。
+    pub fn next_redraw_deadline(&self) -> Option<std::time::Instant> {
+        let preview = self
+            .state
+            .recording
+            .as_ref()
+            .and_then(super::state::RecordingSession::preview_deadline);
+        match (self.presenter.present_retry_deadline(), preview) {
+            (Some(left), Some(right)) => Some(left.min(right)),
+            (left, right) => left.or(right),
+        }
     }
 
     /// 请求重绘。
