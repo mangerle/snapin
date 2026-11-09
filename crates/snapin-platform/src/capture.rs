@@ -20,14 +20,16 @@ const MAX_CAPTURE_PIXELS: u64 = 100_000_000;
 pub(crate) const MAX_SCREENSHOT_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
 #[cfg(target_os = "linux")]
-use crate::{capabilities::get_platform_capabilities, portal::capture_fullscreen_portal};
+use crate::{
+    capabilities::revalidate_gnome_extension_capability, portal::capture_fullscreen_portal,
+};
 #[cfg(target_os = "linux")]
 use snapin_foundation::AppPaths;
 
 /// 跨平台获取全屏底图快照
 ///
 /// 针对不同操作系统自动适配最优原生通路：
-/// - Linux: GNOME 扩展零白闪优先，XDG Portal 兜底；
+/// - Linux: GNOME 扩展零白闪优先（抓屏前按需复检在线状态），XDG Portal 兜底；
 /// - Windows / macOS: xcap 原生极速通道。
 ///
 /// # Errors
@@ -82,7 +84,9 @@ pub async fn capture_fullscreen_snapshot_excluding_window(
 /// Linux 平台专用抓屏逻辑：扩展直通与 Portal 降级
 #[cfg(target_os = "linux")]
 async fn capture_linux(include_cursor: bool) -> Result<RgbaImage, PlatformError> {
-    let caps = get_platform_capabilities();
+    // 登录早期扩展可能尚未导出 D-Bus 对象，若沿用启动瞬间的离线快照，整场会话都会
+    // 退化到会触发快门白闪的 Portal 通道，因此每次抓屏前按需复检一次在线状态。
+    let caps = revalidate_gnome_extension_capability().await;
 
     if caps.gnome_extension_active {
         match capture_via_extension(include_cursor).await {
@@ -112,7 +116,9 @@ async fn capture_linux(include_cursor: bool) -> Result<RgbaImage, PlatformError>
 /// 过程中再次弹出系统框选界面。
 #[cfg(target_os = "linux")]
 async fn capture_linux_excluding_window(exclude_title: &str) -> Result<RgbaImage, PlatformError> {
-    let caps = get_platform_capabilities();
+    // 与普通抓屏一致：启动期的一次离线判断不能固化为整场会话的结论，
+    // 否则录屏与长截图会在扩展其实已就绪时被误判为不可用。
+    let caps = revalidate_gnome_extension_capability().await;
     if !caps.gnome_extension_active {
         return Err(PlatformError::Capture {
             message: "Linux 录屏需要启用 GNOME 扩展 snapin@wangle，请重新安装或启用扩展"

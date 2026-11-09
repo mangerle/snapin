@@ -1,6 +1,7 @@
 //! 跨平台开机自启动管理。
 //!
-//! - Linux: systemd 用户服务优先，XDG autostart 桌面项兜底；
+//! - Linux: systemd 用户服务优先，XDG autostart 桌面项兜底；systemd 可用时写入
+//!   用户级 Hidden 覆盖，屏蔽 deb 安装的系统级 XDG 条目，避免登录时双重启动；
 //! - Windows: 注册表当前用户启动项 (HKCU\Software\Microsoft\Windows\CurrentVersion\Run)；
 //! - macOS: 用户级 LaunchAgents 服务代理清单 (~/Library/LaunchAgents/local.wangle.snapin.plist)。
 
@@ -63,6 +64,7 @@ pub fn sync_autostart(enabled: bool) -> Result<(), PlatformError> {
 mod linux {
     use crate::error::PlatformError;
     use crate::output_with_timeout;
+    use snapin_foundation::AppPaths;
     use std::path::PathBuf;
     use std::process::Command;
 
@@ -76,12 +78,28 @@ Categories=Utility;
 X-GNOME-Autostart-enabled=true
 "#;
 
+    /// 用户级屏蔽条目：与 deb 安装的系统级 XDG autostart 同名，`Hidden=true`
+    /// 令会话管理器忽略它。systemd 用户服务与系统级条目同时生效时，登录会各拉起
+    /// 一个守护进程，重复执行扩展部署与能力探测并放大登录期竞态。
+    const HIDDEN_DESKTOP_ENTRY_CONTENT: &str = r#"[Desktop Entry]
+Type=Application
+Name=Snapin
+Comment=Snapin 截图与贴图守护服务
+Exec=snapin daemon
+Terminal=false
+Categories=Utility;
+Hidden=true
+X-GNOME-Autostart-enabled=false
+"#;
+
     const SYSTEMD_SERVICE: &str = "snapin";
 
     pub fn sync_autostart_linux(enabled: bool) -> Result<(), PlatformError> {
         if systemd_unit_loaded() {
             sync_systemd_service(enabled)?;
-            remove_desktop_file()?;
+            // 无论启用还是停用自启动，都必须保留屏蔽条目：停用时若删除它，
+            // 系统级 XDG 条目会重新生效，导致用户关闭自启动后仍被拉起。
+            write_desktop_entry(HIDDEN_DESKTOP_ENTRY_CONTENT)?;
             return Ok(());
         }
 
@@ -144,60 +162,50 @@ X-GNOME-Autostart-enabled=true
         Ok(())
     }
 
+    /// 切换用户级 XDG autostart 条目：启用时写标准条目，停用时写 Hidden 屏蔽条目。
+    ///
+    /// 停用不能简单删除用户文件：deb 会在 `/etc/xdg/autostart` 下安装同名条目，
+    /// 删除后系统级条目会重新生效。写入 Hidden 覆盖才能让“关闭自启动”真正生效。
     fn sync_desktop_file(enabled: bool) -> Result<(), PlatformError> {
-        let Some(desktop_file) = desktop_file_path() else {
-            return Ok(());
-        };
-
         if enabled {
-            let Some(autostart_dir) = desktop_file.parent() else {
-                return Ok(());
-            };
-            std::fs::create_dir_all(autostart_dir).map_err(|error| PlatformError::Io {
-                path: autostart_dir.to_string_lossy().to_string(),
-                source: error,
-            })?;
-            let temp_path = autostart_dir.join(format!(
-                ".snapin.{}.tmp",
-                snapin_foundation::AppPaths::generate_unique_id()
-            ));
-            if let Err(error) = snapin_foundation::AppPaths::write_secure_file(
-                &temp_path,
-                DESKTOP_ENTRY_CONTENT.as_bytes(),
-            ) {
-                let _ = std::fs::remove_file(&temp_path);
-                return Err(PlatformError::Io {
-                    path: temp_path.to_string_lossy().to_string(),
-                    source: error,
-                });
-            }
-            if let Err(error) =
-                snapin_foundation::AppPaths::replace_file_atomically(&temp_path, &desktop_file)
-            {
-                let _ = std::fs::remove_file(&temp_path);
-                return Err(PlatformError::Io {
-                    path: desktop_file.to_string_lossy().to_string(),
-                    source: error,
-                });
-            }
+            write_desktop_entry(DESKTOP_ENTRY_CONTENT)
         } else {
-            remove_desktop_file()?;
+            write_desktop_entry(HIDDEN_DESKTOP_ENTRY_CONTENT)
         }
-
-        Ok(())
     }
 
-    fn remove_desktop_file() -> Result<(), PlatformError> {
+    /// 以原子替换写入用户级 XDG autostart 条目。
+    ///
+    /// 用户级条目与系统级条目同名时会覆盖后者，因此同一写入路径既用于创建正常
+    /// 自启动项，也用于写入 `Hidden=true` 条目屏蔽系统级自启动。
+    fn write_desktop_entry(content: &str) -> Result<(), PlatformError> {
         let Some(desktop_file) = desktop_file_path() else {
             return Ok(());
         };
-        if !desktop_file.exists() {
+        let Some(autostart_dir) = desktop_file.parent() else {
             return Ok(());
-        }
-        std::fs::remove_file(&desktop_file).map_err(|error| PlatformError::Io {
-            path: desktop_file.to_string_lossy().to_string(),
+        };
+        std::fs::create_dir_all(autostart_dir).map_err(|error| PlatformError::Io {
+            path: autostart_dir.to_string_lossy().to_string(),
             source: error,
-        })
+        })?;
+        let temp_path =
+            autostart_dir.join(format!(".snapin.{}.tmp", AppPaths::generate_unique_id()));
+        if let Err(error) = AppPaths::write_secure_file(&temp_path, content.as_bytes()) {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(PlatformError::Io {
+                path: temp_path.to_string_lossy().to_string(),
+                source: error,
+            });
+        }
+        if let Err(error) = AppPaths::replace_file_atomically(&temp_path, &desktop_file) {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(PlatformError::Io {
+                path: desktop_file.to_string_lossy().to_string(),
+                source: error,
+            });
+        }
+        Ok(())
     }
 
     fn desktop_file_path() -> Option<PathBuf> {
@@ -220,6 +228,14 @@ X-GNOME-Autostart-enabled=true
         fn test_desktop_content() {
             assert!(DESKTOP_ENTRY_CONTENT.contains("Exec=snapin daemon"));
             assert!(DESKTOP_ENTRY_CONTENT.contains("X-GNOME-Autostart-enabled=true"));
+        }
+
+        /// 屏蔽条目必须显式 Hidden，且不得残留启用自启动的旧标记
+        #[test]
+        fn test_hidden_desktop_entry_masks_system_autostart() {
+            assert!(HIDDEN_DESKTOP_ENTRY_CONTENT.contains("Hidden=true"));
+            assert!(HIDDEN_DESKTOP_ENTRY_CONTENT.contains("X-GNOME-Autostart-enabled=false"));
+            assert!(!HIDDEN_DESKTOP_ENTRY_CONTENT.contains("X-GNOME-Autostart-enabled=true"));
         }
 
         #[test]

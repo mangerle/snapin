@@ -122,6 +122,53 @@ pub async fn refresh_platform_capabilities() -> Arc<PlatformCapabilities> {
     caps
 }
 
+/// 按需复检 GNOME 扩展在线状态并原子更新全局快照。
+///
+/// # 设计原理
+///
+/// 守护进程与 GNOME Shell 在登录阶段并行启动，扩展导出 D-Bus 对象的时间晚于
+/// 守护进程完成首次能力探测是常见情形。若把这次“暂时离线”永久缓存，后续每次
+/// 截图都会退化到 XDG Portal 通道；而 GNOME 的 Portal 后端会以 `flash=true`
+/// 调用 `Shell.Screenshot`，使整屏出现一次快门白闪。这里在真正需要原生通道前
+/// 复检一次：扩展一旦就绪立即恢复零白闪通道，无需用户重启守护进程。
+///
+/// 复检只替换扩展在线标志，不重复探测桌面环境；扩展本就离线时仅产生一次快速
+/// D-Bus 往返，也不会重复输出启动阶段的 INFO 能力摘要。
+///
+/// # 返回
+///
+/// 返回复检后的最新快照；缓存已显示扩展在线时直接返回，不发起额外 D-Bus 调用。
+#[cfg(target_os = "linux")]
+pub(crate) async fn revalidate_gnome_extension_capability() -> Arc<PlatformCapabilities> {
+    let current = get_platform_capabilities();
+    if current.gnome_extension_active {
+        return current;
+    }
+
+    let online = probe_gnome_extension().await;
+    if !online {
+        tracing::debug!("复检 GNOME 特权扩展仍不在线，本次继续使用降级抓屏通道");
+        return current;
+    }
+
+    tracing::info!("复检确认 GNOME 特权扩展已就绪，恢复原生零白闪截屏通道");
+    let updated = Arc::new(apply_extension_probe(&current, online));
+    GLOBAL_CAPABILITIES
+        .get_or_init(ArcSwapOption::empty)
+        .store(Some(updated.clone()));
+    updated
+}
+
+/// 构造仅替换扩展在线标志的能力快照，保留既有桌面环境探测结果。
+#[cfg(target_os = "linux")]
+fn apply_extension_probe(current: &PlatformCapabilities, online: bool) -> PlatformCapabilities {
+    PlatformCapabilities {
+        is_wayland: current.is_wayland,
+        desktop_env: current.desktop_env.clone(),
+        gnome_extension_active: online,
+    }
+}
+
 /// 获取当前已缓存的全局平台能力快照。
 ///
 /// 若尚未显式初始化，将执行同步快速启发式推断作为兜底。
@@ -171,5 +218,25 @@ mod tests {
         let caps = fallback_capabilities();
         assert!(!caps.gnome_extension_active);
         assert!(!caps.desktop_env.is_empty());
+    }
+
+    /// 复检只允许改写扩展在线标志，桌面环境与 Wayland 结论必须原样保留
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_apply_extension_probe_only_updates_extension_flag() {
+        let current = PlatformCapabilities {
+            is_wayland: true,
+            desktop_env: "ubuntu:GNOME".to_string(),
+            gnome_extension_active: false,
+        };
+
+        let online = apply_extension_probe(&current, true);
+        assert!(online.gnome_extension_active);
+        assert!(online.is_wayland);
+        assert_eq!(online.desktop_env, "ubuntu:GNOME");
+
+        let offline = apply_extension_probe(&online, false);
+        assert!(!offline.gnome_extension_active);
+        assert_eq!(offline.desktop_env, "ubuntu:GNOME");
     }
 }

@@ -32,16 +32,26 @@ const GNOME_EXTENSION_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 const GNOME_EXTENSION_ACTIVE_WAIT: Duration = Duration::from_secs(15);
 #[cfg(target_os = "linux")]
 const GNOME_EXTENSION_POLL_INTERVAL: Duration = Duration::from_millis(150);
+/// 登录时留给 Shell 完成扩展枚举与首次加载的宽限期。
+///
+/// 宽限期内只观察状态、不执行启停，避免守护进程与 Shell 自身的加载流程抢跑；
+/// 只有宽限期结束后仍未加载，才判定为加载请求被吞掉并强制重载。
+#[cfg(target_os = "linux")]
+const GNOME_EXTENSION_LOAD_GRACE: Duration = Duration::from_secs(3);
+/// 两次强制"停用→启用"之间的最小间隔，给 Shell 留出完成一次加载的时间。
+#[cfg(target_os = "linux")]
+const GNOME_EXTENSION_RELOAD_INTERVAL: Duration = Duration::from_millis(1500);
 
 /// 安装配套 GNOME Shell 扩展到用户目录并重新加载。
 ///
-/// 先原子替换磁盘文件，再确保正式 UUID 处于启用状态。GNOME Shell 会缓存已经加载
-/// 的 ESM 模块，因此从历史 UUID 首次迁移或扩展接口升级后，仍需注销并重新登录一次。
-/// 使用稳定 UUID 可以保证后续启动始终加载同一目录，避免旧扩展继续遮蔽新版本。
+/// 先原子替换磁盘文件，再确保正式 UUID 已启用并被 Shell 真正加载（含登录早期加载
+/// 请求被吞掉时的自愈重试）。GNOME Shell 会缓存已经加载的 ESM 模块，因此从历史 UUID
+/// 首次迁移或扩展接口升级后，仍需注销并重新登录一次。使用稳定 UUID 可以保证后续
+/// 启动始终加载同一目录，避免旧扩展继续遮蔽新版本。
 ///
 /// # Errors
 ///
-/// 扩展目录创建、内嵌资源写入、原子替换或启用命令执行失败时返回错误。
+/// 扩展目录创建、内嵌资源写入、原子替换、启用命令执行失败或等待加载超时时返回错误。
 pub fn install_gnome_extension() -> Result<()> {
     #[cfg(not(target_os = "linux"))]
     {
@@ -64,44 +74,79 @@ pub fn install_gnome_extension() -> Result<()> {
             .context("写入 GNOME 扩展图标文件失败")?;
 
         tracing::info!("GNOME 扩展文件已成功部署至: {:?}", target_dir);
-        reload_gnome_extension(GNOME_EXTENSION_UUID)?;
-        wait_for_gnome_extension_active(GNOME_EXTENSION_UUID)?;
+        ensure_gnome_extension_loaded(GNOME_EXTENSION_UUID)?;
         cleanup_legacy_extensions();
         Ok(())
     }
 }
 
-/// 确保扩展处于启用状态；Shell 已缓存模块时会在下一次登录加载新文件。
+/// 确保 GNOME Shell 已真正加载扩展，必要时在超时窗口内反复强制重载。
+///
+/// # 设计原理
+///
+/// Shell 启动阶段可能吞掉扩展加载请求：`gnome-extensions enable` 写入启用状态并
+/// 返回成功，但扩展停在“已启用但未加载”的 INACTIVE 状态。此时重复 enable 是空
+/// 操作，只有完整的停用→启用循环才能让扩展管理器重新走加载流程。登录时守护进程
+/// 与 Shell 并行启动，正好会撞上这个窗口；若放任不管，整场会话的截图都会退化为
+/// 会触发快门白闪的 XDG Portal 通道。
+///
+/// 已处于 ACTIVE 时直接返回，不打扰正在运行的扩展实例：Shell 会缓存已加载的 ESM
+/// 模块，磁盘文件升级后的接口变更仍需注销重新登录才能生效。未加载时先经过一段
+/// 宽限期观察 Shell 是否自行完成加载，宽限期结束后才执行停用→启用；启用日志只在
+/// 首次成功时输出，避免重试刷屏。
+///
+/// # Errors
+///
+/// 超时仍未见 ACTIVE 时返回最后一个启用错误或超时描述。
+#[cfg(target_os = "linux")]
+fn ensure_gnome_extension_loaded(uuid: &str) -> Result<()> {
+    let deadline = std::time::Instant::now() + GNOME_EXTENSION_ACTIVE_WAIT;
+    let mut next_reload = std::time::Instant::now() + GNOME_EXTENSION_LOAD_GRACE;
+    let mut last_error = None;
+    let mut announced = false;
+
+    while std::time::Instant::now() < deadline {
+        if gnome_extension_is_active(uuid) {
+            tracing::info!("GNOME 扩展已进入 ACTIVE 状态，UUID: {uuid}");
+            return Ok(());
+        }
+        if std::time::Instant::now() >= next_reload {
+            match reload_gnome_extension(uuid) {
+                Ok(()) => {
+                    if !announced {
+                        tracing::info!(
+                            "GNOME 扩展已启用，UUID: {uuid}；若接口尚未更新，请注销并重新登录"
+                        );
+                        announced = true;
+                    }
+                    last_error = None;
+                }
+                Err(error) => {
+                    tracing::debug!("启用 GNOME 扩展失败，UUID: {uuid}，原因: {error}");
+                    last_error = Some(error);
+                }
+            }
+            next_reload = std::time::Instant::now() + GNOME_EXTENSION_RELOAD_INTERVAL;
+        }
+        std::thread::sleep(GNOME_EXTENSION_POLL_INTERVAL);
+    }
+
+    match last_error {
+        Some(error) => {
+            bail!("等待 GNOME 扩展进入 ACTIVE 状态超时，UUID: {uuid}，最后一次启用错误: {error:#}")
+        }
+        None => bail!("等待 GNOME 扩展进入 ACTIVE 状态超时，UUID: {uuid}"),
+    }
+}
+
+/// 停用后重新启用扩展，强制 Shell 扩展管理器执行一次完整加载流程。
 #[cfg(target_os = "linux")]
 fn reload_gnome_extension(uuid: &str) -> Result<()> {
     // 扩展可能本来就未启用；停用失败不应阻止后续启用。
     if let Err(error) = set_gnome_extension_enabled(uuid, false) {
         tracing::debug!("停用 GNOME 扩展时未取得成功状态，继续尝试启用: {error}");
     }
-    set_gnome_extension_enabled(uuid, true)?;
-    tracing::info!("GNOME 扩展已启用，UUID: {uuid}；若接口尚未更新，请注销并重新登录");
-    Ok(())
-}
-
-/// 等待 GNOME Shell 完成扩展加载，避免登录阶段守护进程先行时停留在 INACTIVE。
-#[cfg(target_os = "linux")]
-fn wait_for_gnome_extension_active(uuid: &str) -> Result<()> {
-    let deadline = std::time::Instant::now() + GNOME_EXTENSION_ACTIVE_WAIT;
-    let mut attempt = 0_u32;
-    while std::time::Instant::now() < deadline {
-        if gnome_extension_is_active(uuid) {
-            tracing::info!("GNOME 扩展已进入 ACTIVE 状态，UUID: {uuid}");
-            return Ok(());
-        }
-        // Shell 尚未完成启动时首次 enable 可能只写入启用状态；定期重试启用可在
-        // 扩展管理器就绪后完成真实加载，而不必要求用户手动再执行一次命令。
-        if attempt % 10 == 9 {
-            let _ = set_gnome_extension_enabled(uuid, true);
-        }
-        attempt = attempt.saturating_add(1);
-        std::thread::sleep(GNOME_EXTENSION_POLL_INTERVAL);
-    }
-    bail!("等待 GNOME 扩展进入 ACTIVE 状态超时，UUID: {uuid}");
+    set_gnome_extension_enabled(uuid, true)
 }
 
 /// 查询扩展是否已经由 Shell 真正加载。

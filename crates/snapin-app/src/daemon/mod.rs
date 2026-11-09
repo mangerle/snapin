@@ -149,10 +149,10 @@ fn recover_update_on_startup() {
     }
 }
 
-/// 初始化平台能力、快捷键和 GNOME 扩展。
+/// 初始化平台能力、快捷键、开机自启动和 GNOME 扩展。
 fn initialize_daemon_platform(runtime: &tokio::runtime::Runtime, cfg: &Config) {
     tracing::info!("Snapin 守护服务启动中...");
-    runtime.block_on(run_startup_hotkeys_and_extension(cfg));
+    runtime.block_on(run_startup_system_sync(cfg));
     runtime.block_on(snapin_platform::refresh_platform_capabilities());
 }
 
@@ -279,14 +279,30 @@ fn finish_daemon(
     }
 }
 
-/// 启动阶段同步快捷键注册与扩展自愈。
-async fn run_startup_hotkeys_and_extension(cfg: &Config) {
+/// 启动时同步系统集成状态：GNOME 扩展、开机自启动与快捷键。
+///
+/// 自启动同步放在守护进程启动阶段，使已安装用户无需进入设置页即可完成 systemd
+/// 服务与系统级 XDG 条目的收敛（写入 Hidden 覆盖，消除登录时双重启动）。
+async fn run_startup_system_sync(cfg: &Config) {
     let startup_hotkeys = cfg.hotkeys.clone();
+    #[cfg(target_os = "linux")]
+    let startup_autostart = cfg.general.autostart;
     match tokio::task::spawn_blocking(move || {
         #[cfg(target_os = "linux")]
         {
             if let Err(error) = crate::installer::install_gnome_extension() {
-                tracing::debug!("自愈检查 GNOME 扩展部署状态: {error}");
+                // 扩展未能加载时截图会退化到会触发快门白闪的 Portal 通道，
+                // 属于可恢复但必须可观测的降级，交由运维日志显式记录。
+                tracing::warn!(
+                    "GNOME 扩展自动部署或加载未完成，本次会话截图可能降级至 XDG Portal 通道: {error:#}"
+                );
+            }
+            // 启动期同步一次自启动状态，让已安装用户无需进入设置页即可完成
+            // systemd 服务与系统级 XDG 条目的收敛（写入 Hidden 覆盖消除双重启动）。
+            // 该收敛只针对 Linux 的 systemd/XDG 双链路，其余平台的自启动项
+            // 由安装流程与设置页维护，无需每次重启改写。
+            if let Err(error) = snapin_platform::sync_autostart(startup_autostart) {
+                tracing::warn!("启动时同步开机自启动状态失败: {error}");
             }
         }
         sync_hotkeys_to_gnome(&startup_hotkeys)
