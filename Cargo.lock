@@ -5828,7 +5828,7 @@ dependencies = [
 
 [[package]]
 name = "snapin"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -5845,7 +5845,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-annotation"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -5858,7 +5858,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-app"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -5891,7 +5891,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-config"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "serde",
  "serde_ignored",
@@ -5904,7 +5904,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-daemon"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -5919,7 +5919,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-editor"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "image",
  "snapin-annotation",
@@ -5933,7 +5933,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-foundation"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "rustix 0.38.44",
  "serde",
@@ -5946,7 +5946,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-platform"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "arboard",
  "arc-swap",
@@ -5975,7 +5975,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-ports"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "async-trait",
  "image",
@@ -5987,7 +5987,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-render"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "cosmic-text",
  "image",
@@ -5999,7 +5999,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-runtime"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "thiserror 1.0.69",
  "tokio",
@@ -6009,7 +6009,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-service"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6038,7 +6038,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-settings"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "arc-swap",
  "slint",
@@ -6058,7 +6058,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-storage"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "chrono",
  "image",
@@ -6073,7 +6073,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-ui"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "async-trait",
  "image",
@@ -6098,7 +6098,7 @@ dependencies = [
 
 [[package]]
 name = "snapin-updater"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "shipup",
  "tempfile",
