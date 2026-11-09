@@ -72,6 +72,11 @@ pub async fn simulate_mouse_wheel_async(delta_y: f32) -> Result<(), PlatformErro
 /// 模拟鼠标垂直滚轮滚动。
 ///
 /// `delta_y` 为正数表示向上滚动（远离用户），负数表示向下滚动（朝向用户）。
+///
+/// # Errors
+///
+/// 当前平台缺少可用的滚轮注入通路、外部输入工具执行失败，或原生事件源创建失败时
+/// 返回 [`PlatformError`]；零位移会直接成功返回，不产生任何输入事件。
 pub fn simulate_mouse_wheel(delta_y: f32) -> Result<(), PlatformError> {
     if delta_y.abs() < f32::EPSILON {
         return Ok(());

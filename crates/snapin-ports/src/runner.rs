@@ -97,24 +97,48 @@ pub struct SnipperLaunch {
 #[async_trait]
 pub trait WorkspaceDriver: Send + Sync {
     /// 请求工作区打开全屏截图覆盖层
+    ///
+    /// # Errors
+    ///
+    /// 宿主 GUI 事件循环已退出或事件投递失败时返回 [`PortError`]。
     fn open_snipper(&self, launch: SnipperLaunch) -> Result<(), PortError>;
 
     /// 请求工作区打开新贴图窗口
+    ///
+    /// # Errors
+    ///
+    /// 宿主 GUI 事件循环已退出或事件投递失败时返回 [`PortError`]。
     fn open_paster(&self, item: PasterItem) -> Result<(), PortError>;
 
     /// 触发配置热重载
+    ///
+    /// # Errors
+    ///
+    /// 宿主 GUI 事件循环已退出、事件投递失败或等待配置应用超时时返回 [`PortError`]。
     fn reload_config(&self, cfg: Config) -> Result<(), PortError>;
 
     /// 唤醒宿主事件处理队列
     fn wake_host(&self);
 
     /// 批量切换当前分组内所有贴图的显隐状态
+    ///
+    /// # Errors
+    ///
+    /// 宿主 GUI 事件循环已退出或事件投递失败时返回 [`PortError`]。
     fn toggle_visibility(&self) -> Result<(), PortError>;
 
     /// 强制显示当前活动分组贴图
+    ///
+    /// # Errors
+    ///
+    /// 宿主 GUI 事件循环已退出或事件投递失败时返回 [`PortError`]。
     fn show_workspace(&self) -> Result<(), PortError>;
 
     /// 切换活动贴图分组
+    ///
+    /// # Errors
+    ///
+    /// 宿主 GUI 事件循环已退出或事件投递失败时返回 [`PortError`]。
     fn switch_group(&self, group_id: Option<GroupId>) -> Result<(), PortError>;
 
     /// 异步获取工作区当前活动状态快照
