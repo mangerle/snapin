@@ -85,6 +85,11 @@ pub enum SnipperOutcome {
 pub struct SnipperLaunch {
     /// 全屏底图
     pub bg_image: image::RgbaImage,
+    /// 底图左上角在虚拟桌面中的物理像素原点
+    ///
+    /// Windows 多屏或缩放环境不能总是依赖系统全屏窗口自动匹配截图尺寸；
+    /// 宿主据此把无边框覆盖层精确放到抓屏内容对应的物理桌面区域，避免重采样。
+    pub screen_origin: (i32, i32),
     /// 窗口候选矩形
     pub windows: Vec<WindowRect>,
     /// 会话配置、模式与端口

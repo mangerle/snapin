@@ -9,8 +9,8 @@ use anyhow::{Context, Result};
 use snapin_config::config::Config;
 use snapin_foundation::{PostCaptureAction, SnipMode};
 use snapin_platform::{
-    capture_fullscreen_snapshot, enumerate_visible_windows, send_desktop_notification,
-    WindowRect as PlatformWindowRect,
+    capture_fullscreen_snapshot_with_origin, enumerate_visible_windows, send_desktop_notification,
+    ScreenSnapshot, WindowRect as PlatformWindowRect,
 };
 use snapin_ports::{SnipperLaunch, SnipperOutcome, SnipperRuntime, WindowRect, WorkspaceDriver};
 use std::sync::Arc;
@@ -30,31 +30,33 @@ pub(crate) struct SnipStartRequest {
     pub(crate) post_action: Option<PostCaptureAction>,
 }
 
-/// 获取全屏快照（跨平台调度：Linux 优先扩展零白闪/Portal 降级，Windows/macOS 走原生捕获）。
+/// 获取全屏快照及虚拟桌面物理原点，供覆盖层精确对齐抓屏内容。
 ///
 /// # Errors
 ///
 /// 平台截屏通道不可用、超时或图像解码失败时返回错误。
-pub async fn acquire_screen_snapshot(include_cursor: bool) -> Result<image::RgbaImage> {
+async fn acquire_screen_snapshot_with_origin(include_cursor: bool) -> Result<ScreenSnapshot> {
     let t_start = Instant::now();
-    let rgba = tokio::time::timeout(
+    let snapshot = tokio::time::timeout(
         SCREENSHOT_TIMEOUT,
-        capture_fullscreen_snapshot(include_cursor),
+        capture_fullscreen_snapshot_with_origin(include_cursor),
     )
     .await
     .context("屏幕快照捕获超时")?
     .context("屏幕快照捕获失败")?;
 
     tracing::info!(
-        "全屏快照捕获成功，图像尺寸: {}x{}，耗时: {:.2}ms",
-        rgba.width(),
-        rgba.height(),
+        "全屏快照捕获成功，图像尺寸: {}x{}，桌面原点: ({}, {})，耗时: {:.2}ms",
+        snapshot.image.width(),
+        snapshot.image.height(),
+        snapshot.origin.0,
+        snapshot.origin.1,
         Instant::now()
             .saturating_duration_since(t_start)
             .as_secs_f64()
             * 1000.0
     );
-    Ok(rgba)
+    Ok(snapshot)
 }
 
 /// 准备一次截图覆盖层所需的底图、窗口候选与应用端口。
@@ -73,11 +75,16 @@ pub(crate) async fn prepare_snipper_launch(
 
     let t0 = Instant::now();
     let config = services.config();
-    let bg_image = acquire_screen_snapshot(config.interface.capture_mouse_cursor).await?;
+    let ScreenSnapshot {
+        image: bg_image,
+        origin: screen_origin,
+    } = acquire_screen_snapshot_with_origin(config.interface.capture_mouse_cursor).await?;
     tracing::info!(
-        "快照准备就绪: {}x{}，耗时: {:.2}ms，正在呈现交互覆盖层...",
+        "快照准备就绪: {}x{}，桌面原点: ({}, {})，耗时: {:.2}ms，正在呈现交互覆盖层...",
         bg_image.width(),
         bg_image.height(),
+        screen_origin.0,
+        screen_origin.1,
         t0.elapsed().as_secs_f64() * 1000.0
     );
 
@@ -105,6 +112,7 @@ pub(crate) async fn prepare_snipper_launch(
 
     Ok(SnipperLaunch {
         bg_image,
+        screen_origin,
         windows,
         runtime: SnipperRuntime {
             config: (*config).clone(),

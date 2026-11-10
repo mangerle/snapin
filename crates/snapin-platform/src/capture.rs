@@ -26,7 +26,20 @@ use crate::{
 #[cfg(target_os = "linux")]
 use snapin_foundation::AppPaths;
 
-/// 跨平台获取全屏底图快照
+/// 一次全屏抓屏得到的像素图及其虚拟桌面物理原点。
+///
+/// 覆盖层必须同时使用图像尺寸和原点才能与抓屏内容一一对齐。只按图像尺寸创建
+/// 普通全屏窗口会在多屏、负坐标或 Windows 混合 DPI 场景下落到错误显示器，
+/// 随后呈现器只能重采样底图，最终让截图和贴图一起发虚。
+#[derive(Debug)]
+pub struct ScreenSnapshot {
+    /// 完整屏幕像素图
+    pub image: RgbaImage,
+    /// 图像左上角在虚拟桌面中的物理像素坐标
+    pub origin: (i32, i32),
+}
+
+/// 跨平台获取全屏底图快照及其虚拟桌面物理原点。
 ///
 /// 针对不同操作系统自动适配最优原生通路：
 /// - Linux: GNOME 扩展零白闪优先（抓屏前按需复检在线状态），XDG Portal 兜底；
@@ -35,10 +48,17 @@ use snapin_foundation::AppPaths;
 /// # Errors
 ///
 /// 运行时目录、屏幕捕获、图像解码、尺寸校验或超时失败时返回 [`PlatformError`]。
-pub async fn capture_fullscreen_snapshot(include_cursor: bool) -> Result<RgbaImage, PlatformError> {
+pub async fn capture_fullscreen_snapshot_with_origin(
+    include_cursor: bool,
+) -> Result<ScreenSnapshot, PlatformError> {
     #[cfg(target_os = "linux")]
     {
-        capture_linux(include_cursor).await
+        let image = capture_linux(include_cursor).await?;
+        Ok(ScreenSnapshot {
+            image,
+            // Linux 覆盖层仍由窗口系统全屏仲裁，原点不参与窗口定位。
+            origin: (0, 0),
+        })
     }
 
     #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -55,6 +75,20 @@ pub async fn capture_fullscreen_snapshot(include_cursor: bool) -> Result<RgbaIma
             capability: "屏幕快照捕获".to_string(),
         })
     }
+}
+
+/// 跨平台获取全屏底图快照。
+///
+/// 该兼容接口只返回像素图；需要精确放置覆盖层时应使用
+/// [`capture_fullscreen_snapshot_with_origin`] 一并获取虚拟桌面物理原点。
+///
+/// # Errors
+///
+/// 运行时目录、屏幕捕获、图像解码、尺寸校验或超时失败时返回 [`PlatformError`]。
+pub async fn capture_fullscreen_snapshot(include_cursor: bool) -> Result<RgbaImage, PlatformError> {
+    Ok(capture_fullscreen_snapshot_with_origin(include_cursor)
+        .await?
+        .image)
 }
 
 /// 获取全屏快照，并在 Linux GNOME 扩展通道中排除指定标题的覆盖层窗口。
@@ -234,7 +268,7 @@ async fn decode_extension_screenshot(file_bytes: Vec<u8>) -> Result<RgbaImage, P
 
 /// Windows / macOS 平台专用抓屏逻辑：基于 xcap 抓取主屏幕或多屏合成
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-async fn capture_xcap() -> Result<RgbaImage, PlatformError> {
+async fn capture_xcap() -> Result<ScreenSnapshot, PlatformError> {
     tokio::time::timeout(
         CAPTURE_TIMEOUT,
         tokio::task::spawn_blocking(capture_xcap_blocking),
@@ -250,7 +284,7 @@ async fn capture_xcap() -> Result<RgbaImage, PlatformError> {
 
 /// 在阻塞线程中枚举显示器并选择单屏直读或多屏合成。
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-fn capture_xcap_blocking() -> Result<RgbaImage, PlatformError> {
+fn capture_xcap_blocking() -> Result<ScreenSnapshot, PlatformError> {
     let monitors = xcap::Monitor::all().map_err(|error| PlatformError::Capture {
         message: format!("获取物理显示器列表失败: {error}"),
     })?;
@@ -260,21 +294,19 @@ fn capture_xcap_blocking() -> Result<RgbaImage, PlatformError> {
         });
     }
     if monitors.len() == 1 {
+        let (origin, image) = capture_single_monitor_with_origin(&monitors[0])?;
         #[cfg(target_os = "windows")]
-        let mut image = capture_single_monitor(&monitors[0])?;
-        #[cfg(not(target_os = "windows"))]
-        let image = capture_single_monitor(&monitors[0])?;
+        let mut image = image;
         #[cfg(target_os = "windows")]
         normalize_windows_capture_alpha(&mut image);
-        return Ok(image);
+        return Ok(ScreenSnapshot { image, origin });
     }
+    let snapshot = capture_monitor_desktop(&monitors)?;
     #[cfg(target_os = "windows")]
-    let mut image = capture_monitor_desktop(&monitors)?;
-    #[cfg(not(target_os = "windows"))]
-    let image = capture_monitor_desktop(&monitors)?;
+    let mut snapshot = snapshot;
     #[cfg(target_os = "windows")]
-    normalize_windows_capture_alpha(&mut image);
-    Ok(image)
+    normalize_windows_capture_alpha(&mut snapshot.image);
+    Ok(snapshot)
 }
 
 /// 确保 Windows 截屏导出的像素具有完全不透明的 Alpha 通道（255）。
@@ -289,9 +321,12 @@ fn normalize_windows_capture_alpha(image: &mut RgbaImage) {
     }
 }
 
-/// 捕获单显示器并转换像素布局。
+/// 捕获单显示器并返回像素图与虚拟桌面物理原点。
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-fn capture_single_monitor(monitor: &xcap::Monitor) -> Result<RgbaImage, PlatformError> {
+fn capture_single_monitor_with_origin(
+    monitor: &xcap::Monitor,
+) -> Result<((i32, i32), RgbaImage), PlatformError> {
+    let (x, y, expected_width, expected_height) = capture_monitor_geometry(monitor)?;
     let captured = monitor.capture_image().map_err(|error| {
         #[cfg(target_os = "macos")]
         let hint = "（请检查是否已在“系统设置 -> 隐私与安全性 -> 屏幕录制”中授予 Snapin 权限）";
@@ -302,14 +337,24 @@ fn capture_single_monitor(monitor: &xcap::Monitor) -> Result<RgbaImage, Platform
         }
     })?;
     let (width, height) = (captured.width(), captured.height());
-    RgbaImage::from_raw(width, height, captured.into_raw()).ok_or_else(|| PlatformError::Capture {
-        message: "显示器捕获像素缓冲区转换为图像失败".to_string(),
-    })
+    if width != expected_width || height != expected_height {
+        return Err(PlatformError::Capture {
+            message: format!(
+                "显示器捕获尺寸与系统物理尺寸不一致，期望: {expected_width}x{expected_height}，实际: {width}x{height}"
+            ),
+        });
+    }
+    let image = RgbaImage::from_raw(width, height, captured.into_raw()).ok_or_else(|| {
+        PlatformError::Capture {
+            message: "显示器捕获像素缓冲区转换为图像失败".to_string(),
+        }
+    })?;
+    Ok(((x, y), image))
 }
 
 /// 捕获全部显示器并合成到虚拟桌面坐标系。
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-fn capture_monitor_desktop(monitors: &[xcap::Monitor]) -> Result<RgbaImage, PlatformError> {
+fn capture_monitor_desktop(monitors: &[xcap::Monitor]) -> Result<ScreenSnapshot, PlatformError> {
     let mut bounds = DesktopBounds::default();
     let mut frames = Vec::with_capacity(monitors.len());
     for monitor in monitors {
@@ -332,7 +377,9 @@ fn capture_monitor_desktop(monitors: &[xcap::Monitor]) -> Result<RgbaImage, Plat
             })?;
         frames.push((x, y, frame));
     }
-    bounds.compose(frames)
+    let origin = bounds.origin()?;
+    let image = bounds.compose(frames)?;
+    Ok(ScreenSnapshot { image, origin })
 }
 
 /// 读取单个显示器坐标与尺寸；任一项失败都返回明确错误而不是伪造为零。
@@ -406,6 +453,19 @@ struct DesktopBounds {
 
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
 impl DesktopBounds {
+    /// 返回虚拟桌面左上角的物理像素坐标。
+    ///
+    /// 多屏排列允许显示器使用负坐标，覆盖层必须沿用该原点才能与合成底图逐像素对齐。
+    fn origin(&self) -> Result<(i32, i32), PlatformError> {
+        let x = i32::try_from(self.min_x).map_err(|_| PlatformError::Capture {
+            message: format!("虚拟桌面 X 原点超出支持范围: {}", self.min_x),
+        })?;
+        let y = i32::try_from(self.min_y).map_err(|_| PlatformError::Capture {
+            message: format!("虚拟桌面 Y 原点超出支持范围: {}", self.min_y),
+        })?;
+        Ok((x, y))
+    }
+
     fn include(&mut self, area: CaptureArea) -> Result<(), PlatformError> {
         if area.width == 0 || area.height == 0 {
             return Err(PlatformError::Capture {
@@ -489,6 +549,7 @@ mod bounds_tests {
                 height: 100,
             })
             .expect("合法边界应接受");
+        assert_eq!(bounds.origin().expect("负坐标原点应可读取"), (-100, -50));
         let frame = RgbaImage::new(1, 1);
         let combined = bounds
             .compose(vec![(-100, -50, frame)])

@@ -23,10 +23,14 @@ use crate::ports::{
 use crate::snipper::selection::{Rect, SelectionState};
 use image::RgbaImage;
 use std::sync::Arc;
+#[cfg(target_os = "windows")]
+use winit::dpi::PhysicalPosition;
 use winit::dpi::PhysicalSize;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
-use winit::window::{Fullscreen, Window, WindowLevel};
+#[cfg(not(target_os = "windows"))]
+use winit::window::Fullscreen;
+use winit::window::{Window, WindowLevel};
 
 /// 截图视图创建参数。
 pub struct SnipperViewInit {
@@ -66,12 +70,13 @@ impl SnipperView {
         } = init;
         let SnipperLaunch {
             bg_image,
+            screen_origin,
             windows,
             runtime,
         } = launch;
         let screen_w = bg_image.width();
         let screen_h = bg_image.height();
-        let window = create_overlay_window(window_target, screen_w, screen_h)?;
+        let window = create_overlay_window(window_target, screen_origin, screen_w, screen_h)?;
         let mode = runtime.mode;
         let presenter = SnipperPresenter::try_new(SnipperPresenterInit {
             window: window.clone(),
@@ -102,12 +107,14 @@ impl SnipperView {
     }
 }
 
-/// 创建覆盖层全屏窗口。
+/// 创建与抓屏内容逐像素对齐的覆盖层窗口。
 ///
-/// 初始框选和录屏全程复用同一个无边框全屏窗口，不在录制开始时切换普通窗口，
-/// 因而既不会脱离顶栏和 Dock 的工作区覆盖，也不会产生一次缩小再还原的错位。
+/// Windows 不依赖系统单屏全屏仲裁，而是按虚拟桌面物理原点与抓屏尺寸创建无边框
+/// 窗口。这样多屏、负坐标和混合 DPI 下窗口客户区始终与底图一致，不会触发呈现器
+/// 的二次缩放；其它平台继续使用窗口系统全屏能力。
 fn create_overlay_window(
     window_target: &ActiveEventLoop,
+    screen_origin: (i32, i32),
     screen_w: u32,
     screen_h: u32,
 ) -> Result<Arc<Window>, UiError> {
@@ -116,16 +123,77 @@ fn create_overlay_window(
         .with_decorations(false)
         .with_window_level(WindowLevel::AlwaysOnTop)
         .with_content_protected(true)
-        .with_transparent(true)
-        .with_fullscreen(Some(Fullscreen::Borderless(None)))
-        .with_inner_size(PhysicalSize::new(screen_w, screen_h));
+        .with_transparent(true);
+    let attributes = configure_overlay_bounds(attributes, screen_origin, screen_w, screen_h);
     let window = window_target
         .create_window(attributes)
         .map_err(|error| UiError::Window {
             message: format!("创建全屏截图窗口失败: {error}"),
         })?;
+    ensure_window_matches_snapshot(&window, screen_w, screen_h);
     window.set_ime_allowed(true);
     Ok(Arc::new(window))
+}
+
+/// 校验覆盖层客户区是否与抓屏像素尺寸完全一致。
+///
+/// Windows 在缩放切换或窗口创建阶段仍可能调整客户区。此处只做一次主动纠正，
+/// 避免呈现器拿到尺寸不一致的表面后把原始底图重采样成模糊图像。
+#[cfg(target_os = "windows")]
+fn ensure_window_matches_snapshot(window: &Window, screen_w: u32, screen_h: u32) {
+    let expected = PhysicalSize::new(screen_w, screen_h);
+    let actual = window.inner_size();
+    if actual == expected {
+        return;
+    }
+
+    tracing::warn!(
+        "截图覆盖层客户区尺寸与抓屏尺寸不一致，期望: {}x{}，实际: {}x{}，正在请求纠正",
+        expected.width,
+        expected.height,
+        actual.width,
+        actual.height
+    );
+    if let Some(requested) = window.request_inner_size(expected) {
+        if requested != expected {
+            tracing::warn!(
+                "窗口系统未能按抓屏尺寸调整覆盖层，请求后尺寸: {}x{}",
+                requested.width,
+                requested.height
+            );
+        }
+    }
+}
+
+/// 非 Windows 平台由窗口系统全屏仲裁，无需额外纠正。
+#[cfg(not(target_os = "windows"))]
+fn ensure_window_matches_snapshot(_window: &Window, _screen_w: u32, _screen_h: u32) {}
+
+/// 按平台配置覆盖层的初始物理边界。
+#[cfg(target_os = "windows")]
+fn configure_overlay_bounds(
+    attributes: winit::window::WindowAttributes,
+    screen_origin: (i32, i32),
+    screen_w: u32,
+    screen_h: u32,
+) -> winit::window::WindowAttributes {
+    attributes
+        .with_position(PhysicalPosition::new(screen_origin.0, screen_origin.1))
+        .with_inner_size(PhysicalSize::new(screen_w, screen_h))
+        .with_resizable(false)
+}
+
+/// 按平台配置覆盖层的初始物理边界。
+#[cfg(not(target_os = "windows"))]
+fn configure_overlay_bounds(
+    attributes: winit::window::WindowAttributes,
+    _screen_origin: (i32, i32),
+    screen_w: u32,
+    screen_h: u32,
+) -> winit::window::WindowAttributes {
+    attributes
+        .with_fullscreen(Some(Fullscreen::Borderless(None)))
+        .with_inner_size(PhysicalSize::new(screen_w, screen_h))
 }
 
 /// 截图交互状态初始化参数。

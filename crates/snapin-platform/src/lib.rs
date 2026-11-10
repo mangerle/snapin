@@ -27,7 +27,10 @@ pub use capabilities::{
     get_platform_capabilities, init_platform_capabilities, refresh_platform_capabilities,
     PlatformCapabilities,
 };
-pub use capture::{capture_fullscreen_snapshot, capture_fullscreen_snapshot_excluding_window};
+pub use capture::{
+    capture_fullscreen_snapshot, capture_fullscreen_snapshot_excluding_window,
+    capture_fullscreen_snapshot_with_origin, ScreenSnapshot,
+};
 pub use clipboard::{
     read_clipboard_image, read_clipboard_text, subscribe_clipboard_changes,
     write_image_to_clipboard, write_raw_image_to_clipboard, write_text_to_clipboard,
