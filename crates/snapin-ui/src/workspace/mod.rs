@@ -9,12 +9,39 @@
 //! 属于应用层职责。
 
 pub(crate) mod clipboard_events;
+mod desktop_adapter;
 pub(crate) mod event_handler;
 pub(crate) mod job_events;
 pub(crate) mod paster_events;
 pub(crate) mod persistence;
 pub(crate) mod proxy;
 mod ui_ticker;
+#[cfg(target_os = "linux")]
+mod wayland_clipboard;
+#[cfg(not(target_os = "linux"))]
+mod wayland_clipboard {
+    use super::{EventLoop, PasterAppEvent};
+    use std::marker::PhantomData;
+    use std::sync::Arc;
+
+    /// 非 Linux 平台使用的零尺寸 Wayland 剪贴板占位类型（运行时永不构造实例）。
+    pub(crate) struct WaylandClipboard;
+
+    /// 非 Linux 平台使用的零尺寸暂停守卫。
+    pub(crate) struct PumpPauseGuard<'a>(PhantomData<&'a ()>);
+
+    impl WaylandClipboard {
+        pub(crate) fn try_new(_event_loop: &EventLoop<PasterAppEvent>) -> Option<Arc<Self>> {
+            None
+        }
+
+        pub(crate) fn pause_pump(&self) -> PumpPauseGuard<'_> {
+            PumpPauseGuard(PhantomData)
+        }
+
+        pub(crate) fn shutdown(&self) {}
+    }
+}
 pub(crate) mod window_builder;
 
 pub use event_handler::{is_valid_group_id, TOTAL_PIN_GROUPS};
@@ -30,6 +57,7 @@ use crate::ports::{
 };
 use crate::snipper::window::SnipperView;
 use crate::snipper::SnipperOutcome;
+use desktop_adapter::wrap_desktop_with_wayland;
 use event_handler::{handle_workspace_user_event, handle_workspace_window_event};
 use paster_events::handle_workspace_about_to_wait;
 use snapin_config::config::Config;
@@ -37,6 +65,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use ui_ticker::RecordingUiTicker;
+use wayland_clipboard::{PumpPauseGuard, WaylandClipboard};
 use window_builder::PasterInstance;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -100,6 +129,8 @@ pub(crate) struct WorkspaceRuntime {
     pub jobs: Rc<PasterJobRuntime>,
     /// 桌面副作用端口
     pub desktop: Arc<dyn DesktopPort>,
+    /// Wayland 原生剪贴板句柄（Linux Wayland 会话有效，供暂停/收尾与 Snipper 包装复用）
+    pub wayland_clipboard: Option<Arc<WaylandClipboard>>,
     /// 运行时状态持久化端口
     pub state_store: Arc<dyn WorkspaceStateStore>,
     /// 当前截图覆盖层（同一时刻最多一个）
@@ -115,6 +146,14 @@ pub(crate) struct WorkspaceRuntime {
     pub on_host_wake: Option<Box<dyn FnMut()>>,
     /// 剪贴板任务完成事件投递器。
     pub clipboard_events: ClipboardEventSink,
+}
+
+impl WorkspaceRuntime {
+    fn shutdown_wayland_clipboard(&mut self) {
+        if let Some(wayland) = self.wayland_clipboard.as_ref() {
+            wayland.shutdown();
+        }
+    }
 }
 
 /// 创建集中多窗口贴图工作区事件循环与配套代理
@@ -168,6 +207,8 @@ impl ApplicationHandler<PasterAppEvent> for WorkspaceApplication {
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: PasterAppEvent) {
+        let wayland = self.runtime.wayland_clipboard.clone();
+        let _pump_pause = pause_pump_if_active(wayland.as_ref());
         handle_workspace_user_event(event, &mut self.runtime, event_loop);
     }
 
@@ -177,10 +218,14 @@ impl ApplicationHandler<PasterAppEvent> for WorkspaceApplication {
         window_id: WindowId,
         event: WindowEvent,
     ) {
+        let wayland = self.runtime.wayland_clipboard.clone();
+        let _pump_pause = pause_pump_if_active(wayland.as_ref());
         handle_workspace_window_event(window_id, event, &mut self.runtime);
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let wayland = self.runtime.wayland_clipboard.clone();
+        let _pump_pause = pause_pump_if_active(wayland.as_ref());
         let deadline = handle_workspace_about_to_wait(&mut self.runtime);
         event_loop.set_control_flow(match deadline {
             Some(deadline) => ControlFlow::WaitUntil(deadline),
@@ -189,8 +234,13 @@ impl ApplicationHandler<PasterAppEvent> for WorkspaceApplication {
     }
 
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        self.runtime.shutdown_wayland_clipboard();
         tracing::info!("集中多窗口贴图工作区事件循环退出");
     }
+}
+
+fn pause_pump_if_active(wayland: Option<&Arc<WaylandClipboard>>) -> Option<PumpPauseGuard<'_>> {
+    wayland.map(|clipboard| clipboard.pause_pump())
 }
 
 /// 运行集中贴图工作区事件主循环
@@ -226,6 +276,8 @@ pub fn run_paster_workspace_loop(
         .min(event_handler::TOTAL_PIN_GROUPS.saturating_sub(1));
     manager.switch_group(GroupId::new(initial_group));
 
+    let wayland_clipboard = WaylandClipboard::try_new(&event_loop);
+    let desktop = wrap_desktop_with_wayland(desktop, wayland_clipboard.as_ref());
     let event_proxy = event_loop.create_proxy();
     let proxy = PasterWorkspaceProxy::new(event_proxy.clone());
     let clipboard_events = build_clipboard_event_sink(proxy.clone());
@@ -236,6 +288,7 @@ pub fn run_paster_workspace_loop(
         cfg,
         jobs,
         desktop,
+        wayland_clipboard,
         state_store,
         snipper: None,
         event_proxy,
@@ -246,9 +299,10 @@ pub fn run_paster_workspace_loop(
     };
 
     let mut application = WorkspaceApplication { runtime };
-    event_loop
-        .run_app(&mut application)
-        .map_err(|e| UiError::Window {
-            message: format!("运行集中贴图工作区事件主循环失败: {e}"),
-        })
+    let result = event_loop.run_app(&mut application);
+    application.runtime.shutdown_wayland_clipboard();
+    drop(application);
+    result.map_err(|e| UiError::Window {
+        message: format!("运行集中贴图工作区事件主循环失败: {e}"),
+    })
 }

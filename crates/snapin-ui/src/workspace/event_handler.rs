@@ -197,10 +197,14 @@ fn shutdown_workspace(
 
 /// 在现有事件循环中创建截图覆盖层。
 fn open_snipper(
-    launch: crate::snipper::SnipperLaunch,
+    mut launch: crate::snipper::SnipperLaunch,
     runtime: &mut WorkspaceRuntime,
     elwt: &ActiveEventLoop,
 ) {
+    launch.runtime.desktop = super::desktop_adapter::wrap_desktop_with_wayland(
+        launch.runtime.desktop,
+        runtime.wayland_clipboard.as_ref(),
+    );
     runtime.ui_ticker = None;
     if let Some(mut previous) = runtime.snipper.take() {
         previous.cancel();

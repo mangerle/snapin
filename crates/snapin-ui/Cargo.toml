@@ -26,7 +26,7 @@ raw-window-handle = "0.6"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # 贴图 ARGB8888 共享内存呈现通路（Linux Wayland 专有实现）
-rustix = { workspace = true, features = ["fs", "event"] }
+rustix = { workspace = true, features = ["fs", "event", "pipe"] }
 wayland-client = "0.31"
 wayland-backend = { version = "0.3", features = ["client_system"] }
 memmap2 = "0.9"
