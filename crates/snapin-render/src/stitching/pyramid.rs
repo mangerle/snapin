@@ -319,7 +319,11 @@ fn compute_band_zncc(
     let step_y = if r1 - r0 > 60 { 2 } else { 1 };
     let step_x = if roi.x_end - roi.x_start > 160 { 2 } else { 1 };
     let mut n = 0.0f64;
-    let (mut sp, mut sq, mut sp2, mut sq2, mut spq) = (0.0, 0.0, 0.0, 0.0, 0.0);
+    let mut sp = [0.0f64; 3];
+    let mut sq = [0.0f64; 3];
+    let mut sp2 = [0.0f64; 3];
+    let mut sq2 = [0.0f64; 3];
+    let mut spq = [0.0f64; 3];
 
     for r in (r0..r1).step_by(step_y) {
         let (py, cy) = if roi.shift >= 0 {
@@ -330,30 +334,49 @@ fn compute_band_zncc(
         let p_row = py * prev.width;
         let c_row = cy * curr.width;
         for x in (roi.x_start..roi.x_end).step_by(step_x) {
-            let p = f64::from(prev.pixels[p_row + x][0]);
-            let q = f64::from(curr.pixels[c_row + x][0]);
+            let pf = prev.pixels[p_row + x];
+            let qf = curr.pixels[c_row + x];
             n += 1.0;
-            sp += p;
-            sq += q;
-            sp2 += p * p;
-            sq2 += q * q;
-            spq += p * q;
+            for ch in 0..3 {
+                let p = f64::from(pf[ch]);
+                let q = f64::from(qf[ch]);
+                sp[ch] += p;
+                sq[ch] += q;
+                sp2[ch] += p * p;
+                sq2[ch] += q * q;
+                spq[ch] += p * q;
+            }
         }
     }
     if n < 16.0 {
         return None;
     }
-    let var_p = (sp2 - (sp * sp) / n).max(0.0);
-    let var_q = (sq2 - (sq * sq) / n).max(0.0);
-    // 两侧皆为空白平坦频带时不参与投票，单侧有高方差结构而对侧空白则记 0.0 判负。
-    if var_p / n < 9.0 && var_q / n < 9.0 {
-        return None;
+
+    // 融合 [Luma, R-G, G-B] 三通道能量加权 ZNCC，避免同亮度高色差切屏错拼绕过灰度校验。
+    let mut weighted_sum = 0.0f64;
+    let mut weight_total = 0.0f64;
+    for ch in 0..3 {
+        let var_p = (sp2[ch] - (sp[ch] * sp[ch]) / n).max(0.0);
+        let var_q = (sq2[ch] - (sq[ch] * sq[ch]) / n).max(0.0);
+        // 两侧皆为平坦通道时不参与投票；单侧有显著结构而对侧空白则记 0.0 判负。
+        if var_p / n < 9.0 && var_q / n < 9.0 {
+            continue;
+        }
+        let energy = (var_p + var_q) / n;
+        let score = if var_p / n < 2.0 || var_q / n < 2.0 {
+            0.0
+        } else {
+            let cov = spq[ch] - (sp[ch] * sq[ch]) / n;
+            (cov / (var_p * var_q).sqrt()).clamp(-1.0, 1.0)
+        };
+        weighted_sum += energy * score;
+        weight_total += energy;
     }
-    if var_p / n < 2.0 || var_q / n < 2.0 {
-        return Some(0.0);
+    if weight_total <= 0.0 {
+        None
+    } else {
+        Some(weighted_sum / weight_total)
     }
-    let cov = spq - (sp * sq) / n;
-    Some((cov / (var_p * var_q).sqrt()).clamp(-1.0, 1.0))
 }
 
 #[cfg(test)]

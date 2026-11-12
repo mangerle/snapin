@@ -178,3 +178,65 @@ fn test_multi_band_zncc_rejects_partial_split_mismatch() {
         "跨频带结构发生切屏分裂时应被多频带 ZNCC 共识拒绝错拼: {res:?}"
     );
 }
+
+#[test]
+fn test_isoluminant_partial_split_mismatch_rejected_by_chroma_zncc() {
+    use super::pyramid::{verify_multi_band_zncc, ConsensusRoi, FeaturePlane};
+
+    let width = 160u32;
+    let height = 240u32;
+    // 亮度严格同为 ~125 的三组色块
+    let red_iso = Rgba([218, 86, 86, 255]);
+    let green_iso = Rgba([54, 152, 85, 255]);
+    let blue_iso = Rgba([100, 128, 200, 255]);
+
+    let mut f0 = RgbaImage::from_pixel(width, height, blue_iso);
+    let mut f1 = RgbaImage::from_pixel(width, height, blue_iso);
+    // 顶部 30% 在位移 40 下严格一致，底部 70% 在色度通道上为完全不同频率与相位的独立色块
+    for y in 0..height {
+        for x in 16..144 {
+            let c0 = if y < 100 {
+                if ((y / 12) + (x / 16)).is_multiple_of(2) {
+                    red_iso
+                } else {
+                    green_iso
+                }
+            } else if ((y / 17) + (x / 23)).is_multiple_of(2) {
+                red_iso
+            } else {
+                blue_iso
+            };
+            f0.put_pixel(x, y, c0);
+        }
+    }
+    for y in 0..height.saturating_sub(40) {
+        for x in 16..144 {
+            let c1 = if y < 60 {
+                *f0.get_pixel(x, y + 40)
+            } else if ((x / 11) + ((y * 3) / 13)).is_multiple_of(2) {
+                green_iso
+            } else {
+                red_iso
+            };
+            f1.put_pixel(x, y, c1);
+        }
+    }
+
+    let prev_plane = FeaturePlane::from_rgba(f0.as_raw(), width as usize, height as usize);
+    let curr_plane = FeaturePlane::from_rgba(f1.as_raw(), width as usize, height as usize);
+    let ok = verify_multi_band_zncc(
+        &prev_plane,
+        &curr_plane,
+        &ConsensusRoi {
+            x_start: 16,
+            x_end: 144,
+            y_start: 0,
+            active_height: height as usize,
+            shift: 40,
+        },
+    );
+    assert!(
+        !ok,
+        "同亮度但色度结构在下半区截然分裂时，三通道 ZNCC 必须拦截"
+    );
+}
