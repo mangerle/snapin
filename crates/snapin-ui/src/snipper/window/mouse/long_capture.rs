@@ -350,7 +350,7 @@ mod tests {
         let mut session = LongCaptureSession::new(frame0);
 
         // 1. 尚无拼接增量时直接单次切换方向，无需二次确认
-        state.long_capture = Some(session.clone());
+        state.long_capture = Some(session.fork());
         let bg = RgbaImage::new(200, 200);
         handle_long_capture_action(&mut state, LongCaptureAction::ToggleDirection, &bg);
         assert_eq!(

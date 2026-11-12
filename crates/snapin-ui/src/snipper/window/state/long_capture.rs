@@ -75,8 +75,8 @@ pub enum DirectionToggleOutcome {
     NeedsConfirmation,
 }
 
-/// 长截图会话可变状态。
-#[derive(Debug, Clone)]
+/// 长截图会话可变状态（显式不派生 `Clone`，避免渲染/事件热路径意外深拷贝画布与裁剪历史）。
+#[derive(Debug)]
 pub struct LongCaptureSession {
     /// 核心拼接引擎
     pub stitcher: LongCaptureStitcher,
@@ -155,6 +155,37 @@ impl LongCaptureSession {
             desired_thumbnail_spec: None,
             last_thumbnail_spec: None,
             scroll_driver: LongCaptureScrollDriver::default(),
+        }
+    }
+
+    /// 显式复制长截图会话快照；会克隆分块画布引用、缩略图缓存及裁剪撤销历史，仅限测试按需显式调用。
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn fork(&self) -> Self {
+        Self {
+            stitcher: self.stitcher.clone(),
+            is_capturing: self.is_capturing,
+            is_editing: self.is_editing,
+            direction: self.direction,
+            auto_crop: self.auto_crop,
+            locked_direction: self.locked_direction,
+            last_drag_coord: self.last_drag_coord,
+            crop_sub_menu_open: self.crop_sub_menu_open,
+            pending_direction_confirm: self.pending_direction_confirm,
+            is_matched: self.is_matched,
+            viewport_offset_y: self.viewport_offset_y,
+            viewport_offset_x: self.viewport_offset_x,
+            last_feed_time: self.last_feed_time,
+            thumbnail_rect: self.thumbnail_rect,
+            toolbar_rect: self.toolbar_rect,
+            crop_submenu_rect: self.crop_submenu_rect,
+            hovered_action: self.hovered_action,
+            toolbar_position: self.toolbar_position,
+            toolbar_drag_origin: self.toolbar_drag_origin,
+            async_thumbnail_enabled: self.async_thumbnail_enabled,
+            desired_thumbnail_spec: self.desired_thumbnail_spec,
+            last_thumbnail_spec: self.last_thumbnail_spec,
+            scroll_driver: self.scroll_driver.clone(),
         }
     }
 
