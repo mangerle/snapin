@@ -39,7 +39,7 @@ pub fn analyze_frame_shift(
 
 /// 长截图拼接引擎。
 ///
-/// 采用分段 [`PagedCanvas`] 存储以获得均摊 $O(1)$ 双向生长与可逆裁剪性能，
+/// 采用分段 `PagedCanvas` 存储以获得均摊 $O(1)$ 双向生长与可逆裁剪性能，
 /// 并支持“后台分析位移 + 主线程轻量化提交 + 后台分块渲染缩略图”的零卡顿协同流水线。
 #[derive(Debug, Clone)]
 pub struct LongCaptureStitcher {
