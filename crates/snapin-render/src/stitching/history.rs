@@ -17,8 +17,8 @@ pub(crate) enum CropEdge {
 #[derive(Debug, Clone)]
 pub(crate) struct CropHistoryEntry {
     pub(crate) edge: CropEdge,
-    /// 仅缓存被裁掉的窄边缘条带而非整张超长画布，兼顾多步撤回与低内存占用。
-    pub(crate) removed_strip: RgbaImage,
+    /// 仅缓存被裁掉的窄边缘条带而非整张超长画布，并通过 `Arc` 共享避免克隆历史栈时重复拷贝像素。
+    pub(crate) removed_strip: Arc<RgbaImage>,
     pub(crate) prev_last_frame: Arc<RgbaImage>,
     pub(crate) prev_anchor_truncated_below_frame: bool,
     pub(crate) prev_attached_header_size: u32,
@@ -63,7 +63,7 @@ mod tests {
         for i in 0..=(MAX_CROP_HISTORY + 2) {
             history.push(CropHistoryEntry {
                 edge: CropEdge::Tail,
-                removed_strip: RgbaImage::new(1, 1),
+                removed_strip: Arc::new(RgbaImage::new(1, 1)),
                 prev_last_frame: Arc::new(RgbaImage::new(1, 1)),
                 prev_anchor_truncated_below_frame: false,
                 prev_attached_header_size: i as u32,

@@ -36,7 +36,7 @@ impl LongCaptureStitcher {
     fn push_crop_history(&mut self, edge: CropEdge, removed_strip: RgbaImage) {
         self.crop_history.push(CropHistoryEntry {
             edge,
-            removed_strip,
+            removed_strip: Arc::new(removed_strip),
             prev_last_frame: self.last_frame.clone(),
             prev_anchor_truncated_below_frame: self.anchor_truncated_below_frame,
             prev_attached_header_size: self.attached_header_size,
