@@ -42,16 +42,44 @@ impl FeaturePlane {
     }
 
     /// 将横向滚动画面的 RGBA 像素转置为纵向特征平面（原 X 轴映射为 Y 轴）。
+    ///
+    /// 采用 `16×16` 分块（Tile）在 L1 缓存栈缓冲区内完成转置，使源图像读取与目标缓冲区写入
+    /// 均保持行连续局部性，避免大图转置时的缓存行抖动。
     pub(crate) fn from_rgba_transposed(raw: &[u8], width: usize, height: usize) -> Self {
+        const TILE: usize = 16;
         let tw = height;
         let th = width;
         let mut pixels = vec![[0u8; 3]; tw.saturating_mul(th)];
-        for y in 0..height {
-            for x in 0..width {
-                let src = (y.saturating_mul(width).saturating_add(x)).saturating_mul(4);
-                let dst = x.saturating_mul(tw).saturating_add(y);
-                if let (Some(px), Some(slot)) = (raw.get(src..src + 4), pixels.get_mut(dst)) {
-                    *slot = rgba_to_feature(px[0], px[1], px[2]);
+        let expected_bytes = width.saturating_mul(height).saturating_mul(4);
+
+        if raw.len() >= expected_bytes {
+            let mut tile = [[[0u8; 3]; TILE]; TILE];
+            for by in (0..height).step_by(TILE) {
+                let block_h = (height - by).min(TILE);
+                for bx in (0..width).step_by(TILE) {
+                    let block_w = (width - bx).min(TILE);
+                    for (ly, y) in (by..by + block_h).enumerate() {
+                        let row_start = (y * width + bx) * 4;
+                        let row_slice = &raw[row_start..row_start + block_w * 4];
+                        for (lx, px) in row_slice.as_chunks::<4>().0.iter().enumerate() {
+                            tile[lx][ly] = rgba_to_feature(px[0], px[1], px[2]);
+                        }
+                    }
+                    for (lx, x) in (bx..bx + block_w).enumerate() {
+                        let dst_start = x * tw + by;
+                        pixels[dst_start..dst_start + block_h]
+                            .copy_from_slice(&tile[lx][..block_h]);
+                    }
+                }
+            }
+        } else {
+            for y in 0..height {
+                for x in 0..width {
+                    let src = (y.saturating_mul(width).saturating_add(x)).saturating_mul(4);
+                    let dst = x.saturating_mul(tw).saturating_add(y);
+                    if let (Some(px), Some(slot)) = (raw.get(src..src + 4), pixels.get_mut(dst)) {
+                        *slot = rgba_to_feature(px[0], px[1], px[2]);
+                    }
                 }
             }
         }
@@ -326,4 +354,36 @@ fn compute_band_zncc(
     }
     let cov = spq - (sp * sq) / n;
     Some((cov / (var_p * var_q).sqrt()).clamp(-1.0, 1.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tiled_transposed_feature_plane_matches_exact_coordinates() {
+        let width = 37usize;
+        let height = 29usize;
+        let mut raw = vec![0u8; width * height * 4];
+        for y in 0..height {
+            for x in 0..width {
+                let idx = (y * width + x) * 4;
+                raw[idx] = ((x * 7 + y * 13) % 256) as u8;
+                raw[idx + 1] = ((x * 11 + y * 5) % 256) as u8;
+                raw[idx + 2] = ((x * 3 + y * 19) % 256) as u8;
+                raw[idx + 3] = 255;
+            }
+        }
+
+        let transposed = FeaturePlane::from_rgba_transposed(&raw, width, height);
+        assert_eq!(transposed.width, height);
+        assert_eq!(transposed.height, width);
+        for y in 0..height {
+            for x in 0..width {
+                let idx = (y * width + x) * 4;
+                let expected = rgba_to_feature(raw[idx], raw[idx + 1], raw[idx + 2]);
+                assert_eq!(transposed.pixels[x * height + y], expected);
+            }
+        }
+    }
 }
