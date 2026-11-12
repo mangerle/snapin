@@ -32,10 +32,10 @@ const AUTO_SCROLL_STEP_DELTA: f32 = -2.0;
 const AUTO_SCROLL_INTERVAL: Duration = Duration::from_millis(120);
 
 /// 自动滚动连续收到静止帧达到该次数后判定已触底并自动停止。
-const AUTO_SCROLL_STATIC_STOP_THRESHOLD: u8 = 3;
+const AUTO_SCROLL_STATIC_STOP_THRESHOLD: u8 = 5;
 
 /// 自动滚动连续失配达到该次数后自动停机，防止在异步弹窗或失效区域无限空转。
-const AUTO_SCROLL_UNMATCHED_STOP_THRESHOLD: u8 = 3;
+const AUTO_SCROLL_UNMATCHED_STOP_THRESHOLD: u8 = 5;
 
 /// 自动滚动被动/正常结束的原因，供 UI 给出精准中文反馈。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,6 +156,8 @@ impl LongCaptureScrollDriver {
             }
             StitchFrameOutcome::Unchanged => {
                 self.static_frames = self.static_frames.saturating_add(1);
+                // 画面重新与锚点对齐，清除此前瞬态骨架屏/弹窗带来的失配计数。
+                self.unmatched_frames = 0;
                 if self.static_frames >= AUTO_SCROLL_STATIC_STOP_THRESHOLD {
                     self.stop_auto_scroll();
                     self.last_stop_reason = Some(AutoScrollStopReason::ReachedEnd);
@@ -165,6 +167,7 @@ impl LongCaptureScrollDriver {
             }
             StitchFrameOutcome::Unmatched { .. } => {
                 self.unmatched_frames = self.unmatched_frames.saturating_add(1);
+                self.static_frames = 0;
                 if self.unmatched_frames >= AUTO_SCROLL_UNMATCHED_STOP_THRESHOLD {
                     self.stop_auto_scroll();
                     self.last_stop_reason = Some(AutoScrollStopReason::UnmatchedStalled);
@@ -245,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn test_auto_scroll_stops_after_three_static_frames_and_respects_manual_override() {
+    fn test_auto_scroll_stops_after_five_static_frames_and_respects_manual_override() {
         let mut driver = LongCaptureScrollDriver::default();
         let start = Instant::now();
         driver.start_auto_scroll(start);
@@ -253,7 +256,7 @@ mod tests {
         let first = driver.take_ready_dispatch_delta(StitchDirection::Horizontal, start);
         assert_eq!(first, Some(WheelDelta::horizontal(AUTO_SCROLL_STEP_DELTA)));
 
-        // 前两次静止继续重试并设定下一拍截止时刻
+        // 前四次静止继续重试并设定下一拍截止时刻
         let t1 = start + Duration::from_millis(50);
         driver.record_outcome(&StitchFrameOutcome::Unchanged, t1);
         assert!(driver.auto_scrolling);
@@ -265,12 +268,15 @@ mod tests {
             .take_ready_dispatch_delta(StitchDirection::Horizontal, due)
             .is_some());
 
-        driver.record_outcome(&StitchFrameOutcome::Unchanged, due);
-        assert!(driver.auto_scrolling);
+        let mut current = due;
+        for _ in 1..4 {
+            driver.record_outcome(&StitchFrameOutcome::Unchanged, current);
+            assert!(driver.auto_scrolling);
+            current += AUTO_SCROLL_INTERVAL;
+        }
 
-        // 第三次连续静止后判定触底并自动停机
-        let t3 = due + AUTO_SCROLL_INTERVAL;
-        driver.record_outcome(&StitchFrameOutcome::Unchanged, t3);
+        // 第五次连续静止后判定触底并自动停机
+        driver.record_outcome(&StitchFrameOutcome::Unchanged, current);
         assert!(!driver.auto_scrolling);
         assert_eq!(
             driver.take_stop_reason(),
@@ -278,13 +284,53 @@ mod tests {
         );
 
         // 重新启动后若用户手动拨动滚轮，自动滚动应立刻让位
-        driver.start_auto_scroll(t3);
+        driver.start_auto_scroll(current);
         assert!(driver.auto_scrolling);
         driver.enqueue_manual_wheel(WheelDelta::vertical(1.5));
         assert!(!driver.auto_scrolling);
         assert_eq!(
-            driver.take_ready_dispatch_delta(StitchDirection::Vertical, t3),
+            driver.take_ready_dispatch_delta(StitchDirection::Vertical, current),
             Some(WheelDelta::vertical(1.5))
         );
+    }
+
+    #[test]
+    fn test_auto_scroll_tolerates_transient_unmatched_and_recovers_on_stitch() {
+        let mut driver = LongCaptureScrollDriver::default();
+        let mut now = Instant::now();
+        driver.start_auto_scroll(now);
+
+        // 连续 3 帧瞬态失配（如懒加载骨架屏）不应提前停止自动滚动
+        for _ in 0..3 {
+            driver.record_outcome(&StitchFrameOutcome::Unmatched { confidence: 0.2 }, now);
+            assert!(driver.auto_scrolling);
+            now += AUTO_SCROLL_INTERVAL;
+        }
+
+        // 内容恢复匹配后清零失配计数；再连续 5 帧失配才停机
+        driver.record_outcome(
+            &StitchFrameOutcome::Stitched {
+                offset: 30,
+                confidence: 0.95,
+                sticky_header_size: 0,
+                sticky_footer_size: 0,
+            },
+            now,
+        );
+        assert!(driver.auto_scrolling);
+
+        for idx in 0..5 {
+            now += AUTO_SCROLL_INTERVAL;
+            driver.record_outcome(&StitchFrameOutcome::Unmatched { confidence: 0.1 }, now);
+            if idx < 4 {
+                assert!(driver.auto_scrolling);
+            } else {
+                assert!(!driver.auto_scrolling);
+                assert_eq!(
+                    driver.take_stop_reason(),
+                    Some(AutoScrollStopReason::UnmatchedStalled)
+                );
+            }
+        }
     }
 }

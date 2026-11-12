@@ -470,8 +470,8 @@ mod tests {
         assert!(started.is_capturing);
         assert!(started.is_auto_scrolling());
 
-        // 投喂连续 3 帧静止相同画面后，应判定已滚动到底部并安全停止自动滚动
-        for index in 0..3 {
+        // 投喂连续 5 帧静止相同画面后，应判定已滚动到底部并安全停止自动滚动
+        for index in 0..5 {
             let req = state.jobs.begin_screen_capture().expect("应登记请求");
             let mut mutable_bg = bg.clone();
             state.apply_captured_long_frame(&mut mutable_bg, req, Ok(bg.clone()));
@@ -480,10 +480,10 @@ mod tests {
                 .as_ref()
                 .expect("会话应存在")
                 .is_auto_scrolling();
-            if index < 2 {
+            if index < 4 {
                 assert!(auto_now, "第 {index} 帧静止尚不应提前停机");
             } else {
-                assert!(!auto_now, "连续 3 帧静止后应自动停止滚动");
+                assert!(!auto_now, "连续 5 帧静止后应自动停止滚动");
             }
         }
         assert_eq!(
