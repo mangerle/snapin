@@ -458,19 +458,19 @@ impl LongCaptureSession {
         self.scroll_driver.clear_all();
     }
 
-    /// 在长图编辑模式下根据滚轮滚动调整视口偏移
-    pub fn scroll_viewport(&mut self, delta_y: f32, viewport_span: f32) {
+    /// 在长图编辑模式下沿当前拼接主轴（垂直/水平）根据滚轮增量调整视口偏移。
+    pub fn scroll_viewport(&mut self, delta: f32, viewport_span: f32) {
         let (cw, ch) = self.stitcher.dimensions();
         match self.direction {
             StitchDirection::Vertical => {
                 let canvas_height = ch as f32;
                 let max_offset = (canvas_height - viewport_span).max(0.0);
-                self.viewport_offset_y = (self.viewport_offset_y - delta_y).clamp(0.0, max_offset);
+                self.viewport_offset_y = (self.viewport_offset_y - delta).clamp(0.0, max_offset);
             }
             StitchDirection::Horizontal => {
                 let canvas_width = cw as f32;
                 let max_offset = (canvas_width - viewport_span).max(0.0);
-                self.viewport_offset_x = (self.viewport_offset_x - delta_y).clamp(0.0, max_offset);
+                self.viewport_offset_x = (self.viewport_offset_x - delta).clamp(0.0, max_offset);
             }
         }
     }
