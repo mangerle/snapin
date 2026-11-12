@@ -23,6 +23,8 @@ pub enum LongCaptureAction {
     CropHead,
     /// 下方裁剪（纵向时为下裁剪，横向时为右裁剪）
     CropTail,
+    /// 撤销最近一次手动头/尾裁剪
+    UndoCrop,
     /// 切换反向滚动自动裁剪勾选框
     ToggleAutoCrop,
     /// 直接贴图置顶
@@ -47,6 +49,7 @@ impl LongCaptureAction {
             Self::ToggleCropSubMenu => "裁剪功能",
             Self::CropHead => "上裁剪/左裁剪",
             Self::CropTail => "下裁剪/右裁剪",
+            Self::UndoCrop => "撤销裁剪",
             Self::ToggleAutoCrop => "自动裁剪",
             Self::Pin => "贴图",
             Self::Save => "保存",
@@ -55,6 +58,15 @@ impl LongCaptureAction {
             Self::EnterEditing => "完成并进入编辑",
         }
     }
+}
+
+/// 方向切换交互请求结果，防止误触直接清空已拼接的多屏长图。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirectionToggleOutcome {
+    /// 画布尚无增量或已完成二次确认，已切换方向并重建画布。
+    Switched,
+    /// 当前画布存在已拼接增量，已进入二次确认提示态并暂保留原图。
+    NeedsConfirmation,
 }
 
 /// 长截图会话可变状态。
@@ -76,6 +88,8 @@ pub struct LongCaptureSession {
     pub last_drag_coord: Option<f32>,
     /// 裁剪子工具栏是否展开
     pub crop_sub_menu_open: bool,
+    /// 已有拼接增量时点按方向切换后的二次确认挂起状态
+    pub pending_direction_confirm: bool,
     /// 当前帧是否成功匹配拼接（用于绿色视口指示框反馈）
     pub is_matched: bool,
     /// 长图在编辑模式视口中的垂直滚动偏移量（像素）
@@ -112,6 +126,7 @@ impl LongCaptureSession {
             locked_direction: None,
             last_drag_coord: None,
             crop_sub_menu_open: false,
+            pending_direction_confirm: false,
             is_matched: true,
             viewport_offset_y: 0.0,
             viewport_offset_x: 0.0,
@@ -196,6 +211,7 @@ impl LongCaptureSession {
     pub fn toggle_capture(&mut self) {
         self.is_capturing = !self.is_capturing;
         self.reset_direction();
+        self.pending_direction_confirm = false;
         if self.is_capturing {
             // 开始录制时关闭裁剪子菜单，聚焦于录制
             self.crop_sub_menu_open = false;
@@ -215,6 +231,7 @@ impl LongCaptureSession {
         self.is_editing = false;
         self.reset_direction();
         self.crop_sub_menu_open = false;
+        self.pending_direction_confirm = false;
         self.is_matched = true;
         self.viewport_offset_y = 0.0;
         self.viewport_offset_x = 0.0;
@@ -222,7 +239,7 @@ impl LongCaptureSession {
         self.thumbnail_rect = None;
     }
 
-    /// 切换拼接方向（时机 2: 切换截图方向后再切换回来重新确定）
+    /// 直接切换拼接方向并从最近一帧重建画布。
     pub fn toggle_direction(&mut self) {
         self.direction = match self.direction {
             StitchDirection::Vertical => StitchDirection::Horizontal,
@@ -231,13 +248,29 @@ impl LongCaptureSession {
         // 两个方向的主增长轴不同，必须从最近一帧重建画布，不能沿用旧方向的长图。
         self.stitcher.restart_with_direction(self.direction);
         self.reset_direction();
+        self.crop_sub_menu_open = false;
+        self.pending_direction_confirm = false;
         self.viewport_offset_y = 0.0;
         self.viewport_offset_x = 0.0;
         self.thumbnail_rect = None;
     }
 
+    /// 带防误清空保护的方向切换请求：若画布已积累拼接增量或裁剪状态，首次点击仅进入二次确认态。
+    pub fn request_toggle_direction(&mut self) -> DirectionToggleOutcome {
+        self.crop_sub_menu_open = false;
+        let is_untouched_initial = self.stitcher.dimensions() == self.stitcher.initial_frame_size()
+            && !self.stitcher.can_undo_crop();
+        if is_untouched_initial || self.pending_direction_confirm {
+            self.toggle_direction();
+            return DirectionToggleOutcome::Switched;
+        }
+        self.pending_direction_confirm = true;
+        DirectionToggleOutcome::NeedsConfirmation
+    }
+
     /// 切换自动裁剪设置
     pub fn toggle_auto_crop(&mut self) {
+        self.pending_direction_confirm = false;
         self.auto_crop = !self.auto_crop;
         let mut options = *self.stitcher.options();
         options.auto_crop_reverse = self.auto_crop;
@@ -246,6 +279,7 @@ impl LongCaptureSession {
 
     /// 切换展开/收起裁剪子菜单
     pub fn toggle_crop_sub_menu(&mut self) {
+        self.pending_direction_confirm = false;
         self.crop_sub_menu_open = !self.crop_sub_menu_open;
     }
 
@@ -257,7 +291,11 @@ impl LongCaptureSession {
         self.last_feed_time = Instant::now();
         let outcome = self.stitcher.feed_frame_outcome(frame);
         match outcome {
-            StitchFrameOutcome::Stitched { .. } | StitchFrameOutcome::Unchanged => {
+            StitchFrameOutcome::Stitched { .. } => {
+                self.is_matched = true;
+                self.pending_direction_confirm = false;
+            }
+            StitchFrameOutcome::Unchanged => {
                 self.is_matched = true;
             }
             StitchFrameOutcome::Unmatched { .. } => {
@@ -268,17 +306,37 @@ impl LongCaptureSession {
         outcome
     }
 
-    /// 上裁剪（裁剪长图顶部/左侧）
-    pub fn crop_head(&mut self, pixels: u32) {
-        self.stitcher.crop_head(pixels);
+    /// 上裁剪（裁剪长图顶部/左侧），返回实际裁去的像素量。
+    pub fn crop_head(&mut self, pixels: u32) -> u32 {
+        self.pending_direction_confirm = false;
+        self.stitcher.crop_head(pixels)
     }
 
-    /// 下裁剪（裁剪长图底部/右侧），当裁剪回退到初始首帧尺度时同步重置主方向。
-    pub fn crop_tail(&mut self, pixels: u32) {
-        self.stitcher.crop_tail(pixels);
+    /// 下裁剪（裁剪长图底部/右侧），返回实际裁去的像素量。
+    ///
+    /// 回退至初始单帧尺寸以内时同步重置主方向；若进一步裁入单帧内部（失去完整尾帧锚点），
+    /// 则自动暂停录制以避免后续滚动产生断层拼接。
+    pub fn crop_tail(&mut self, pixels: u32) -> u32 {
+        self.pending_direction_confirm = false;
+        let cropped = self.stitcher.crop_tail(pixels);
         if self.is_at_initial_size() {
             self.reset_direction();
         }
+        if self.stitcher.is_tail_truncated_below_frame() && self.is_capturing {
+            self.is_capturing = false;
+        }
+        cropped
+    }
+
+    /// 撤销最近一次手动头/尾裁剪并无损恢复画布与尾端参考帧。
+    pub fn undo_crop(&mut self) -> bool {
+        self.pending_direction_confirm = false;
+        self.stitcher.undo_crop()
+    }
+
+    /// 当前是否存在可撤销的手动头/尾裁剪记录。
+    pub fn can_undo_crop(&self) -> bool {
+        self.stitcher.can_undo_crop()
     }
 
     /// 获取当前视窗在长图中的映射区间
@@ -291,6 +349,7 @@ impl LongCaptureSession {
         self.is_capturing = false;
         self.is_editing = true;
         self.crop_sub_menu_open = false;
+        self.pending_direction_confirm = false;
     }
 
     /// 在长图编辑模式下根据滚轮滚动调整视口偏移
@@ -487,6 +546,7 @@ mod tests {
         assert_eq!(LongCaptureAction::ToggleCropSubMenu.label(), "裁剪功能");
         assert_eq!(LongCaptureAction::CropHead.label(), "上裁剪/左裁剪");
         assert_eq!(LongCaptureAction::CropTail.label(), "下裁剪/右裁剪");
+        assert_eq!(LongCaptureAction::UndoCrop.label(), "撤销裁剪");
         assert_eq!(LongCaptureAction::ToggleAutoCrop.label(), "自动裁剪");
         assert_eq!(LongCaptureAction::Pin.label(), "贴图");
         assert_eq!(LongCaptureAction::Save.label(), "保存");

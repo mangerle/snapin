@@ -1,5 +1,17 @@
 //! 长截图拼接领域模型、选项与几何视口类型定义。
 
+use image::RgbaImage;
+
+/// 手动裁剪允许保留的最小主轴有效像素长度。
+///
+/// 之所以设为较小的 `32px` 而非锁定在初始单帧尺寸 `initial_frame_size` 上，
+/// 是为了允许用户剪掉首帧或单屏截取内容自带的冗余页眉/页脚或多余边距；
+/// 当初始选区本身小于 `32px` 时会按初始尺寸夹取，杜绝零面积空图像。
+pub const MIN_CROPPED_SPAN: u32 = 32;
+
+/// 侧边预览缩略图的默认最小可读交叉轴厚度（逻辑像素对应的目标像素）。
+pub const DEFAULT_MIN_THUMBNAIL_CROSS: u32 = 56;
+
 /// 截图滚动与拼接的主方向。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StitchDirection {
@@ -139,4 +151,22 @@ impl ViewportWindow {
             (self.size / self.total).clamp(0.0, 1.0)
         }
     }
+}
+
+/// 侧边实时预览缩略图与局部视口映射描述符。
+///
+/// 之所以不再仅返回裸位图，是因为当长图达到极端长宽比（如 `800×40000`）时，
+/// 整图等比塞进固定容器会让交叉轴塌缩成 `1px` 细线；本结构允许在极端场景下
+/// 自动切换为“保持交叉轴最小清晰厚度的尾部最近拼接切片窗”，同时向上游暴露
+/// 全局位置比例 `[slice_start_ratio, slice_end_ratio]` 用于重映射视口框及进度轨道。
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThumbnailOverview {
+    /// 已降采样生成的预览位图
+    pub image: RgbaImage,
+    /// 本次展示切片在整张画布主轴上的归一化起始比例 (0.0..=1.0)
+    pub slice_start_ratio: f32,
+    /// 本次展示切片在整张画布主轴上的归一化结束比例 (0.0..=1.0)
+    pub slice_end_ratio: f32,
+    /// 是否因极端长宽比启用了尾部高清窗口裁剪（`slice_start_ratio > 0.0`）
+    pub is_cropped_window: bool,
 }

@@ -14,7 +14,6 @@
 use crate::drawing::{add_round_rect, RoundRect};
 use crate::geometry::Rect;
 use snapin_render::stitching::StitchDirection;
-use snapin_render::{with_thread_local_text_renderer, TextDrawOptions};
 use tiny_skia::{LineCap, LineJoin, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 创建通用的填充画笔
@@ -392,65 +391,49 @@ pub(crate) fn draw_checkbox(
     }
 }
 
-/// 绘制悬停气泡提示框（对应 PixPin 悬停于剪刀等按钮上时弹出的气泡）
-pub(crate) fn draw_tooltip_bubble(
-    pixmap: &mut PixmapMut,
-    target_rect: &Rect,
-    text: &str,
-    s: f32,
-    screen_w: f32,
-) {
-    let font_size = 11.0 * s;
-    let text_w = (text.chars().count() as f32) * 12.0 * s;
-    let bubble_w = text_w + 12.0 * s;
-    let bubble_h = 22.0 * s;
+/// 撤销裁剪图标样式参数（将状态收敛为结构体以保持绘制签名的参数简洁）。
+#[derive(Clone, Copy)]
+pub(crate) struct UndoIconStyle {
+    pub(crate) scale: f32,
+    pub(crate) hovered: bool,
+    pub(crate) enabled: bool,
+}
 
-    let mut bubble_x = target_rect.x + (target_rect.width - bubble_w) / 2.0;
-    if bubble_x + bubble_w > screen_w - 6.0 * s {
-        bubble_x = screen_w - bubble_w - 6.0 * s;
-    }
-    if bubble_x < 6.0 * s {
-        bubble_x = 6.0 * s;
-    }
-    let bubble_y = target_rect.y + target_rect.height + 4.0 * s;
+/// 绘制裁剪撤销弯折箭头图标；不可撤销时呈浅灰禁用态，可用悬停时高亮。
+pub(crate) fn draw_undo_crop_icon(pixmap: &mut PixmapMut, cx: f32, cy: f32, style: UndoIconStyle) {
+    let s = style.scale;
+    let color = if !style.enabled {
+        (148, 163, 184, 150)
+    } else if style.hovered {
+        (37, 99, 235, 255)
+    } else {
+        (55, 65, 81, 255)
+    };
+    let paint = make_fill_paint(color.0, color.1, color.2, color.3);
+    let stroke = make_stroke(1.5 * s);
 
+    // 逆时针半弧尾线 + 左上回勾箭头
     let mut pb = PathBuilder::new();
-    add_round_rect(
-        &mut pb,
-        RoundRect {
-            x: bubble_x,
-            y: bubble_y,
-            width: bubble_w,
-            height: bubble_h,
-            radius: 3.0 * s,
-        },
+    pb.move_to(cx - 4.0 * s, cy - 1.5 * s);
+    pb.line_to(cx + 1.5 * s, cy - 1.5 * s);
+    pb.cubic_to(
+        cx + 5.2 * s,
+        cy - 1.5 * s,
+        cx + 5.2 * s,
+        cy + 4.0 * s,
+        cx + 1.5 * s,
+        cy + 4.0 * s,
     );
-
+    pb.line_to(cx - 2.5 * s, cy + 4.0 * s);
     if let Some(path) = pb.finish() {
-        let bg_paint = make_fill_paint(255, 255, 255, 252);
-        pixmap.fill_path(
-            &path,
-            &bg_paint,
-            tiny_skia::FillRule::Winding,
-            Transform::identity(),
-            None,
-        );
-
-        let stroke_paint = make_fill_paint(0, 0, 0, 36);
-        let stroke = make_stroke(1.0 * s);
-        pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
+        pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
     }
 
-    with_thread_local_text_renderer(|renderer| {
-        renderer.draw_text_rgba(
-            pixmap,
-            text,
-            TextDrawOptions::new(
-                bubble_x + 6.0 * s,
-                bubble_y + 3.0 * s,
-                font_size,
-                (30, 41, 59, 255),
-            ),
-        );
-    });
+    let mut head_pb = PathBuilder::new();
+    head_pb.move_to(cx - 1.5 * s, cy - 4.0 * s);
+    head_pb.line_to(cx - 4.5 * s, cy - 1.5 * s);
+    head_pb.line_to(cx - 1.5 * s, cy + 1.0 * s);
+    if let Some(path) = head_pb.finish() {
+        pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+    }
 }

@@ -25,9 +25,13 @@ pub(crate) fn long_capture_main_button_defs(
     // 1. 切换截图方向（垂直 / 水平 下拉胶囊）
     defs.push(LongCaptureButtonDef {
         action: LongCaptureAction::ToggleDirection,
-        tooltip: match session.direction {
-            StitchDirection::Vertical => "当前纵向截图 (点击切换横向)",
-            StitchDirection::Horizontal => "当前横向截图 (点击切换纵向)",
+        tooltip: if session.pending_direction_confirm {
+            "再次点击确认清空画布并切换方向"
+        } else {
+            match session.direction {
+                StitchDirection::Vertical => "当前纵向截图 (点击切换横向)",
+                StitchDirection::Horizontal => "当前横向截图 (点击切换纵向)",
+            }
         },
         width: 52.0,
     });

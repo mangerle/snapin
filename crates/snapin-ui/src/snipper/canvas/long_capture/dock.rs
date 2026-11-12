@@ -1,19 +1,25 @@
-//! 长截图侧边缩略预览悬浮窗与绿色视口指示器光栅化渲染。
+//! 长截图侧边缩略预览悬浮窗、自适应概览滚动槽与视口指示器光栅化渲染。
+//!
+//! # 设计原理
+//!
+//! 1. **暂停态全程保留预览**：用户停止录制后正是裁剪头尾与审查画布的高频阶段，仅进入滚动编辑框后隐藏；
+//! 2. **方向自适应面板排版**：纵向长图配竖向卡片并置选区左右，横向长图配横向卡片并置上下且避让控制栏；
+//! 3. **极端长宽比可读性保障**：透传 `DEFAULT_MIN_THUMBNAIL_CROSS` 触发尾部高清窗裁剪，并附加全局进度条
+//!    将真实视口区间从全局 `[0..1]` 重映射到展示切片局部 `[slice_start_ratio..1.0]`，避免退化为细线。
 
 use super::CanvasSize;
 use crate::drawing::{add_round_rect, RoundRect};
 use crate::geometry::Rect;
 use crate::snipper::window::state::long_capture::LongCaptureSession;
 use image::RgbaImage;
+use snapin_foundation::trf;
 use snapin_render::{
     blit_straight_rgba_region_to_pixmap, with_thread_local_text_renderer, BlitRgbaRegion,
-    StitchDirection, TextDrawOptions,
+    StitchDirection, TextDrawOptions, ThumbnailOverview, DEFAULT_MIN_THUMBNAIL_CROSS,
 };
-use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
+use tiny_skia::{FillRule, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
-/// 绘制长截图侧边缩略预览悬浮窗（依附于选区右侧）
-///
-/// 遵循 PixPin 官方规范：开始录制状态右方显示预览窗口，停止状态无预览窗口。
+/// 绘制长截图侧边缩略预览悬浮窗（录制中与暂停待命均保持可见，仅编辑态隐藏）。
 pub(crate) fn render_long_capture_dock(
     pixmap: &mut PixmapMut,
     session: &mut LongCaptureSession,
@@ -21,42 +27,241 @@ pub(crate) fn render_long_capture_dock(
     screen_size: CanvasSize,
     ui_scale: f32,
 ) {
-    // 停止状态下无预览窗口，直接清理热区并返回
-    if !session.is_capturing {
+    if session.is_editing {
         session.thumbnail_rect = None;
         return;
     }
 
     let s = ui_scale;
-    let dock_w = (140.0 * s).round();
-    let dock_h = (280.0 * s).round();
-
-    // 默认放在选区右侧；如果超出屏幕右边界则自适应翻折至左侧
-    let mut dock_x = selection_rect.x + selection_rect.width + 12.0 * s;
-    if dock_x + dock_w > (screen_size.width as f32) - 8.0 * s {
-        dock_x = (selection_rect.x - dock_w - 12.0 * s).max(8.0 * s);
-    }
-    let dock_y = selection_rect
-        .y
-        .clamp(8.0 * s, (screen_size.height as f32) - dock_h - 8.0 * s);
-
-    let dock_rect = Rect {
-        x: dock_x,
-        y: dock_y,
-        width: dock_w,
-        height: dock_h,
-    };
+    let dock_rect = resolve_dock_rect(session, selection_rect, screen_size, s);
     session.thumbnail_rect = Some(dock_rect);
 
-    // 1. 绘制纯白圆角磨砂卡片底板与轻阴影
+    draw_dock_card(pixmap, &dock_rect, s);
+
+    let (cw, ch) = session.stitcher.canvas().dimensions();
+    let title = if session.is_capturing {
+        trf!("长图预览 {}×{}", "Preview {}×{}", cw, ch)
+    } else {
+        trf!("已暂停 {}×{}", "Paused {}×{}", cw, ch)
+    };
+    with_thread_local_text_renderer(|renderer| {
+        renderer.draw_text_rgba(
+            pixmap,
+            &title,
+            TextDrawOptions::new(
+                dock_rect.x + 8.0 * s,
+                dock_rect.y + 8.0 * s,
+                11.0 * s,
+                if session.is_capturing {
+                    (45, 52, 65, 255)
+                } else {
+                    (100, 116, 139, 255)
+                },
+            ),
+        );
+    });
+
+    render_dock_preview_content(pixmap, session, &dock_rect, s);
+}
+
+fn render_dock_preview_content(
+    pixmap: &mut PixmapMut,
+    session: &mut LongCaptureSession,
+    dock_rect: &Rect,
+    s: f32,
+) {
+    let preview_top = dock_rect.y + 28.0 * s;
+    let gutter = 9.0 * s;
+    let (avail_w, avail_h) = match session.direction {
+        StitchDirection::Vertical => (
+            (dock_rect.width - 16.0 * s - gutter).max(24.0 * s),
+            (dock_rect.height - 36.0 * s).max(24.0 * s),
+        ),
+        StitchDirection::Horizontal => (
+            (dock_rect.width - 16.0 * s).max(24.0 * s),
+            (dock_rect.height - 36.0 * s - gutter).max(24.0 * s),
+        ),
+    };
+    let preview_max_w = avail_w.round().max(16.0) as u32;
+    let preview_max_h = avail_h.round().max(16.0) as u32;
+    let min_cross = ((DEFAULT_MIN_THUMBNAIL_CROSS as f32) * s).round().max(24.0) as u32;
+
+    let overview: ThumbnailOverview = session
+        .stitcher
+        .get_or_render_thumbnail_overview(preview_max_w, preview_max_h, min_cross)
+        .clone();
+    let (tw, th) = overview.image.dimensions();
+    let thumb_x = dock_rect.x + 8.0 * s + ((preview_max_w.saturating_sub(tw)) as f32 / 2.0);
+    let thumb_y = preview_top + ((preview_max_h.saturating_sub(th)) as f32 / 2.0);
+
+    blit_rgba_to_pixmap(
+        pixmap,
+        &overview.image,
+        thumb_x.round() as u32,
+        thumb_y.round() as u32,
+    );
+
+    let thumb_rect = Rect::new(thumb_x, thumb_y, tw as f32, th as f32);
+    if overview.is_cropped_window {
+        let track_rect = match session.direction {
+            StitchDirection::Vertical => Rect::new(
+                dock_rect.x + dock_rect.width - 11.0 * s,
+                preview_top,
+                4.0 * s,
+                preview_max_h as f32,
+            ),
+            StitchDirection::Horizontal => Rect::new(
+                dock_rect.x + 8.0 * s,
+                dock_rect.y + dock_rect.height - 11.0 * s,
+                preview_max_w as f32,
+                4.0 * s,
+            ),
+        };
+        draw_overview_scrollbar(
+            pixmap,
+            &track_rect,
+            OverviewOverlaySpec {
+                direction: session.direction,
+                overview: &overview,
+                scale: s,
+            },
+        );
+        draw_cut_edge_marker(pixmap, &thumb_rect, session.direction, s);
+    }
+
+    draw_viewport_indicator(
+        pixmap,
+        session,
+        &thumb_rect,
+        OverviewOverlaySpec {
+            direction: session.direction,
+            overview: &overview,
+            scale: s,
+        },
+    );
+}
+
+/// 计算方向自适应且避让边界的侧边预览面板矩形（全屏幕极限压缩时保证永不 panic）。
+pub(crate) fn resolve_dock_rect(
+    session: &LongCaptureSession,
+    selection_rect: &Rect,
+    screen_size: CanvasSize,
+    s: f32,
+) -> Rect {
+    let margin = 8.0 * s;
+    let gap = 12.0 * s;
+    let screen_w = screen_size.width as f32;
+    let screen_h = screen_size.height as f32;
+    let max_avail_w = (screen_w - margin * 2.0).max(80.0 * s);
+    let max_avail_h = (screen_h - margin * 2.0).max(80.0 * s);
+
+    let (dock_w, dock_h) = match session.direction {
+        StitchDirection::Vertical => (
+            (152.0 * s).round().min(max_avail_w),
+            (296.0 * s).round().min(max_avail_h),
+        ),
+        StitchDirection::Horizontal => (
+            (296.0 * s).round().min(max_avail_w),
+            (152.0 * s).round().min(max_avail_h),
+        ),
+    };
+
+    let (raw_x, raw_y) = match session.direction {
+        StitchDirection::Vertical => {
+            let right_x = selection_rect.x + selection_rect.width + gap;
+            let left_x = selection_rect.x - dock_w - gap;
+            let x = if right_x + dock_w <= screen_w - margin {
+                right_x
+            } else if left_x >= margin {
+                left_x
+            } else {
+                screen_w - dock_w - margin
+            };
+            (x, selection_rect.y)
+        }
+        StitchDirection::Horizontal => {
+            let below_y = selection_rect.y + selection_rect.height + gap;
+            let above_y = selection_rect.y - dock_h - gap;
+            let x = selection_rect.x;
+            let y = pick_horizontal_dock_y(
+                Rect::new(x, 0.0, dock_w, dock_h),
+                below_y,
+                above_y,
+                session.toolbar_rect,
+                screen_h,
+                margin,
+            );
+            (x, y)
+        }
+    };
+
+    let max_x = (screen_w - dock_w - margin).max(margin);
+    let max_y = (screen_h - dock_h - margin).max(margin);
+    Rect {
+        x: raw_x.clamp(margin, max_x),
+        y: raw_y.clamp(margin, max_y),
+        width: dock_w,
+        height: dock_h,
+    }
+}
+
+fn pick_horizontal_dock_y(
+    dock_probe: Rect,
+    below_y: f32,
+    above_y: f32,
+    toolbar_rect: Option<Rect>,
+    screen_h: f32,
+    margin: f32,
+) -> f32 {
+    let fits_below = below_y + dock_probe.height <= screen_h - margin;
+    let fits_above = above_y >= margin;
+    let overlaps = |y: f32| {
+        toolbar_rect.is_some_and(|tb| {
+            rects_overlap(
+                Rect::new(dock_probe.x, y, dock_probe.width, dock_probe.height),
+                tb,
+            )
+        })
+    };
+
+    if fits_below && !overlaps(below_y) {
+        return below_y;
+    }
+    if fits_above && !overlaps(above_y) {
+        return above_y;
+    }
+    if let Some(tb) = toolbar_rect {
+        let after_tb = tb.y + tb.height + 6.0;
+        if after_tb + dock_probe.height <= screen_h - margin {
+            return after_tb;
+        }
+        let before_tb = tb.y - dock_probe.height - 6.0;
+        if before_tb >= margin {
+            return before_tb;
+        }
+    }
+    if fits_below {
+        below_y
+    } else if fits_above {
+        above_y
+    } else {
+        screen_h - dock_probe.height - margin
+    }
+}
+
+fn rects_overlap(a: Rect, b: Rect) -> bool {
+    a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+}
+
+fn draw_dock_card(pixmap: &mut PixmapMut, dock_rect: &Rect, s: f32) {
     let mut pb = PathBuilder::new();
     add_round_rect(
         &mut pb,
         RoundRect {
-            x: dock_x,
-            y: dock_y,
-            width: dock_w,
-            height: dock_h,
+            x: dock_rect.x,
+            y: dock_rect.y,
+            width: dock_rect.width,
+            height: dock_rect.height,
             radius: 8.0 * s,
         },
     );
@@ -66,7 +271,7 @@ pub(crate) fn render_long_capture_dock(
         pixmap.fill_path(
             &path,
             &bg_paint,
-            tiny_skia::FillRule::Winding,
+            FillRule::Winding,
             Transform::identity(),
             None,
         );
@@ -79,102 +284,186 @@ pub(crate) fn render_long_capture_dock(
         };
         pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
     }
+}
 
-    // 2. 绘制标题与尺寸信息
-    let (cw, ch) = session.stitcher.canvas().dimensions();
-    let title = format!("长图预览 {cw}×{ch}");
-    let font_size = 11.0 * s;
-    with_thread_local_text_renderer(|renderer| {
-        renderer.draw_text_rgba(
-            pixmap,
-            &title,
-            TextDrawOptions::new(
-                dock_x + 8.0 * s,
-                dock_y + 8.0 * s,
-                font_size,
-                (45, 52, 65, 255),
-            ),
-        );
-    });
+#[derive(Clone, Copy)]
+struct OverviewOverlaySpec<'a> {
+    direction: StitchDirection,
+    overview: &'a ThumbnailOverview,
+    scale: f32,
+}
 
-    // 3. 绘制长图缩略图
-    let preview_top = dock_y + 28.0 * s;
-    let preview_max_w = (dock_w - 16.0 * s).round() as u32;
-    let preview_max_h = (dock_h - 36.0 * s).round() as u32;
-
-    let thumb = session
-        .stitcher
-        .get_or_render_thumbnail(preview_max_w, preview_max_h);
-    let (tw, th) = thumb.dimensions();
-    let thumb_x = dock_x + 8.0 * s + ((preview_max_w.saturating_sub(tw)) as f32 / 2.0);
-    let thumb_y = preview_top;
-
-    blit_rgba_to_pixmap(
-        pixmap,
-        thumb,
-        thumb_x.round() as u32,
-        thumb_y.round() as u32,
+fn draw_overview_scrollbar(
+    pixmap: &mut PixmapMut,
+    track_rect: &Rect,
+    spec: OverviewOverlaySpec<'_>,
+) {
+    let s = spec.scale;
+    let mut track_pb = PathBuilder::new();
+    add_round_rect(
+        &mut track_pb,
+        RoundRect {
+            x: track_rect.x,
+            y: track_rect.y,
+            width: track_rect.width,
+            height: track_rect.height,
+            radius: 2.0 * s,
+        },
     );
-
-    // 4. 绘制绿色视口指示框（匹配成功时亮绿显示当前视窗在长图中的映射位置）
-    let vp = session.viewport_window();
-    if vp.total > 0.0 && th > 0 {
-        let ratio_start = vp.start / vp.total;
-        let ratio_size = (vp.size / vp.total).max(0.05);
-
-        let (vp_x, vp_y, vp_w, vp_h) = match session.direction {
-            StitchDirection::Vertical => {
-                let top = thumb_y + ratio_start * (th as f32);
-                let height = (ratio_size * (th as f32)).min((thumb_y + th as f32) - top);
-                (thumb_x, top, tw as f32, height)
-            }
-            StitchDirection::Horizontal => {
-                let left = thumb_x + ratio_start * (tw as f32);
-                let width = (ratio_size * (tw as f32)).min((thumb_x + tw as f32) - left);
-                (left, thumb_y, width, th as f32)
-            }
-        };
-
-        let mut vp_pb = PathBuilder::new();
-        add_round_rect(
-            &mut vp_pb,
-            RoundRect {
-                x: vp_x,
-                y: vp_y,
-                width: vp_w.max(4.0 * s),
-                height: vp_h.max(4.0 * s),
-                radius: 2.0 * s,
-            },
+    if let Some(path) = track_pb.finish() {
+        let mut paint = Paint::default();
+        paint.set_color_rgba8(0, 0, 0, 24);
+        pixmap.fill_path(
+            &path,
+            &paint,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
         );
-        if let Some(vp_path) = vp_pb.finish() {
-            // 绿色半透明指示填充
-            let mut vp_fill = Paint::default();
-            if session.is_matched {
-                vp_fill.set_color_rgba8(34, 197, 94, 60);
-            } else {
-                vp_fill.set_color_rgba8(234, 179, 8, 45); // 匹配暂停黄色提示
-            }
-            pixmap.fill_path(
-                &vp_path,
-                &vp_fill,
-                tiny_skia::FillRule::Winding,
-                Transform::identity(),
-                None,
-            );
+    }
 
-            // 绿色高亮描边
-            let mut vp_stroke = Paint::default();
-            if session.is_matched {
-                vp_stroke.set_color_rgba8(34, 197, 94, 230);
-            } else {
-                vp_stroke.set_color_rgba8(234, 179, 8, 200);
-            }
-            let stroke = Stroke {
-                width: 1.5 * s,
-                ..Default::default()
-            };
-            pixmap.stroke_path(&vp_path, &vp_stroke, &stroke, Transform::identity(), None);
+    let start = spec.overview.slice_start_ratio.clamp(0.0, 1.0);
+    let end = spec.overview.slice_end_ratio.clamp(start, 1.0);
+    let (thumb_rect, min_len) = match spec.direction {
+        StitchDirection::Vertical => {
+            let len = ((end - start) * track_rect.height).max(6.0 * s);
+            let y = (track_rect.y + end * track_rect.height - len).max(track_rect.y);
+            (Rect::new(track_rect.x, y, track_rect.width, len), len)
         }
+        StitchDirection::Horizontal => {
+            let len = ((end - start) * track_rect.width).max(6.0 * s);
+            let x = (track_rect.x + end * track_rect.width - len).max(track_rect.x);
+            (Rect::new(x, track_rect.y, len, track_rect.height), len)
+        }
+    };
+    if min_len <= 0.0 {
+        return;
+    }
+
+    let mut thumb_pb = PathBuilder::new();
+    add_round_rect(
+        &mut thumb_pb,
+        RoundRect {
+            x: thumb_rect.x,
+            y: thumb_rect.y,
+            width: thumb_rect.width,
+            height: thumb_rect.height,
+            radius: 2.0 * s,
+        },
+    );
+    if let Some(path) = thumb_pb.finish() {
+        let mut paint = Paint::default();
+        paint.set_color_rgba8(59, 130, 246, 200);
+        pixmap.fill_path(
+            &path,
+            &paint,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+    }
+}
+
+fn draw_cut_edge_marker(
+    pixmap: &mut PixmapMut,
+    thumb_rect: &Rect,
+    direction: StitchDirection,
+    s: f32,
+) {
+    let mut pb = PathBuilder::new();
+    match direction {
+        StitchDirection::Vertical => {
+            pb.move_to(thumb_rect.x, thumb_rect.y + 1.0 * s);
+            pb.line_to(thumb_rect.x + thumb_rect.width, thumb_rect.y + 1.0 * s);
+        }
+        StitchDirection::Horizontal => {
+            pb.move_to(thumb_rect.x + 1.0 * s, thumb_rect.y);
+            pb.line_to(thumb_rect.x + 1.0 * s, thumb_rect.y + thumb_rect.height);
+        }
+    }
+    if let Some(path) = pb.finish() {
+        let mut paint = Paint::default();
+        paint.set_color_rgba8(59, 130, 246, 180);
+        let stroke = Stroke {
+            width: 1.5 * s,
+            ..Default::default()
+        };
+        pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+    }
+}
+
+fn draw_viewport_indicator(
+    pixmap: &mut PixmapMut,
+    session: &LongCaptureSession,
+    thumb_rect: &Rect,
+    spec: OverviewOverlaySpec<'_>,
+) {
+    let s = spec.scale;
+    let overview = spec.overview;
+    let vp = session.viewport_window();
+    if vp.total <= 0.0 || thumb_rect.width <= 0.0 || thumb_rect.height <= 0.0 {
+        return;
+    }
+
+    let full_start = vp.normalized_start();
+    let full_end = (full_start + vp.normalized_size()).clamp(full_start, 1.0);
+    let slice_span = (overview.slice_end_ratio - overview.slice_start_ratio).max(1e-4);
+    let local_start = ((full_start - overview.slice_start_ratio) / slice_span).clamp(0.0, 1.0);
+    let local_end = ((full_end - overview.slice_start_ratio) / slice_span).clamp(local_start, 1.0);
+    let local_size = (local_end - local_start).max(0.05);
+
+    let (vp_x, vp_y, vp_w, vp_h) = match session.direction {
+        StitchDirection::Vertical => {
+            let top = thumb_rect.y + local_start * thumb_rect.height;
+            let height =
+                (local_size * thumb_rect.height).min((thumb_rect.y + thumb_rect.height) - top);
+            (thumb_rect.x, top, thumb_rect.width, height)
+        }
+        StitchDirection::Horizontal => {
+            let left = thumb_rect.x + local_start * thumb_rect.width;
+            let width =
+                (local_size * thumb_rect.width).min((thumb_rect.x + thumb_rect.width) - left);
+            (left, thumb_rect.y, width, thumb_rect.height)
+        }
+    };
+
+    let (fill_rgba, stroke_rgba) = if !session.is_capturing {
+        ((100, 116, 139, 45), (100, 116, 139, 220))
+    } else if session.is_matched {
+        ((34, 197, 94, 60), (34, 197, 94, 230))
+    } else {
+        ((234, 179, 8, 45), (234, 179, 8, 200))
+    };
+
+    let mut vp_pb = PathBuilder::new();
+    add_round_rect(
+        &mut vp_pb,
+        RoundRect {
+            x: vp_x,
+            y: vp_y,
+            width: vp_w.max(4.0 * s),
+            height: vp_h.max(4.0 * s),
+            radius: 2.0 * s,
+        },
+    );
+    if let Some(vp_path) = vp_pb.finish() {
+        let mut vp_fill = Paint::default();
+        vp_fill.set_color_rgba8(fill_rgba.0, fill_rgba.1, fill_rgba.2, fill_rgba.3);
+        pixmap.fill_path(
+            &vp_path,
+            &vp_fill,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+
+        let mut vp_stroke = Paint::default();
+        vp_stroke.set_color_rgba8(stroke_rgba.0, stroke_rgba.1, stroke_rgba.2, stroke_rgba.3);
+        let stroke = Stroke {
+            width: 1.5 * s,
+            ..Default::default()
+        };
+        pixmap.stroke_path(&vp_path, &vp_stroke, &stroke, Transform::identity(), None);
     }
 }
 
@@ -198,4 +487,73 @@ pub(crate) fn blit_rgba_to_pixmap(
             height: sh,
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::Rgba;
+    use tiny_skia::Pixmap;
+
+    #[test]
+    fn test_paused_dock_remains_visible_and_hides_in_editing() {
+        let frame = RgbaImage::from_pixel(120, 160, Rgba([80, 120, 160, 255]));
+        let mut session = LongCaptureSession::new(frame);
+        let selection = Rect::new(40.0, 40.0, 120.0, 160.0);
+        let screen = CanvasSize {
+            width: 800,
+            height: 600,
+        };
+        let mut pixmap = Pixmap::new(800, 600).expect("画布创建应成功");
+
+        session.toggle_capture();
+        assert!(!session.is_capturing);
+        render_long_capture_dock(&mut pixmap.as_mut(), &mut session, &selection, screen, 1.0);
+        assert!(
+            session.thumbnail_rect.is_some(),
+            "暂停状态下必须保留侧边长图预览窗口以便裁剪和审查"
+        );
+
+        session.enter_editing();
+        render_long_capture_dock(&mut pixmap.as_mut(), &mut session, &selection, screen, 1.0);
+        assert!(
+            session.thumbnail_rect.is_none(),
+            "进入编辑态后应关闭侧边预览窗"
+        );
+    }
+
+    #[test]
+    fn test_horizontal_dock_layout_uses_wide_card_and_clamps_tiny_screen() {
+        let frame = RgbaImage::from_pixel(160, 120, Rgba([40, 60, 80, 255]));
+        let mut session = LongCaptureSession::new(frame);
+        session.toggle_direction();
+        session.toolbar_rect = Some(Rect::new(100.0, 60.0, 320.0, 36.0));
+        let selection = Rect::new(100.0, 108.0, 160.0, 120.0);
+
+        let rect = resolve_dock_rect(
+            &session,
+            &selection,
+            CanvasSize {
+                width: 800,
+                height: 600,
+            },
+            1.0,
+        );
+        assert!(rect.width > rect.height, "横向模式 Dock 应采用横向扁平卡片");
+        assert!(
+            !rects_overlap(rect, session.toolbar_rect.expect("工具栏矩形存在")),
+            "横向 Dock 布局不应遮挡主控制栏"
+        );
+
+        let tiny = resolve_dock_rect(
+            &session,
+            &selection,
+            CanvasSize {
+                width: 60,
+                height: 60,
+            },
+            1.0,
+        );
+        assert!(tiny.x >= 8.0 && tiny.y >= 8.0);
+    }
 }

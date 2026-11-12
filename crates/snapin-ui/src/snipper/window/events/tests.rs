@@ -387,3 +387,63 @@ fn test_long_capture_blocks_conflicting_shortcuts_and_nudge() {
     ));
     assert!(!state.editor.annotations.can_undo(), "编辑态应恢复 Ctrl+Z");
 }
+
+#[test]
+fn test_ctrl_z_undoes_long_capture_crop_without_touching_annotations() {
+    use crate::geometry::Rect;
+    use crate::snipper::window::state::LongCaptureSession;
+    use image::{Rgba, RgbaImage};
+    use winit::keyboard::ModifiersState;
+
+    let mut state = SnipperState::new();
+    let rect = Rect::new(20.0, 20.0, 80.0, 120.0);
+    state.viewport.selection = SelectionState::Locked {
+        rect,
+        active_drag: None,
+    };
+    state.editor.annotations.push(AnnotationShape::Rect(
+        snapin_annotation::shapes::RectAction {
+            rect,
+            color: (255, 0, 0, 255).into(),
+            stroke_width: 2.0,
+            is_filled: false,
+            corner_radius: 0.0,
+            line_style: snapin_annotation::LineStyle::Solid,
+        },
+    ));
+    let frame = RgbaImage::from_pixel(80, 120, Rgba([40, 80, 120, 255]));
+    let mut session = LongCaptureSession::new(frame);
+    assert_eq!(session.crop_head(30), 30);
+    assert_eq!(session.stitcher.canvas().dimensions(), (80, 90));
+    state.long_capture = Some(session);
+
+    let bg = RgbaImage::new(200, 200);
+    state.viewport.modifiers = ModifiersState::CONTROL;
+    // 第一次 Ctrl+Z 撤销头裁剪，并保留普通标注栈不变
+    assert!(handle_key_input(
+        &mut state,
+        &Key::Character("z".into()),
+        ElementState::Pressed,
+        &bg,
+    ));
+    assert_eq!(
+        state
+            .long_capture
+            .as_ref()
+            .expect("会话应存在")
+            .stitcher
+            .canvas()
+            .dimensions(),
+        (80, 120)
+    );
+    assert!(state.editor.annotations.can_undo(), "不得误撤普通标注");
+
+    // 无可撤销裁剪记录后再次 Ctrl+Z 静默拦截，同样不得穿透普通标注
+    assert!(!handle_key_input(
+        &mut state,
+        &Key::Character("z".into()),
+        ElementState::Pressed,
+        &bg,
+    ));
+    assert!(state.editor.annotations.can_undo());
+}

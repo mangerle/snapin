@@ -316,6 +316,30 @@ pub fn tr(zh: &str) -> &str {
         "抓屏分辨率与当前画布不一致，已保留原底图" => {
             "Capture resolution differs from current canvas; kept previous frame"
         }
+        "已有已拼接内容，再次点击方向按钮将清空重拍" => {
+            "Stitched content exists; click Direction again to reset"
+        }
+        "已达最小尺寸，无法继续裁剪" => "Minimum size reached; cannot crop further",
+        "已裁入首屏内部并暂停录制：可按 Ctrl+Z 撤销裁剪，或点击开始重录" => {
+            "Cropped into initial frame and paused: Ctrl+Z to undo, or click Start to re-record"
+        }
+        "已撤销上一次裁剪" => "Undid last crop",
+        "暂无可撤销的裁剪记录" => "No crop action to undo",
+        "再次点击确认清空画布并切换方向" => {
+            "Click again to confirm clearing canvas and switching direction"
+        }
+        "当前纵向截图 (点击切换横向)" => "Vertical capture (click for horizontal)",
+        "当前横向截图 (点击切换纵向)" => "Horizontal capture (click for vertical)",
+        "停止截图" => "Stop capture",
+        "开始截图" => "Start capture",
+        "编辑" => "Edit",
+        "拖动工具栏" => "Drag toolbar",
+        "上裁剪 (30px)" => "Crop top (30px)",
+        "左裁剪 (30px)" => "Crop left (30px)",
+        "下裁剪 (30px)" => "Crop bottom (30px)",
+        "右裁剪 (30px)" => "Crop right (30px)",
+        "撤销裁剪 (Ctrl+Z)" => "Undo crop (Ctrl+Z)",
+        "反向滚动时自动裁剪多余画面" => "Auto-crop excess content on reverse scroll",
         _ => zh,
     }
 }

@@ -186,10 +186,12 @@ fn test_horizontal_stitcher_canvas_expansion_crop_and_viewport() {
     stitcher.crop_head(6);
     assert_eq!(stitcher.dimensions(), (200, 120));
 
+    // crop_tail(10) 后画布末端对应 x=26..206，故馈入 x=24..204 的回滚帧真实位移应为 -2，
+    // 裁掉最后 2px 后画布精确收敛为 (6..204) 即宽度 198，不再因 last_frame 滞后而双倍误删 10px。
     let rollback = create_horizontal_test_pattern(width, height, 24, 0);
     let result = stitcher.feed_frame(&rollback);
-    assert_eq!(result.offset, -12);
-    assert_eq!(stitcher.dimensions(), (188, 120));
+    assert_eq!(result.offset, -2);
+    assert_eq!(stitcher.dimensions(), (198, 120));
 }
 
 #[test]
@@ -317,4 +319,114 @@ fn test_feed_frame_outcome_distinguishes_unchanged_unmatched_and_ignored() {
         stitcher.feed_frame_outcome(&wrong_size),
         StitchFrameOutcome::Ignored
     );
+}
+
+#[test]
+fn test_reversible_crop_past_initial_size_syncs_tail_last_frame_and_undoes() {
+    let width = 100;
+    let height = 120;
+    let frame0 = create_test_pattern(width, height, 0, 0);
+    let mut stitcher = LongCaptureStitcher::new(
+        frame0.clone(),
+        StitchDirection::Vertical,
+        StitchOptions::default(),
+    );
+
+    // 先推进 +60 -> 总高 180
+    let frame1 = create_test_pattern(width, height, 60, 0);
+    assert!(stitcher.feed_frame_outcome(&frame1).is_stitched());
+    assert_eq!(stitcher.dimensions(), (100, 180));
+
+    // 手动尾部裁剪 30 -> 总高 150 (>= 120)：必须把 last_frame 同步到 [30..150]
+    assert_eq!(stitcher.crop_tail(30), 30);
+    assert_eq!(stitcher.dimensions(), (100, 150));
+    assert!(!stitcher.is_tail_truncated_below_frame());
+    assert_eq!(
+        stitcher.last_frame(),
+        &create_test_pattern(width, height, 30, 0),
+        "crop_tail 后仍 >= 单帧高时，last_frame 必须同步为新末端切片"
+    );
+
+    // 静止帧 Unchanged 不清空手工裁剪历史
+    assert_eq!(
+        stitcher.feed_frame_outcome(&create_test_pattern(width, height, 30, 0)),
+        StitchFrameOutcome::Unchanged
+    );
+    assert!(stitcher.can_undo_crop());
+
+    // 在紧接新末端之后继续滚动 +25（即 y=55）应当完美无缝拼接 -> 175
+    assert!(stitcher
+        .feed_frame_outcome(&create_test_pattern(width, height, 55, 0))
+        .is_stitched());
+    assert_eq!(stitcher.dimensions(), (100, 175));
+    // 正向推进拼入新像素后清空此前裁剪撤销历史
+    assert!(!stitcher.can_undo_crop());
+
+    // 允许突破 initial_frame_size(120) 进行头部与尾部裁剪，直至最小保底 MIN_CROPPED_SPAN(32)
+    assert_eq!(stitcher.crop_head(40), 40);
+    assert_eq!(stitcher.dimensions(), (100, 135));
+    assert_eq!(stitcher.crop_tail(70), 70);
+    assert_eq!(stitcher.dimensions(), (100, 65));
+    assert!(stitcher.is_tail_truncated_below_frame());
+    // 尾端已截断至单帧以内时保护禁止断层继续拼接
+    assert_eq!(
+        stitcher.feed_frame_outcome(&create_test_pattern(width, height, 80, 0)),
+        StitchFrameOutcome::Ignored
+    );
+
+    // 继续大幅裁剪至最小保底 32px，再度裁剪返回 0
+    assert_eq!(stitcher.crop_tail(100), 33);
+    assert_eq!(stitcher.dimensions(), (100, 32));
+    assert_eq!(stitcher.crop_head(20), 0);
+
+    // 连续撤销三步手工裁剪，无损恢复至 (100, 175) 与可执行状态
+    assert!(stitcher.undo_crop());
+    assert_eq!(stitcher.dimensions(), (100, 65));
+    assert!(stitcher.undo_crop());
+    assert_eq!(stitcher.dimensions(), (100, 135));
+    assert!(!stitcher.is_tail_truncated_below_frame());
+    assert!(stitcher.undo_crop());
+    assert_eq!(stitcher.dimensions(), (100, 175));
+    assert!(!stitcher.can_undo_crop());
+}
+
+#[test]
+fn test_extreme_aspect_thumbnail_overview_preserves_readable_cross_axis() {
+    // 使用步长 80 (< active_height/2 = 100) 构造 240x6120 纵向极端长宽比画布（25.5:1）
+    let frame0 = create_test_pattern(240, 200, 0, 0);
+    let mut stitcher =
+        LongCaptureStitcher::new(frame0, StitchDirection::Vertical, StitchOptions::default());
+    for step in 1..=74u32 {
+        let next = create_test_pattern(240, 200, step * 80, 0);
+        assert!(stitcher.feed_frame_outcome(&next).is_stitched());
+    }
+    assert_eq!(stitcher.dimensions(), (240, 6120));
+
+    // 若整图强缩进 124x244 会将宽挤到 10px，开启最小可读厚度 48px 后应切换尾部高清切片
+    let overview = stitcher
+        .get_or_render_thumbnail_overview(124, 244, 48)
+        .clone();
+    assert!(overview.is_cropped_window);
+    assert!(overview.image.width() >= 48);
+    assert_eq!(overview.slice_end_ratio, 1.0);
+    assert!(overview.slice_start_ratio > 0.5 && overview.slice_start_ratio < 0.99);
+
+    // 横向极端长宽比 6120x240 同理维持高度可读
+    let h_first = create_horizontal_test_pattern(200, 240, 0, 0);
+    let mut h_stitcher = LongCaptureStitcher::new(
+        h_first,
+        StitchDirection::Horizontal,
+        StitchOptions::default(),
+    );
+    for step in 1..=74u32 {
+        let next = create_horizontal_test_pattern(200, 240, step * 80, 0);
+        assert!(h_stitcher.feed_frame_outcome(&next).is_stitched());
+    }
+    assert_eq!(h_stitcher.dimensions(), (6120, 240));
+    let h_overview = h_stitcher
+        .get_or_render_thumbnail_overview(244, 124, 48)
+        .clone();
+    assert!(h_overview.is_cropped_window);
+    assert!(h_overview.image.height() >= 48);
+    assert!(h_overview.slice_start_ratio > 0.5 && h_overview.slice_start_ratio < 0.99);
 }

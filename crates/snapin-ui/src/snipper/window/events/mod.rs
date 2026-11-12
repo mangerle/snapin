@@ -2,12 +2,14 @@
 
 use super::actions::{handle_action_copy, handle_action_pin, handle_action_save};
 use super::clipboard::SnipperClipboardAction;
+use super::state::LongCaptureSession;
 pub use super::state::{commit_active_text_input, SnipperPhase, SnipperState};
 use super::types::SnipperOutcome;
 use crate::editor::toolbar::Tool;
 use crate::snipper::selection::{SelectionConstraint, SelectionState};
 use image::RgbaImage;
 use snapin_annotation::AnnotationShape;
+use snapin_foundation::i18n::tr;
 use winit::event::ElementState;
 use winit::keyboard::{Key, NamedKey};
 
@@ -173,7 +175,14 @@ fn handle_control_character(
     match key.to_ascii_lowercase().as_str() {
         "z" => {
             if state.phase() == SnipperPhase::LongCapturing {
-                return Some(false);
+                let undone = state
+                    .long_capture
+                    .as_mut()
+                    .is_some_and(LongCaptureSession::undo_crop);
+                if undone {
+                    state.set_status_message(tr("已撤销上一次裁剪"));
+                }
+                return Some(undone);
             }
             let changed = state.editor.annotations.undo();
             state.sync_recording_overlay();

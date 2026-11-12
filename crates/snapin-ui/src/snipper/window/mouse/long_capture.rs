@@ -3,7 +3,10 @@
 use super::super::types::SnipperOutcome;
 use super::*;
 use crate::geometry::Point;
-use crate::snipper::window::state::LongCaptureAction;
+use crate::snipper::window::state::{
+    DirectionToggleOutcome, LongCaptureAction, LongCaptureSession,
+};
+use snapin_foundation::{i18n::tr, trf};
 use snapin_render::stitching::StitchDirection;
 use tracing::info;
 
@@ -31,6 +34,16 @@ pub(super) fn handle_long_capture_press(
         return true;
     };
 
+    dispatch_long_capture_action(state, action, pointer, original_rgba);
+    true
+}
+
+fn dispatch_long_capture_action(
+    state: &mut SnipperState,
+    action: LongCaptureAction,
+    pointer: Point,
+    original_rgba: &RgbaImage,
+) {
     info!("执行长截图操作: {}", action.label());
 
     match action {
@@ -75,10 +88,13 @@ pub(super) fn handle_long_capture_press(
         }
         LongCaptureAction::ToggleDirection => {
             if let Some(session) = state.long_capture.as_mut() {
-                session.toggle_direction();
-                state.set_status_message(snapin_foundation::i18n::tr(
-                    "已切换长截图主方向并重置本轮拼接",
-                ));
+                let message = match session.request_toggle_direction() {
+                    DirectionToggleOutcome::Switched => tr("已切换长截图主方向并重置本轮拼接"),
+                    DirectionToggleOutcome::NeedsConfirmation => {
+                        tr("已有已拼接内容，再次点击方向按钮将清空重拍")
+                    }
+                };
+                state.set_status_message(message);
             }
         }
         LongCaptureAction::ToggleCropSubMenu => {
@@ -94,28 +110,22 @@ pub(super) fn handle_long_capture_press(
                 } else {
                     "已关闭反向滚动自动裁剪"
                 };
-                state.set_status_message(snapin_foundation::i18n::tr(msg));
+                state.set_status_message(tr(msg));
             }
         }
-        LongCaptureAction::CropHead => {
-            if let Some(session) = state.long_capture.as_mut() {
-                session.crop_head(30);
-                let msg = match session.direction {
-                    StitchDirection::Vertical => "已执行上裁剪 (30px)",
-                    StitchDirection::Horizontal => "已执行左裁剪 (30px)",
-                };
-                state.set_status_message(snapin_foundation::i18n::tr(msg));
-            }
-        }
-        LongCaptureAction::CropTail => {
-            if let Some(session) = state.long_capture.as_mut() {
-                session.crop_tail(30);
-                let msg = match session.direction {
-                    StitchDirection::Vertical => "已执行下裁剪 (30px)",
-                    StitchDirection::Horizontal => "已执行右裁剪 (30px)",
-                };
-                state.set_status_message(snapin_foundation::i18n::tr(msg));
-            }
+        LongCaptureAction::CropHead => handle_crop_head_action(state),
+        LongCaptureAction::CropTail => handle_crop_tail_action(state),
+        LongCaptureAction::UndoCrop => {
+            let undone = state
+                .long_capture
+                .as_mut()
+                .is_some_and(LongCaptureSession::undo_crop);
+            let message = if undone {
+                tr("已撤销上一次裁剪")
+            } else {
+                tr("暂无可撤销的裁剪记录")
+            };
+            state.set_status_message(message);
         }
         LongCaptureAction::EnterEditing => {
             if let Some(session) = state.long_capture.as_mut() {
@@ -162,7 +172,6 @@ pub(super) fn handle_long_capture_press(
             state.session.outcome = Some(SnipperOutcome::Cancelled);
         }
     }
-    true
 }
 
 /// 从完整屏幕快照裁剪出当前锁定选区，供新一轮长截图录制初始化拼接器。
@@ -204,8 +213,9 @@ pub(super) fn handle_non_editing_press(
     }
 
     let closed_submenu = std::mem::take(&mut session.crop_sub_menu_open);
+    let cleared_confirm = std::mem::take(&mut session.pending_direction_confirm);
     if !state.can_adjust_selection() {
-        return Some(closed_submenu);
+        return Some(closed_submenu || cleared_confirm);
     }
     if let Some(handle) = super::buttons::selection_handle_at(state, rect, pointer.x, pointer.y) {
         return Some(super::buttons::begin_selection_resize(state, handle));
@@ -215,5 +225,186 @@ pub(super) fn handle_non_editing_press(
             state, rect, pointer.x, pointer.y,
         ));
     }
-    Some(closed_submenu)
+    Some(closed_submenu || cleared_confirm)
+}
+
+fn handle_crop_head_action(state: &mut SnipperState) {
+    let Some(session) = state.long_capture.as_mut() else {
+        return;
+    };
+    let direction = session.direction;
+    let cropped = session.crop_head(30);
+    if cropped == 0 {
+        state.set_status_message(tr("已达最小尺寸，无法继续裁剪"));
+        return;
+    }
+    let msg = match direction {
+        StitchDirection::Vertical => trf!("已执行上裁剪 ({}px)", "Cropped top ({}px)", cropped),
+        StitchDirection::Horizontal => trf!("已执行左裁剪 ({}px)", "Cropped left ({}px)", cropped),
+    };
+    state.set_status_message(msg);
+}
+
+fn handle_crop_tail_action(state: &mut SnipperState) {
+    let Some(session) = state.long_capture.as_mut() else {
+        return;
+    };
+    let was_capturing = session.is_capturing;
+    let direction = session.direction;
+    let cropped = session.crop_tail(30);
+    if cropped == 0 {
+        state.set_status_message(tr("已达最小尺寸，无法继续裁剪"));
+        return;
+    }
+    if was_capturing && !session.is_capturing {
+        state.set_status_message(tr(
+            "已裁入首屏内部并暂停录制：可按 Ctrl+Z 撤销裁剪，或点击开始重录",
+        ));
+        return;
+    }
+    let msg = match direction {
+        StitchDirection::Vertical => trf!("已执行下裁剪 ({}px)", "Cropped bottom ({}px)", cropped),
+        StitchDirection::Horizontal => {
+            trf!("已执行右裁剪 ({}px)", "Cropped right ({}px)", cropped)
+        }
+    };
+    state.set_status_message(msg);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::geometry::Rect;
+    use crate::snipper::selection::SelectionState;
+    use image::{Rgba, RgbaImage};
+    use snapin_render::stitching::StitchDirection;
+
+    fn make_vertical_pattern(width: u32, height: u32, scroll_y: u32) -> RgbaImage {
+        RgbaImage::from_fn(width, height, |x, y| {
+            let wy = y.saturating_add(scroll_y);
+            let r = ((wy.wrapping_mul(37).wrapping_add(x * 13)) % 251) as u8;
+            let g = ((wy.wrapping_mul(73).wrapping_add(x * 29)) % 241) as u8;
+            let b = ((((wy * wy) / 17).wrapping_add(x * 41)) % 239) as u8;
+            Rgba([r, g, b, 255])
+        })
+    }
+
+    fn handle_long_capture_action(
+        state: &mut SnipperState,
+        action: LongCaptureAction,
+        bg: &RgbaImage,
+    ) {
+        dispatch_long_capture_action(state, action, Point::new(0.0, 0.0), bg);
+    }
+
+    #[test]
+    fn test_toggle_direction_wipe_guard_and_confirm_reset() {
+        let mut state = SnipperState::new();
+        let rect = Rect::new(20.0, 20.0, 80.0, 120.0);
+        state.viewport.selection = SelectionState::Locked {
+            rect,
+            active_drag: None,
+        };
+        let frame0 = make_vertical_pattern(80, 120, 0);
+        let mut session = LongCaptureSession::new(frame0);
+
+        // 1. 尚无拼接增量时直接单次切换方向，无需二次确认
+        state.long_capture = Some(session.clone());
+        let bg = RgbaImage::new(200, 200);
+        handle_long_capture_action(&mut state, LongCaptureAction::ToggleDirection, &bg);
+        assert_eq!(
+            state.long_capture.as_ref().expect("会话应存在").direction,
+            StitchDirection::Horizontal
+        );
+        assert!(
+            !state
+                .long_capture
+                .as_ref()
+                .expect("会话应存在")
+                .pending_direction_confirm
+        );
+
+        // 2. 存在已拼接增量时首次点击仅挂起确认，不得清空画布
+        let frame1 = make_vertical_pattern(80, 120, 40);
+        assert!(session.feed_frame_outcome(&frame1).is_stitched());
+        assert_eq!(session.stitcher.dimensions(), (80, 160));
+        state.long_capture = Some(session);
+
+        handle_long_capture_action(&mut state, LongCaptureAction::ToggleDirection, &bg);
+        let after_first = state.long_capture.as_ref().expect("会话应存在");
+        assert_eq!(after_first.direction, StitchDirection::Vertical);
+        assert_eq!(after_first.stitcher.dimensions(), (80, 160));
+        assert!(after_first.pending_direction_confirm);
+        assert!(state
+            .session
+            .status_message
+            .as_deref()
+            .is_some_and(|msg| msg.contains("再次点击方向按钮")));
+
+        // 3. 插入其余交互动作（如点击裁剪菜单）自动撤销挂起确认
+        handle_long_capture_action(&mut state, LongCaptureAction::ToggleCropSubMenu, &bg);
+        assert!(
+            !state
+                .long_capture
+                .as_ref()
+                .expect("会话应存在")
+                .pending_direction_confirm
+        );
+
+        // 4. 连续两次点击方向切换才正式清空画布切换方向
+        handle_long_capture_action(&mut state, LongCaptureAction::ToggleDirection, &bg);
+        assert!(
+            state
+                .long_capture
+                .as_ref()
+                .expect("会话应存在")
+                .pending_direction_confirm
+        );
+        handle_long_capture_action(&mut state, LongCaptureAction::ToggleDirection, &bg);
+        let switched = state.long_capture.as_ref().expect("会话应存在");
+        assert_eq!(switched.direction, StitchDirection::Horizontal);
+        assert_eq!(switched.stitcher.dimensions(), (80, 120));
+        assert!(!switched.pending_direction_confirm);
+    }
+
+    #[test]
+    fn test_crop_past_initial_pauses_capture_and_undo_restores() {
+        let mut state = SnipperState::new();
+        let rect = Rect::new(20.0, 20.0, 80.0, 120.0);
+        state.viewport.selection = SelectionState::Locked {
+            rect,
+            active_drag: None,
+        };
+        let frame0 = make_vertical_pattern(80, 120, 0);
+        state.long_capture = Some(LongCaptureSession::new(frame0));
+        let bg = RgbaImage::new(200, 200);
+
+        // 录制未滚图时直接执行下裁剪 (30px)：突破 120px 降至 90px 并自动暂停防止断层拼接
+        handle_long_capture_action(&mut state, LongCaptureAction::CropTail, &bg);
+        let after_crop = state.long_capture.as_ref().expect("会话应存在");
+        assert_eq!(after_crop.stitcher.dimensions(), (80, 90));
+        assert!(!after_crop.is_capturing);
+        assert!(state
+            .session
+            .status_message
+            .as_deref()
+            .is_some_and(|msg| msg.contains("已裁入首屏内部并暂停录制")));
+
+        // 通过撤销裁剪恢复回 (80, 120) 及完整尾帧锚点
+        handle_long_capture_action(&mut state, LongCaptureAction::UndoCrop, &bg);
+        let restored = state.long_capture.as_ref().expect("会话应存在");
+        assert_eq!(restored.stitcher.dimensions(), (80, 120));
+        assert!(!restored.stitcher.is_tail_truncated_below_frame());
+        assert_eq!(
+            state.session.status_message.as_deref(),
+            Some(tr("已撤销上一次裁剪"))
+        );
+
+        // 再次触发 UndoCrop 报告无记录
+        handle_long_capture_action(&mut state, LongCaptureAction::UndoCrop, &bg);
+        assert_eq!(
+            state.session.status_message.as_deref(),
+            Some(tr("暂无可撤销的裁剪记录"))
+        );
+    }
 }

@@ -19,7 +19,7 @@ use editor::SnipperEditor;
 use image::{GenericImageView, RgbaImage};
 use jobs::{PendingMediaJob, SnipperJobs};
 pub(crate) use long_capture::LongCanvasSpace;
-pub use long_capture::{LongCaptureAction, LongCaptureSession};
+pub use long_capture::{DirectionToggleOutcome, LongCaptureAction, LongCaptureSession};
 use ocr::SnipperOcr;
 pub use phase::SnipperPhase;
 pub use recording::{

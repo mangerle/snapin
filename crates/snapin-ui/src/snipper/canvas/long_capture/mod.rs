@@ -12,12 +12,13 @@
 //!    - 鲜明红色边框配实心播放/停止键的录制切换胶囊按钮
 //!    - 二次编辑；贴图、保存、复制、关闭复用编辑器现有图标
 //!    - 悬停提示气泡（如悬停剪刀显示“裁剪”）
-//!    - 侧边缩略预览面板（仅在录制态展示）与绿色半透明视口指示器
+//!    - 侧边缩略预览面板（录制与暂停待命态均展示，编辑态收起）与状态视口指示器
 
 mod bar;
 mod dock;
 mod icons;
 mod sub_menu;
+mod tooltip;
 pub(crate) mod types;
 
 use super::CanvasSize;
@@ -28,10 +29,12 @@ use bar::*;
 pub(crate) use dock::render_long_capture_dock;
 use icons::*;
 use snapin_editor::toolbar::items::ToolbarAction as EditorToolbarAction;
+use snapin_foundation::i18n::tr;
 use snapin_render::{with_thread_local_text_renderer, StitchDirection, TextDrawOptions};
 pub(crate) use sub_menu::hit_test_crop_sub_menu;
-use sub_menu::render_crop_sub_menu;
+use sub_menu::{render_crop_sub_menu, CropSubMenuPlacement};
 use tiny_skia::{Paint, PathBuilder, PixmapMut, PixmapRef, Stroke, Transform};
+use tooltip::{draw_tooltip_bubble, TooltipSpec};
 pub(crate) use types::{long_capture_main_button_defs, long_capture_size_readout_width};
 
 /// 绘制长截图 PixPin 风格白色悬浮控制栏（位于选区上方）
@@ -78,12 +81,13 @@ pub(crate) fn render_long_capture_control_bar(
         session.toolbar_position = Some((bar_x, bar_y));
     }
 
-    session.toolbar_rect = Some(Rect {
+    let bar_rect = Rect {
         x: bar_x,
         y: bar_y,
         width: total_buttons_w,
         height: bar_h,
-    });
+    };
+    session.toolbar_rect = Some(bar_rect);
 
     // 1. 绘制白色圆角卡片底板与轻量微阴影
     let mut pb = PathBuilder::new();
@@ -140,7 +144,7 @@ pub(crate) fn render_long_capture_control_bar(
     cur_x += 8.0 * s;
 
     let mut hovered_btn_rect: Option<(Rect, &'static str)> = None;
-    let mut scissors_btn_bottom: Option<(f32, f32)> = None;
+    let mut scissors_btn_x: Option<f32> = None;
 
     for (index, def) in defs.iter().enumerate() {
         if index > 0 {
@@ -161,7 +165,7 @@ pub(crate) fn render_long_capture_control_bar(
 
         match def.action {
             LongCaptureAction::ToggleDirection => {
-                // 切换截图方向（圆角胶囊背景 + 文字 + 下拉倒三角）
+                // 切换截图方向（待二次确认态下使用琥珀橙警示提示防误清空）
                 let cap_radius = 10.0 * s;
                 let mut cap_pb = PathBuilder::new();
                 add_round_rect(
@@ -176,7 +180,9 @@ pub(crate) fn render_long_capture_control_bar(
                 );
                 if let Some(cap_path) = cap_pb.finish() {
                     let mut cap_paint = Paint::default();
-                    if is_hovered {
+                    if session.pending_direction_confirm {
+                        cap_paint.set_color_rgba8(251, 146, 60, 44);
+                    } else if is_hovered {
                         cap_paint.set_color_rgba8(0, 0, 0, 18);
                     } else {
                         cap_paint.set_color_rgba8(0, 0, 0, 10);
@@ -188,11 +194,31 @@ pub(crate) fn render_long_capture_control_bar(
                         Transform::identity(),
                         None,
                     );
+                    if session.pending_direction_confirm {
+                        let mut warn_stroke = Paint::default();
+                        warn_stroke.set_color_rgba8(234, 88, 12, 230);
+                        let stroke = Stroke {
+                            width: 1.5 * s,
+                            ..Default::default()
+                        };
+                        pixmap.stroke_path(
+                            &cap_path,
+                            &warn_stroke,
+                            &stroke,
+                            Transform::identity(),
+                            None,
+                        );
+                    }
                 }
 
-                let dir_text = match session.direction {
+                let dir_text = tr(match session.direction {
                     StitchDirection::Vertical => "垂直",
                     StitchDirection::Horizontal => "水平",
+                });
+                let text_color = if session.pending_direction_confirm {
+                    (194, 65, 12, 255)
+                } else {
+                    (45, 52, 65, 255)
                 };
                 with_thread_local_text_renderer(|renderer| {
                     renderer.draw_text_rgba(
@@ -202,15 +228,14 @@ pub(crate) fn render_long_capture_control_bar(
                             cur_x + 6.0 * s,
                             btn_y + 5.0 * s,
                             11.0 * s,
-                            (45, 52, 65, 255),
+                            text_color,
                         ),
                     );
                 });
                 draw_dropdown_arrow(pixmap, cur_x + btn_w - 9.0 * s, btn_y + btn_h / 2.0, s);
             }
             LongCaptureAction::ToggleCropSubMenu => {
-                // 剪刀裁剪图标（记录下方坐标供子菜单对齐）
-                scissors_btn_bottom = Some((cur_x, bar_y + bar_h + 4.0 * s));
+                scissors_btn_x = Some(cur_x);
                 if session.crop_sub_menu_open {
                     draw_button_active_bg(pixmap, &btn_rect, s);
                 } else if is_hovered {
@@ -277,19 +302,93 @@ pub(crate) fn render_long_capture_control_bar(
         cur_x += btn_w;
     }
 
-    // 3. 若裁剪子菜单处于展开状态，绘制裁剪子浮栏（左边缘与剪刀按钮对齐）
-    if session.crop_sub_menu_open {
-        let (sub_x, sub_y) =
-            scissors_btn_bottom.unwrap_or((bar_x + 120.0 * s, bar_y + bar_h + 4.0 * s));
-        render_crop_sub_menu(pixmap, session, sub_x, sub_y, s);
-    } else {
-        session.crop_submenu_rect = None;
+    render_bar_overlays(
+        pixmap,
+        session,
+        BarOverlayContext {
+            scissors_x: scissors_btn_x.unwrap_or(bar_x + 120.0 * s),
+            bar_rect,
+            hovered_btn_rect,
+            screen_size,
+            ui_scale: s,
+        },
+    );
+}
 
-        // 4. 若子菜单未展开且有按钮处于悬停态，在下方显示白色圆角气泡提示
-        if let Some((target_rect, tooltip)) = hovered_btn_rect {
-            if session.hovered_action != Some(LongCaptureAction::DragToolbar) {
-                draw_tooltip_bubble(pixmap, &target_rect, tooltip, s, screen_size.width as f32);
+struct BarOverlayContext {
+    scissors_x: f32,
+    bar_rect: Rect,
+    hovered_btn_rect: Option<(Rect, &'static str)>,
+    screen_size: CanvasSize,
+    ui_scale: f32,
+}
+
+fn render_bar_overlays(
+    pixmap: &mut PixmapMut,
+    session: &mut LongCaptureSession,
+    ctx: BarOverlayContext,
+) {
+    let s = ctx.ui_scale;
+    if session.crop_sub_menu_open {
+        let sub_hover = render_crop_sub_menu(
+            pixmap,
+            session,
+            CropSubMenuPlacement {
+                scissors_x: ctx.scissors_x,
+                bar_rect: ctx.bar_rect,
+                screen_size: ctx.screen_size,
+                ui_scale: s,
+            },
+        );
+        let sub_is_above = session
+            .crop_submenu_rect
+            .is_some_and(|sub| sub.y < ctx.bar_rect.y);
+        if let Some((target_rect, tooltip)) = sub_hover {
+            draw_tooltip_bubble(
+                pixmap,
+                TooltipSpec {
+                    target_rect: &target_rect,
+                    text: tooltip,
+                    screen_size: ctx.screen_size,
+                    ui_scale: s,
+                    prefer_above: sub_is_above,
+                },
+            );
+            return;
+        }
+        if let Some((target_rect, tooltip)) = ctx.hovered_btn_rect {
+            if !matches!(
+                session.hovered_action,
+                Some(LongCaptureAction::DragToolbar | LongCaptureAction::ToggleCropSubMenu)
+            ) {
+                draw_tooltip_bubble(
+                    pixmap,
+                    TooltipSpec {
+                        target_rect: &target_rect,
+                        text: tooltip,
+                        screen_size: ctx.screen_size,
+                        ui_scale: s,
+                        prefer_above: !sub_is_above,
+                    },
+                );
             }
+        }
+        return;
+    }
+
+    session.crop_submenu_rect = None;
+    if let Some((target_rect, tooltip)) = ctx.hovered_btn_rect {
+        if session.hovered_action != Some(LongCaptureAction::DragToolbar) {
+            draw_tooltip_bubble(
+                pixmap,
+                TooltipSpec {
+                    target_rect: &target_rect,
+                    text: tooltip,
+                    screen_size: ctx.screen_size,
+                    ui_scale: s,
+                    prefer_above: false,
+                },
+            );
         }
     }
 }
