@@ -839,3 +839,49 @@ fn test_opposite_edge_crop_history_survives_stitch_and_restores_without_clobberi
     assert_eq!(stitcher.last_frame(), anchor_before_undo.as_ref());
     assert!(!stitcher.can_undo_crop());
 }
+
+#[test]
+fn test_extreme_aspect_thumbnail_anchors_to_cropped_head_then_returns_to_tail() {
+    use super::types::{FrameShiftAnalysis, MatchResult};
+
+    let width = 200;
+    let frame_h = 400;
+    let f0 = create_test_pattern(width, frame_h, 0, 0);
+    let mut stitcher =
+        LongCaptureStitcher::new(f0, StitchDirection::Vertical, StitchOptions::default());
+
+    for step in 1..=4 {
+        let g = stitcher.generation();
+        let next = create_test_pattern(width, frame_h, step * 280, 0);
+        assert!(stitcher
+            .apply_analyzed_shift(
+                next,
+                g,
+                FrameShiftAnalysis::Matched(MatchResult {
+                    offset: 280,
+                    confidence: 0.95,
+                    sticky_header_size: 0,
+                    sticky_footer_size: 0,
+                }),
+            )
+            .is_stitched());
+    }
+    assert_eq!(stitcher.dimensions(), (200, 1520));
+
+    // 默认正向增长停留在尾部切片；执行头部裁剪后缩略图必须切换锚定至头部，便于确认裁切位置
+    let tail_overview = stitcher.get_or_render_thumbnail_overview(64, 240, 48);
+    assert!(tail_overview.is_cropped_window);
+    assert!((tail_overview.slice_end_ratio - 1.0).abs() < 1e-4);
+
+    assert_eq!(stitcher.crop_head(40), 40);
+    let head_overview = stitcher.get_or_render_thumbnail_overview(64, 240, 48);
+    assert!(head_overview.is_cropped_window);
+    assert!(head_overview.slice_start_ratio <= 1e-4);
+    assert!(head_overview.slice_end_ratio < 0.99);
+
+    assert_eq!(stitcher.crop_tail(40), 40);
+    let back_to_tail = stitcher.get_or_render_thumbnail_overview(64, 240, 48);
+    assert!(back_to_tail.is_cropped_window);
+    assert!((back_to_tail.slice_end_ratio - 1.0).abs() < 1e-4);
+    assert!(back_to_tail.slice_start_ratio > 0.01);
+}

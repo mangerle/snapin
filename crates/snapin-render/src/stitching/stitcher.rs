@@ -67,6 +67,8 @@ pub struct LongCaptureStitcher {
     pub(crate) attached_footer_size: u32,
     /// 已经锁定的生长极性（Forward / Backward），None 表示仍在初始单帧待锁定状态
     pub(crate) growth_polarity: Option<GrowthPolarity>,
+    /// 最近一次手动裁剪操作指向的边，用于在极端长宽比缩略图中优先锚定刚裁切端
+    pub(crate) last_cropped_edge: Option<CropEdge>,
 }
 
 impl LongCaptureStitcher {
@@ -87,6 +89,7 @@ impl LongCaptureStitcher {
             attached_header_size: 0,
             attached_footer_size: 0,
             growth_polarity: None,
+            last_cropped_edge: None,
         }
     }
 
@@ -423,6 +426,7 @@ impl LongCaptureStitcher {
     ) -> (MatchResult, StitchFrameOutcome) {
         self.last_frame = Arc::new(frame.clone());
         self.generation = self.generation.wrapping_add(1);
+        self.last_cropped_edge = None;
         self.crop_history.retain_opposite_edge(mutated_edge);
         (
             result,

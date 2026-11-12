@@ -16,6 +16,7 @@ impl LongCaptureStitcher {
         self.push_crop_history(CropEdge::Head, removed_strip);
         self.attached_header_size = self.attached_header_size.saturating_sub(crop);
         self.refresh_polarity_and_anchor_after_crop();
+        self.last_cropped_edge = Some(CropEdge::Head);
         self.generation = self.generation.wrapping_add(1);
         crop
     }
@@ -29,6 +30,7 @@ impl LongCaptureStitcher {
         self.push_crop_history(CropEdge::Tail, removed_strip);
         self.attached_footer_size = self.attached_footer_size.saturating_sub(crop);
         self.refresh_polarity_and_anchor_after_crop();
+        self.last_cropped_edge = Some(CropEdge::Tail);
         self.generation = self.generation.wrapping_add(1);
         crop
     }
@@ -91,6 +93,7 @@ impl LongCaptureStitcher {
             self.attached_footer_size = entry.prev_attached_footer_size;
             self.growth_polarity = entry.prev_growth_polarity;
         }
+        self.last_cropped_edge = None;
         self.generation = self.generation.wrapping_add(1);
         true
     }

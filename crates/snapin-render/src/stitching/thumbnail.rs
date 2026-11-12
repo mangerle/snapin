@@ -10,6 +10,7 @@
 //!    既让用户在进行头/尾裁剪时能看清最新内容与文档边界，又能绘制全局进度条反映总进度；
 //! 3. **直读分块零物化降采样**：直接对 [`PagedCanvasSnapshot`] 执行跨块坐标抽样，无需整图拼装即可在后台线程毫秒级生成。
 
+use super::history::CropEdge;
 use super::paged_canvas::PagedCanvasSnapshot;
 use super::stitcher::LongCaptureStitcher;
 use super::types::{GrowthPolarity, StitchDirection, ThumbnailOverview};
@@ -31,11 +32,16 @@ impl LongCaptureStitcher {
         max_h: u32,
         min_readable_cross: u32,
     ) -> ThumbnailRenderSpec {
+        let anchor_at_head = match self.last_cropped_edge {
+            Some(CropEdge::Head) => true,
+            Some(CropEdge::Tail) => false,
+            None => matches!(self.growth_polarity, Some(GrowthPolarity::Backward)),
+        };
         ThumbnailRenderSpec {
             max_w,
             max_h,
             min_readable_cross,
-            anchor_at_head: matches!(self.growth_polarity, Some(GrowthPolarity::Backward)),
+            anchor_at_head,
         }
     }
 

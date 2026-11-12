@@ -149,7 +149,15 @@ fn render_dock_preview_content(
                 scale: s,
             },
         );
-        draw_cut_edge_marker(pixmap, &thumb_rect, session.direction, s);
+        draw_cut_edge_marker(
+            pixmap,
+            &thumb_rect,
+            OverviewOverlaySpec {
+                direction: session.direction,
+                overview: &overview,
+                scale: s,
+            },
+        );
     }
 
     draw_viewport_indicator(
@@ -387,21 +395,40 @@ fn draw_overview_scrollbar(
     }
 }
 
-fn draw_cut_edge_marker(
-    pixmap: &mut PixmapMut,
-    thumb_rect: &Rect,
-    direction: StitchDirection,
-    s: f32,
-) {
+fn draw_cut_edge_marker(pixmap: &mut PixmapMut, thumb_rect: &Rect, spec: OverviewOverlaySpec<'_>) {
+    let s = spec.scale;
+    let has_head_cut = spec.overview.slice_start_ratio > 1e-4;
+    let has_tail_cut = spec.overview.slice_end_ratio < 1.0 - 1e-4;
+    if !has_head_cut && !has_tail_cut {
+        return;
+    }
+
     let mut pb = PathBuilder::new();
-    match direction {
+    let offset = 1.0 * s;
+    match spec.direction {
         StitchDirection::Vertical => {
-            pb.move_to(thumb_rect.x, thumb_rect.y + 1.0 * s);
-            pb.line_to(thumb_rect.x + thumb_rect.width, thumb_rect.y + 1.0 * s);
+            if has_head_cut {
+                let y = thumb_rect.y + offset;
+                pb.move_to(thumb_rect.x, y);
+                pb.line_to(thumb_rect.x + thumb_rect.width, y);
+            }
+            if has_tail_cut {
+                let y = (thumb_rect.y + thumb_rect.height - offset).max(thumb_rect.y);
+                pb.move_to(thumb_rect.x, y);
+                pb.line_to(thumb_rect.x + thumb_rect.width, y);
+            }
         }
         StitchDirection::Horizontal => {
-            pb.move_to(thumb_rect.x + 1.0 * s, thumb_rect.y);
-            pb.line_to(thumb_rect.x + 1.0 * s, thumb_rect.y + thumb_rect.height);
+            if has_head_cut {
+                let x = thumb_rect.x + offset;
+                pb.move_to(x, thumb_rect.y);
+                pb.line_to(x, thumb_rect.y + thumb_rect.height);
+            }
+            if has_tail_cut {
+                let x = (thumb_rect.x + thumb_rect.width - offset).max(thumb_rect.x);
+                pb.move_to(x, thumb_rect.y);
+                pb.line_to(x, thumb_rect.y + thumb_rect.height);
+            }
         }
     }
     if let Some(path) = pb.finish() {
@@ -430,6 +457,10 @@ fn draw_viewport_indicator(
 
     let full_start = vp.normalized_start();
     let full_end = (full_start + vp.normalized_size()).clamp(full_start, 1.0);
+    // 当活跃视口完全落在极端长宽比截断概览窗之外时跳过绘制，避免在边缘生成幽灵窄条。
+    if full_end <= overview.slice_start_ratio || full_start >= overview.slice_end_ratio {
+        return;
+    }
     let slice_span = (overview.slice_end_ratio - overview.slice_start_ratio).max(1e-4);
     let local_start = ((full_start - overview.slice_start_ratio) / slice_span).clamp(0.0, 1.0);
     let local_end = ((full_end - overview.slice_start_ratio) / slice_span).clamp(local_start, 1.0);
@@ -578,5 +609,66 @@ mod tests {
             1.0,
         );
         assert!(tiny.x >= 8.0 && tiny.y >= 8.0);
+    }
+
+    #[test]
+    fn test_cut_edge_marker_tracks_truncated_end_and_viewport_hides_when_out_of_slice() {
+        use snapin_render::{FrameShiftAnalysis, MatchResult};
+
+        let thumb_rect = Rect::new(10.0, 10.0, 40.0, 100.0);
+        let head_anchored_overview = ThumbnailOverview {
+            image: RgbaImage::new(40, 100),
+            slice_start_ratio: 0.0,
+            slice_end_ratio: 0.4,
+            is_cropped_window: true,
+        };
+        let mut pixmap = Pixmap::new(80, 120).expect("画布创建应成功");
+        draw_cut_edge_marker(
+            &mut pixmap.as_mut(),
+            &thumb_rect,
+            OverviewOverlaySpec {
+                direction: StitchDirection::Vertical,
+                overview: &head_anchored_overview,
+                scale: 1.0,
+            },
+        );
+        // 头部对齐展示时顶部完整，仅底部存在截断蓝线
+        assert_eq!(pixmap.pixel(30, 11).expect("顶部像素存在").alpha(), 0);
+        assert!(pixmap.pixel(30, 109).expect("底部像素存在").alpha() > 0);
+
+        // 正向拼接一帧后 total=280, frame=160 -> viewport=[0.428.., 1.0]，与头部切片 [0.0, 0.4] 无交集
+        let frame = RgbaImage::from_pixel(120, 160, Rgba([40, 60, 80, 255]));
+        let mut session = LongCaptureSession::new(frame);
+        let g = session.stitcher.generation();
+        let next = RgbaImage::from_pixel(120, 160, Rgba([41, 61, 81, 255]));
+        assert!(session
+            .stitcher
+            .apply_analyzed_shift(
+                next,
+                g,
+                FrameShiftAnalysis::Matched(MatchResult {
+                    offset: 120,
+                    confidence: 0.95,
+                    sticky_header_size: 0,
+                    sticky_footer_size: 0,
+                }),
+            )
+            .is_stitched());
+
+        let mut pixmap2 = Pixmap::new(80, 120).expect("画布创建应成功");
+        draw_viewport_indicator(
+            &mut pixmap2.as_mut(),
+            &session,
+            &thumb_rect,
+            OverviewOverlaySpec {
+                direction: StitchDirection::Vertical,
+                overview: &head_anchored_overview,
+                scale: 1.0,
+            },
+        );
+        assert!(
+            pixmap2.data().iter().all(|&b| b == 0),
+            "视口完全位于截断窗口外时不应绘制任何边缘幽灵框"
+        );
     }
 }
