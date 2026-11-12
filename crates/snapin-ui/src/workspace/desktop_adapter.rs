@@ -301,6 +301,10 @@ impl DesktopPort for WorkspaceDesktop {
         self.inner.notify_copy(body);
     }
 
+    fn long_capture_requires_window_hide(&self) -> bool {
+        self.inner.long_capture_requires_window_hide()
+    }
+
     fn capture_long_capture_frame(
         &self,
         request: LongCaptureFrameRequest,

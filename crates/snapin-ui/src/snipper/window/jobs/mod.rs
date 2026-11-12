@@ -94,6 +94,7 @@ impl SnipperJobRuntime {
 
 pub mod long_capture_worker;
 mod outcome;
+pub(crate) use long_capture_worker::split_captured_frame_and_selection;
 pub use long_capture_worker::{
     AnalyzeFrameTask, LongCaptureAsyncEvent, LongCaptureEventSink, LongCaptureWorker,
     ThumbnailRenderTask,

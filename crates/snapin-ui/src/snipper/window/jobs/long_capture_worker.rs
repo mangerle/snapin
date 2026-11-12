@@ -20,15 +20,15 @@ use std::thread::{self, JoinHandle};
 
 /// 后台长截图工作线程向 UI 事件循环投递的异步结果。
 pub enum LongCaptureAsyncEvent {
-    /// 后台已完成整屏裁剪与帧间位移分析，交由主线程快速提交分块画布。
+    /// 后台已完成选区裁剪与帧间位移分析，交由主线程快速提交分块画布。
     FrameAnalyzed {
         /// 对应的抓屏请求标识
         request_id: u64,
         /// 提交分析时对应的拼接器代际号
         expected_generation: u64,
-        /// 原始全屏抓屏图像（匹配成功时晋升为新底图）
-        full_frame: RgbaImage,
-        /// 已裁剪出的选区局部帧
+        /// 仅全屏降级抓屏时保留的整屏图像；选区局部抓屏路径下为 `None`（免整屏拷帧）
+        full_frame: Option<RgbaImage>,
+        /// 与当前锁定选区等大的局部帧
         selection_frame: RgbaImage,
         /// 帧间匹配结论
         analysis: FrameShiftAnalysis,
@@ -167,12 +167,27 @@ impl Drop for LongCaptureWorker {
     }
 }
 
+/// 若抓屏帧已精确等于选区尺寸则零拷贝直通，否则裁出锁定选区并保留原整屏帧供局部刷新替换。
+pub(crate) fn split_captured_frame_and_selection(
+    frame: RgbaImage,
+    bounds: (u32, u32, u32, u32),
+) -> (Option<RgbaImage>, RgbaImage) {
+    let (x, y, width, height) = bounds;
+    if frame.dimensions() == (width, height) {
+        (None, frame)
+    } else {
+        let selection_frame = frame.view(x, y, width, height).to_image();
+        (Some(frame), selection_frame)
+    }
+}
+
 fn run_analyze_task(task: AnalyzeFrameTask, sink: &LongCaptureEventSink) {
-    let (x, y, width, height) = task.selection_bounds;
+    let (_, _, width, height) = task.selection_bounds;
     if width == 0 || height == 0 {
         return;
     }
-    let selection_frame = task.full_frame.view(x, y, width, height).to_image();
+    let (full_frame, selection_frame) =
+        split_captured_frame_and_selection(task.full_frame, task.selection_bounds);
     let analysis = analyze_frame_shift(
         &task.anchor_frame,
         &selection_frame,
@@ -182,7 +197,7 @@ fn run_analyze_task(task: AnalyzeFrameTask, sink: &LongCaptureEventSink) {
     sink(LongCaptureAsyncEvent::FrameAnalyzed {
         request_id: task.request_id,
         expected_generation: task.expected_generation,
-        full_frame: task.full_frame,
+        full_frame,
         selection_frame,
         analysis,
     });
@@ -296,5 +311,13 @@ mod tests {
             thumb_ev,
             LongCaptureAsyncEvent::ThumbnailReady { canvas_dim, .. } if canvas_dim == stitcher.dimensions()
         ));
+    }
+
+    #[test]
+    fn test_split_captured_frame_skips_full_copy_for_region_sized_input() {
+        let region_only = textured_strip(160, 180, 32);
+        let (full, sel) = split_captured_frame_and_selection(region_only, (40, 60, 160, 180));
+        assert!(full.is_none());
+        assert_eq!(sel.dimensions(), (160, 180));
     }
 }

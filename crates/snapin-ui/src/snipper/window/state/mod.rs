@@ -274,11 +274,14 @@ impl SnipperState {
                 return CapturedFrameEffect::NoBgUpdate;
             }
         };
-        if !self.is_valid_long_capture_dimensions(bg_image, &frame) {
+        let Some(bounds) = self.locked_selection_bounds(bg_image.width(), bg_image.height()) else {
+            return CapturedFrameEffect::NoBgUpdate;
+        };
+        if !self.is_valid_long_capture_dimensions(bg_image, &frame, (bounds.2, bounds.3)) {
             return CapturedFrameEffect::NoBgUpdate;
         }
         let outcome = self.apply_long_capture_frame(&frame);
-        self.finish_stitch_outcome(bg_image, frame, outcome)
+        self.finish_stitch_outcome(bg_image, Some(frame), outcome)
     }
 
     /// 根据用户配置、触发模式与宿主端口构建初始状态。

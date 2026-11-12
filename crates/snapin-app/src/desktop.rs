@@ -19,10 +19,10 @@ use crate::config::{config_snapshot, SharedConfig};
 use arc_swap::ArcSwap;
 use snapin_foundation::Rect;
 use snapin_platform::{
-    capture_fullscreen_snapshot_excluding_window, open_path_in_file_manager, open_url,
-    read_clipboard_image, read_clipboard_text, send_desktop_notification,
-    simulate_mouse_wheel_with_focus_async, write_image_to_clipboard, write_text_to_clipboard,
-    WheelInputSpec,
+    capture_fullscreen_snapshot_excluding_window, capture_region_snapshot_excluding_window,
+    long_capture_requires_window_hide, open_path_in_file_manager, open_url, read_clipboard_image,
+    read_clipboard_text, send_desktop_notification, simulate_mouse_wheel_with_focus_async,
+    write_image_to_clipboard, write_text_to_clipboard, WheelInputSpec,
 };
 use snapin_ports::{
     ClipboardJobId, ClipboardPayload, ClipboardResult, ClipboardSink, ClipboardWrite, DesktopPort,
@@ -38,10 +38,12 @@ use tokio::sync::mpsc::{self, error::TrySendError};
 
 /// 桌面写操作队列容量；按用户交互频率设置上限，满队列时快速失败。
 const DESKTOP_WRITE_QUEUE_CAPACITY: usize = 8;
-/// 隐藏截图覆盖层后等待窗口系统完成合成器更新的稳定时间。
+/// 仅禁用指针命中穿透时等待 Wayland/窗口系统提交空输入区域的单帧稳定时间。
+const LONG_CAPTURE_PASSTHROUGH_SETTLE: Duration = Duration::from_millis(16);
+/// 需要整窗隐藏时等待合成器完成 unmap 的稳定时间。
 const LONG_CAPTURE_HIDE_SETTLE: Duration = Duration::from_millis(80);
-/// 模拟底层滚动后等待目标应用完成重绘的稳定时间。
-const LONG_CAPTURE_SCROLL_SETTLE: Duration = Duration::from_millis(80);
+/// 模拟底层滚动后等待目标应用完成排版重绘的稳定时间（与扩展内单帧排除周期累加）。
+const LONG_CAPTURE_SCROLL_SETTLE: Duration = Duration::from_millis(48);
 
 /// 长截图抓屏完成守卫；任务取消或 panic 时也必须回传失败，确保隐藏的覆盖层被恢复。
 struct ScreenCaptureCompletion {
@@ -361,6 +363,10 @@ impl DesktopPort for AppDesktop {
         }
     }
 
+    fn long_capture_requires_window_hide(&self) -> bool {
+        long_capture_requires_window_hide()
+    }
+
     fn capture_long_capture_frame(
         &self,
         request: LongCaptureFrameRequest,
@@ -377,11 +383,16 @@ impl DesktopPort for AppDesktop {
     }
 }
 
-/// 在覆盖层隐藏后驱动底层滚动，并异步抓取滚动后的完整屏幕帧。
+/// 在覆盖层穿透或隐藏后驱动底层滚动，并优先只抓取锁定选区内的像素帧。
 async fn capture_long_capture_frame_async(
     request: LongCaptureFrameRequest,
 ) -> Result<image::RgbaImage, PortError> {
-    tokio::time::sleep(LONG_CAPTURE_HIDE_SETTLE).await;
+    let settle = if long_capture_requires_window_hide() {
+        LONG_CAPTURE_HIDE_SETTLE
+    } else {
+        LONG_CAPTURE_PASSTHROUGH_SETTLE
+    };
+    tokio::time::sleep(settle).await;
     simulate_mouse_wheel_with_focus_async(WheelInputSpec {
         delta_x: request.delta.x,
         delta_y: request.delta.y,
@@ -396,17 +407,17 @@ async fn capture_long_capture_frame_async(
         )
     })?;
     tokio::time::sleep(LONG_CAPTURE_SCROLL_SETTLE).await;
-    // 即使 winit 的隐藏请求尚未被合成器完全应用，也要在抓帧瞬间由扩展临时隐藏
-    // Snapin actor，避免把透明覆盖层合成出的黑色区域写入长截图底图。
-    capture_fullscreen_snapshot_excluding_window("Snapin")
-        .await
-        .map_err(|error| {
-            PortError::with_kind(
-                PortErrorKind::Unavailable,
-                "抓取长截图滚动帧",
-                error.to_string(),
-            )
-        })
+    let capture_result = match request.selection_bounds {
+        Some(bounds) => capture_region_snapshot_excluding_window("Snapin", bounds).await,
+        None => capture_fullscreen_snapshot_excluding_window("Snapin").await,
+    };
+    capture_result.map_err(|error| {
+        PortError::with_kind(
+            PortErrorKind::Unavailable,
+            "抓取长截图滚动帧",
+            error.to_string(),
+        )
+    })
 }
 
 fn worker_start_error(operation: &str, error: snapin_runtime::TaskRuntimeError) -> PortError {

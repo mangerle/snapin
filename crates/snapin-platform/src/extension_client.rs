@@ -10,9 +10,11 @@
 
 use crate::dbus_session::get_session_connection;
 use crate::error::PlatformError;
+use arc_swap::ArcSwapOption;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use snapin_foundation::AppPaths;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::time::timeout;
 use zbus::zvariant::Type;
@@ -42,14 +44,44 @@ fn default_window_scale() -> f64 {
     1.0
 }
 
-/// 读取扩展启动时生成的进程间能力令牌，阻止同会话其他客户端调用特权方法。
-async fn read_extension_token() -> Result<String, PlatformError> {
-    tokio::task::spawn_blocking(read_extension_token_blocking)
+static EXTENSION_TOKEN_CACHE: OnceLock<ArcSwapOption<String>> = OnceLock::new();
+
+fn extension_token_cache() -> &'static ArcSwapOption<String> {
+    EXTENSION_TOKEN_CACHE.get_or_init(ArcSwapOption::empty)
+}
+
+/// 清理内存缓存的扩展能力令牌，以便在扩展重载轮换令牌后按需重新读取。
+pub fn invalidate_extension_token_cache() {
+    extension_token_cache().store(None);
+}
+
+/// 读取扩展启动时生成的进程间能力令牌（命中进程内缓存时零磁盘读取）。
+async fn read_extension_token() -> Result<Arc<String>, PlatformError> {
+    if let Some(cached) = extension_token_cache().load_full() {
+        return Ok(cached);
+    }
+    let loaded = tokio::task::spawn_blocking(read_extension_token_blocking)
         .await
         .map_err(|error| PlatformError::DBus {
             service: EXT_BUS_NAME.to_string(),
             message: format!("等待 GNOME 扩展能力令牌读取任务失败: {error}"),
-        })?
+        })??;
+    let token = Arc::new(loaded);
+    extension_token_cache().store(Some(token.clone()));
+    Ok(token)
+}
+
+async fn refresh_token_if_rotated(stale: &Arc<String>) -> Option<Arc<String>> {
+    let loaded = tokio::task::spawn_blocking(read_extension_token_blocking)
+        .await
+        .ok()
+        .and_then(Result::ok)?;
+    if loaded == **stale {
+        return None;
+    }
+    let updated = Arc::new(loaded);
+    extension_token_cache().store(Some(updated.clone()));
+    Some(updated)
 }
 
 fn read_extension_token_blocking() -> Result<String, PlatformError> {
@@ -204,6 +236,27 @@ pub async fn capture_fullscreen_extension_with_cursor(
     Ok(success)
 }
 
+/// GNOME 扩展局部选区截屏请求参数。
+#[derive(Debug, Clone, Copy)]
+pub struct ExtensionAreaCaptureRequest<'a> {
+    /// 目标运行时 PNG 路径
+    pub target_path: &'a str,
+    /// 需要在合成器内临时隐藏的覆盖层标题
+    pub exclude_title: &'a str,
+    /// 物理像素选区边界 `(x, y, width, height)`
+    pub bounds: (u32, u32, u32, u32),
+    /// 是否包含系统鼠标指针
+    pub include_cursor: bool,
+}
+
+/// 解析扩展 `CaptureAreaExcludingTitle` 返回的 `"offsetX,offsetY"` 坐标偏移。
+fn parse_area_capture_origin(raw: &str) -> Option<(u32, u32)> {
+    let (ox, oy) = raw.trim().split_once(',')?;
+    let x = ox.trim().parse::<u32>().ok()?;
+    let y = oy.trim().parse::<u32>().ok()?;
+    Some((x, y))
+}
+
 /// 请求扩展抓取全屏，并在抓帧瞬间隐藏指定标题的 Snapin 覆盖层。
 ///
 /// 该方法只允许由已更新到正式 UUID 的新版扩展提供。旧扩展缺少此方法时直接返回错误，
@@ -218,9 +271,71 @@ pub async fn capture_fullscreen_extension_excluding_title(
     include_cursor: bool,
 ) -> Result<bool, PlatformError> {
     let token = read_extension_token().await?;
-    let arguments = (token.as_str(), target_path, exclude_title, include_cursor);
-    let (success,): (bool,) = call_extension("CaptureFullscreenExcludingTitle", &arguments).await?;
+    let (success,): (bool,) = call_extension(
+        "CaptureFullscreenExcludingTitle",
+        &(token.as_str(), target_path, exclude_title, include_cursor),
+    )
+    .await?;
+    if !success {
+        if let Some(refreshed) = refresh_token_if_rotated(&token).await {
+            let (retried,): (bool,) = call_extension(
+                "CaptureFullscreenExcludingTitle",
+                &(
+                    refreshed.as_str(),
+                    target_path,
+                    exclude_title,
+                    include_cursor,
+                ),
+            )
+            .await?;
+            return Ok(retried);
+        }
+    }
     Ok(success)
+}
+
+/// 请求扩展只截取并编码指定物理选区（排除覆盖层窗口），减少整屏 4K 编解码与内存开销。
+///
+/// 返回 `Ok(Some((offset_x, offset_y)))` 表示已写入 PNG 且导出的局部图像相对请求选区
+/// 的物理左上角对齐偏移为 `(offset_x, offset_y)`；返回 `Ok(None)` 表示旧扩展或非均匀多屏
+/// 环境建议无缝回退到全屏抓取。
+///
+/// # Errors
+///
+/// 会话总线不可用、扩展不可用或 D-Bus 调用失败时返回 [`PlatformError`]。
+pub async fn capture_area_extension_excluding_title(
+    request: ExtensionAreaCaptureRequest<'_>,
+) -> Result<Option<(u32, u32)>, PlatformError> {
+    let (x, y, width, height) = request.bounds;
+    let mut token = read_extension_token().await?;
+    let mut raw = call_area_capture(&token, &request, (x, y, width, height)).await?;
+    if raw.is_empty() {
+        if let Some(refreshed) = refresh_token_if_rotated(&token).await {
+            token = refreshed;
+            raw = call_area_capture(&token, &request, (x, y, width, height)).await?;
+        }
+    }
+    Ok(parse_area_capture_origin(&raw))
+}
+
+async fn call_area_capture(
+    token: &str,
+    request: &ExtensionAreaCaptureRequest<'_>,
+    bounds: (u32, u32, u32, u32),
+) -> Result<String, PlatformError> {
+    let (x, y, width, height) = bounds;
+    let arguments = (
+        token,
+        request.target_path,
+        request.exclude_title,
+        x.min(i32::MAX as u32) as i32,
+        y.min(i32::MAX as u32) as i32,
+        width.min(i32::MAX as u32) as i32,
+        height.min(i32::MAX as u32) as i32,
+        request.include_cursor,
+    );
+    let (origin,): (String,) = call_extension("CaptureAreaExcludingTitle", &arguments).await?;
+    Ok(origin)
 }
 
 /// 请求 GNOME 扩展建立连续录屏流并返回 PipeWire 节点号。
@@ -464,5 +579,13 @@ mod tests {
         assert!(!is_unknown_method_error_name(
             "org.freedesktop.DBus.Error.AccessDenied"
         ));
+    }
+
+    #[test]
+    fn test_parse_area_capture_origin_parses_valid_and_rejects_empty() {
+        assert_eq!(parse_area_capture_origin("3,7"), Some((3, 7)));
+        assert_eq!(parse_area_capture_origin(" 0 , 12 \n"), Some((0, 12)));
+        assert_eq!(parse_area_capture_origin(""), None);
+        assert_eq!(parse_area_capture_origin("-1,5"), None);
     }
 }

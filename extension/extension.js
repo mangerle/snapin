@@ -40,6 +40,17 @@ const IFACE_XML = `
       <arg type="b" direction="in" name="includeCursor"/>
       <arg type="b" direction="out" name="success"/>
     </method>
+    <method name="CaptureAreaExcludingTitle">
+      <arg type="s" direction="in" name="authToken"/>
+      <arg type="s" direction="in" name="targetPath"/>
+      <arg type="s" direction="in" name="excludeTitle"/>
+      <arg type="i" direction="in" name="x"/>
+      <arg type="i" direction="in" name="y"/>
+      <arg type="i" direction="in" name="width"/>
+      <arg type="i" direction="in" name="height"/>
+      <arg type="b" direction="in" name="includeCursor"/>
+      <arg type="s" direction="out" name="resultOrigin"/>
+    </method>
     <method name="StartRecordingStream">
       <arg type="s" direction="in" name="authToken"/>
       <arg type="i" direction="in" name="x"/>
@@ -621,20 +632,11 @@ export default class SnapinHelperExtension extends Extension {
     }
 
     /**
-     * 截取全屏并在合成器抓帧瞬间隐藏指定标题的窗口。
-     *
-     * 录屏时 Snapin 覆盖层会占据整个屏幕；如果直接抓屏，视频将只包含暗色遮罩和静态
-     * 截图底图。这里短暂把目标窗口 actor 透明度设为 0，等待一个合成帧后抓屏，再在
-     * finally 中恢复原透明度。窗口对用户只产生一帧不可见，抓帧结束后立即恢复。
-     * @param {string} targetPath 存储目标 PNG 路径
+     * 临时从合成器视图隐藏指定标题窗口并执行截屏回调。
      * @param {string} excludeTitle 需要在抓帧时隐藏的窗口标题
-     * @param {boolean} includeCursor 是否包含鼠标指针
-     * @returns {boolean} 是否捕获成功
+     * @param {Function} task 异步抓帧函数
      */
-    async CaptureFullscreenExcludingTitle(authToken, targetPath, excludeTitle, includeCursor) {
-        if (!this._isAuthorized(authToken) || !this._isAllowedCapturePath(targetPath)) {
-            return false;
-        }
+    async _withExcludedActors(excludeTitle, task) {
         const actors = global.get_window_actors().filter(actor => {
             const win = actor.get_meta_window();
             return win && win.get_title() === excludeTitle;
@@ -652,19 +654,106 @@ export default class SnapinHelperExtension extends Extension {
                     });
                 });
             }
-            let screenshot = new Shell.Screenshot();
-            let file = Gio.File.new_for_path(targetPath);
-            let stream = file.replace(null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);
-            await screenshot.screenshot(Boolean(includeCursor), stream);
-            stream.close(null);
-            return true;
-        } catch (e) {
-            console.error('Snapin 排除覆盖层截屏失败:', e);
-            return false;
+            return await task();
         } finally {
             for (const [actor, opacity] of previousOpacities) {
                 actor.set_opacity(opacity);
             }
+        }
+    }
+
+    /**
+     * 打开唯一目标截图路径的写入流，优先直接独占创建以跳过 `.goutputstream-*` 临时文件重命名。
+     * @param {string} targetPath 运行时 tmpfs 目标 PNG 路径
+     */
+    _openCaptureStream(targetPath) {
+        const file = Gio.File.new_for_path(targetPath);
+        try {
+            return file.create(Gio.FileCreateFlags.PRIVATE, null);
+        } catch (_e) {
+            return file.replace(null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+        }
+    }
+
+    /**
+     * 截取全屏并在合成器抓帧瞬间隐藏指定标题的窗口。
+     *
+     * @param {string} targetPath 存储目标 PNG 路径
+     * @param {string} excludeTitle 需要在抓帧时隐藏的窗口标题
+     * @param {boolean} includeCursor 是否包含鼠标指针
+     * @returns {boolean} 是否捕获成功
+     */
+    async CaptureFullscreenExcludingTitle(authToken, targetPath, excludeTitle, includeCursor) {
+        if (!this._isAuthorized(authToken) || !this._isAllowedCapturePath(targetPath)) {
+            return false;
+        }
+        try {
+            return await this._withExcludedActors(excludeTitle, async () => {
+                const screenshot = new Shell.Screenshot();
+                const stream = this._openCaptureStream(targetPath);
+                try {
+                    await screenshot.screenshot(Boolean(includeCursor), stream);
+                } finally {
+                    stream.close(null);
+                }
+                return true;
+            });
+        } catch (e) {
+            console.error('Snapin 排除覆盖层截屏失败:', e);
+            return false;
+        }
+    }
+
+    /**
+     * 仅抓取并编码指定物理选区（排除覆盖层窗口），彻底消除整屏 4K PNG 往返编解码浪费。
+     *
+     * 返回格式为 `"offsetX,offsetY"`，表示导出的选区图左上角到请求物理选区左上角的偏移像素；
+     * 遇到包含光标、跨异构缩放多屏或非法区域等情形时返回空字符串，交由宿主无缝回退全屏抓取。
+     */
+    async CaptureAreaExcludingTitle(
+        authToken,
+        targetPath,
+        excludeTitle,
+        x,
+        y,
+        width,
+        height,
+        includeCursor,
+    ) {
+        if (
+            !this._isAuthorized(authToken)
+            || !this._isAllowedCapturePath(targetPath)
+            || includeCursor
+        ) {
+            return '';
+        }
+        if (width <= 0 || height <= 0 || x < 0 || y < 0) {
+            return '';
+        }
+        const bounds = this._physicalSelectionToAlignedStage(x, y, width, height);
+        if (!bounds) {
+            return '';
+        }
+        try {
+            return await this._withExcludedActors(excludeTitle, async () => {
+                const screenshot = new Shell.Screenshot();
+                const stream = this._openCaptureStream(targetPath);
+                try {
+                    await screenshot.screenshot_area(
+                        bounds.stageX,
+                        bounds.stageY,
+                        bounds.stageW,
+                        bounds.stageH,
+                        stream,
+                    );
+                } finally {
+                    stream.close(null);
+                }
+                return `${bounds.offsetX},${bounds.offsetY}`;
+            });
+        } catch (e) {
+            console.error('Snapin 排除覆盖层区域截屏失败:', e);
+            return '';
         }
     }
 
@@ -801,6 +890,69 @@ export default class SnapinHelperExtension extends Extension {
             y: Math.round(geometry.y + y / scale),
             width: Math.max(2, Math.round(width / scale)),
             height: Math.max(2, Math.round(height / scale)),
+        };
+    }
+
+    /**
+     * 将物理像素选区外扩对齐到 4 逻辑像素网格的 stage 矩形。
+     *
+     * 对所有常见 25% 步进缩放（1.0/1.25/1.5/1.75/2.0/2.25/2.5/3.0），4 逻辑像素乘以
+     * 缩放比恒为精确整数，从而彻底消除 Mutter 分数缩放取整引起的 1 像素抖动。
+     */
+    _physicalSelectionToAlignedStage(x, y, width, height) {
+        const nMonitors = global.display.get_n_monitors();
+        const primary = global.display.get_primary_monitor();
+        const scale = global.display.get_monitor_scale(primary);
+        const geometry = global.display.get_monitor_geometry(primary);
+        if (!Number.isFinite(scale) || scale <= 0) {
+            return null;
+        }
+        // 非 0.25 倍数缩放或异构缩放/主屏非虚拟左上角多屏环境交由全屏路径处理，避免坐标偏移。
+        if (Math.abs(scale * 4 - Math.round(scale * 4)) > 1e-4) {
+            return null;
+        }
+        let minStageX = geometry.x;
+        let minStageY = geometry.y;
+        let maxStageRight = geometry.x + geometry.width;
+        let maxStageBottom = geometry.y + geometry.height;
+        if (nMonitors > 1) {
+            for (let i = 0; i < nMonitors; i++) {
+                if (Math.abs(global.display.get_monitor_scale(i) - scale) > 1e-4) {
+                    return null;
+                }
+                const g = global.display.get_monitor_geometry(i);
+                minStageX = Math.min(minStageX, g.x);
+                minStageY = Math.min(minStageY, g.y);
+                maxStageRight = Math.max(maxStageRight, g.x + g.width);
+                maxStageBottom = Math.max(maxStageBottom, g.y + g.height);
+            }
+            if (minStageX !== geometry.x || minStageY !== geometry.y) {
+                return null;
+            }
+        }
+
+        const rawLeft = x / scale;
+        const rawTop = y / scale;
+        const rawRight = (x + width) / scale;
+        const rawBottom = (y + height) / scale;
+
+        const alignStep = 4;
+        const localStageX = Math.max(0, Math.floor(rawLeft / alignStep) * alignStep);
+        const localStageY = Math.max(0, Math.floor(rawTop / alignStep) * alignStep);
+        const maxLocalW = Math.max(2, maxStageRight - geometry.x - localStageX);
+        const maxLocalH = Math.max(2, maxStageBottom - geometry.y - localStageY);
+        const stageW = Math.min(maxLocalW, Math.max(2, Math.ceil(rawRight) - localStageX));
+        const stageH = Math.min(maxLocalH, Math.max(2, Math.ceil(rawBottom) - localStageY));
+
+        const offsetX = Math.max(0, x - Math.round(localStageX * scale));
+        const offsetY = Math.max(0, y - Math.round(localStageY * scale));
+        return {
+            stageX: geometry.x + localStageX,
+            stageY: geometry.y + localStageY,
+            stageW,
+            stageH,
+            offsetX,
+            offsetY,
         };
     }
 

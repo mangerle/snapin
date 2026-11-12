@@ -145,7 +145,11 @@ fn handle_wheel(context: &mut SnipperDispatchContext<'_>, delta: winit::event::M
                 session.enqueue_wheel_delta(wheel_delta);
             }
         }
-        dispatch_pending_long_capture_frame(context.window, context.state);
+        dispatch_pending_long_capture_frame(
+            context.window,
+            context.state,
+            context.bg_image.dimensions(),
+        );
     } else {
         context.window.request_redraw();
     }
@@ -155,6 +159,7 @@ fn handle_wheel(context: &mut SnipperDispatchContext<'_>, delta: winit::event::M
 pub(super) fn dispatch_pending_long_capture_frame(
     window: &Window,
     state: &mut SnipperState,
+    bg_dims: (u32, u32),
 ) -> bool {
     if state.jobs.has_pending_screen_capture() {
         return false;
@@ -170,24 +175,40 @@ pub(super) fn dispatch_pending_long_capture_frame(
     let Some(request_id) = state.jobs.begin_screen_capture() else {
         return false;
     };
-    let focus_point = match state.viewport.selection {
+    let (focus_point, selection_bounds) = match state.viewport.selection {
         SelectionState::Locked { rect, .. } => {
-            Some((rect.x + rect.width * 0.5, rect.y + rect.height * 0.5))
+            let focus = Some((rect.x + rect.width * 0.5, rect.y + rect.height * 0.5));
+            let bounds = rect.to_pixel_bounds(bg_dims.0, bg_dims.1);
+            let region = (bounds.2 > 0 && bounds.3 > 0).then_some(bounds);
+            (focus, region)
         }
-        _ => None,
+        _ => (None, None),
     };
 
     tracing::debug!(
-        "启动长截图滚动抓屏，请求序号: {request_id}，滚动增量: ({:.3}, {:.3})，锚点: {:?}",
+        "启动长截图滚动抓屏，请求序号: {request_id}，滚动增量: ({:.3}, {:.3})，锚点: {:?}，选区: {:?}",
         wheel_delta.x,
         wheel_delta.y,
-        focus_point
+        focus_point,
+        selection_bounds
     );
-    window.set_visible(false);
-    let screen_capture_events = state.jobs.screen_capture_events.clone();
     let desktop = state.session.desktop.clone();
+    if desktop.long_capture_requires_window_hide() {
+        window.set_visible(false);
+    } else if let Err(error) = window.set_cursor_hittest(false) {
+        tracing::debug!("禁用覆盖层指针命中失败，回退隐藏窗口: {error}");
+        window.set_visible(false);
+    } else {
+        // Wayland wl_surface.set_input_region 属于双缓冲状态，需触发重绘提交空输入区域。
+        window.request_redraw();
+    }
+    let screen_capture_events = state.jobs.screen_capture_events.clone();
+    let mut request = LongCaptureFrameRequest::new(wheel_delta, focus_point);
+    if let Some(bounds) = selection_bounds {
+        request = request.with_selection_bounds(bounds);
+    }
     let submitted = desktop.capture_long_capture_frame(
-        LongCaptureFrameRequest::new(wheel_delta, focus_point),
+        request,
         Box::new(move |result| screen_capture_events(request_id, result)),
     );
     if let Err(error) = submitted {
@@ -195,7 +216,10 @@ pub(super) fn dispatch_pending_long_capture_frame(
         if let Some(session) = state.long_capture.as_mut() {
             session.stop_auto_scroll();
         }
-        window.set_visible(true);
+        let _ = window.set_cursor_hittest(true);
+        if !window.is_visible().unwrap_or(false) {
+            window.set_visible(true);
+        }
         window.focus_window();
         tracing::warn!("提交长截图抓屏任务失败，请求序号: {request_id}，原因: {error}");
         state.set_status_message(format!("提交长截图抓屏任务失败: {error}"));
@@ -213,7 +237,11 @@ fn handle_pointer_button(
 ) {
     let need_redraw = handle_mouse_button(context.state, button, button_state, context.bg_image);
     if need_redraw {
-        dispatch_pending_long_capture_frame(context.window, context.state);
+        dispatch_pending_long_capture_frame(
+            context.window,
+            context.state,
+            context.bg_image.dimensions(),
+        );
         context.window.request_redraw();
     }
 }
@@ -227,7 +255,11 @@ fn handle_keyboard(context: &mut SnipperDispatchContext<'_>, key_event: &winit::
         context.bg_image,
     );
     if need_redraw {
-        dispatch_pending_long_capture_frame(context.window, context.state);
+        dispatch_pending_long_capture_frame(
+            context.window,
+            context.state,
+            context.bg_image.dimensions(),
+        );
         context.window.request_redraw();
     }
 }

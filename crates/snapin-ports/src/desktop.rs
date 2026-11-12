@@ -74,13 +74,26 @@ pub struct LongCaptureFrameRequest {
     pub delta: WheelDelta,
     /// 长截图选区中心在覆盖层坐标系下的物理像素坐标，用于精准定位待聚焦目标窗口。
     pub focus_point: Option<(f32, f32)>,
+    /// 当前锁定选区的物理像素边界 `(x, y, width, height)`，供支持局部抓取的宿主跳过整屏编码。
+    pub selection_bounds: Option<(u32, u32, u32, u32)>,
 }
 
 impl LongCaptureFrameRequest {
     /// 构造滚动抓屏请求。
     #[must_use]
     pub const fn new(delta: WheelDelta, focus_point: Option<(f32, f32)>) -> Self {
-        Self { delta, focus_point }
+        Self {
+            delta,
+            focus_point,
+            selection_bounds: None,
+        }
+    }
+
+    /// 附加锁定选区的物理边界 `(x, y, width, height)`，启用按选区局部抓屏优化。
+    #[must_use]
+    pub const fn with_selection_bounds(mut self, bounds: (u32, u32, u32, u32)) -> Self {
+        self.selection_bounds = Some(bounds);
+        self
     }
 }
 
@@ -130,6 +143,14 @@ pub trait DesktopPort: Send + Sync {
     /// UI 只描述发生了复制动作，通知开关与发送通道由应用层实现决定；
     /// 这样贴图窗口即可在保持纯表现层的同时保留原有通知行为。
     fn notify_copy(&self, body: &str);
+
+    /// 宿主在长截图滚动抓屏前是否需要隐藏全屏覆盖层窗口（`window.set_visible(false)`）。
+    ///
+    /// 返回 `false` 时代表底层截屏通道会在合成器内部透明排除覆盖层，UI 侧只需禁用
+    /// 指针命中穿透（`set_cursor_hittest(false)`）而无需反复隐藏/重建窗口，彻底消除闪屏。
+    fn long_capture_requires_window_hide(&self) -> bool {
+        true
+    }
 
     /// 请求抓取一帧底层应用滚动后的屏幕画面。
     ///

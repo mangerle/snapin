@@ -1,36 +1,49 @@
 //! `SnipperView` 长截图异步抓取、后台匹配提交与缩略图后台预渲染流水线扩展。
 
 use super::event_dispatcher::dispatch_pending_long_capture_frame;
-use super::jobs::{AnalyzeFrameTask, LongCaptureAsyncEvent, ThumbnailRenderTask};
+use super::jobs::{
+    split_captured_frame_and_selection, AnalyzeFrameTask, LongCaptureAsyncEvent,
+    ThumbnailRenderTask,
+};
 use super::state::frame_sync::{AnalyzedLongFrame, PlannedLongFrame};
 use super::state::CapturedFrameEffect;
 use super::view::SnipperView;
 use crate::ports::PortError;
 use crate::snipper::selection::SelectionState;
-use image::{GenericImageView, RgbaImage};
+use image::RgbaImage;
 use snapin_render::analyze_frame_shift;
 
 impl SnipperView {
-    /// 处理异步长截图抓屏结果：立即恢复覆盖层可见性，并把繁重的裁剪与匹配分析卸载到后台线程。
+    /// 处理异步长截图抓屏结果：立即恢复覆盖层交互，并把繁重的裁剪与匹配分析卸载到后台线程。
     ///
-    /// 抓屏期间覆盖层被隐藏以确保捕获到底层应用；无论成功、失败还是结果已过期，
-    /// 都必须第一时间恢复窗口可见，再非阻塞投递匹配任务。
+    /// 抓屏期间覆盖层处于指针穿透或隐藏状态；无论成功、失败还是结果已过期，
+    /// 都必须第一时间恢复覆盖层指针命中与必要可见性，再非阻塞投递匹配任务。
     pub fn handle_screen_capture_finished(
         &mut self,
         request_id: u64,
         result: Result<RgbaImage, PortError>,
     ) {
-        self.window.set_visible(true);
+        if let Err(error) = self.window.set_cursor_hittest(true) {
+            tracing::debug!("恢复覆盖层指针命中失败: {error}");
+        }
+        if !self.window.is_visible().unwrap_or(false) {
+            self.window.set_visible(true);
+        }
         self.window.focus_window();
         match self
             .state
             .plan_long_frame_analysis(&self.bg_image, request_id, result)
         {
-            PlannedLongFrame::Completed(CapturedFrameEffect::Stale) => return,
+            PlannedLongFrame::Completed(CapturedFrameEffect::Stale) => {
+                self.window.request_redraw();
+                return;
+            }
             PlannedLongFrame::Completed(_) => {}
             PlannedLongFrame::Dispatch(task) => {
                 if let Err(fallback) = self.long_capture_worker.schedule_frame_analysis(task) {
                     self.apply_sync_fallback_analysis(*fallback);
+                } else {
+                    self.window.request_redraw();
                 }
                 return;
             }
@@ -80,8 +93,8 @@ impl SnipperView {
     }
 
     fn apply_sync_fallback_analysis(&mut self, task: AnalyzeFrameTask) {
-        let (x, y, w, h) = task.selection_bounds;
-        let selection_frame = task.full_frame.view(x, y, w, h).to_image();
+        let (full_frame, selection_frame) =
+            split_captured_frame_and_selection(task.full_frame, task.selection_bounds);
         let analysis = analyze_frame_shift(
             &task.anchor_frame,
             &selection_frame,
@@ -93,7 +106,7 @@ impl SnipperView {
             AnalyzedLongFrame {
                 request_id: task.request_id,
                 expected_generation: task.expected_generation,
-                full_frame: task.full_frame,
+                full_frame,
                 selection_frame,
                 analysis,
             },
@@ -126,7 +139,11 @@ impl SnipperView {
             }
         }
         // 前帧分析刚落盘，若用户在这期间持续滑动留下了累积滚轮增量则立刻无缝续拍
-        dispatch_pending_long_capture_frame(&self.window, &mut self.state);
+        dispatch_pending_long_capture_frame(
+            &self.window,
+            &mut self.state,
+            self.bg_image.dimensions(),
+        );
         self.window.request_redraw();
     }
 
@@ -141,7 +158,11 @@ impl SnipperView {
         if !due {
             return false;
         }
-        dispatch_pending_long_capture_frame(&self.window, &mut self.state)
+        dispatch_pending_long_capture_frame(
+            &self.window,
+            &mut self.state,
+            self.bg_image.dimensions(),
+        )
     }
 
     pub(super) fn schedule_desired_long_capture_thumbnail(&mut self) {

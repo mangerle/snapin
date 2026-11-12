@@ -159,6 +159,26 @@ pub(crate) async fn revalidate_gnome_extension_capability() -> Arc<PlatformCapab
     updated
 }
 
+/// 判断当前运行环境在长截图滚屏抓帧期间是否必须彻底隐藏覆盖层窗口。
+///
+/// # 设计原理
+///
+/// Linux GNOME 扩展通道在合成器抓帧期间透明隐藏覆盖层窗口，UI 侧只需通过
+/// `set_cursor_hittest(false)` 释放鼠标事件穿透并请求重绘提交空输入区即可，
+/// 彻底消除 `set_visible(false/true)` 造成的窗口黑闪、任务栏跳动与焦点抖动；
+/// 其他平台或缺少合成器透明隐藏支持时保持隐藏窗口。
+#[must_use]
+pub fn long_capture_requires_window_hide() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        !get_platform_capabilities().gnome_extension_active
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
+}
+
 /// 构造仅替换扩展在线标志的能力快照，保留既有桌面环境探测结果。
 #[cfg(target_os = "linux")]
 fn apply_extension_probe(current: &PlatformCapabilities, online: bool) -> PlatformCapabilities {

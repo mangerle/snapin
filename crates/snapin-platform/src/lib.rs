@@ -3,6 +3,7 @@
 mod autostart;
 mod capabilities;
 mod capture;
+mod capture_excluding;
 mod clipboard;
 mod command;
 mod error;
@@ -24,12 +25,14 @@ mod mouse_input;
 
 pub use autostart::sync_autostart;
 pub use capabilities::{
-    get_platform_capabilities, init_platform_capabilities, refresh_platform_capabilities,
-    PlatformCapabilities,
+    get_platform_capabilities, init_platform_capabilities, long_capture_requires_window_hide,
+    refresh_platform_capabilities, PlatformCapabilities,
 };
 pub use capture::{
-    capture_fullscreen_snapshot, capture_fullscreen_snapshot_excluding_window,
-    capture_fullscreen_snapshot_with_origin, ScreenSnapshot,
+    capture_fullscreen_snapshot, capture_fullscreen_snapshot_with_origin, ScreenSnapshot,
+};
+pub use capture_excluding::{
+    capture_fullscreen_snapshot_excluding_window, capture_region_snapshot_excluding_window,
 };
 pub use clipboard::{
     read_clipboard_image, read_clipboard_text, subscribe_clipboard_changes,
@@ -42,8 +45,10 @@ pub use window::WindowRect;
 
 #[cfg(target_os = "linux")]
 pub use extension_client::{
-    capture_fullscreen_extension, list_windows, place_paster_window,
+    capture_area_extension_excluding_title, capture_fullscreen_extension,
+    invalidate_extension_token_cache, list_windows, place_paster_window,
     simulate_mouse_wheel_extension, start_recording_stream, stop_recording_stream,
+    ExtensionAreaCaptureRequest,
 };
 
 pub use hotkey_manager::{

@@ -7,7 +7,7 @@ use super::{AutoScrollStopReason, CapturedFrameEffect, SnipperState};
 use crate::ports::PortError;
 use crate::snipper::selection::SelectionState;
 use crate::snipper::window::jobs::AnalyzeFrameTask;
-use image::RgbaImage;
+use image::{imageops, RgbaImage};
 use snapin_foundation::{i18n::tr, trf};
 use snapin_render::{FrameShiftAnalysis, StitchFrameOutcome};
 use tracing::{debug, warn};
@@ -16,7 +16,7 @@ use tracing::{debug, warn};
 pub(crate) struct AnalyzedLongFrame {
     pub(crate) request_id: u64,
     pub(crate) expected_generation: u64,
-    pub(crate) full_frame: RgbaImage,
+    pub(crate) full_frame: Option<RgbaImage>,
     pub(crate) selection_frame: RgbaImage,
     pub(crate) analysis: FrameShiftAnalysis,
 }
@@ -56,15 +56,14 @@ impl SnipperState {
                 return PlannedLongFrame::Completed(CapturedFrameEffect::NoBgUpdate);
             }
         };
-        if !self.is_valid_long_capture_dimensions(bg_image, &frame) {
-            self.jobs.finish_screen_capture(request_id);
-            return PlannedLongFrame::Completed(CapturedFrameEffect::NoBgUpdate);
-        }
-
-        let Some(bounds) = self.locked_selection_bounds(frame.width(), frame.height()) else {
+        let Some(bounds) = self.locked_selection_bounds(bg_image.width(), bg_image.height()) else {
             self.jobs.finish_screen_capture(request_id);
             return PlannedLongFrame::Completed(CapturedFrameEffect::NoBgUpdate);
         };
+        if !self.is_valid_long_capture_dimensions(bg_image, &frame, (bounds.2, bounds.3)) {
+            self.jobs.finish_screen_capture(request_id);
+            return PlannedLongFrame::Completed(CapturedFrameEffect::NoBgUpdate);
+        }
         let Some(session) = self.long_capture.as_ref() else {
             self.jobs.finish_screen_capture(request_id);
             return PlannedLongFrame::Completed(CapturedFrameEffect::NoBgUpdate);
@@ -94,7 +93,14 @@ impl SnipperState {
         if !self.jobs.finish_screen_capture(analyzed.request_id) {
             return CapturedFrameEffect::Stale;
         }
-        if !self.is_valid_long_capture_dimensions(bg_image, &analyzed.full_frame) {
+        let Some(bounds) = self.locked_selection_bounds(bg_image.width(), bg_image.height()) else {
+            return CapturedFrameEffect::NoBgUpdate;
+        };
+        let frame_for_check = analyzed
+            .full_frame
+            .as_ref()
+            .unwrap_or(&analyzed.selection_frame);
+        if !self.is_valid_long_capture_dimensions(bg_image, frame_for_check, (bounds.2, bounds.3)) {
             return CapturedFrameEffect::NoBgUpdate;
         }
         let Some(session) = self.long_capture.as_mut() else {
@@ -105,14 +111,25 @@ impl SnipperState {
             analyzed.expected_generation,
             analyzed.analysis,
         );
+        let region_patch = if matches!(outcome, StitchFrameOutcome::Stitched { .. })
+            && analyzed.full_frame.is_none()
+        {
+            Some((bounds.0, bounds.1, session.stitcher.last_frame_arc()))
+        } else {
+            None
+        };
+        if let Some((bx, by, patch)) = region_patch {
+            imageops::replace(bg_image, patch.as_ref(), i64::from(bx), i64::from(by));
+        }
         self.finish_stitch_outcome(bg_image, analyzed.full_frame, outcome)
     }
 
-    /// 检查抓屏帧与会话激活态及屏幕分辨率的一致性；尺寸异常时给出提示。
+    /// 检查抓屏帧与会话激活态及屏幕/选区尺寸的一致性；同时兼容全屏帧与选区局部帧。
     pub(super) fn is_valid_long_capture_dimensions(
         &mut self,
         bg_image: &RgbaImage,
         frame: &RgbaImage,
+        selection_size: (u32, u32),
     ) -> bool {
         if !self
             .long_capture
@@ -121,13 +138,16 @@ impl SnipperState {
         {
             return false;
         }
-        if frame.dimensions() != bg_image.dimensions() {
+        let dims = frame.dimensions();
+        if dims != bg_image.dimensions() && dims != selection_size {
             warn!(
-                "长截图抓屏分辨率与当前画布不一致，抓屏={}x{}，画布={}x{}，已保留原底图",
+                "长截图抓屏分辨率与当前画布/选区均不一致，抓屏={}x{}，画布={}x{}，选区={}x{}，已保留原底图",
                 frame.width(),
                 frame.height(),
                 bg_image.width(),
-                bg_image.height()
+                bg_image.height(),
+                selection_size.0,
+                selection_size.1,
             );
             self.set_status_message(tr("抓屏分辨率与当前画布不一致，已保留原底图"));
             return false;
@@ -135,7 +155,11 @@ impl SnipperState {
         true
     }
 
-    fn locked_selection_bounds(&self, max_w: u32, max_h: u32) -> Option<(u32, u32, u32, u32)> {
+    pub(super) fn locked_selection_bounds(
+        &self,
+        max_w: u32,
+        max_h: u32,
+    ) -> Option<(u32, u32, u32, u32)> {
         let SelectionState::Locked { rect, .. } = self.viewport.selection else {
             return None;
         };
@@ -150,7 +174,7 @@ impl SnipperState {
     pub(super) fn finish_stitch_outcome(
         &mut self,
         bg_image: &mut RgbaImage,
-        frame: RgbaImage,
+        full_frame: Option<RgbaImage>,
         outcome: StitchFrameOutcome,
     ) -> CapturedFrameEffect {
         let stop_reason = self.long_capture.as_mut().and_then(
@@ -167,7 +191,9 @@ impl SnipperState {
         };
         let effect = match outcome {
             StitchFrameOutcome::Stitched { .. } => {
-                *bg_image = frame;
+                if let Some(frame) = full_frame {
+                    *bg_image = frame;
+                }
                 if self.session.status_message.as_deref() != Some(recording_hint) {
                     self.set_status_message(recording_hint);
                 }
@@ -260,7 +286,7 @@ mod tests {
             AnalyzedLongFrame {
                 request_id: task.request_id,
                 expected_generation: task.expected_generation,
-                full_frame: task.full_frame,
+                full_frame: Some(task.full_frame),
                 selection_frame: sel,
                 analysis,
             },
@@ -298,7 +324,7 @@ mod tests {
 
         let effect = state.finish_stitch_outcome(
             &mut bg,
-            textured_screen(220, 220, 48),
+            Some(textured_screen(220, 220, 48)),
             StitchFrameOutcome::LimitReached,
         );
         assert_eq!(effect, CapturedFrameEffect::NoBgUpdate);
@@ -308,5 +334,51 @@ mod tests {
             .status_message
             .as_deref()
             .is_some_and(|msg| msg.contains("上限")));
+    }
+
+    #[test]
+    fn test_region_sized_frame_patches_selection_without_touching_surroundings() {
+        let mut state = SnipperState::new();
+        let rect = Rect::new(20.0, 20.0, 160.0, 160.0);
+        state.viewport.selection = SelectionState::Locked {
+            rect,
+            active_drag: None,
+        };
+        let mut bg = textured_screen(220, 220, 0);
+        let init_crop = image::GenericImageView::view(&bg, 20, 20, 160, 160).to_image();
+        state.long_capture = Some(LongCaptureSession::new(init_crop));
+
+        let next_full = textured_screen(220, 220, 48);
+        let region_only = image::GenericImageView::view(&next_full, 20, 20, 160, 160).to_image();
+        let req_id = state.jobs.begin_screen_capture().expect("应成功登记请求");
+        let PlannedLongFrame::Dispatch(task) =
+            state.plan_long_frame_analysis(&bg, req_id, Ok(region_only.clone()))
+        else {
+            panic!("局部选区尺寸帧应合法通过前置校验");
+        };
+        assert_eq!(task.full_frame.dimensions(), (160, 160));
+
+        let analysis = analyze_frame_shift(
+            &task.anchor_frame,
+            &region_only,
+            task.direction,
+            &task.options,
+        );
+        let effect = state.apply_analyzed_long_frame(
+            &mut bg,
+            AnalyzedLongFrame {
+                request_id: task.request_id,
+                expected_generation: task.expected_generation,
+                full_frame: None,
+                selection_frame: region_only.clone(),
+                analysis,
+            },
+        );
+        assert_eq!(effect, CapturedFrameEffect::BgUpdated);
+        assert_eq!(
+            image::GenericImageView::view(&bg, 20, 20, 160, 160).to_image(),
+            region_only
+        );
+        assert_eq!(*bg.get_pixel(5, 5), Rgba([20, 20, 20, 255]));
     }
 }
