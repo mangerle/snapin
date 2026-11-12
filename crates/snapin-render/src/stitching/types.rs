@@ -15,11 +15,30 @@ pub const DEFAULT_MIN_THUMBNAIL_CROSS: u32 = 56;
 /// 截图滚动与拼接的主方向。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StitchDirection {
-    /// 垂直方向拼接（从上往下滚动，默认）
+    /// 垂直方向拼接（默认）
     #[default]
     Vertical,
-    /// 水平方向拼接（从左往右滚动）
+    /// 水平方向拼接
     Horizontal,
+}
+
+/// 已经锁定的单次长截图生长极性（首段增量的延长端）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GrowthPolarity {
+    /// 正向向画布末端扩展（垂直向下滚 / 水平向右滚）
+    Forward,
+    /// 反向向画布首端前插扩展（垂直向上滚 / 水平向左滚）
+    Backward,
+}
+
+impl GrowthPolarity {
+    /// 转换为与 UI `locked_direction` 兼容的有符号极性标记（+1 或 -1）。
+    pub(crate) const fn as_sign(self) -> i32 {
+        match self {
+            Self::Forward => 1,
+            Self::Backward => -1,
+        }
+    }
 }
 
 /// 长截图拼接配置参数。
@@ -27,13 +46,15 @@ pub enum StitchDirection {
 pub struct StitchOptions {
     /// 边距保护比例，用于剔除左右两侧滚动条与边框杂色干扰（例如 0.10 表示左右各剔除 10% 区域）
     pub margin_ratio: f32,
-    /// 单帧允许的最大有效移动位移量（像素），超出此范围视为快速翻页或场景切换，予以保护丢弃
+    /// 单帧允许的最大有效移动位移量（像素）。
+    /// 设为 `0`（默认）表示按活跃区高度自动适应（`75%` 跨度，并至少保留 `min_overlap` 重叠）；
+    /// 非零时作为显式上界夹取。正反向搜索对称共享同一上界，不再对反向回滚/上翻设 `80px` 硬死上限。
     pub max_step: u32,
     /// 判定为发生内容移动的最小像素阈值，低于此值视为静止
     pub min_step: u32,
     /// 匹配置信度判定阈值 (0.0 ~ 1.0)，低于此值认为未能有效匹配，不追加画布
     pub confidence_threshold: f32,
-    /// 是否开启反向滚动自动裁剪（检测到用户反向滚动鼠标时，自动裁切掉长图尾部回滚的内容）
+    /// 是否开启反向滚动自动裁剪（检测到用户向已锁定生长方向的反方向回滚时，自动裁除回退内容）
     pub auto_crop_reverse: bool,
     /// 画面顶部（或左侧）固定标题栏/导航条的最大判定比例（默认 0.35）
     pub sticky_header_max_ratio: f32,
@@ -43,7 +64,7 @@ impl Default for StitchOptions {
     fn default() -> Self {
         Self {
             margin_ratio: 0.10,
-            max_step: 300,
+            max_step: 0,
             min_step: 2,
             confidence_threshold: 0.70,
             auto_crop_reverse: true,

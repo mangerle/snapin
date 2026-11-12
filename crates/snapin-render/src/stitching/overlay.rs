@@ -182,7 +182,10 @@ pub(crate) struct OverlayHealSpec<'a> {
     pub(crate) step: u32,
     pub(crate) header: u32,
     pub(crate) footer: u32,
+    pub(crate) existing_canvas_header: u32,
     pub(crate) existing_canvas_footer: u32,
+    /// `false`: 向尾部追加（offset > 0）；`true`: 向首部前插（offset < 0）
+    pub(crate) is_prepend: bool,
 }
 
 /// 识别静止不动的局部浮动浮层（如右下角悬浮按钮），并用当前帧刚刚滑出遮挡区的新露像素覆盖抹平旧残影。
@@ -289,20 +292,33 @@ fn is_floating_block(spec: &OverlayHealSpec<'_>, m_range: (u32, u32), c_range: (
             static_sum += u64::from(pl.abs_diff(ql));
             count += 1;
 
-            // 正向对照：若当前位置属于静止浮层，curr[m] 与本应滚入它的 prev[m + step] 应显著不同；
-            // 当浮层靠近平移末端（m + step >= body_end）时，用逆向对照 prev[m] 与已滚出到 curr[m - step] 的正文判定。
-            let prev_m = m + spec.step;
-            if prev_m < body_end {
-                let s_px = read_axis_pixel(spec.prev, prev_m, c, spec.direction);
-                let sl = rgb_to_luma(s_px[0], s_px[1], s_px[2]);
-                shifted_sum += u64::from(ql.abs_diff(sl));
-                shifted_count += 1;
-            }
-            if m >= body_start + spec.step {
-                let c_px = read_axis_pixel(spec.curr, m - spec.step, c, spec.direction);
-                let cl = rgb_to_luma(c_px[0], c_px[1], c_px[2]);
-                shifted_sum += u64::from(pl.abs_diff(cl));
-                shifted_count += 1;
+            // 按滚动极性确定相邻帧的对齐偏移符号，校验静态浮层与真实位移正文间的显著反差。
+            if !spec.is_prepend {
+                if m + spec.step < body_end {
+                    let s_px = read_axis_pixel(spec.prev, m + spec.step, c, spec.direction);
+                    let sl = rgb_to_luma(s_px[0], s_px[1], s_px[2]);
+                    shifted_sum += u64::from(ql.abs_diff(sl));
+                    shifted_count += 1;
+                }
+                if m >= body_start + spec.step {
+                    let c_px = read_axis_pixel(spec.curr, m - spec.step, c, spec.direction);
+                    let cl = rgb_to_luma(c_px[0], c_px[1], c_px[2]);
+                    shifted_sum += u64::from(pl.abs_diff(cl));
+                    shifted_count += 1;
+                }
+            } else {
+                if m + spec.step < body_end {
+                    let c_px = read_axis_pixel(spec.curr, m + spec.step, c, spec.direction);
+                    let cl = rgb_to_luma(c_px[0], c_px[1], c_px[2]);
+                    shifted_sum += u64::from(pl.abs_diff(cl));
+                    shifted_count += 1;
+                }
+                if m >= body_start + spec.step {
+                    let s_px = read_axis_pixel(spec.prev, m - spec.step, c, spec.direction);
+                    let sl = rgb_to_luma(s_px[0], s_px[1], s_px[2]);
+                    shifted_sum += u64::from(ql.abs_diff(sl));
+                    shifted_count += 1;
+                }
             }
         }
     }
@@ -332,22 +348,46 @@ fn apply_clean_backfill(
     mask: &[bool],
     grid: BackfillGrid,
 ) {
-    let overlap_end = grid.body_end.saturating_sub(spec.step);
-    for curr_m in grid.body_start..overlap_end {
+    let canvas_main = axis_dims(canvas, spec.direction).0;
+    let range_start = if spec.is_prepend {
+        grid.body_start + spec.step
+    } else {
+        grid.body_start
+    };
+    let range_end = if spec.is_prepend {
+        grid.body_end
+    } else {
+        grid.body_end.saturating_sub(spec.step)
+    };
+    for curr_m in range_start..range_end {
         let r_curr = ((curr_m - grid.body_start) / grid.block_m) as usize;
-        let prev_m = curr_m + spec.step;
+        let prev_m = if spec.is_prepend {
+            curr_m - spec.step
+        } else {
+            curr_m + spec.step
+        };
         let r_prev = ((prev_m - grid.body_start) / grid.block_m) as usize;
         if r_curr >= grid.rows || r_prev >= grid.rows {
             continue;
         }
-        let dist_from_body_end = grid.body_end.saturating_sub(prev_m);
-        if dist_from_body_end > grid.canvas_body_end {
-            continue;
-        }
-        let canvas_m = grid.canvas_body_end - dist_from_body_end;
-        if canvas_m >= grid.canvas_body_end {
-            continue;
-        }
+        let canvas_m = if spec.is_prepend {
+            let rel_in_body = prev_m.saturating_sub(grid.body_start);
+            let target = spec.existing_canvas_header.saturating_add(rel_in_body);
+            if target >= canvas_main {
+                continue;
+            }
+            target
+        } else {
+            let dist_from_body_end = grid.body_end.saturating_sub(prev_m);
+            if dist_from_body_end > grid.canvas_body_end {
+                continue;
+            }
+            let target = grid.canvas_body_end - dist_from_body_end;
+            if target >= grid.canvas_body_end {
+                continue;
+            }
+            target
+        };
 
         for c_idx in 0..grid.cols {
             let curr_occluded = mask[r_curr * grid.cols + c_idx];

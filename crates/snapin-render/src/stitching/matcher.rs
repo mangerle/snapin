@@ -134,7 +134,13 @@ fn evaluate_weighted_grid_error(ctx: &GridEvalContext<'_>, shift: i32) -> f64 {
 
     let roi_w = ctx.x_end - ctx.x_start;
     let cols = roi_w.min(4);
-    let step_y = if overlap_rows > 120 { 2 } else { 1 };
+    let step_y = if overlap_rows > 320 {
+        3
+    } else if overlap_rows > 120 {
+        2
+    } else {
+        1
+    };
     let mut acc = GridAccumulators::default();
 
     for r in (0..overlap_rows).step_by(step_y) {
@@ -285,17 +291,27 @@ pub(crate) fn estimate_vertical_shift(
         return MatchResult::idle();
     }
 
-    let max_shift = (options.max_step as usize).min(active_height / 2);
+    // 依据有效活跃区跨度自适应决定最大允许位移（默认保留至少 25% 且不少于 24px 的重叠区），
+    // 并对正反向搜索统一对称使用同一最大位移上界，不再硬锁 300px 与 80px。
+    let min_overlap = (active_height / 4).max(24).min(active_height);
+    let adaptive_max = active_height.saturating_sub(min_overlap);
+    let max_shift = if options.max_step == 0 {
+        adaptive_max
+    } else {
+        (options.max_step as usize).min(adaptive_max)
+    };
     let min_shift = options.min_step as usize;
+    if max_shift < min_shift {
+        return MatchResult::idle();
+    }
     let mut scores = Vec::with_capacity(max_shift.saturating_mul(2));
 
     let (mut best_shift, mut min_avg_error) =
         collect_shift_scores(&ctx, min_shift, max_shift, 1, &mut scores).unwrap_or((0, f64::MAX));
 
-    let max_rev = max_shift.min(80);
-    if min_avg_error > 8.0 || best_shift == 0 {
+    if min_avg_error > 2.0 || best_shift == 0 {
         if let Some((rev_shift, rev_err)) =
-            collect_shift_scores(&ctx, min_shift, max_rev, -1, &mut scores)
+            collect_shift_scores(&ctx, min_shift, max_shift, -1, &mut scores)
         {
             if rev_err < min_avg_error {
                 min_avg_error = rev_err;
@@ -303,7 +319,7 @@ pub(crate) fn estimate_vertical_shift(
             }
         }
     } else if (best_shift.unsigned_abs() as usize) >= min_shift
-        && (best_shift.unsigned_abs() as usize) <= max_rev
+        && (best_shift.unsigned_abs() as usize) <= max_shift
     {
         // 追加镜像反向位移点作为半周期周期纹理反对称歧义校验，成本仅 O(1)。
         let mirror = -best_shift;

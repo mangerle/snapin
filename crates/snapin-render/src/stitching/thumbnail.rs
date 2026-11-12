@@ -14,13 +14,14 @@
 use super::types::{StitchDirection, ThumbnailOverview};
 use image::{imageops, GenericImageView, Rgba, RgbaImage};
 
-/// 按方向与目标槽位尺寸生成带局部映射信息的实时预览缩略图。
+/// 按方向、激活生长端与目标槽位尺寸生成带局部映射信息的实时预览缩略图。
 pub(crate) fn render_thumbnail_overview(
     canvas: &RgbaImage,
     direction: StitchDirection,
     max_w: u32,
     max_h: u32,
     min_readable_cross: u32,
+    anchor_at_head: bool,
 ) -> ThumbnailOverview {
     let (cw, ch) = canvas.dimensions();
     if cw == 0 || ch == 0 || max_w == 0 || max_h == 0 {
@@ -51,7 +52,12 @@ pub(crate) fn render_thumbnail_overview(
             .min(main_span as f32) as u32;
 
         if src_main_window < main_span {
-            let src_start = main_span.saturating_sub(src_main_window);
+            let src_start = if anchor_at_head {
+                0
+            } else {
+                main_span.saturating_sub(src_main_window)
+            };
+            let src_end = (src_start + src_main_window).min(main_span);
             let thumb_cross = eff_min_cross.max(1);
             let thumb_main = ((src_main_window as f32) * window_scale)
                 .round()
@@ -74,7 +80,7 @@ pub(crate) fn render_thumbnail_overview(
             return ThumbnailOverview {
                 image,
                 slice_start_ratio: (src_start as f32 / main_span as f32).clamp(0.0, 1.0),
-                slice_end_ratio: 1.0,
+                slice_end_ratio: (src_end as f32 / main_span as f32).clamp(0.0, 1.0),
                 is_cropped_window: true,
             };
         }

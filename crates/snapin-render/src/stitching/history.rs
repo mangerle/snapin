@@ -1,6 +1,6 @@
 //! 长截图手动裁剪增量撤销历史栈与单轴条带还原辅助。
 
-use super::types::StitchDirection;
+use super::types::{GrowthPolarity, StitchDirection};
 use image::{GenericImage, RgbaImage};
 
 /// 单次会话最多保留的手动裁剪撤销步数，防止频繁重录或连续裁剪长期占用堆内存。
@@ -18,8 +18,10 @@ pub(crate) struct CropHistoryEntry {
     /// 仅缓存被裁掉的窄边缘条带而非整张超长画布，兼顾多步撤回与低内存占用。
     pub(crate) removed_strip: RgbaImage,
     pub(crate) prev_last_frame: RgbaImage,
-    pub(crate) prev_tail_truncated_below_frame: bool,
+    pub(crate) prev_anchor_truncated_below_frame: bool,
+    pub(crate) prev_attached_header_size: u32,
     pub(crate) prev_attached_footer_size: u32,
+    pub(crate) prev_growth_polarity: Option<GrowthPolarity>,
 }
 
 /// 有界手动裁剪撤回栈。

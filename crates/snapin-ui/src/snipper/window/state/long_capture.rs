@@ -294,6 +294,7 @@ impl LongCaptureSession {
             StitchFrameOutcome::Stitched { .. } => {
                 self.is_matched = true;
                 self.pending_direction_confirm = false;
+                self.locked_direction = self.stitcher.growth_polarity();
             }
             StitchFrameOutcome::Unchanged => {
                 self.is_matched = true;
@@ -307,22 +308,37 @@ impl LongCaptureSession {
     }
 
     /// 上裁剪（裁剪长图顶部/左侧），返回实际裁去的像素量。
+    ///
+    /// 若已裁回初始单帧尺寸以内或裁剪了激活前插锚点导致剩余不足单帧，同步解锁方向或自动暂停录制。
     pub fn crop_head(&mut self, pixels: u32) -> u32 {
         self.pending_direction_confirm = false;
-        self.stitcher.crop_head(pixels)
+        let cropped = self.stitcher.crop_head(pixels);
+        if self.is_at_initial_size() {
+            self.stitcher.reset_growth_polarity();
+            self.reset_direction();
+        } else {
+            self.locked_direction = self.stitcher.growth_polarity();
+        }
+        if self.stitcher.is_anchor_truncated_below_frame() && self.is_capturing {
+            self.is_capturing = false;
+        }
+        cropped
     }
 
     /// 下裁剪（裁剪长图底部/右侧），返回实际裁去的像素量。
     ///
-    /// 回退至初始单帧尺寸以内时同步重置主方向；若进一步裁入单帧内部（失去完整尾帧锚点），
+    /// 回退至初始单帧尺寸以内时同步重置主方向；若进一步裁入单帧内部（失去完整锚点帧），
     /// 则自动暂停录制以避免后续滚动产生断层拼接。
     pub fn crop_tail(&mut self, pixels: u32) -> u32 {
         self.pending_direction_confirm = false;
         let cropped = self.stitcher.crop_tail(pixels);
         if self.is_at_initial_size() {
+            self.stitcher.reset_growth_polarity();
             self.reset_direction();
+        } else {
+            self.locked_direction = self.stitcher.growth_polarity();
         }
-        if self.stitcher.is_tail_truncated_below_frame() && self.is_capturing {
+        if self.stitcher.is_anchor_truncated_below_frame() && self.is_capturing {
             self.is_capturing = false;
         }
         cropped
@@ -331,7 +347,11 @@ impl LongCaptureSession {
     /// 撤销最近一次手动头/尾裁剪并无损恢复画布与尾端参考帧。
     pub fn undo_crop(&mut self) -> bool {
         self.pending_direction_confirm = false;
-        self.stitcher.undo_crop()
+        let ok = self.stitcher.undo_crop();
+        if ok {
+            self.locked_direction = self.stitcher.growth_polarity();
+        }
+        ok
     }
 
     /// 当前是否存在可撤销的手动头/尾裁剪记录。
