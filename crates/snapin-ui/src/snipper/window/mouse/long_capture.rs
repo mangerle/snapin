@@ -1,5 +1,6 @@
 //! 长截图控制条点击与选区首帧提取。
 
+use super::super::types::SnipperOutcome;
 use super::*;
 use crate::geometry::Point;
 use crate::snipper::window::state::LongCaptureAction;
@@ -125,8 +126,9 @@ pub(super) fn handle_long_capture_press(
             crate::snipper::window::actions::handle_action_copy(state, original_rgba);
         }
         LongCaptureAction::Close => {
-            state.long_capture = None;
-            state.session.outcome = Some(crate::snipper::window::types::SnipperOutcome::Cancelled);
+            state.abort_long_capture();
+            state.viewport.selection = SelectionState::Idle;
+            state.session.outcome = Some(SnipperOutcome::Cancelled);
         }
     }
     true

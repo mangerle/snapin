@@ -69,6 +69,8 @@ pub fn dispatch_toolbar_action(
             true
         }
         ToolbarAction::Close => {
+            state.abort_long_capture();
+            state.viewport.selection = SelectionState::Idle;
             state.session.outcome = Some(SnipperOutcome::Cancelled);
             true
         }

@@ -396,10 +396,7 @@ fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
             commit_active_text_input(state);
             true
         }
-        crate::editor::text_input::TextSessionAction::Cancel => {
-            state.editor.annotation.active_text_input = None;
-            true
-        }
+        crate::editor::text_input::TextSessionAction::Cancel => handle_escape(state),
         crate::editor::text_input::TextSessionAction::Copy(text) => {
             state.submit_clipboard_text(
                 text,
@@ -429,53 +426,65 @@ fn handle_text_key_input(state: &mut SnipperState, key: &Key) -> bool {
     }
 }
 
-/// 逐级退出处理 (先提交文本 -> 再收起二级栏/工具 -> 再取消标注选中 -> 再取消选区 -> 再退出窗口)
-pub fn handle_escape(state: &mut SnipperState) -> bool {
-    let completed_path = state
-        .recording
-        .as_ref()
-        .and_then(|session| session.artifact())
-        .map(|artifact| artifact.path.clone());
-    if let Some(mut session) = state.recording.take() {
-        session.cancel();
-        state.session.outcome =
-            Some(completed_path.map_or(SnipperOutcome::Cancelled, SnipperOutcome::RecordingSaved));
-        return true;
-    }
+/// 处理 OCR 浮层与编辑器内各子状态的逐级退场。
+fn handle_overlay_and_editor_escape(state: &mut SnipperState) -> bool {
     if state.ocr.menu.is_some() {
         state.ocr.menu = None;
-        true
     } else if state.ocr.editor.is_some() {
         state.ocr.editor = None;
         state.clear_status_message();
-        true
     } else if state.ocr.redaction_preview.is_some() {
         // 马赛克在识别完成时已经写入标注历史，退出交互模式不得撤销用户当前选择。
         state.ocr.redaction_preview = None;
         state.clear_status_message();
-        true
     } else if let Some(mut session) = state.editor.annotation.active_text_input.take() {
         // Esc 统一取消当前输入；若为二次编辑则恢复原图元避免文字丢失
         if let Some(original) = session.original_shape.take() {
             state.editor.annotations.push(original);
         }
-        true
+    } else if state.editor.annotation.stroke.is_drawing {
+        state.editor.annotation.stroke.clear();
     } else if state.editor.annotation.toolbar.active_tool.is_some() {
         state.editor.annotation.toolbar.active_tool = None;
         state.editor.annotation.toolbar.sub_rect = None;
         super::annotation_edit::clear(state);
-        true
     } else if state.editor.selected_annotation.is_some() {
         super::annotation_edit::clear(state);
-        true
-    } else if matches!(state.viewport.selection, SelectionState::Locked { .. }) {
+    } else {
+        return false;
+    }
+    true
+}
+
+/// 逐级退出处理 (录屏 -> OCR浮层/编辑器子态 -> 长截图裁剪菜单 -> 长截图会话/选区 -> 退出窗口)
+pub fn handle_escape(state: &mut SnipperState) -> bool {
+    if let Some(mut session) = state.recording.take() {
+        let completed_path = session.artifact().map(|artifact| artifact.path.clone());
+        session.cancel();
+        state.session.outcome =
+            Some(completed_path.map_or(SnipperOutcome::Cancelled, SnipperOutcome::RecordingSaved));
+        return true;
+    }
+    if handle_overlay_and_editor_escape(state) {
+        return true;
+    }
+    if let Some(session) = state.long_capture.as_mut() {
+        // 裁剪子菜单开启时先收起菜单，避免误退丢弃已拼接成果
+        if !session.is_editing && session.crop_sub_menu_open {
+            session.crop_sub_menu_open = false;
+            return true;
+        }
+        state.abort_long_capture();
+        state.viewport.selection = SelectionState::Idle;
+        return true;
+    }
+    if matches!(state.viewport.selection, SelectionState::Locked { .. }) {
         super::annotation_edit::clear(state);
         state.viewport.selection = SelectionState::Idle;
-        true
     } else {
         state.session.outcome = Some(SnipperOutcome::Cancelled);
-        true
     }
+    true
 }
 
 /// 复制放大镜中心取色结果

@@ -50,6 +50,7 @@ impl SnipperEventDispatcher {
                 context.state.viewport.modifiers = modifiers.state();
             }
             WindowEvent::CloseRequested => {
+                context.state.abort_long_capture();
                 context.state.cancel_pending_job();
                 let completed_path = context
                     .state

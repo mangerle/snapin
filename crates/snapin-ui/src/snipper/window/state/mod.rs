@@ -89,6 +89,29 @@ impl SnipperState {
         self.jobs.cancel_screen_capture();
     }
 
+    /// 中止并彻底清理当前长截图会话及其关联编辑与在途抓屏状态。
+    ///
+    /// 为什么集中收口而非各处散落写入 `long_capture = None`：
+    /// 长截图同时跨越在途抓屏请求、编辑期工具/草稿笔迹以及长图坐标系内的标注历史，
+    /// 仅置空会话或仅重置选区都会残留过期回调、形成幽灵长截图阶段或污染退回后的选区；
+    /// 集中清理可确保 Esc、右键、关闭按钮与窗口关闭维持完全一致的状态不变量。
+    pub(crate) fn abort_long_capture(&mut self) -> bool {
+        if self.long_capture.take().is_none() {
+            return false;
+        }
+        self.cancel_pending_job();
+        self.editor.annotation.active_text_input = None;
+        self.editor.annotation.is_selecting_text = false;
+        self.editor.annotation.stroke.clear();
+        self.editor.annotation.toolbar.active_tool = None;
+        self.editor.annotation.toolbar.sub_rect = None;
+        self.editor.selected_annotation = None;
+        self.editor.annotation_drag = None;
+        self.editor.annotations.clear();
+        self.clear_status_message();
+        true
+    }
+
     /// 是否存在尚未完成的媒体任务。
     pub fn has_pending_job(&self) -> bool {
         self.jobs.pending_media.is_some()
