@@ -46,7 +46,7 @@ impl LongCaptureStitcher {
     }
 
     /// 当前是否存在可撤销的手动头/尾裁剪记录。
-    pub const fn can_undo_crop(&self) -> bool {
+    pub fn can_undo_crop(&self) -> bool {
         !self.crop_history.is_empty()
     }
 

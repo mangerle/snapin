@@ -2,6 +2,7 @@
 
 use super::types::GrowthPolarity;
 use image::RgbaImage;
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 /// 单次会话最多保留的手动裁剪撤销步数，防止频繁重录或连续裁剪长期占用堆内存。
@@ -28,26 +29,56 @@ pub(crate) struct CropHistoryEntry {
 /// 有界手动裁剪撤回栈。
 #[derive(Debug, Clone, Default)]
 pub(crate) struct CropHistory {
-    entries: Vec<CropHistoryEntry>,
+    entries: VecDeque<CropHistoryEntry>,
 }
 
 impl CropHistory {
     pub(crate) fn push(&mut self, entry: CropHistoryEntry) {
         if self.entries.len() >= MAX_CROP_HISTORY {
-            self.entries.remove(0);
+            self.entries.pop_front();
         }
-        self.entries.push(entry);
+        self.entries.push_back(entry);
     }
 
     pub(crate) fn pop(&mut self) -> Option<CropHistoryEntry> {
-        self.entries.pop()
+        self.entries.pop_back()
     }
 
     pub(crate) fn clear(&mut self) {
         self.entries.clear();
     }
 
-    pub(crate) const fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_crop_history_evicts_oldest_in_constant_time_and_preserves_lifo() {
+        let mut history = CropHistory::default();
+        for i in 0..=(MAX_CROP_HISTORY + 2) {
+            history.push(CropHistoryEntry {
+                edge: CropEdge::Tail,
+                removed_strip: RgbaImage::new(1, 1),
+                prev_last_frame: Arc::new(RgbaImage::new(1, 1)),
+                prev_anchor_truncated_below_frame: false,
+                prev_attached_header_size: i as u32,
+                prev_attached_footer_size: 0,
+                prev_growth_polarity: None,
+            });
+        }
+
+        let mut popped = Vec::with_capacity(MAX_CROP_HISTORY);
+        while let Some(entry) = history.pop() {
+            popped.push(entry.prev_attached_header_size);
+        }
+        assert_eq!(popped.len(), MAX_CROP_HISTORY);
+        assert_eq!(popped.first().copied(), Some((MAX_CROP_HISTORY + 2) as u32));
+        assert_eq!(popped.last().copied(), Some(3));
+        assert!(history.is_empty());
     }
 }
