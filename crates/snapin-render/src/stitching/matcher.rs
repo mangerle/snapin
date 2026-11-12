@@ -197,16 +197,10 @@ fn search_shifts_pyramid_or_dense(
         }
     }
 
+    // 正反向全范围对称搜索：防止正向碰巧出现低误差伪峰时提前跳过真正的反向位移。
     for s in min_shift..=max_shift {
         eval_and_record(ctx, s as i32, &mut scores);
-    }
-    let best_fwd = pick_best(&scores).unwrap_or((0, f64::MAX));
-    if best_fwd.1 > 2.0 || best_fwd.0 == 0 {
-        for s in min_shift..=max_shift {
-            eval_and_record(ctx, -(s as i32), &mut scores);
-        }
-    } else {
-        eval_and_record(ctx, -best_fwd.0, &mut scores);
+        eval_and_record(ctx, -(s as i32), &mut scores);
     }
     let best = pick_best(&scores).unwrap_or((0, f64::MAX));
     (scores, best)
@@ -423,4 +417,42 @@ pub fn estimate_shift(
         ),
     };
     estimate_plane_shift(&prev_plane, &curr_plane, options)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::Rgba;
+
+    #[test]
+    fn test_dense_search_evaluates_negative_shifts_symmetrically() {
+        // 构造 active_height < 160（走全分辨率稠密搜索分支）的场景：
+        // 仅因局部微小扰动令正向 +24 呈现近零误差，而真实位移为反向 -16（err = 0）。
+        let width = 120u32;
+        let height = 140u32;
+        let prev = RgbaImage::from_fn(width, height, |x, y| {
+            let band = ((y / 8) * 37 + (x / 10) * 19) % 200 + 25;
+            let fine = ((y * 17 + x * 11) % 60) as u8;
+            Rgba([
+                band as u8,
+                band.saturating_add(fine as u32) as u8,
+                (255 - band) as u8,
+                255,
+            ])
+        });
+        // curr 由 prev 向上滚动 16px（真实 offset = -16），且在部分区域外不存在正向误匹配。
+        let curr = RgbaImage::from_fn(width, height, |x, y| {
+            if y >= 16 {
+                *prev.get_pixel(x, y - 16)
+            } else {
+                let v = ((x * 29 + y * 13) % 180 + 30) as u8;
+                Rgba([v, 220 - v / 2, v / 2 + 40, 255])
+            }
+        });
+
+        let options = StitchOptions::default();
+        let res = estimate_shift(&prev, &curr, StitchDirection::Vertical, &options);
+        assert!(res.is_matched(options.confidence_threshold));
+        assert_eq!(res.offset, -16);
+    }
 }
