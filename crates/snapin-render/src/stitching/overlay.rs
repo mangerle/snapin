@@ -11,7 +11,7 @@
 //!    利用下一帧刚滑出浮层阴影的干净重叠区将此前压入画布的浮层残影无损擦除恢复正文。
 
 use super::matcher::rgb_to_luma;
-use super::paged_canvas::PagedCanvas;
+use super::paged_canvas::{put_axis_pixel, PagedCanvas};
 use super::types::StitchDirection;
 use image::RgbaImage;
 
@@ -529,6 +529,11 @@ fn apply_clean_backfill(
     grid: BackfillGrid,
 ) {
     let canvas_main = canvas.main_span();
+    let canvas_cross = match spec.direction {
+        StitchDirection::Vertical => canvas.dimensions().0,
+        StitchDirection::Horizontal => canvas.dimensions().1,
+    };
+    let cross_limit = grid.cross_span.min(canvas_cross);
     let range_start = if spec.is_prepend {
         grid.body_start + spec.step
     } else {
@@ -539,6 +544,7 @@ fn apply_clean_backfill(
     } else {
         grid.body_end.saturating_sub(spec.step)
     };
+    let mut cursor = canvas.write_cursor();
     for curr_m in range_start..range_end {
         let r_curr = ((curr_m - grid.body_start) / grid.block_m) as usize;
         let prev_m = if spec.is_prepend {
@@ -569,15 +575,22 @@ fn apply_clean_backfill(
             target
         };
 
+        let mut row_target = None;
         for c_idx in 0..grid.cols {
             let curr_occluded = mask[r_curr * grid.cols + c_idx];
             let prev_was_occluded = mask[r_prev * grid.cols + c_idx];
             if !curr_occluded && prev_was_occluded {
+                if row_target.is_none() {
+                    row_target = cursor.locate_row_mut(canvas_m);
+                }
+                let Some((ref mut chunk, local_m, dir)) = row_target else {
+                    break;
+                };
                 let c0 = (c_idx as u32) * grid.block_c;
-                let c1 = (c0 + grid.block_c).min(grid.cross_span);
+                let c1 = (c0 + grid.block_c).min(cross_limit);
                 for c in c0..c1 {
                     let clean_px = read_axis_pixel(spec.curr, curr_m, c, spec.direction);
-                    canvas.write_axis_pixel(canvas_m, c, clean_px);
+                    put_axis_pixel(chunk, local_m, c, dir, clean_px);
                 }
             }
         }

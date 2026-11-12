@@ -151,3 +151,45 @@ fn test_async_analyze_and_apply_analyzed_shift_guards_generation() {
     let overview = render_thumbnail_overview(&stitcher.thumbnail_snapshot(), spec);
     assert!(overview.image.width() > 0 && overview.image.height() > 0);
 }
+
+#[test]
+fn test_paged_canvas_write_cursor_cross_chunk_vertical_and_horizontal() {
+    use super::paged_canvas::{put_axis_pixel, PagedCanvas, CHUNK_MAIN_SPAN};
+    use image::{Rgba, RgbaImage};
+
+    for direction in [StitchDirection::Vertical, StitchDirection::Horizontal] {
+        let total_main = CHUNK_MAIN_SPAN * 2 + 40;
+        let cross = 32;
+        let base = match direction {
+            StitchDirection::Vertical => {
+                RgbaImage::from_pixel(cross, total_main, Rgba([1, 2, 3, 255]))
+            }
+            StitchDirection::Horizontal => {
+                RgbaImage::from_pixel(total_main, cross, Rgba([1, 2, 3, 255]))
+            }
+        };
+        let mut canvas = PagedCanvas::new(base, direction);
+        // 先触发物化缓存生成
+        let _cached = canvas.as_contiguous();
+
+        // 从尾部跨分片连续写，并回跨至前序分片验证游标回溯与缓存失效
+        let targets = [CHUNK_MAIN_SPAN + 10, CHUNK_MAIN_SPAN * 2 + 5, 20];
+        {
+            let mut cursor = canvas.write_cursor();
+            for &m in &targets {
+                let (chunk, local_m, dir) =
+                    cursor.locate_row_mut(m).expect("合法主轴行应命中对应分片");
+                put_axis_pixel(chunk, local_m, 7, dir, [250, 120, 30, 255]);
+            }
+        }
+
+        let updated = canvas.as_contiguous();
+        for &m in &targets {
+            let px = match direction {
+                StitchDirection::Vertical => updated.get_pixel(7, m).0,
+                StitchDirection::Horizontal => updated.get_pixel(m, 7).0,
+            };
+            assert_eq!(px, [250, 120, 30, 255]);
+        }
+    }
+}

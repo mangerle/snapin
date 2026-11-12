@@ -363,35 +363,83 @@ impl PagedCanvas {
         ))
     }
 
-    /// 写入主轴/交叉轴指定位置的 RGBA 像素，自动执行写时复制与缓存失效。
-    pub(crate) fn write_axis_pixel(&mut self, main: u32, cross: u32, rgba: [u8; 4]) {
-        if main >= self.total_main || cross >= self.cross_span {
-            return;
+    /// 创建面向连续或局部单调主轴写入的写游标，缓存分片定位以消除逐像素扫描与反复失效缓存。
+    pub(crate) fn write_cursor(&mut self) -> PagedCanvasWriteCursor<'_> {
+        PagedCanvasWriteCursor {
+            canvas: self,
+            chunk_idx: 0,
+            chunk_start: 0,
+            chunk_end: 0,
+            initialized: false,
+            cache_invalidated: false,
         }
-        self.materialized.take();
-        let direction = self.direction;
-        if main < self.total_main / 2 {
-            let mut cursor = 0u32;
-            for chunk in &mut self.chunks {
-                let span = chunk_main_span(chunk, direction);
-                if main < cursor + span {
-                    put_axis_pixel(Arc::make_mut(chunk), main - cursor, cross, direction, rgba);
-                    return;
-                }
-                cursor += span;
-            }
+    }
+}
+
+/// 面向连续或单调主轴写入的分片写游标。
+///
+/// 采用局部游标缓存上次命中的分片索引与起止区间，并在首次实际写入行时惰性触发
+/// `materialized` 缓存失效与 `Arc::make_mut` 写时复制，避免空扫描或逐像素从头查表；
+/// 代价是依赖调用方主轴访问具备一定局部性，极端随机跳跃时会按分片粒度线性步进。
+pub(crate) struct PagedCanvasWriteCursor<'a> {
+    canvas: &'a mut PagedCanvas,
+    chunk_idx: usize,
+    chunk_start: u32,
+    chunk_end: u32,
+    initialized: bool,
+    cache_invalidated: bool,
+}
+
+impl<'a> PagedCanvasWriteCursor<'a> {
+    /// 定位主轴坐标 `main` 所在的可变分片及分片内偏移，并将物化缓存标为失效。
+    pub(crate) fn locate_row_mut(
+        &mut self,
+        main: u32,
+    ) -> Option<(&mut RgbaImage, u32, StitchDirection)> {
+        if main >= self.canvas.total_main || self.canvas.chunks.is_empty() {
+            return None;
+        }
+        let direction = self.canvas.direction;
+        if !self.initialized {
+            self.seed_position(main, direction);
+        }
+        while main < self.chunk_start && self.chunk_idx > 0 {
+            self.chunk_idx -= 1;
+            let span = chunk_main_span(&self.canvas.chunks[self.chunk_idx], direction);
+            self.chunk_end = self.chunk_start;
+            self.chunk_start = self.chunk_end.saturating_sub(span);
+        }
+        while main >= self.chunk_end && self.chunk_idx + 1 < self.canvas.chunks.len() {
+            self.chunk_idx += 1;
+            let span = chunk_main_span(&self.canvas.chunks[self.chunk_idx], direction);
+            self.chunk_start = self.chunk_end;
+            self.chunk_end = self.chunk_start.saturating_add(span);
+        }
+        if main < self.chunk_start || main >= self.chunk_end {
+            return None;
+        }
+        if !self.cache_invalidated {
+            self.canvas.materialized.take();
+            self.cache_invalidated = true;
+        }
+        let local_main = main - self.chunk_start;
+        let chunk = Arc::make_mut(&mut self.canvas.chunks[self.chunk_idx]);
+        Some((chunk, local_main, direction))
+    }
+
+    fn seed_position(&mut self, main: u32, direction: StitchDirection) {
+        if main < self.canvas.total_main / 2 {
+            self.chunk_idx = 0;
+            self.chunk_start = 0;
+            self.chunk_end = chunk_main_span(&self.canvas.chunks[0], direction);
         } else {
-            let mut end_offset = self.total_main;
-            for chunk in self.chunks.iter_mut().rev() {
-                let span = chunk_main_span(chunk, direction);
-                let start = end_offset - span;
-                if main >= start {
-                    put_axis_pixel(Arc::make_mut(chunk), main - start, cross, direction, rgba);
-                    return;
-                }
-                end_offset = start;
-            }
+            let last_idx = self.canvas.chunks.len() - 1;
+            let span = chunk_main_span(&self.canvas.chunks[last_idx], direction);
+            self.chunk_idx = last_idx;
+            self.chunk_end = self.canvas.total_main;
+            self.chunk_start = self.chunk_end.saturating_sub(span);
         }
+        self.initialized = true;
     }
 }
 
@@ -429,7 +477,7 @@ pub(crate) fn slice_img_axis(
     }
 }
 
-fn put_axis_pixel(
+pub(crate) fn put_axis_pixel(
     img: &mut RgbaImage,
     main: u32,
     cross: u32,
