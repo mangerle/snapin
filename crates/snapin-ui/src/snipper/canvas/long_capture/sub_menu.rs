@@ -7,7 +7,9 @@
 //! 同时引入完整视口夹取和上下自动翻折，确保即使控制栏紧贴屏幕底端或右边缘，
 //! 展开的子菜单也能完整留在可视区内部。
 
-use super::icons::{draw_checkbox, draw_crop_icon, draw_undo_crop_icon, UndoIconStyle};
+use super::icons::{
+    draw_checkbox, draw_crop_icon, draw_undo_crop_icon, CropIconStyle, UndoIconStyle,
+};
 use super::CanvasSize;
 use crate::drawing::{add_round_rect, RoundRect};
 use crate::geometry::Rect;
@@ -99,28 +101,35 @@ pub(crate) fn render_crop_sub_menu(
     draw_submenu_panel(pixmap, &layout.sub_rect, s);
     draw_submenu_divider(pixmap, &layout, s);
 
+    let crop_enabled = session.can_crop();
     let head_hovered = session.hovered_action == Some(LongCaptureAction::CropHead);
-    draw_sub_icon_button(pixmap, &layout.head_rect, head_hovered, s);
+    draw_sub_icon_button(pixmap, &layout.head_rect, head_hovered && crop_enabled, s);
     draw_crop_icon(
         pixmap,
         layout.head_rect.x + layout.head_rect.width / 2.0,
         layout.head_rect.y + layout.head_rect.height / 2.0,
-        session.direction,
-        true,
-        s,
-        head_hovered,
+        CropIconStyle {
+            direction: session.direction,
+            is_head: true,
+            scale: s,
+            hovered: head_hovered,
+            enabled: crop_enabled,
+        },
     );
 
     let tail_hovered = session.hovered_action == Some(LongCaptureAction::CropTail);
-    draw_sub_icon_button(pixmap, &layout.tail_rect, tail_hovered, s);
+    draw_sub_icon_button(pixmap, &layout.tail_rect, tail_hovered && crop_enabled, s);
     draw_crop_icon(
         pixmap,
         layout.tail_rect.x + layout.tail_rect.width / 2.0,
         layout.tail_rect.y + layout.tail_rect.height / 2.0,
-        session.direction,
-        false,
-        s,
-        tail_hovered,
+        CropIconStyle {
+            direction: session.direction,
+            is_head: false,
+            scale: s,
+            hovered: tail_hovered,
+            enabled: crop_enabled,
+        },
     );
 
     let undo_enabled = session.can_undo_crop();
@@ -150,16 +159,24 @@ fn submenu_hover_tooltip(
     match session.hovered_action? {
         LongCaptureAction::CropHead => Some((
             layout.head_rect,
-            match session.direction {
-                StitchDirection::Vertical => "上裁剪 (30px)",
-                StitchDirection::Horizontal => "左裁剪 (30px)",
+            if !session.can_crop() {
+                "已达最小尺寸，无法继续裁剪"
+            } else {
+                match session.direction {
+                    StitchDirection::Vertical => "上裁剪 (30px)",
+                    StitchDirection::Horizontal => "左裁剪 (30px)",
+                }
             },
         )),
         LongCaptureAction::CropTail => Some((
             layout.tail_rect,
-            match session.direction {
-                StitchDirection::Vertical => "下裁剪 (30px)",
-                StitchDirection::Horizontal => "右裁剪 (30px)",
+            if !session.can_crop() {
+                "已达最小尺寸，无法继续裁剪"
+            } else {
+                match session.direction {
+                    StitchDirection::Vertical => "下裁剪 (30px)",
+                    StitchDirection::Horizontal => "右裁剪 (30px)",
+                }
             },
         )),
         LongCaptureAction::UndoCrop => Some((
@@ -399,5 +416,25 @@ mod tests {
             ),
             Some(LongCaptureAction::ToggleAutoCrop)
         );
+    }
+
+    #[test]
+    fn test_crop_submenu_shows_min_size_tooltip_when_tiny_selection_cannot_crop() {
+        let mut session =
+            LongCaptureSession::new(RgbaImage::from_pixel(60, 24, Rgba([10, 20, 30, 255])));
+        assert!(!session.can_crop());
+        let bar_rect = Rect::new(100.0, 100.0, 320.0, 36.0);
+        let layout = resolve_crop_submenu_layout(CropSubMenuPlacement {
+            scissors_x: 180.0,
+            bar_rect,
+            screen_size: CanvasSize {
+                width: 800,
+                height: 600,
+            },
+            ui_scale: 1.0,
+        });
+        session.hovered_action = Some(LongCaptureAction::CropHead);
+        let tip = submenu_hover_tooltip(&session, &layout);
+        assert_eq!(tip, Some((layout.head_rect, "已达最小尺寸，无法继续裁剪")));
     }
 }

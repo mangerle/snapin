@@ -50,6 +50,11 @@ impl LongCaptureStitcher {
         !self.crop_history.is_empty()
     }
 
+    /// 当前画布是否仍有继续执行手动头/尾裁剪的余量（未触及最小保护跨度）。
+    pub fn can_crop(&self) -> bool {
+        self.clamp_manual_crop(1) > 0
+    }
+
     /// 激活对齐端是否已被手动裁短至单帧尺寸以下（此时禁止继续直接拼接后续帧）。
     pub const fn is_anchor_truncated_below_frame(&self) -> bool {
         self.anchor_truncated_below_frame
@@ -108,5 +113,21 @@ impl LongCaptureStitcher {
         };
         self.last_frame = Arc::new(self.canvas.slice_axis(anchor_start, frame_span));
         self.anchor_truncated_below_frame = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stitching::types::StitchOptions;
+
+    #[test]
+    fn test_can_crop_reports_false_for_tiny_initial_selection() {
+        let tiny = RgbaImage::new(60, 24);
+        let mut stitcher =
+            LongCaptureStitcher::new(tiny, StitchDirection::Vertical, StitchOptions::default());
+        assert!(!stitcher.can_crop());
+        assert_eq!(stitcher.crop_head(30), 0);
+        assert_eq!(stitcher.crop_tail(30), 0);
     }
 }

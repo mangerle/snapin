@@ -256,22 +256,31 @@ pub(crate) fn draw_edit_icon(pixmap: &mut PixmapMut, cx: f32, cy: f32, s: f32, i
     }
 }
 
-/// 绘制子菜单内部定向裁剪图标（上剪/下剪/左剪/右剪）
-pub(crate) fn draw_crop_icon(
-    pixmap: &mut PixmapMut,
-    cx: f32,
-    cy: f32,
-    direction: StitchDirection,
-    is_head: bool,
-    s: f32,
-    is_hover: bool,
-) {
-    let (r, g, b) = if is_hover { (17, 24, 39) } else { (75, 85, 99) };
-    let paint = make_fill_paint(r, g, b, 255);
+/// 定向裁剪图标样式参数（将状态收敛为结构体以保持绘制签名的参数简洁）。
+#[derive(Clone, Copy)]
+pub(crate) struct CropIconStyle {
+    pub(crate) direction: StitchDirection,
+    pub(crate) is_head: bool,
+    pub(crate) scale: f32,
+    pub(crate) hovered: bool,
+    pub(crate) enabled: bool,
+}
+
+/// 绘制子菜单内部定向裁剪图标（上剪/下剪/左剪/右剪）；不可裁剪时呈浅灰禁用态。
+pub(crate) fn draw_crop_icon(pixmap: &mut PixmapMut, cx: f32, cy: f32, style: CropIconStyle) {
+    let s = style.scale;
+    let color = if !style.enabled {
+        (148, 163, 184, 150)
+    } else if style.hovered {
+        (17, 24, 39, 255)
+    } else {
+        (75, 85, 99, 255)
+    };
+    let paint = make_fill_paint(color.0, color.1, color.2, color.3);
     let stroke = make_stroke(1.2 * s);
 
     let mut pb = PathBuilder::new();
-    match (direction, is_head) {
+    match (style.direction, style.is_head) {
         (StitchDirection::Vertical, true) => {
             // 上裁剪：上方剪刀，下方开口向上的方框
             // 小剪刀交叉双刃

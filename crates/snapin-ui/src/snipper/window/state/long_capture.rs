@@ -475,6 +475,11 @@ impl LongCaptureSession {
         self.stitcher.can_undo_crop()
     }
 
+    /// 当前画布是否仍有继续手动头/尾裁剪的像素余量。
+    pub fn can_crop(&self) -> bool {
+        self.stitcher.can_crop()
+    }
+
     /// 获取当前视窗在长图中的映射区间
     pub fn viewport_window(&self) -> ViewportWindow {
         self.stitcher.current_viewport_window()
