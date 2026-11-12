@@ -407,6 +407,16 @@ impl LongCaptureSession {
         self.scroll_driver.enqueue_manual_wheel(delta);
     }
 
+    /// 消费最近一次手动滚轮蓄水池是否触发溢出限流的标志。
+    pub(crate) fn take_wheel_overflowed(&mut self) -> bool {
+        self.scroll_driver.take_wheel_overflowed()
+    }
+
+    /// 在后台分析通道满载丢帧时触发背压限流冷却。
+    pub(crate) fn record_analysis_backpressure(&mut self, now: Instant) {
+        self.scroll_driver.record_backpressure(now);
+    }
+
     /// 启动自动连续滚动并立即触发首步抓帧。
     pub fn start_auto_scroll(&mut self, now: Instant) {
         self.pending_direction_confirm = false;

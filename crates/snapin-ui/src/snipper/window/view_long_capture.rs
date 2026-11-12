@@ -3,7 +3,7 @@
 use super::event_dispatcher::dispatch_pending_long_capture_frame;
 use super::jobs::{
     split_captured_frame_and_selection, AnalyzeFrameTask, LongCaptureAsyncEvent,
-    ThumbnailRenderTask,
+    ScheduleAnalysisError, ThumbnailRenderTask,
 };
 use super::state::frame_sync::{AnalyzedLongFrame, PlannedLongFrame};
 use super::state::CapturedFrameEffect;
@@ -11,7 +11,10 @@ use super::view::SnipperView;
 use crate::ports::PortError;
 use crate::snipper::selection::SelectionState;
 use image::RgbaImage;
+use snapin_foundation::i18n::tr;
 use snapin_render::analyze_frame_shift;
+use std::time::Instant;
+use tracing::{debug, warn};
 
 impl SnipperView {
     /// 处理异步长截图抓屏结果：立即恢复覆盖层交互，并把繁重的裁剪与匹配分析卸载到后台线程。
@@ -24,7 +27,7 @@ impl SnipperView {
         result: Result<RgbaImage, PortError>,
     ) {
         if let Err(error) = self.window.set_cursor_hittest(true) {
-            tracing::debug!("恢复覆盖层指针命中失败: {error}");
+            debug!("恢复覆盖层指针命中失败: {error}");
         }
         if !self.window.is_visible().unwrap_or(false) {
             self.window.set_visible(true);
@@ -40,10 +43,30 @@ impl SnipperView {
             }
             PlannedLongFrame::Completed(_) => {}
             PlannedLongFrame::Dispatch(task) => {
-                if let Err(fallback) = self.long_capture_worker.schedule_frame_analysis(task) {
-                    self.apply_sync_fallback_analysis(*fallback);
-                } else {
-                    self.window.request_redraw();
+                match self.long_capture_worker.schedule_frame_analysis(task) {
+                    Ok(()) => self.window.request_redraw(),
+                    Err(ScheduleAnalysisError::Full(dropped_task)) => {
+                        self.state
+                            .jobs
+                            .finish_screen_capture(dropped_task.request_id);
+                        if let Some(session) = self.state.long_capture.as_mut() {
+                            session.record_analysis_backpressure(Instant::now());
+                        }
+                        warn!(
+                            "长截图后台分析队列已满，已丢弃过载帧并进入背压冷却（请求序号: {}）",
+                            dropped_task.request_id
+                        );
+                        self.state
+                            .set_status_message(tr("处理队列繁忙，已限流等待对齐"));
+                        self.window.request_redraw();
+                    }
+                    Err(ScheduleAnalysisError::Disconnected(fallback)) => {
+                        warn!(
+                            "长截图后台分析通道不可用，降级为界面线程同步对齐（请求序号: {}）",
+                            fallback.request_id
+                        );
+                        self.apply_sync_fallback_analysis(*fallback);
+                    }
                 }
                 return;
             }

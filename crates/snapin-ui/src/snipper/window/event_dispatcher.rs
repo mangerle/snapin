@@ -11,6 +11,7 @@ use super::types::SnipperOutcome;
 use crate::ports::LongCaptureFrameRequest;
 use crate::snipper::selection::SelectionState;
 use image::RgbaImage;
+use snapin_foundation::i18n::tr;
 use std::time::Instant;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{Ime, WindowEvent};
@@ -140,16 +141,26 @@ fn handle_wheel(context: &mut SnipperDispatchContext<'_>, delta: winit::event::M
         return;
     }
     if capturing_long {
+        let mut wheel_overflowed = false;
         if let Some(session) = context.state.long_capture.as_mut() {
             if let Some(wheel_delta) = resolve_long_capture_wheel_delta(session.direction, delta) {
                 session.enqueue_wheel_delta(wheel_delta);
+                wheel_overflowed = session.take_wheel_overflowed();
             }
         }
-        dispatch_pending_long_capture_frame(
+        let dispatched = dispatch_pending_long_capture_frame(
             context.window,
             context.state,
             context.bg_image.dimensions(),
         );
+        if wheel_overflowed {
+            context
+                .state
+                .set_status_message(tr("滚动过快，已限流等待拼接对齐"));
+            if !dispatched {
+                context.window.request_redraw();
+            }
+        }
     } else {
         context.window.request_redraw();
     }

@@ -37,6 +37,9 @@ const MAX_AUTO_STEP_DELTA: f32 = -MAX_BATCH_WHEEL_PER_AXIS;
 /// 自动滚动帧落地后到下一拍之间的窗口交互空窗期，兼顾连贯性与随时可打断性。
 const AUTO_SCROLL_INTERVAL: Duration = Duration::from_millis(120);
 
+/// 后台分析有界队列满载时触发的显式背压冷却间隔。
+const BACKPRESSURE_INTERVAL: Duration = Duration::from_millis(250);
+
 /// 自动滚动连续收到静止帧达到该次数后判定已触底并自动停止。
 const AUTO_SCROLL_STATIC_STOP_THRESHOLD: u8 = 5;
 
@@ -75,6 +78,10 @@ pub(crate) struct LongCaptureScrollDriver {
     auto_step_delta: f32,
     /// 上一拍实际派发且等待拼接位移动作反馈的自动滚动逻辑步长。
     last_dispatched_auto_delta: Option<f32>,
+    /// 因后台分析队列满载触发的派发冷却截止时刻。
+    pending_cooldown_until: Option<Instant>,
+    /// 最近一次手动滚轮累加是否超出蓄水池单轴上限并被限流截断。
+    wheel_overflowed: bool,
 }
 
 impl Default for LongCaptureScrollDriver {
@@ -89,6 +96,8 @@ impl Default for LongCaptureScrollDriver {
             frame_main_span: 0,
             auto_step_delta: AUTO_SCROLL_STEP_DELTA,
             last_dispatched_auto_delta: None,
+            pending_cooldown_until: None,
+            wheel_overflowed: false,
         }
     }
 }
@@ -108,12 +117,37 @@ impl LongCaptureScrollDriver {
             self.stop_auto_scroll();
         }
         if delta.x.is_finite() {
-            self.pending_wheel.x = (self.pending_wheel.x + delta.x)
-                .clamp(-MAX_PENDING_WHEEL_PER_AXIS, MAX_PENDING_WHEEL_PER_AXIS);
+            let next_x = self.pending_wheel.x + delta.x;
+            if next_x.abs() > MAX_PENDING_WHEEL_PER_AXIS {
+                self.wheel_overflowed = true;
+            }
+            self.pending_wheel.x =
+                next_x.clamp(-MAX_PENDING_WHEEL_PER_AXIS, MAX_PENDING_WHEEL_PER_AXIS);
         }
         if delta.y.is_finite() {
-            self.pending_wheel.y = (self.pending_wheel.y + delta.y)
-                .clamp(-MAX_PENDING_WHEEL_PER_AXIS, MAX_PENDING_WHEEL_PER_AXIS);
+            let next_y = self.pending_wheel.y + delta.y;
+            if next_y.abs() > MAX_PENDING_WHEEL_PER_AXIS {
+                self.wheel_overflowed = true;
+            }
+            self.pending_wheel.y =
+                next_y.clamp(-MAX_PENDING_WHEEL_PER_AXIS, MAX_PENDING_WHEEL_PER_AXIS);
+        }
+    }
+
+    /// 消费最近一次手动滚轮蓄水池是否触发溢出限流的标志。
+    pub(crate) fn take_wheel_overflowed(&mut self) -> bool {
+        let overflowed = self.wheel_overflowed;
+        self.wheel_overflowed = false;
+        overflowed
+    }
+
+    /// 后台分析通道满载时记录显式背压冷却窗口，延后下次滚动抓屏派发。
+    pub(crate) fn record_backpressure(&mut self, now: Instant) {
+        let resume_at = now + BACKPRESSURE_INTERVAL;
+        self.pending_cooldown_until = Some(resume_at);
+        self.last_dispatched_auto_delta = None;
+        if self.auto_scrolling {
+            self.next_auto_scroll_at = Some(resume_at);
         }
     }
 
@@ -127,6 +161,8 @@ impl LongCaptureScrollDriver {
         self.last_stop_reason = None;
         self.auto_step_delta = AUTO_SCROLL_STEP_DELTA;
         self.last_dispatched_auto_delta = None;
+        self.pending_cooldown_until = None;
+        self.wheel_overflowed = false;
     }
 
     /// 停止自动滚动模式并清除待触发拍点。
@@ -143,6 +179,8 @@ impl LongCaptureScrollDriver {
         self.stop_auto_scroll();
         self.pending_wheel = WheelDelta::default();
         self.last_stop_reason = None;
+        self.pending_cooldown_until = None;
+        self.wheel_overflowed = false;
     }
 
     /// 提取下一批准备提交到底层的滚动增量。
@@ -154,6 +192,11 @@ impl LongCaptureScrollDriver {
         direction: StitchDirection,
         now: Instant,
     ) -> Option<WheelDelta> {
+        if self.pending_cooldown_until.is_some_and(|until| now < until) {
+            return None;
+        }
+        self.pending_cooldown_until = None;
+
         if !self.pending_wheel.is_effectively_zero() {
             let batch_x = clamp_batch_step(self.pending_wheel.x);
             let batch_y = clamp_batch_step(self.pending_wheel.y);
@@ -435,5 +478,27 @@ mod tests {
             .expect("应派发回调后的步长");
         assert!(throttled.y > accelerated.y);
         assert!(throttled.y <= MIN_AUTO_STEP_DELTA);
+    }
+
+    #[test]
+    fn test_wheel_overflow_and_backpressure_cooldown() {
+        let mut driver = LongCaptureScrollDriver::default();
+        driver.enqueue_manual_wheel(WheelDelta::vertical(-8.0));
+        assert!(!driver.take_wheel_overflowed());
+
+        // 累加超出 12.0 上限触发溢出标记，消费一次后自动复位
+        driver.enqueue_manual_wheel(WheelDelta::vertical(-8.0));
+        assert!(driver.take_wheel_overflowed());
+        assert!(!driver.take_wheel_overflowed());
+
+        // 背压冷却期间暂缓手动余量与自动节拍派发，冷却结束后自动恢复
+        let now = Instant::now();
+        driver.record_backpressure(now);
+        assert!(driver
+            .take_ready_dispatch_delta(StitchDirection::Vertical, now + Duration::from_millis(100))
+            .is_none());
+        let resumed = driver
+            .take_ready_dispatch_delta(StitchDirection::Vertical, now + BACKPRESSURE_INTERVAL);
+        assert_eq!(resumed, Some(WheelDelta::vertical(-6.0)));
     }
 }

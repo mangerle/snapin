@@ -347,6 +347,12 @@ pub fn tr(zh: &str) -> &str {
         "已停止自动滚动，请手动滚动或调整选区" => {
             "Auto-scroll stopped; scroll manually or adjust selection"
         }
+        "处理队列繁忙，已限流等待对齐" => {
+            "Processing queue is busy; throttling capture for alignment"
+        }
+        "滚动过快，已限流等待拼接对齐" => {
+            "Scrolling too fast; throttling for stitch alignment"
+        }
         "编辑" => "Edit",
         "拖动工具栏" => "Drag toolbar",
         "上裁剪 (30px)" => "Crop top (30px)",

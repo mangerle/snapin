@@ -97,6 +97,6 @@ mod outcome;
 pub(crate) use long_capture_worker::split_captured_frame_and_selection;
 pub use long_capture_worker::{
     AnalyzeFrameTask, LongCaptureAsyncEvent, LongCaptureEventSink, LongCaptureWorker,
-    ThumbnailRenderTask,
+    ScheduleAnalysisError, ThumbnailRenderTask,
 };
 pub use outcome::handle_job_outcome;

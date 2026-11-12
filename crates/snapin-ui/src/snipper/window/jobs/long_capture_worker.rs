@@ -79,6 +79,15 @@ pub struct ThumbnailRenderTask {
     pub spec: ThumbnailRenderSpec,
 }
 
+/// 提交长截图分析任务到后台有界通道时的失败原因分类。
+#[derive(Debug)]
+pub enum ScheduleAnalysisError {
+    /// 有界分析队列已满，必须执行丢帧背压与冷却节流，避免阻塞界面线程。
+    Full(Box<AnalyzeFrameTask>),
+    /// 后台工作通道尚未建立或已异常断开，可交由界面线程同步兜底。
+    Disconnected(Box<AnalyzeFrameTask>),
+}
+
 /// 长截图专用有界后台双线程控制器，退出作用域时依赖 RAII 自动平滑停止。
 pub struct LongCaptureWorker {
     analyze_sender: Option<SyncSender<Box<AnalyzeFrameTask>>>,
@@ -128,18 +137,22 @@ impl LongCaptureWorker {
         }
     }
 
-    /// 非阻塞提交抓屏裁剪与位移分析任务；工作线程不可用或通道已满时返还原任务以便调用方兜底处理。
+    /// 提交后台有界分析通道时区分“队列已满需要背压限流”与“工作通道已断开”。
+    ///
+    /// # Errors
+    /// 当后台通道满载或已断开时返回对应的 [`ScheduleAnalysisError`] 变体及原任务。
     pub fn schedule_frame_analysis(
         &self,
         task: AnalyzeFrameTask,
-    ) -> Result<(), Box<AnalyzeFrameTask>> {
+    ) -> Result<(), ScheduleAnalysisError> {
         let Some(sender) = &self.analyze_sender else {
-            return Err(Box::new(task));
+            return Err(ScheduleAnalysisError::Disconnected(Box::new(task)));
         };
         match sender.try_send(Box::new(task)) {
             Ok(()) => Ok(()),
-            Err(mpsc::TrySendError::Full(task)) | Err(mpsc::TrySendError::Disconnected(task)) => {
-                Err(task)
+            Err(mpsc::TrySendError::Full(task)) => Err(ScheduleAnalysisError::Full(task)),
+            Err(mpsc::TrySendError::Disconnected(task)) => {
+                Err(ScheduleAnalysisError::Disconnected(task))
             }
         }
     }
@@ -334,5 +347,39 @@ mod tests {
         let (full, sel) = split_captured_frame_and_selection(region_only, (40, 60, 160, 180));
         assert!(full.is_none());
         assert_eq!(sel.dimensions(), (160, 180));
+    }
+
+    #[test]
+    fn test_schedule_frame_analysis_distinguishes_full_and_disconnected() {
+        let (tx, rx) = mpsc::sync_channel(1);
+        let worker = LongCaptureWorker {
+            analyze_sender: Some(tx),
+            thumb_sender: None,
+            latest_thumb: Arc::new(Mutex::new(None)),
+            thumb_queued: Arc::new(AtomicBool::new(false)),
+            analyze_handle: None,
+            thumb_handle: None,
+        };
+        let make_task = |request_id: u64| AnalyzeFrameTask {
+            request_id,
+            expected_generation: 1,
+            anchor_frame: Arc::new(RgbaImage::new(16, 16)),
+            full_frame: RgbaImage::new(16, 16),
+            selection_bounds: (0, 0, 16, 16),
+            direction: StitchDirection::Vertical,
+            options: StitchOptions::default(),
+        };
+
+        assert!(worker.schedule_frame_analysis(make_task(1)).is_ok());
+        assert!(matches!(
+            worker.schedule_frame_analysis(make_task(2)),
+            Err(ScheduleAnalysisError::Full(task)) if task.request_id == 2
+        ));
+
+        drop(rx);
+        assert!(matches!(
+            worker.schedule_frame_analysis(make_task(3)),
+            Err(ScheduleAnalysisError::Disconnected(task)) if task.request_id == 3
+        ));
     }
 }
