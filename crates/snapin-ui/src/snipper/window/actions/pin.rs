@@ -14,7 +14,7 @@ use crate::snipper::selection::SelectionState;
 use image::RgbaImage;
 use snapin_foundation::i18n::tr;
 use snapin_foundation::AppPaths;
-use tiny_skia::Pixmap;
+use snapin_render::rgba_image_to_pixmap;
 
 /// 贴图原图允许的最大单边像素（两倍窗口单边上限，允许缩放到 0.5x 后仍位于安全表面内）。
 const MAX_PIN_SOURCE_DIM: u32 = MAX_PIN_WINDOW_DIM * 2;
@@ -129,8 +129,7 @@ pub(crate) fn build_pin_item(
     position: (i32, i32),
     scale: f32,
 ) -> Option<PasterItem> {
-    let mut pixmap = Pixmap::new(image.width(), image.height())?;
-    pixmap.data_mut().copy_from_slice(image.as_raw());
+    let pixmap = rgba_image_to_pixmap(&image)?;
     let id = AppPaths::generate_unique_id();
     let mut item = PasterItem::new(id, format!("pin_{id}"), pixmap, position);
     item.transform.set_scale(scale);

@@ -1,6 +1,7 @@
 //! 鼠标移动、选区约束与画笔光标判定。
 
 use super::*;
+use crate::geometry::Point;
 
 /// 鼠标移动事件统一处理 (更新光标坐标、选区创建与调整手柄拖拽)
 pub fn handle_cursor_move(
@@ -35,13 +36,15 @@ pub fn handle_cursor_move(
 
     // 标注编辑拖拽优先于选区与工具栏悬停处理
     if state.editor.annotation.is_selecting_text {
+        let (ax, ay) = state.annotation_point(frame.x, frame.y);
         if let Some(session) = &mut state.editor.annotation.active_text_input {
-            session.set_cursor_from_screen_point(frame.x, frame.y, true, 1.0);
+            session.set_cursor_from_screen_point(ax, ay, true, 1.0);
             return true;
         }
     }
     if state.editor.annotation_drag.is_some() {
-        return crate::snipper::window::annotation_edit::handle_drag_move(state, frame.x, frame.y);
+        let (ax, ay) = state.annotation_point(frame.x, frame.y);
+        return crate::snipper::window::annotation_edit::handle_drag_move(state, ax, ay);
     }
     if state.editor.annotation.toolbar.is_dragging() {
         return state.editor.annotation.toolbar.drag_to(frame.x, frame.y);
@@ -226,7 +229,7 @@ fn handle_locked_cursor(
             .handle_mouse_move(frame.x, frame.y);
     }
     if state.editor.annotation.toolbar.active_tool == Some(Tool::Eraser) {
-        let point = clamped_cursor_point(rect, frame);
+        let point = clamped_annotation_point(state, rect, frame);
         eraser::handle_drag_move(state, (point.x, point.y));
         return true;
     }
@@ -260,9 +263,18 @@ fn update_selection_drag(state: &mut SnipperState, rect: Rect, drag: DragMode, f
     );
 }
 
+/// 将光标夹取到当前编辑视口范围（长图编辑态同步转换为长画布坐标）。
+fn clamped_annotation_point(state: &SnipperState, rect: Rect, frame: CursorFrame) -> Point {
+    if let Some(space) = state.long_canvas_space() {
+        space.clamp_screen_to_canvas(frame.x, frame.y)
+    } else {
+        clamped_cursor_point(rect, frame)
+    }
+}
+
 /// 将光标夹取到锁定选区内并更新当前绘制工具轨迹。
 fn update_drawing_stroke(state: &mut SnipperState, rect: Rect, frame: CursorFrame) {
-    let point = clamped_cursor_point(rect, frame);
+    let point = clamped_annotation_point(state, rect, frame);
     let Some(tool) = state.editor.annotation.toolbar.active_tool else {
         return;
     };

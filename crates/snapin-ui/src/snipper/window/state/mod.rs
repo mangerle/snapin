@@ -18,6 +18,7 @@ use crate::snipper::window_rect::WindowRect;
 use editor::SnipperEditor;
 use image::{GenericImageView, RgbaImage};
 use jobs::{PendingMediaJob, SnipperJobs};
+pub(crate) use long_capture::LongCanvasSpace;
 pub use long_capture::{LongCaptureAction, LongCaptureSession};
 use ocr::SnipperOcr;
 pub use phase::SnipperPhase;
@@ -338,6 +339,29 @@ impl SnipperState {
         if let Some(session) = self.recording.as_ref() {
             session.update_overlay(overlay);
         }
+    }
+
+    /// 当前若处于长截图编辑态且选区已锁定，返回屏幕与长画布的双向坐标映射器。
+    pub(crate) fn long_canvas_space(&self) -> Option<LongCanvasSpace> {
+        let session = self.long_capture.as_ref()?;
+        let SelectionState::Locked { rect, .. } = &self.viewport.selection else {
+            return None;
+        };
+        LongCanvasSpace::from_session(session, rect, self.viewport.screen_size)
+    }
+
+    /// 将屏幕坐标转换为当前激活标注文档所属坐标系（长图编辑态为长画布坐标，普通态为屏幕坐标）。
+    pub(crate) fn annotation_point(&self, screen_x: f32, screen_y: f32) -> (f32, f32) {
+        self.long_canvas_space()
+            .map_or((screen_x, screen_y), |space| {
+                space.screen_to_canvas(screen_x, screen_y)
+            })
+    }
+
+    /// 判断屏幕点位是否允许与已有标注交互（长图编辑态下禁止点击可视视口外的被裁剪图元）。
+    pub(crate) fn can_interact_annotation_at(&self, screen_x: f32, screen_y: f32) -> bool {
+        self.long_canvas_space()
+            .is_none_or(|space| space.contains_visible_screen_point(screen_x, screen_y))
     }
 }
 

@@ -9,13 +9,32 @@ use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
 impl TextInputSession {
     /// 在画布上渲染当前输入的文字以及光标与黑色边界框
     pub fn render(&self, pixmap: &mut PixmapMut) {
-        self.render_scaled(pixmap, 1.0, false);
+        self.render_scaled_offset(pixmap, 1.0, false, (0.0, 0.0));
+    }
+
+    /// 在局部视口画布上按平移偏移量渲染正在输入的文本框与光标。
+    pub fn render_offset(&self, pixmap: &mut PixmapMut, offset_x: f32, offset_y: f32) {
+        self.render_scaled_offset(pixmap, 1.0, false, (offset_x, offset_y));
     }
 
     /// 按给定缩放倍率渲染输入框、选区高亮、文字与光标
     pub fn render_scaled(&self, pixmap: &mut PixmapMut, scale: f32, underline_preedit: bool) {
+        self.render_scaled_offset(pixmap, scale, underline_preedit, (0.0, 0.0));
+    }
+
+    /// 按给定缩放倍率与平移偏移量渲染输入框、选区高亮、文字与光标
+    pub fn render_scaled_offset(
+        &self,
+        pixmap: &mut PixmapMut,
+        scale: f32,
+        underline_preedit: bool,
+        offset: (f32, f32),
+    ) {
         let scale = if scale > f32::EPSILON { scale } else { 1.0 };
-        let (x, y) = (self.pos.x * scale, self.pos.y * scale);
+        let (x, y) = (
+            (self.pos.x + offset.0) * scale,
+            (self.pos.y + offset.1) * scale,
+        );
         let font_size = (self.font_size * scale).max(8.0 * scale.min(1.0));
         let line_height = font_size * 1.25;
 
@@ -33,8 +52,8 @@ impl TextInputSession {
         let measure_options = TextMeasureOptions {
             font_size,
             line_height,
-            max_width: pixmap.width() as f32,
-            max_height: pixmap.height() as f32,
+            max_width: (pixmap.width() as f32).max(8192.0),
+            max_height: (pixmap.height() as f32).max(8192.0),
         };
 
         if display_text.is_empty() {

@@ -6,7 +6,9 @@
 use super::events::SnipperState;
 pub use crate::editor::annotation_builder::AnnotationDraftParams;
 
-pub use crate::editor::annotation_builder::{build_shape, render_draft_preview};
+pub use crate::editor::annotation_builder::{
+    build_shape, render_draft_preview, render_draft_preview_offset,
+};
 
 /// 从当前截图会话状态中提取草稿参数。
 pub fn draft_params_from_state<'a>(state: &'a SnipperState) -> Option<AnnotationDraftParams<'a>> {

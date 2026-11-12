@@ -13,14 +13,18 @@ use crate::geometry::Point;
 use crate::ports::QrCodeItem;
 use crate::snipper::magnifier::Magnifier;
 use crate::snipper::selection::{Rect, SelectionState};
-use crate::snipper::window::annotation_builder::{render_draft_preview, AnnotationDraftParams};
+use crate::snipper::window::annotation_builder::{
+    render_draft_preview, render_draft_preview_offset, AnnotationDraftParams,
+};
 use crate::snipper::window::ocr_editor::OcrTextEditorState;
 use crate::snipper::window::ocr_menu::OcrContextMenuState;
 use crate::snipper::window::redaction::{is_redaction_applied, RedactionPreview};
+use crate::snipper::window::state::long_capture::LongCanvasSpace;
 use crate::snipper::window::state::{LongCaptureSession, RecordingSession, RecordingStatus};
 use crate::status_badge;
 use image::RgbaImage;
 use snapin_annotation::AnnotationHistory;
+use snapin_render::{blit_straight_rgba_region_to_pixmap, BlitRgbaRegion};
 use tiny_skia::{
     FilterQuality, Paint, PathBuilder, Pixmap, PixmapMut, PixmapPaint, Rect as SkiaRect, Stroke,
     StrokeDash, Transform,
@@ -119,49 +123,30 @@ impl<'a> SnipperCanvas<'a> {
         let recording_active = recording_status.is_some_and(|status| status.is_capturing());
         let recording_completed =
             recording_status.is_some_and(|status| status == RecordingStatus::Completed);
+        let is_long_capture_editing = self
+            .long_capture
+            .as_ref()
+            .is_some_and(|session| session.is_editing);
 
-        // 1. 选择选区底图来源：录屏结果预览优先，其次为长截图编辑画布，最后透出屏幕原图。
+        // 1. 按当前会话模式选择底图与标注叠加方式：
+        // 长图编辑态使用视口大小的离屏画布，确保模糊/马赛克/聚光灯等像素级效果随长图平移并严格裁剪。
         if recording_completed {
             if let Some(preview) = self.recording_preview {
                 self.draw_recording_preview(pixmap, rect, preview);
             } else {
                 self.fast_cutout_restore(pixmap, rect, canvas_size);
             }
-        } else if self
-            .long_capture
-            .as_ref()
-            .is_some_and(|session| session.is_editing)
-        {
-            if let Some(session) = &self.long_capture {
-                long_capture::render_long_canvas_viewport(pixmap, session, rect, canvas_size);
-            }
+        } else if is_long_capture_editing {
+            self.render_long_capture_editing_contents(pixmap, rect, canvas_size);
         } else {
             // 录屏视频来自独立的实时 PipeWire 流，覆盖层继续显示冻结底图以避免 Wayland
             // 透明表面合成发黑；长截图捕获阶段同样使用冻结底图作为滚动拼接基准。
             self.fast_cutout_restore(pixmap, rect, canvas_size);
+            self.render_screen_space_overlays(pixmap);
         }
 
-        // 2. 录制完成后的结果页只展示预览，不回放交互标注与手柄。
+        // 2. 屏幕空间识别高亮与画笔光标、边框句柄。
         if !recording_completed {
-            if let Some(history) = self.annotations {
-                history.replay_all(pixmap);
-            }
-            if let Some(text_session) = self.active_text_input {
-                text_session.render(pixmap);
-            }
-            if let (Some(toolbar), Some((tool, points, badge))) =
-                (self.toolbar, self.pending_stroke)
-            {
-                self.render_pending_preview(
-                    pixmap,
-                    selection::PendingPreviewSpec {
-                        toolbar,
-                        tool,
-                        points,
-                        badge_number: badge,
-                    },
-                );
-            }
             self.render_detection_previews(pixmap);
             self.render_active_brush_cursor(pixmap, rect);
         }
@@ -171,8 +156,10 @@ impl<'a> SnipperCanvas<'a> {
                 .as_ref()
                 .is_some_and(|session| session.is_capturing || session.is_editing);
             self.render_selection_borders_and_handles(pixmap, rect, show_handles);
-            if let Some(selected) = self.selected_annotation {
-                self.render_annotation_selection(pixmap, &selected);
+            if !is_long_capture_editing {
+                if let Some(selected) = self.selected_annotation {
+                    self.render_annotation_selection(pixmap, &selected);
+                }
             }
         }
 
@@ -218,5 +205,255 @@ impl<'a> SnipperCanvas<'a> {
         if let Some(editor) = self.ocr_editor {
             editor.render(pixmap, self.ui_scale);
         }
+    }
+
+    /// 按屏幕坐标系在主画布上叠加常规截图或录制暂停时的标注与待提交预览。
+    fn render_screen_space_overlays(&self, pixmap: &mut PixmapMut) {
+        if let Some(history) = self.annotations {
+            history.replay_all(pixmap);
+        }
+        if let Some(text_session) = self.active_text_input {
+            text_session.render(pixmap);
+        }
+        if let (Some(toolbar), Some((tool, points, badge))) = (self.toolbar, self.pending_stroke) {
+            self.render_pending_preview(
+                pixmap,
+                selection::PendingPreviewSpec {
+                    toolbar,
+                    tool,
+                    points,
+                    badge_number: badge,
+                },
+            );
+        }
+    }
+
+    /// 在长图编辑态创建与当前可视长图视口等大的预乘离屏画布，先绘制长图切片再按视口偏移回放标注与选框，
+    /// 最后整块写回屏幕选区区域以实现毫秒级裁剪与标注对齐。
+    fn render_long_capture_editing_contents(
+        &self,
+        pixmap: &mut PixmapMut,
+        rect: &Rect,
+        canvas_size: CanvasSize,
+    ) {
+        let Some(session) = self.long_capture.as_deref() else {
+            return;
+        };
+        let Some(space) = LongCanvasSpace::from_session(
+            session,
+            rect,
+            (canvas_size.width as f32, canvas_size.height as f32),
+        ) else {
+            return;
+        };
+
+        let copy_w = space.visible_size.0 as u32;
+        let copy_h = space.visible_size.1 as u32;
+        let Some(mut view_pixmap) = Pixmap::new(copy_w, copy_h) else {
+            return;
+        };
+
+        blit_straight_rgba_region_to_pixmap(
+            session.stitcher.canvas(),
+            &mut view_pixmap.as_mut(),
+            BlitRgbaRegion {
+                src_x: space.canvas_offset.0 as u32,
+                src_y: space.canvas_offset.1 as u32,
+                dst_x: 0,
+                dst_y: 0,
+                width: copy_w,
+                height: copy_h,
+            },
+        );
+        self.render_canvas_space_overlays(&mut view_pixmap.as_mut(), &space);
+        long_capture::copy_premultiplied_pixmap_region(
+            pixmap,
+            view_pixmap.as_ref(),
+            space.viewport_screen.x as u32,
+            space.viewport_screen.y as u32,
+        );
+    }
+
+    /// 在离屏视口画布上按视口偏移回放已提交标注、文本会话、绘制中笔触及标注选中框。
+    fn render_canvas_space_overlays(&self, view_pixmap: &mut PixmapMut, space: &LongCanvasSpace) {
+        let (draw_ox, draw_oy) = space.viewport_draw_offset();
+        if let Some(history) = self.annotations {
+            history.replay_with_offset(view_pixmap, draw_ox, draw_oy);
+        }
+        if let Some(text_session) = self.active_text_input {
+            text_session.render_offset(view_pixmap, draw_ox, draw_oy);
+        }
+        if let (Some(toolbar), Some((tool, points, badge))) = (self.toolbar, self.pending_stroke) {
+            if let Some(params) =
+                AnnotationDraftParams::from_toolbar_and_points(toolbar, *tool, points, badge)
+            {
+                render_draft_preview_offset(&params, view_pixmap, Point::new(draw_ox, draw_oy));
+            }
+        }
+        if let Some(mut selected) = self.selected_annotation {
+            selected.rect.x += draw_ox;
+            selected.rect.y += draw_oy;
+            self.render_annotation_selection(view_pixmap, &selected);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::Rgba;
+    use snapin_annotation::action::AnnotationShape;
+    use snapin_annotation::shapes::{RectAction, SpotlightAction, SpotlightShape};
+    use snapin_annotation::LineStyle;
+
+    fn test_canvas_with<'a>(
+        base_bg: &'a Pixmap,
+        original_rgba: &'a RgbaImage,
+        selection: &'a SelectionState,
+        magnifier: &'a Magnifier,
+    ) -> SnipperCanvas<'a> {
+        SnipperCanvas {
+            base_bg,
+            original_rgba,
+            selection,
+            cursor_pos: (0.0, 0.0),
+            cursor_ready: false,
+            hovered_window: None,
+            magnifier,
+            toolbar: None,
+            annotations: None,
+            ui_scale: 1.0,
+            accent_color: (0, 122, 255),
+            pending_stroke: None,
+            active_text_input: None,
+            status_message: None,
+            selected_annotation: None,
+            redaction_preview: None,
+            qr_codes: None,
+            ocr_menu: None,
+            ocr_editor: None,
+            recording: None,
+            recording_preview: None,
+            long_capture: None,
+        }
+    }
+
+    fn pixel_at(pixmap: &Pixmap, x: u32, y: u32) -> [u8; 4] {
+        let idx = ((y * pixmap.width() + x) * 4) as usize;
+        [
+            pixmap.data()[idx],
+            pixmap.data()[idx + 1],
+            pixmap.data()[idx + 2],
+            pixmap.data()[idx + 3],
+        ]
+    }
+
+    /// 横向编辑态必须使用水平偏移裁剪长图，并将结果对齐绘制到选区左上角。
+    #[test]
+    fn test_horizontal_editing_viewport_uses_x_offset() {
+        let mut long_img = RgbaImage::from_pixel(20, 10, Rgba([10, 20, 30, 255]));
+        for y in 0..10 {
+            long_img.put_pixel(13, y, Rgba([200, 30, 40, 255]));
+        }
+        let mut session = LongCaptureSession::new(long_img);
+        session.toggle_direction();
+        session.enter_editing();
+        session.viewport_offset_x = 10.0;
+
+        let base_bg = Pixmap::new(20, 20).expect("测试画布可创建");
+        let original = RgbaImage::from_pixel(20, 20, Rgba([0, 0, 0, 255]));
+        let selection = SelectionState::Locked {
+            rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+            active_drag: None,
+        };
+        let magnifier = Magnifier::default();
+        let mut canvas = test_canvas_with(&base_bg, &original, &selection, &magnifier);
+        canvas.long_capture = Some(&mut session);
+
+        let mut out = Pixmap::new(20, 20).expect("输出画布可创建");
+        canvas.render(&mut out.as_mut());
+
+        assert_eq!(pixel_at(&out, 3, 5), [200, 30, 40, 255]);
+        assert_eq!(pixel_at(&out, 4, 5), [10, 20, 30, 255]);
+    }
+
+    /// 长图编辑态下标注必须随视口滚动平移，且 Spotlight 等像素级效果严格裁剪在选区内。
+    #[test]
+    fn test_long_capture_editing_scrolls_and_clips_annotations_inside_selection() {
+        let base_rgba = RgbaImage::from_pixel(30, 40, Rgba([15, 15, 15, 255]));
+        let base_bg = snapin_render::rgba_image_to_pixmap(&base_rgba).expect("背景底图可创建");
+        let original = RgbaImage::from_pixel(30, 40, Rgba([15, 15, 15, 255]));
+        let long_img = RgbaImage::from_pixel(20, 60, Rgba([30, 90, 200, 255]));
+        let mut session = LongCaptureSession::new(long_img);
+        session.enter_editing();
+
+        let mut history = AnnotationHistory::default();
+        history.push(AnnotationShape::Spotlight(SpotlightAction {
+            rect: Rect::new(2.0, 22.0, 16.0, 16.0),
+            intensity: 180,
+            shape: SpotlightShape::Rectangle,
+            outline: false,
+            outline_width: 2.0,
+            outline_color: (255, 255, 255, 255).into(),
+            line_style: LineStyle::Solid,
+        }));
+        history.push(AnnotationShape::Rect(RectAction {
+            rect: Rect::new(4.0, 25.0, 12.0, 10.0),
+            color: (255, 0, 0, 255).into(),
+            stroke_width: 2.0,
+            is_filled: true,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
+        }));
+
+        let selection = SelectionState::Locked {
+            rect: Rect::new(5.0, 5.0, 20.0, 20.0),
+            active_drag: None,
+        };
+        let magnifier = Magnifier::default();
+        let mut out = Pixmap::new(30, 40).expect("输出画布可创建");
+
+        // 1. 偏移量为 0：矩形位于 y=25..35，处于 0..20 视口外，仅聚光灯聚焦到选区外；选区外部像素保持背景色。
+        session.viewport_offset_y = 0.0;
+        {
+            let mut canvas = test_canvas_with(&base_bg, &original, &selection, &magnifier);
+            canvas.annotations = Some(&history);
+            canvas.long_capture = Some(&mut session);
+            canvas.render(&mut out.as_mut());
+        }
+        assert_eq!(
+            pixel_at(&out, 1, 1),
+            [15, 15, 15, 255],
+            "聚光灯与超界标注不得污染选区外桌面区域"
+        );
+        assert_ne!(
+            pixel_at(&out, 12, 12),
+            [255, 0, 0, 255],
+            "偏移为 0 时下方未滚动到的红色矩形不得出现在当前视口"
+        );
+
+        // 2. 向下滚动 15px：画布 y=25..35 平移至屏幕 y=5+(25-15)=15..25（被裁剪在选区底边 y=25）。
+        session.viewport_offset_y = 15.0;
+        {
+            let mut canvas = test_canvas_with(&base_bg, &original, &selection, &magnifier);
+            canvas.annotations = Some(&history);
+            canvas.long_capture = Some(&mut session);
+            canvas.render(&mut out.as_mut());
+        }
+        assert_eq!(
+            pixel_at(&out, 12, 20),
+            [255, 0, 0, 255],
+            "滚动进视口后，画布红框应准确对齐并呈现在屏幕 (12, 20)"
+        );
+        assert_eq!(
+            pixel_at(&out, 12, 26),
+            [15, 15, 15, 255],
+            "红框超出选区底边 (y=25) 的部分必须被严格裁剪"
+        );
+        assert_eq!(
+            pixel_at(&out, 1, 1),
+            [15, 15, 15, 255],
+            "滚动后选区外部仍不受 Spotlight 暗化污染"
+        );
     }
 }

@@ -5,13 +5,17 @@ use crate::editor::toolbar::Tool;
 use crate::snipper::window::events::SnipperState;
 use snapin_annotation::AnnotationShape;
 
-/// 处理已提交标注的编辑、锁定提示与文字工具入口。
+/// 处理已提交标注的编辑、锁定提示与文字工具入口；入参为屏幕坐标。
 pub(super) fn handle_annotation_press(
     state: &mut SnipperState,
-    cx: f32,
-    cy: f32,
+    screen_x: f32,
+    screen_y: f32,
     is_double_click: bool,
 ) -> Option<bool> {
+    if !state.can_interact_annotation_at(screen_x, screen_y) {
+        return None;
+    }
+    let (cx, cy) = state.annotation_point(screen_x, screen_y);
     let allow_locked_annotation = state.viewport.modifiers.alt_key();
 
     // 0. 双击优先唤起文字就地编辑
@@ -66,7 +70,7 @@ pub(super) fn handle_annotation_press(
         }
 
         crate::snipper::window::annotation_edit::clear(state);
-        return Some(handle_text_tool_click(state, cx, cy));
+        return Some(handle_text_tool_click(state, screen_x, screen_y));
     }
 
     // 2. 如果命中了已选中标注的手柄，用户明确意图是缩放微调，优先响应手柄调整

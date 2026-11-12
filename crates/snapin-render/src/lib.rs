@@ -12,6 +12,10 @@ pub use beautify::render_beautified;
 pub use error::RenderError;
 pub use layout::CenteredTextOptions;
 pub use measure::{SelectionRect, TextInputMetrics};
+pub use raster::{
+    blit_straight_rgba_region_to_pixmap, demultiply_rgba_pixel, pixmap_into_rgba_image,
+    premultiply_rgba_pixel, rgba_image_to_pixmap, BlitRgbaRegion,
+};
 pub use snapin_foundation::beautify::{BeautifyBackground, BeautifyOptions, SocialSize};
 pub use stitching::{
     LongCaptureStitcher, MatchResult, StitchDirection, StitchOptions, ViewportWindow,

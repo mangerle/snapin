@@ -322,3 +322,62 @@ fn test_oversized_pin_guard_and_long_capture_action_isolation() {
         other => panic!("中等长图应生成缩放贴图，实际: {other:?}"),
     }
 }
+
+/// 长图编辑态导出时，即使视口滚动到最底部，仍须将视口外顶部及当前视口内的标注正确复合到整张直通 RGBA 长图，
+/// 且半透明标注不能因预乘往返出现发黑。
+#[test]
+fn test_long_capture_crop_selection_image_composites_scrolled_annotations_and_alpha() {
+    let mut state = SnipperState::new();
+    state.viewport.screen_size = (1280.0, 800.0);
+    let original = RgbaImage::from_pixel(400, 400, Rgba([0, 0, 0, 255]));
+    state.viewport.selection = SelectionState::Locked {
+        rect: Rect::new(50.0, 50.0, 200.0, 200.0),
+        active_drag: None,
+    };
+
+    let long_img = RgbaImage::from_pixel(200, 600, Rgba([40, 80, 120, 255]));
+    let mut session = LongCaptureSession::new(long_img);
+    session.enter_editing();
+    session.viewport_offset_y = 400.0;
+    state.long_capture = Some(session);
+
+    // 1. 滚出当前视口的顶部（canvas y = 20..60）实心红色矩形
+    state
+        .editor
+        .annotations
+        .push(AnnotationShape::Rect(RectAction {
+            rect: Rect::new(20.0, 20.0, 40.0, 40.0),
+            color: (255, 0, 0, 255).into(),
+            stroke_width: 2.0,
+            is_filled: true,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
+        }));
+    // 2. 位于底部当前视口内（canvas y = 500..540）的纯色半透明绿色矩形
+    state
+        .editor
+        .annotations
+        .push(AnnotationShape::Rect(RectAction {
+            rect: Rect::new(20.0, 500.0, 40.0, 40.0),
+            color: (0, 255, 0, 128).into(),
+            stroke_width: 2.0,
+            is_filled: true,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
+        }));
+
+    let exported = crop_selection_image(&mut state, &original).expect("应成功导出长图");
+    assert_eq!(exported.dimensions(), (200, 600));
+    assert_eq!(
+        exported.get_pixel(30, 30).0,
+        [255, 0, 0, 255],
+        "视口外顶部标注必须精准合成到长画布顶端"
+    );
+
+    let blended = exported.get_pixel(30, 510).0;
+    assert_eq!(blended[3], 255, "不透明背景合成后 alpha 必须保持 255");
+    assert!(
+        blended[1] >= 165 && blended[0] <= 22 && blended[2] <= 62,
+        "半透明混合颜色不应受预乘畸变或发黑: {blended:?}"
+    );
+}

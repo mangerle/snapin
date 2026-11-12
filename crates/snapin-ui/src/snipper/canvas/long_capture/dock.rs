@@ -4,7 +4,11 @@ use super::CanvasSize;
 use crate::drawing::{add_round_rect, RoundRect};
 use crate::geometry::Rect;
 use crate::snipper::window::state::long_capture::LongCaptureSession;
-use snapin_render::{with_thread_local_text_renderer, StitchDirection, TextDrawOptions};
+use image::RgbaImage;
+use snapin_render::{
+    blit_straight_rgba_region_to_pixmap, with_thread_local_text_renderer, BlitRgbaRegion,
+    StitchDirection, TextDrawOptions,
+};
 use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
 /// 绘制长截图侧边缩略预览悬浮窗（依附于选区右侧）
@@ -174,39 +178,24 @@ pub(crate) fn render_long_capture_dock(
     }
 }
 
-/// 辅助函数：将 RGBA 内存行直接贴入目标 PixmapMut
+/// 辅助函数：将直通 RGBA 图像预乘后贴入目标 PixmapMut 指定位置。
 pub(crate) fn blit_rgba_to_pixmap(
     pixmap: &mut PixmapMut,
-    src: &image::RgbaImage,
+    src: &RgbaImage,
     dest_x: u32,
     dest_y: u32,
 ) {
     let (sw, sh) = src.dimensions();
-    let pw = pixmap.width();
-    let ph = pixmap.height();
-
-    let copy_w = sw.min(pw.saturating_sub(dest_x));
-    let copy_h = sh.min(ph.saturating_sub(dest_y));
-    if copy_w == 0 || copy_h == 0 {
-        return;
-    }
-
-    let src_raw = src.as_raw();
-    let dest_data = pixmap.data_mut();
-
-    let src_stride = sw as usize * 4;
-    let dest_stride = pw as usize * 4;
-    let row_bytes = copy_w as usize * 4;
-
-    for row in 0..copy_h as usize {
-        let s_offset = row * src_stride;
-        let d_offset = (dest_y as usize + row) * dest_stride + dest_x as usize * 4;
-
-        if let (Some(d), Some(s)) = (
-            dest_data.get_mut(d_offset..d_offset + row_bytes),
-            src_raw.get(s_offset..s_offset + row_bytes),
-        ) {
-            d.copy_from_slice(s);
-        }
-    }
+    blit_straight_rgba_region_to_pixmap(
+        src,
+        pixmap,
+        BlitRgbaRegion {
+            src_x: 0,
+            src_y: 0,
+            dst_x: dest_x,
+            dst_y: dest_y,
+            width: sw,
+            height: sh,
+        },
+    );
 }

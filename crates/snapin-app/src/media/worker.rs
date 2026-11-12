@@ -12,6 +12,9 @@ use super::OcrCache;
 use snapin_config::config::Config;
 use snapin_platform::pick_save_path;
 use snapin_ports::{MediaJob, MediaJobOutcome, OcrExportFormat, OcrTextItem, QrCodeItem};
+use snapin_render::{
+    pixmap_into_rgba_image, render_beautified, rgba_image_to_pixmap, BeautifyOptions,
+};
 use snapin_runtime::TaskRuntime;
 use snapin_service::ocr::{LocalPpOcrEngine, OcrEngine, OcrResult, OcrTextBlock};
 use snapin_service::qr::decode_qr_codes;
@@ -167,21 +170,19 @@ async fn execute_beautify(
     }
 }
 
-/// 在阻塞线程中执行美化渲染，返回可直接写入剪贴板或贴图窗口的 RGBA 图像。
+/// 在阻塞线程中执行美化渲染，返回可直接写入剪贴板或贴图窗口的直通 RGBA 图像。
 async fn beautify_image(
     image: image::RgbaImage,
-    options: snapin_render::BeautifyOptions,
+    options: BeautifyOptions,
     runtime: &TaskRuntime,
 ) -> Result<image::RgbaImage, String> {
     runtime
         .run_blocking_detached(move || {
-            let mut input = tiny_skia::Pixmap::new(image.width(), image.height())
-                .ok_or_else(|| "分配美化输入缓冲区失败".to_string())?;
-            input.data_mut().copy_from_slice(image.as_raw());
-            let beautified = snapin_render::render_beautified(input.as_ref(), &options)
+            let input =
+                rgba_image_to_pixmap(&image).ok_or_else(|| "分配美化输入缓冲区失败".to_string())?;
+            let beautified = render_beautified(input.as_ref(), &options)
                 .map_err(|error| format!("美化渲染失败: {error}"))?;
-            image::RgbaImage::from_raw(beautified.width(), beautified.height(), beautified.take())
-                .ok_or_else(|| "转换美化输出图像失败".to_string())
+            pixmap_into_rgba_image(beautified).ok_or_else(|| "转换美化输出图像失败".to_string())
         })
         .await
         .map_err(|error| format!("美化渲染任务异常: {error}"))?

@@ -109,33 +109,10 @@ fn handle_locked_press(
     original_rgba: &RgbaImage,
 ) -> bool {
     // 长截图非编辑态仅允许交互专用控制条，或（仅当已暂停时）调整选区范围。
-    if let Some(session) = state.long_capture.as_mut() {
-        if !session.is_editing {
-            let in_bar = session
-                .toolbar_rect
-                .is_some_and(|r| r.contains(pointer.x, pointer.y));
-            let in_sub = session
-                .crop_submenu_rect
-                .is_some_and(|r| r.contains(pointer.x, pointer.y));
-            if in_bar || in_sub {
-                return super::long_capture::handle_long_capture_press(
-                    state,
-                    pointer,
-                    original_rgba,
-                );
-            }
-            let closed_submenu = std::mem::take(&mut session.crop_sub_menu_open);
-            if !state.can_adjust_selection() {
-                return closed_submenu;
-            }
-            if let Some(handle) = selection_handle_at(state, rect, pointer.x, pointer.y) {
-                return begin_selection_resize(state, handle);
-            }
-            if rect.contains(pointer.x, pointer.y) {
-                return begin_selection_move(state, rect, pointer.x, pointer.y);
-            }
-            return closed_submenu;
-        }
+    if let Some(handled) =
+        super::long_capture::handle_non_editing_press(state, rect, pointer, original_rgba)
+    {
+        return handled;
     }
 
     // 录屏状态下普通截图工具栏只保留状态但不可见，必须彻底禁用其命中路由，
@@ -171,12 +148,15 @@ fn handle_locked_press(
     state.editor.annotation.toolbar.clear_sub_focus();
 
     // 若当前正在输入文字且点击落在输入框内，将光标定位到点击字符并保留会话
-    if let Some(session) = &mut state.editor.annotation.active_text_input {
-        if session.contains_screen_point(pointer.x, pointer.y, 1.0) {
-            let shift = state.viewport.modifiers.shift_key();
-            session.set_cursor_from_screen_point(pointer.x, pointer.y, shift, 1.0);
-            state.editor.annotation.is_selecting_text = true;
-            return true;
+    if state.can_interact_annotation_at(pointer.x, pointer.y) {
+        let (ax, ay) = state.annotation_point(pointer.x, pointer.y);
+        if let Some(session) = &mut state.editor.annotation.active_text_input {
+            if session.contains_screen_point(ax, ay, 1.0) {
+                let shift = state.viewport.modifiers.shift_key();
+                session.set_cursor_from_screen_point(ax, ay, shift, 1.0);
+                state.editor.annotation.is_selecting_text = true;
+                return true;
+            }
         }
     }
     let had_active_text = state.editor.annotation.active_text_input.is_some();
@@ -205,13 +185,18 @@ fn handle_locked_press(
 }
 
 /// 查找选区控制手柄；工具激活时也允许随时调整选区大小。
-fn selection_handle_at(state: &SnipperState, rect: Rect, cx: f32, cy: f32) -> Option<ResizeHandle> {
+pub(super) fn selection_handle_at(
+    state: &SnipperState,
+    rect: Rect,
+    cx: f32,
+    cy: f32,
+) -> Option<ResizeHandle> {
     let handle_tolerance = 8.0 * state.editor.annotation.toolbar.ui_scale;
     hit_test_handle(&rect, cx, cy, handle_tolerance)
 }
 
 /// 进入选区手柄缩放状态。
-fn begin_selection_resize(state: &mut SnipperState, handle: ResizeHandle) -> bool {
+pub(super) fn begin_selection_resize(state: &mut SnipperState, handle: ResizeHandle) -> bool {
     crate::snipper::window::annotation_edit::clear(state);
     if let SelectionState::Locked {
         ref mut active_drag,
@@ -224,7 +209,7 @@ fn begin_selection_resize(state: &mut SnipperState, handle: ResizeHandle) -> boo
 }
 
 /// 进入选区整体拖动状态。
-fn begin_selection_move(state: &mut SnipperState, rect: Rect, cx: f32, cy: f32) -> bool {
+pub(super) fn begin_selection_move(state: &mut SnipperState, rect: Rect, cx: f32, cy: f32) -> bool {
     crate::snipper::window::annotation_edit::clear(state);
     if let SelectionState::Locked {
         ref mut active_drag,
@@ -247,31 +232,26 @@ fn handle_inside_selection_press(
     cy: f32,
     had_active_text: bool,
 ) -> bool {
-    if state.editor.annotation.toolbar.active_tool == Some(Tool::Eraser) {
-        return eraser::handle_press(state, cx, cy);
-    }
-    if state.editor.annotation.toolbar.active_tool == Some(Tool::Line)
-        && state.editor.annotation.toolbar.sub_options.line_mode == LineMode::Polyline
-    {
-        crate::snipper::window::annotation_edit::clear(state);
-        state
-            .editor
-            .annotation
-            .stroke
-            .append(crate::geometry::Point::new(cx, cy));
-        state.editor.annotation.stroke.is_drawing = true;
-        return true;
-    }
+    let had_selection = state.editor.selected_annotation.is_some();
     if state.editor.annotation.toolbar.active_tool.is_some() {
         crate::snipper::window::annotation_edit::clear(state);
-        state
-            .editor
-            .annotation
-            .stroke
-            .begin(crate::geometry::Point::new(cx, cy));
+        if !state.can_interact_annotation_at(cx, cy) {
+            return had_active_text || had_selection;
+        }
+        let (ax, ay) = state.annotation_point(cx, cy);
+        if state.editor.annotation.toolbar.active_tool == Some(Tool::Eraser) {
+            return eraser::handle_press(state, ax, ay);
+        }
+        if state.editor.annotation.toolbar.active_tool == Some(Tool::Line)
+            && state.editor.annotation.toolbar.sub_options.line_mode == LineMode::Polyline
+        {
+            state.editor.annotation.stroke.append(Point::new(ax, ay));
+            state.editor.annotation.stroke.is_drawing = true;
+            return true;
+        }
+        state.editor.annotation.stroke.begin(Point::new(ax, ay));
         return true;
     }
-    let had_selection = state.editor.selected_annotation.is_some();
     crate::snipper::window::annotation_edit::clear(state);
     if !state.can_adjust_selection() {
         return had_active_text || had_selection;
@@ -428,8 +408,9 @@ fn finish_locked_selection(
         finish_locked_drag(state, rect, release);
         return true;
     }
+    let release_point = clamped_release_point(state, release.cx, release.cy);
     if state.editor.annotation.toolbar.active_tool == Some(Tool::Eraser) {
-        return eraser::handle_release(state, release.cx, release.cy);
+        return eraser::handle_release(state, release_point.x, release_point.y);
     }
     if state.editor.annotation.toolbar.active_tool == Some(Tool::Line)
         && state.editor.annotation.toolbar.sub_options.line_mode == LineMode::Polyline
@@ -440,16 +421,20 @@ fn finish_locked_selection(
     if state.editor.annotation.toolbar.active_tool.is_some()
         && !state.editor.annotation.stroke.is_empty()
     {
-        state
-            .editor
-            .annotation
-            .stroke
-            .points
-            .push(crate::geometry::Point::new(release.cx, release.cy));
+        state.editor.annotation.stroke.points.push(release_point);
         commit_annotation(state);
         return true;
     }
     false
+}
+
+/// 解析释放点坐标：长图编辑态夹取到当前可视长图区域并映射到长画布坐标。
+fn clamped_release_point(state: &SnipperState, cx: f32, cy: f32) -> Point {
+    state
+        .long_canvas_space()
+        .map_or(Point::new(cx, cy), |space| {
+            space.clamp_screen_to_canvas(cx, cy)
+        })
 }
 
 /// 完成选区整体移动或手柄缩放后的落点保存。

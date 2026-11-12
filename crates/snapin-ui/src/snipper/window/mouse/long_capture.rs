@@ -180,3 +180,40 @@ fn current_selection_frame(state: &SnipperState, original_rgba: &RgbaImage) -> O
     use image::GenericImageView;
     Some(original_rgba.view(x, y, width, height).to_image())
 }
+
+/// 处理长截图非编辑态（就绪/录制/暂停）下的选区范围左键拦截与控制栏分发。
+pub(super) fn handle_non_editing_press(
+    state: &mut SnipperState,
+    rect: Rect,
+    pointer: Point,
+    original_rgba: &RgbaImage,
+) -> Option<bool> {
+    let session = state.long_capture.as_mut()?;
+    if session.is_editing {
+        return None;
+    }
+
+    let in_bar = session
+        .toolbar_rect
+        .is_some_and(|r| r.contains(pointer.x, pointer.y));
+    let in_sub = session
+        .crop_submenu_rect
+        .is_some_and(|r| r.contains(pointer.x, pointer.y));
+    if in_bar || in_sub {
+        return Some(handle_long_capture_press(state, pointer, original_rgba));
+    }
+
+    let closed_submenu = std::mem::take(&mut session.crop_sub_menu_open);
+    if !state.can_adjust_selection() {
+        return Some(closed_submenu);
+    }
+    if let Some(handle) = super::buttons::selection_handle_at(state, rect, pointer.x, pointer.y) {
+        return Some(super::buttons::begin_selection_resize(state, handle));
+    }
+    if rect.contains(pointer.x, pointer.y) {
+        return Some(super::buttons::begin_selection_move(
+            state, rect, pointer.x, pointer.y,
+        ));
+    }
+    Some(closed_submenu)
+}

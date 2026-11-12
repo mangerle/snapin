@@ -27,12 +27,11 @@ use crate::snipper::window::state::long_capture::{LongCaptureAction, LongCapture
 use bar::*;
 pub(crate) use dock::render_long_capture_dock;
 use icons::*;
-use image::GenericImageView;
 use snapin_editor::toolbar::items::ToolbarAction as EditorToolbarAction;
 use snapin_render::{with_thread_local_text_renderer, StitchDirection, TextDrawOptions};
 pub(crate) use sub_menu::hit_test_crop_sub_menu;
 use sub_menu::render_crop_sub_menu;
-use tiny_skia::{Paint, PathBuilder, PixmapMut, Stroke, Transform};
+use tiny_skia::{Paint, PathBuilder, PixmapMut, PixmapRef, Stroke, Transform};
 pub(crate) use types::{long_capture_main_button_defs, long_capture_size_readout_width};
 
 /// 绘制长截图 PixPin 风格白色悬浮控制栏（位于选区上方）
@@ -343,71 +342,35 @@ pub(crate) fn hit_test_long_capture_bar(
     None
 }
 
-/// 在长图编辑模式下，将长图在视口偏移量下的子图快速拷贝到选区视窗内
-pub(crate) fn render_long_canvas_viewport(
-    pixmap: &mut PixmapMut,
-    session: &LongCaptureSession,
-    selection_rect: &Rect,
-    screen_size: CanvasSize,
+/// 将已处于预乘 Alpha 格式的局部离屏画布切片精确拷贝到目标 Pixmap 指定坐标。
+pub(crate) fn copy_premultiplied_pixmap_region(
+    dst: &mut PixmapMut,
+    src: PixmapRef<'_>,
+    dest_x: u32,
+    dest_y: u32,
 ) {
-    let (px, py, pw, ph) = selection_rect.to_pixel_bounds(screen_size.width, screen_size.height);
-    if pw == 0 || ph == 0 {
+    let (sw, sh) = (src.width(), src.height());
+    let (dw, dh) = (dst.width(), dst.height());
+    let copy_w = sw.min(dw.saturating_sub(dest_x));
+    let copy_h = sh.min(dh.saturating_sub(dest_y));
+    if copy_w == 0 || copy_h == 0 {
         return;
     }
 
-    let canvas = session.stitcher.canvas();
-    let (cw, ch) = canvas.dimensions();
-    let view = match session.direction {
-        StitchDirection::Vertical => {
-            let offset_y = (session.viewport_offset_y.round() as u32).min(ch.saturating_sub(ph));
-            let copy_w = pw.min(cw);
-            let copy_h = ph.min(ch.saturating_sub(offset_y));
-            canvas.view(0, offset_y, copy_w, copy_h)
+    let src_raw = src.data();
+    let dst_raw = dst.data_mut();
+    let src_stride = sw as usize * 4;
+    let dst_stride = dw as usize * 4;
+    let row_bytes = copy_w as usize * 4;
+
+    for row in 0..copy_h as usize {
+        let s_offset = row * src_stride;
+        let d_offset = (dest_y as usize + row) * dst_stride + dest_x as usize * 4;
+        if let (Some(dst_slice), Some(src_slice)) = (
+            dst_raw.get_mut(d_offset..d_offset + row_bytes),
+            src_raw.get(s_offset..s_offset + row_bytes),
+        ) {
+            dst_slice.copy_from_slice(src_slice);
         }
-        StitchDirection::Horizontal => {
-            let offset_x = (session.viewport_offset_x.round() as u32).min(cw.saturating_sub(pw));
-            let copy_w = pw.min(cw.saturating_sub(offset_x));
-            let copy_h = ph.min(ch);
-            canvas.view(offset_x, 0, copy_w, copy_h)
-        }
-    };
-    let view_image = view.to_image();
-    dock::blit_rgba_to_pixmap(pixmap, &view_image, px, py);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::snipper::window::state::LongCaptureSession;
-    use image::{Rgba, RgbaImage};
-    use tiny_skia::Pixmap;
-
-    /// 横向编辑态必须使用水平偏移裁剪长图，而不是继续复用垂直偏移。
-    #[test]
-    fn test_horizontal_editing_viewport_uses_x_offset() {
-        let mut canvas = RgbaImage::from_pixel(20, 10, Rgba([10, 20, 30, 255]));
-        for y in 0..10 {
-            canvas.put_pixel(10, y, Rgba([200, 30, 40, 255]));
-        }
-        let mut session = LongCaptureSession::new(canvas);
-        session.toggle_direction();
-        session.enter_editing();
-        session.viewport_offset_x = 10.0;
-
-        let mut pixmap = Pixmap::new(20, 20).expect("测试画布必须可创建");
-        let selection = Rect {
-            x: 0.0,
-            y: 0.0,
-            width: 10.0,
-            height: 10.0,
-        };
-        render_long_canvas_viewport(
-            &mut pixmap.as_mut(),
-            &session,
-            &selection,
-            CanvasSize::new(20, 20),
-        );
-
-        assert_eq!(&pixmap.data()[0..4], &[200, 30, 40, 255]);
     }
 }

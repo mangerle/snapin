@@ -1100,3 +1100,141 @@ fn test_long_capture_isolates_mouse_and_toolbar_across_phases() {
         }
     ));
 }
+
+/// 长图编辑态下，滚动后的绘制、点击命中、拖拽移动、文本输入框定位与提交均必须工作在长画布坐标系，
+/// 且裁剪后的选区下方空白处不得创建越界标注或文本框。
+#[test]
+fn test_long_capture_editing_scrolled_annotation_interaction_and_drag() {
+    use crate::editor::toolbar::Tool;
+    use crate::snipper::window::state::commit_active_text_input;
+    use snapin_annotation::action::AnnotationShape;
+
+    let mut state = SnipperState::new();
+    state.viewport.screen_size = (1280.0, 800.0);
+    let original = RgbaImage::from_pixel(1280, 800, Rgba([20, 20, 20, 255]));
+    let selection_rect = Rect::new(100.0, 100.0, 300.0, 400.0);
+    state.viewport.selection = SelectionState::Locked {
+        rect: selection_rect,
+        active_drag: None,
+    };
+
+    let long_canvas = RgbaImage::from_pixel(300, 900, Rgba([40, 80, 120, 255]));
+    let mut session = LongCaptureSession::new(long_canvas);
+    session.enter_editing();
+    session.viewport_offset_y = 200.0;
+    state.long_capture = Some(session);
+    state
+        .editor
+        .annotation
+        .toolbar
+        .configure_for_long_capture_editing();
+    state
+        .editor
+        .annotation
+        .toolbar
+        .update_layout(&selection_rect, 1280.0, 800.0);
+
+    // 1. 激活矩形工具，在屏幕 (150, 180) -> (220, 260) 绘制并释放：应按偏移 +200 落在画布 (50, 280, 70, 80)
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Rect);
+    assert!(handle_left_press(&mut state, 150.0, 180.0, &original));
+    assert!(handle_cursor_move(
+        &mut state,
+        (220.0, 260.0),
+        1280.0,
+        800.0
+    ));
+    handle_mouse_button(
+        &mut state,
+        MouseButton::Left,
+        ElementState::Released,
+        &original,
+    );
+    assert_eq!(state.editor.annotations.document().len(), 1);
+    match state.editor.annotations.shape_at(0) {
+        Some(AnnotationShape::Rect(r)) => {
+            assert_eq!(r.rect, Rect::new(50.0, 280.0, 70.0, 80.0));
+        }
+        other => panic!("期望提交矩形标注，实际: {other:?}"),
+    }
+
+    // 2. 继续向下滚动至 offset_y = 240，在无激活工具时点击屏幕 (180, 170)（即画布 (80, 310)）选中并拖拽 +20px
+    state.editor.annotation.toolbar.active_tool = None;
+    state
+        .long_capture
+        .as_mut()
+        .expect("会话应在")
+        .viewport_offset_y = 240.0;
+    assert!(handle_left_press(&mut state, 180.0, 170.0, &original));
+    assert!(state.editor.selected_annotation.is_some());
+    assert!(handle_cursor_move(
+        &mut state,
+        (180.0, 190.0),
+        1280.0,
+        800.0
+    ));
+    handle_mouse_button(
+        &mut state,
+        MouseButton::Left,
+        ElementState::Released,
+        &original,
+    );
+    match state.editor.annotations.shape_at(0) {
+        Some(AnnotationShape::Rect(r)) => {
+            assert_eq!(r.rect, Rect::new(50.0, 300.0, 70.0, 80.0));
+        }
+        other => panic!("拖拽后期望矩形在画布 y=300，实际: {other:?}"),
+    }
+
+    // 3. 激活文字工具点击屏幕 (160, 150) -> 文本框在画布 (60, 290)；滚动到 220 后点击新位置 (175, 178) 保持会话并提交
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Text);
+    assert!(handle_left_press(&mut state, 160.0, 150.0, &original));
+    {
+        let text_session = state
+            .editor
+            .annotation
+            .active_text_input
+            .as_mut()
+            .expect("应激活文本输入框");
+        assert_eq!((text_session.pos.x, text_session.pos.y), (60.0, 290.0));
+        text_session.insert_str("Hello");
+    }
+    state
+        .long_capture
+        .as_mut()
+        .expect("会话应在")
+        .viewport_offset_y = 220.0;
+    assert!(handle_left_press(&mut state, 175.0, 178.0, &original));
+    assert!(
+        state.editor.annotation.active_text_input.is_some(),
+        "滚动后点击文本输入框新屏幕位置不得意外提交退出"
+    );
+    assert!(state.editor.annotation.is_selecting_text);
+    handle_mouse_button(
+        &mut state,
+        MouseButton::Left,
+        ElementState::Released,
+        &original,
+    );
+    commit_active_text_input(&mut state);
+    assert_eq!(state.editor.annotations.document().len(), 2);
+    match state.editor.annotations.shape_at(1) {
+        Some(AnnotationShape::Text(t)) => {
+            assert_eq!((t.pos.x, t.pos.y), (60.0, 290.0));
+            assert_eq!(t.text, "Hello");
+        }
+        other => panic!("期望提交文本标注，实际: {other:?}"),
+    }
+
+    // 4. 裁剪导致长图矮于选区高度时，点击底部空白区只取消旧选中，不得创建文本框或新标注
+    let mut short_session =
+        LongCaptureSession::new(RgbaImage::from_pixel(300, 120, Rgba([10, 10, 10, 255])));
+    short_session.enter_editing();
+    state.long_capture = Some(short_session);
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Text);
+    assert!(handle_left_press(&mut state, 200.0, 350.0, &original));
+    assert!(state.editor.selected_annotation.is_none());
+    assert!(state.editor.annotation.active_text_input.is_none());
+    assert!(state.editor.annotation.stroke.is_empty());
+    assert!(!handle_left_press(&mut state, 200.0, 350.0, &original));
+    assert!(state.editor.annotation.active_text_input.is_none());
+}

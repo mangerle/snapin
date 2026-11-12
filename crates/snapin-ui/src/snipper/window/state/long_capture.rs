@@ -2,7 +2,7 @@
 //!
 //! 管理长截图的捕获状态、拼接引擎、视口偏移、缩略图热区与专用控制条。
 
-use crate::geometry::Rect;
+use crate::geometry::{Point, Rect};
 use snapin_render::stitching::{
     LongCaptureStitcher, StitchDirection, StitchOptions, ViewportWindow,
 };
@@ -301,6 +301,111 @@ impl LongCaptureSession {
             }
         }
     }
+
+    /// 计算长图画布相对于视口尺寸 `(view_width, view_height)` 的整型偏移 `(offset_x, offset_y)`。
+    pub(crate) fn effective_viewport_offset(
+        &self,
+        view_width: u32,
+        view_height: u32,
+    ) -> (u32, u32) {
+        let (cw, ch) = self.stitcher.canvas().dimensions();
+        match self.direction {
+            StitchDirection::Vertical => (
+                0,
+                (self.viewport_offset_y.round().max(0.0) as u32)
+                    .min(ch.saturating_sub(view_height)),
+            ),
+            StitchDirection::Horizontal => (
+                (self.viewport_offset_x.round().max(0.0) as u32).min(cw.saturating_sub(view_width)),
+                0,
+            ),
+        }
+    }
+}
+
+/// 长截图编辑态下的屏幕坐标与长画布坐标双向映射器。
+///
+/// 实现初衷：编辑态下长画布随 `viewport_offset_x/y` 在选区视窗内滚动，若标注直接记录屏幕坐标，
+/// 滚动时标注会停在原地且导出无法对应长图位置。通过将标注统一存储于 `(0..lw, 0..lh)`
+/// 长画布坐标空间并在渲染/交互边界完成往返映射，彻底消除双坐标系错位与累积舍入误差。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct LongCanvasSpace {
+    /// 屏幕选区对应的像素边界（左上角为长画布可视切片在屏幕上的绘制原点）
+    pub viewport_screen: Rect,
+    /// 当前可视区域实际占用的宽高（若长图被裁剪得小于选区，仅包含有效图像区域）
+    pub visible_size: (f32, f32),
+    /// 长画布视口左上角偏移 `(offset_x, offset_y)`
+    pub canvas_offset: (f32, f32),
+}
+
+impl LongCanvasSpace {
+    /// 根据长截图会话、锁定选区与屏幕尺寸构造映射器；仅编辑态且有效面积非零时返回 `Some`。
+    pub(crate) fn from_session(
+        session: &LongCaptureSession,
+        selection_rect: &Rect,
+        screen_size: (f32, f32),
+    ) -> Option<Self> {
+        if !session.is_editing {
+            return None;
+        }
+        let (max_w, max_h) = if screen_size.0 > 0.0 && screen_size.1 > 0.0 {
+            (screen_size.0.round() as u32, screen_size.1.round() as u32)
+        } else {
+            (u32::MAX, u32::MAX)
+        };
+        let (px, py, pw, ph) = selection_rect.to_pixel_bounds(max_w, max_h);
+        if pw == 0 || ph == 0 {
+            return None;
+        }
+        let (cw, ch) = session.stitcher.canvas().dimensions();
+        let (ox, oy) = session.effective_viewport_offset(pw, ph);
+        let copy_w = pw.min(cw.saturating_sub(ox));
+        let copy_h = ph.min(ch.saturating_sub(oy));
+        if copy_w == 0 || copy_h == 0 {
+            return None;
+        }
+        Some(Self {
+            viewport_screen: Rect {
+                x: px as f32,
+                y: py as f32,
+                width: pw as f32,
+                height: ph as f32,
+            },
+            visible_size: (copy_w as f32, copy_h as f32),
+            canvas_offset: (ox as f32, oy as f32),
+        })
+    }
+
+    /// 将屏幕坐标映射到长画布绝对坐标。
+    pub(crate) fn screen_to_canvas(&self, sx: f32, sy: f32) -> (f32, f32) {
+        (
+            sx - self.viewport_screen.x + self.canvas_offset.0,
+            sy - self.viewport_screen.y + self.canvas_offset.1,
+        )
+    }
+
+    /// 将屏幕坐标先夹取到当前可视长图区域，再映射到长画布绝对坐标。
+    pub(crate) fn clamp_screen_to_canvas(&self, sx: f32, sy: f32) -> Point {
+        let max_sx = self.viewport_screen.x + self.visible_size.0;
+        let max_sy = self.viewport_screen.y + self.visible_size.1;
+        let clamped_x = sx.clamp(self.viewport_screen.x, max_sx);
+        let clamped_y = sy.clamp(self.viewport_screen.y, max_sy);
+        let (cx, cy) = self.screen_to_canvas(clamped_x, clamped_y);
+        Point::new(cx, cy)
+    }
+
+    /// 判断屏幕坐标是否处于当前可视长图视口范围内。
+    pub(crate) fn contains_visible_screen_point(&self, sx: f32, sy: f32) -> bool {
+        sx >= self.viewport_screen.x
+            && sx <= self.viewport_screen.x + self.visible_size.0
+            && sy >= self.viewport_screen.y
+            && sy <= self.viewport_screen.y + self.visible_size.1
+    }
+
+    /// 在视口大小局部离屏位图上回放画布坐标标注时所需的偏移量 `(-offset_x, -offset_y)`。
+    pub(crate) fn viewport_draw_offset(&self) -> (f32, f32) {
+        (-self.canvas_offset.0, -self.canvas_offset.1)
+    }
 }
 
 #[cfg(test)]
@@ -553,5 +658,42 @@ mod tests {
 
         session.start_capture(create_test_frame(100, 140));
         assert!(!session.stitcher.options().auto_crop_reverse);
+    }
+
+    #[test]
+    fn test_long_canvas_space_bidirectional_mapping_and_cropped_margin() {
+        let mut session = LongCaptureSession::new(create_test_frame(200, 500));
+        session.enter_editing();
+        session.viewport_offset_y = 180.0;
+        let selection = Rect::new(100.0, 50.0, 200.0, 300.0);
+
+        let v_space = LongCanvasSpace::from_session(&session, &selection, (1280.0, 800.0))
+            .expect("编辑态应构建垂直空间映射");
+        assert_eq!(v_space.screen_to_canvas(125.0, 90.0), (25.0, 220.0));
+        assert_eq!(v_space.viewport_draw_offset(), (0.0, -180.0));
+        assert!(v_space.contains_visible_screen_point(299.0, 349.0));
+        assert_eq!(
+            v_space.clamp_screen_to_canvas(50.0, 500.0),
+            Point::new(0.0, 480.0)
+        );
+
+        // 当长图经过裁剪矮于选区视口高度时，超出的选区底部空白处必须被判定为不可交互。
+        let mut cropped = LongCaptureSession::new(create_test_frame(200, 120));
+        cropped.enter_editing();
+        let cropped_space = LongCanvasSpace::from_session(&cropped, &selection, (1280.0, 800.0))
+            .expect("裁剪后短图应保留有效可视区域");
+        assert!(cropped_space.contains_visible_screen_point(150.0, 160.0));
+        assert!(!cropped_space.contains_visible_screen_point(150.0, 250.0));
+
+        // 水平方向偏移映射同样保持精确对称。
+        let mut horiz = LongCaptureSession::new(create_test_frame(600, 150));
+        horiz.toggle_direction();
+        horiz.enter_editing();
+        horiz.viewport_offset_x = 140.0;
+        let h_selection = Rect::new(80.0, 40.0, 250.0, 150.0);
+        let h_space = LongCanvasSpace::from_session(&horiz, &h_selection, (1280.0, 800.0))
+            .expect("横向编辑态应构建水平空间映射");
+        assert_eq!(h_space.screen_to_canvas(110.0, 75.0), (170.0, 35.0));
+        assert_eq!(h_space.viewport_draw_offset(), (-140.0, 0.0));
     }
 }

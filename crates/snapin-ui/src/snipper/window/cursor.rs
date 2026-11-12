@@ -50,7 +50,7 @@ fn desired_cursor_icon(state: &SnipperState) -> CursorIcon {
     if let Some(icon) = toolbar_cursor(state, cx, cy) {
         return icon;
     }
-    if let Some(icon) = annotation_cursor(state, cx, cy) {
+    if let Some(icon) = annotation_cursor(state, rect, cx, cy) {
         return icon;
     }
     selection_cursor(state, rect, cx, cy)
@@ -126,7 +126,14 @@ fn toolbar_cursor(state: &SnipperState, cx: f32, cy: f32) -> Option<CursorIcon> 
 }
 
 /// 标注手柄、标注主体与锁定旧标注的光标。
-fn annotation_cursor(state: &SnipperState, cx: f32, cy: f32) -> Option<CursorIcon> {
+fn annotation_cursor(state: &SnipperState, rect: &Rect, sx: f32, sy: f32) -> Option<CursorIcon> {
+    if !rect.contains(sx, sy) && state.long_canvas_space().is_some() {
+        return None;
+    }
+    if !state.can_interact_annotation_at(sx, sy) {
+        return None;
+    }
+    let (cx, cy) = state.annotation_point(sx, sy);
     if let Some(handle) = annotation_edit::hit_test_selected_handle(state, cx, cy) {
         return Some(resize_cursor(handle));
     }

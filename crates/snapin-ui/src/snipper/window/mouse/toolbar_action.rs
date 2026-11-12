@@ -86,8 +86,9 @@ pub fn dispatch_toolbar_action(
 /// 处理文字工具点击选区开启输入
 pub fn handle_text_tool_click(state: &mut SnipperState, cx: f32, cy: f32) -> bool {
     if let SelectionState::Locked { rect, .. } = &state.viewport.selection {
-        if rect.contains(cx, cy) {
+        if rect.contains(cx, cy) && state.can_interact_annotation_at(cx, cy) {
             commit_active_text_input(state);
+            let pos = state.annotation_point(cx, cy);
             let c = state.editor.annotation.toolbar.sub_options.color;
             let rgba = (
                 (c.red() * 255.0).round() as u8,
@@ -96,7 +97,7 @@ pub fn handle_text_tool_click(state: &mut SnipperState, cx: f32, cy: f32) -> boo
                 (c.alpha() * 255.0).round() as u8,
             );
             let mut session = TextInputSession::new(
-                (cx, cy),
+                pos,
                 rgba,
                 state.editor.annotation.toolbar.sub_options.font_size,
             );

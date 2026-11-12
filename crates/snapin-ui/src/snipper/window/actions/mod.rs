@@ -6,6 +6,7 @@ use super::jobs::SnipperJobKind;
 use crate::ports::MediaJob;
 use crate::snipper::selection::{Rect, SelectionState};
 use image::{GenericImageView, RgbaImage};
+use snapin_render::{pixmap_into_rgba_image, rgba_image_to_pixmap};
 
 mod pin;
 pub use pin::handle_action_pin;
@@ -22,14 +23,12 @@ pub fn crop_selection_image(
 
     if let Some(session) = &state.long_capture {
         let long_canvas = session.stitcher.canvas();
-        let (lw, lh) = long_canvas.dimensions();
         if !state.editor.annotations.can_undo() {
             return Some(long_canvas.clone());
         }
-        let mut pixmap = tiny_skia::Pixmap::new(lw, lh)?;
-        pixmap.data_mut().copy_from_slice(long_canvas.as_raw());
+        let mut pixmap = rgba_image_to_pixmap(long_canvas)?;
         state.editor.annotations.replay_all(&mut pixmap.as_mut());
-        return RgbaImage::from_raw(lw, lh, pixmap.take());
+        return pixmap_into_rgba_image(pixmap);
     }
 
     if let SelectionState::Locked { rect, .. } = &state.viewport.selection {
@@ -42,17 +41,14 @@ pub fn crop_selection_image(
             }
 
             // 存在标注时，仅分配选区尺寸大小的 Pixmap，基于负偏移量局部回放图元，节约数十倍瞬时内存与拷贝
-            let mut cropped_pixmap = tiny_skia::Pixmap::new(pw, ph)?;
-            cropped_pixmap
-                .data_mut()
-                .copy_from_slice(sub_image.as_raw());
+            let mut cropped_pixmap = rgba_image_to_pixmap(&sub_image)?;
             state.editor.annotations.replay_with_offset(
                 &mut cropped_pixmap.as_mut(),
                 -(px as f32),
                 -(py as f32),
             );
 
-            return RgbaImage::from_raw(pw, ph, cropped_pixmap.take());
+            return pixmap_into_rgba_image(cropped_pixmap);
         }
     }
     None

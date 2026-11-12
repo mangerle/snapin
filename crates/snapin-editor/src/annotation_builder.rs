@@ -121,86 +121,100 @@ impl<'a> AnnotationDraftParams<'a> {
 /// 画笔 (Pen) 与记号笔 (Marker) 直接借用点集切片 [`Point`] 进行光栅化绘制，
 /// 彻底根除在鼠标 60Hz~144Hz 高频移动事件中频繁触发的 `pts.to_vec()` 堆内存分配。
 pub fn render_draft_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
+    render_draft_preview_offset(params, pixmap, Point::default());
+}
+
+/// 在带视口平移偏移量 `offset` 的目标位图上渲染交互绘制中的草稿预览图元。
+pub fn render_draft_preview_offset(
+    params: &AnnotationDraftParams,
+    pixmap: &mut PixmapMut,
+    offset: Point,
+) {
     match params.tool {
-        Tool::Pen => draw_pen_preview(params, pixmap),
-        Tool::Line => draw_shape_with_border(params, pixmap),
-        Tool::Marker => draw_marker_preview(params, pixmap),
-        Tool::Blur => draw_blur_preview(params, pixmap),
-        Tool::Mosaic => draw_mosaic_preview(params, pixmap),
-        _ => draw_shape_preview(params, pixmap),
+        Tool::Pen => draw_pen_preview(params, pixmap, offset),
+        Tool::Line => draw_shape_with_border(params, pixmap, offset),
+        Tool::Marker => draw_marker_preview(params, pixmap, offset),
+        Tool::Blur => draw_blur_preview(params, pixmap, offset),
+        Tool::Mosaic => draw_mosaic_preview(params, pixmap, offset),
+        _ => draw_shape_preview(params, pixmap, offset),
     }
 }
 
 /// 画笔直接借用点集切片绘制，避免高频鼠标移动时分配临时 Vec。
-fn draw_pen_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
+fn draw_pen_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut, offset: Point) {
     PenAction::draw_points_offset(
         PenStrokeSpec {
             points: params.points,
             color: params.style.color_rgba.into(),
             stroke_width: params.style.stroke_width,
             line_style: params.style.line_style,
-            offset: Point::default(),
+            offset,
         },
         pixmap,
     );
 }
 
 /// 直线预览使用最终图元，并补一圈虚线边框提示拖拽范围。
-fn draw_shape_with_border(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
-    draw_shape_preview(params, pixmap);
-    draw_draft_border(params, pixmap);
+fn draw_shape_with_border(params: &AnnotationDraftParams, pixmap: &mut PixmapMut, offset: Point) {
+    draw_shape_preview(params, pixmap, offset);
+    draw_draft_border(params, pixmap, offset);
 }
 
 /// 记号笔直接借用点集切片绘制。
-fn draw_marker_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
+fn draw_marker_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut, offset: Point) {
     MarkerAction::draw_points_offset(
         MarkerStrokeSpec {
             points: params.points,
             color: params.style.color_rgba.into(),
             stroke_width: params.style.stroke_width * 2.0,
-            offset: Point::default(),
+            offset,
         },
         pixmap,
     );
 }
 
 /// 拖拽模糊只显示占位框，避免每帧执行大面积卷积。
-fn draw_blur_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
-    draw_blur_placeholder(params, pixmap);
-    draw_draft_border(params, pixmap);
+fn draw_blur_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut, offset: Point) {
+    draw_blur_placeholder(params, pixmap, offset);
+    draw_draft_border(params, pixmap, offset);
 }
 
 /// 马赛克按模式选择实时块化、画笔模糊或智能打码边框预览。
-fn draw_mosaic_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
+fn draw_mosaic_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut, offset: Point) {
     match params.style.mosaic_mode {
         MosaicMode::Mosaic => {
-            draw_shape_preview(params, pixmap);
+            draw_shape_preview(params, pixmap, offset);
             if !params.style.mosaic_brush_mode {
-                draw_draft_border(params, pixmap);
+                draw_draft_border(params, pixmap, offset);
             }
         }
-        MosaicMode::Blur if params.style.mosaic_brush_mode => draw_shape_preview(params, pixmap),
-        MosaicMode::Blur => draw_blur_preview(params, pixmap),
-        MosaicMode::SmartRedact => draw_draft_border(params, pixmap),
+        MosaicMode::Blur if params.style.mosaic_brush_mode => {
+            draw_shape_preview(params, pixmap, offset);
+        }
+        MosaicMode::Blur => draw_blur_preview(params, pixmap, offset),
+        MosaicMode::SmartRedact => draw_draft_border(params, pixmap, offset),
     }
 }
 
 /// 其余图元复用同一构建工厂，保证预览与最终提交的几何和样式一致。
-fn draw_shape_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
+fn draw_shape_preview(params: &AnnotationDraftParams, pixmap: &mut PixmapMut, offset: Point) {
     if let Some(shape) = build_shape(params) {
-        shape.draw(pixmap);
+        shape.draw_offset(pixmap, offset.x, offset.y);
     }
 }
 
 /// 绘制模糊拖拽预览：半透明灰框代替实时卷积。
-fn draw_blur_placeholder(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
+fn draw_blur_placeholder(params: &AnnotationDraftParams, pixmap: &mut PixmapMut, offset: Point) {
     let Some(first) = params.points.first().copied() else {
         return;
     };
     let Some(last) = params.points.last().copied() else {
         return;
     };
-    let rect = Rect::from_point_pair(first, last);
+    let rect = Rect::from_point_pair(
+        Point::new(first.x + offset.x, first.y + offset.y),
+        Point::new(last.x + offset.x, last.y + offset.y),
+    );
     let Some(rect) = tiny_skia::Rect::from_xywh(rect.x, rect.y, rect.width, rect.height) else {
         return;
     };
@@ -214,14 +228,17 @@ fn draw_blur_placeholder(params: &AnnotationDraftParams, pixmap: &mut PixmapMut)
 /// 设计原理：这两种图元本身没有可见的主色，模糊预览又只是一块半透明灰，
 /// 拖拽时若没有描边，用户很难判断当前框选的边界。描边只存在于即时预览层，
 /// 提交后的图元只重放块化/卷积效果，不含任何描边，最终截图保持干净。
-fn draw_draft_border(params: &AnnotationDraftParams, pixmap: &mut PixmapMut) {
+fn draw_draft_border(params: &AnnotationDraftParams, pixmap: &mut PixmapMut, offset: Point) {
     let Some(first) = params.points.first().copied() else {
         return;
     };
     let Some(last) = params.points.last().copied() else {
         return;
     };
-    let rect = Rect::from_point_pair(first, last);
+    let rect = Rect::from_point_pair(
+        Point::new(first.x + offset.x, first.y + offset.y),
+        Point::new(last.x + offset.x, last.y + offset.y),
+    );
     let scale = params.style.ui_scale.max(0.1);
     let stroke_width = (1.2 * scale).max(1.0);
     // 虚线路径内缩半个线宽，使描边完全落在拖拽矩形内部：

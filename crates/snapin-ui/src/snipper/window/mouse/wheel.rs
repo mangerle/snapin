@@ -29,26 +29,29 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
                     state.viewport.cursor_pos.0 as f32,
                     state.viewport.cursor_pos.1 as f32,
                 );
-                if !rect.contains(cx, cy) {
-                    return false;
+                if !state.editor.annotation.toolbar.contains_point(cx, cy) {
+                    if !rect.contains(cx, cy) {
+                        return false;
+                    }
+                    let viewport_span = match session.direction {
+                        StitchDirection::Vertical => rect.height,
+                        StitchDirection::Horizontal => rect.width,
+                    };
+                    session.scroll_viewport(delta_y * 48.0, viewport_span);
+                    return true;
                 }
-                let viewport_span = match session.direction {
-                    StitchDirection::Vertical => rect.height,
-                    StitchDirection::Horizontal => rect.width,
-                };
-                session.scroll_viewport(delta_y * 48.0, viewport_span);
+            }
+        } else {
+            if session.is_capturing {
+                // 捕获阶段不能在选区命中后直接返回。用户通常刚点击上方控制栏，光标仍停在
+                // 选区外；只要长截图模式仍处于捕获态，任何滚轮事件都应交给事件分发器启动
+                // 底层滚动抓屏，否则会出现“点击长截图后滚轮完全无反应”。
+                // 反向自动裁剪统一交由拼接器在新帧位移确认后执行，避免重复裁剪。
                 return true;
             }
+            // 已暂停且未进入长图编辑框时，严禁滚轮穿透到普通截图的放大镜或隐藏工具栏控件。
+            return false;
         }
-        if session.is_capturing {
-            // 捕获阶段不能在选区命中后直接返回。用户通常刚点击上方控制栏，光标仍停在
-            // 选区外；只要长截图模式仍处于捕获态，任何滚轮事件都应交给事件分发器启动
-            // 底层滚动抓屏，否则会出现“点击长截图后滚轮完全无反应”。
-            // 反向自动裁剪统一交由拼接器在新帧位移确认后执行，避免重复裁剪。
-            return true;
-        }
-        // 已暂停且未进入长图编辑框时，严禁滚轮穿透到普通截图的放大镜或隐藏工具栏控件。
-        return false;
     }
 
     if state.editor.annotation.toolbar.active_tool == Some(Tool::Magnifier)
