@@ -130,7 +130,10 @@ impl LongCaptureSession {
     /// 基于初始捕获帧创建长截图会话，并在进入长截图后立即开始录制。
     pub fn new(first_frame: image::RgbaImage) -> Self {
         let direction = StitchDirection::Vertical;
+        let frame_main = first_frame.height();
         let stitcher = LongCaptureStitcher::new(first_frame, direction, StitchOptions::default());
+        let mut scroll_driver = LongCaptureScrollDriver::default();
+        scroll_driver.set_frame_main_span(frame_main);
         Self {
             stitcher,
             is_capturing: true,
@@ -154,7 +157,7 @@ impl LongCaptureSession {
             async_thumbnail_enabled: false,
             desired_thumbnail_spec: None,
             last_thumbnail_spec: None,
-            scroll_driver: LongCaptureScrollDriver::default(),
+            scroll_driver,
         }
     }
 
@@ -281,6 +284,7 @@ impl LongCaptureSession {
         self.is_editing = false;
         self.reset_direction();
         self.scroll_driver.clear_all();
+        self.sync_scroll_frame_span();
         self.crop_sub_menu_open = false;
         self.pending_direction_confirm = false;
         self.is_matched = true;
@@ -300,11 +304,21 @@ impl LongCaptureSession {
         self.stitcher.restart_with_direction(self.direction);
         self.reset_direction();
         self.scroll_driver.clear_all();
+        self.sync_scroll_frame_span();
         self.crop_sub_menu_open = false;
         self.pending_direction_confirm = false;
         self.viewport_offset_y = 0.0;
         self.viewport_offset_x = 0.0;
         self.thumbnail_rect = None;
+    }
+
+    fn sync_scroll_frame_span(&mut self) {
+        let (iw, ih) = self.stitcher.initial_frame_size();
+        let main = match self.direction {
+            StitchDirection::Vertical => ih,
+            StitchDirection::Horizontal => iw,
+        };
+        self.scroll_driver.set_frame_main_span(main);
     }
 
     /// 带防误清空保护的方向切换请求：若画布已积累拼接增量或裁剪状态，首次点击仅进入二次确认态。

@@ -25,8 +25,14 @@ const MAX_PENDING_WHEEL_PER_AXIS: f32 = 12.0;
 /// 单次提交到底层滚轮注入的单轴绝对上限，平衡拼接重叠率与滚动吞吐效率。
 const MAX_BATCH_WHEEL_PER_AXIS: f32 = 6.0;
 
-/// 自动滚动模式每拍发送的正向滚动步长（Winit 语义负数为向下/向右滚动）。
+/// 自动滚动模式首拍及重置后的默认正向滚动步长（Winit 语义负数为向下/向右滚动）。
 const AUTO_SCROLL_STEP_DELTA: f32 = -2.0;
+
+/// 自动滚动自适应步长允许收缩到的最小幅值（防止微步反复无进展）。
+const MIN_AUTO_STEP_DELTA: f32 = -0.5;
+
+/// 自动滚动自适应步长允许放大的最大幅值（与手滚单批上限保持一致，防止失配跳帧）。
+const MAX_AUTO_STEP_DELTA: f32 = -MAX_BATCH_WHEEL_PER_AXIS;
 
 /// 自动滚动帧落地后到下一拍之间的窗口交互空窗期，兼顾连贯性与随时可打断性。
 const AUTO_SCROLL_INTERVAL: Duration = Duration::from_millis(120);
@@ -49,7 +55,7 @@ pub(crate) enum AutoScrollStopReason {
 }
 
 /// 管理长截图滚轮增量排队与自动连续滚动的纯状态驱动器。
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub(crate) struct LongCaptureScrollDriver {
     /// 是否正处于自动滚到底状态。
     pub(crate) auto_scrolling: bool,
@@ -63,9 +69,36 @@ pub(crate) struct LongCaptureScrollDriver {
     unmatched_frames: u8,
     /// 最近一次自动停机的原因（待主状态机消费展示提示）。
     last_stop_reason: Option<AutoScrollStopReason>,
+    /// 当前捕获选区沿着拼接主轴的像素长度，用于计算自动滚动期望单步像素推进量。
+    frame_main_span: u32,
+    /// 自适应调节中的当前自动滚动逻辑步长（单位：Winit 行数，负值表示向下/向右）。
+    auto_step_delta: f32,
+    /// 上一拍实际派发且等待拼接位移动作反馈的自动滚动逻辑步长。
+    last_dispatched_auto_delta: Option<f32>,
+}
+
+impl Default for LongCaptureScrollDriver {
+    fn default() -> Self {
+        Self {
+            auto_scrolling: false,
+            pending_wheel: WheelDelta::default(),
+            next_auto_scroll_at: None,
+            static_frames: 0,
+            unmatched_frames: 0,
+            last_stop_reason: None,
+            frame_main_span: 0,
+            auto_step_delta: AUTO_SCROLL_STEP_DELTA,
+            last_dispatched_auto_delta: None,
+        }
+    }
 }
 
 impl LongCaptureScrollDriver {
+    /// 更新当前选区沿拼接主轴的像素长度。
+    pub(crate) fn set_frame_main_span(&mut self, main_span: u32) {
+        self.frame_main_span = main_span;
+    }
+
     /// 将新到达的手动滚轮增量合并进蓄水池；任何手动滚轮介入都会立即终止自动滚动。
     pub(crate) fn enqueue_manual_wheel(&mut self, delta: WheelDelta) {
         if delta.is_effectively_zero() {
@@ -92,6 +125,8 @@ impl LongCaptureScrollDriver {
         self.static_frames = 0;
         self.unmatched_frames = 0;
         self.last_stop_reason = None;
+        self.auto_step_delta = AUTO_SCROLL_STEP_DELTA;
+        self.last_dispatched_auto_delta = None;
     }
 
     /// 停止自动滚动模式并清除待触发拍点。
@@ -100,6 +135,7 @@ impl LongCaptureScrollDriver {
         self.next_auto_scroll_at = None;
         self.static_frames = 0;
         self.unmatched_frames = 0;
+        self.last_dispatched_auto_delta = None;
     }
 
     /// 暂停录制、切换方向或退出捕获时彻底清空待处理队列与自动状态。
@@ -133,9 +169,11 @@ impl LongCaptureScrollDriver {
 
         if self.auto_scrolling && self.next_auto_scroll_at.is_some_and(|due| now >= due) {
             self.next_auto_scroll_at = None;
+            let step_delta = self.auto_step_delta;
+            self.last_dispatched_auto_delta = Some(step_delta);
             let step = match direction {
-                StitchDirection::Vertical => WheelDelta::vertical(AUTO_SCROLL_STEP_DELTA),
-                StitchDirection::Horizontal => WheelDelta::horizontal(AUTO_SCROLL_STEP_DELTA),
+                StitchDirection::Vertical => WheelDelta::vertical(step_delta),
+                StitchDirection::Horizontal => WheelDelta::horizontal(step_delta),
             };
             return Some(step);
         }
@@ -149,9 +187,10 @@ impl LongCaptureScrollDriver {
             return;
         }
         match outcome {
-            StitchFrameOutcome::Stitched { .. } => {
+            StitchFrameOutcome::Stitched { offset, .. } => {
                 self.static_frames = 0;
                 self.unmatched_frames = 0;
+                self.adapt_auto_step(*offset);
                 self.next_auto_scroll_at = Some(now + AUTO_SCROLL_INTERVAL);
             }
             StitchFrameOutcome::Unchanged => {
@@ -193,6 +232,21 @@ impl LongCaptureScrollDriver {
         self.auto_scrolling
             .then_some(self.next_auto_scroll_at)
             .flatten()
+    }
+
+    fn adapt_auto_step(&mut self, offset: i32) {
+        let Some(prev_delta) = self.last_dispatched_auto_delta.take() else {
+            return;
+        };
+        if self.frame_main_span == 0 || offset <= 0 {
+            return;
+        }
+        let span = self.frame_main_span as f32;
+        let target_px = (span * 0.30).clamp(36.0, 220.0).min(span * 0.45);
+        let ratio = (target_px / (offset as f32)).clamp(0.5, 2.0);
+        let proposed = prev_delta * ratio;
+        let blended = prev_delta * 0.5 + proposed * 0.5;
+        self.auto_step_delta = blended.clamp(MAX_AUTO_STEP_DELTA, MIN_AUTO_STEP_DELTA);
     }
 
     /// 判断蓄水池是否仍积压了待消耗的手动滚轮余量（仅用于测试或状态观测）。
@@ -332,5 +386,54 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_auto_scroll_adapts_step_delta_to_measured_offset() {
+        let mut driver = LongCaptureScrollDriver::default();
+        driver.set_frame_main_span(600);
+        let mut now = Instant::now();
+        driver.start_auto_scroll(now);
+
+        let first = driver
+            .take_ready_dispatch_delta(StitchDirection::Vertical, now)
+            .expect("首拍应派发默认步长");
+        assert!((first.y - AUTO_SCROLL_STEP_DELTA).abs() < 1e-5);
+
+        // 实测单步仅推进 30px（显著低于期望 180px）：下一拍步长应自适应放大
+        now += Duration::from_millis(20);
+        driver.record_outcome(
+            &StitchFrameOutcome::Stitched {
+                offset: 30,
+                confidence: 0.95,
+                sticky_header_size: 0,
+                sticky_footer_size: 0,
+            },
+            now,
+        );
+        now = driver.auto_scroll_deadline().expect("应预约下一拍时刻");
+        let accelerated = driver
+            .take_ready_dispatch_delta(StitchDirection::Vertical, now)
+            .expect("应派发放大后的步长");
+        assert!(accelerated.y < AUTO_SCROLL_STEP_DELTA - 0.5);
+        assert!(accelerated.y >= MAX_AUTO_STEP_DELTA);
+
+        // 实测单步过大 (320px > 180px)：下一拍应温和回调防止过冲失配
+        now += Duration::from_millis(20);
+        driver.record_outcome(
+            &StitchFrameOutcome::Stitched {
+                offset: 320,
+                confidence: 0.95,
+                sticky_header_size: 0,
+                sticky_footer_size: 0,
+            },
+            now,
+        );
+        now = driver.auto_scroll_deadline().expect("应预约下一拍时刻");
+        let throttled = driver
+            .take_ready_dispatch_delta(StitchDirection::Vertical, now)
+            .expect("应派发回调后的步长");
+        assert!(throttled.y > accelerated.y);
+        assert!(throttled.y <= MIN_AUTO_STEP_DELTA);
     }
 }
