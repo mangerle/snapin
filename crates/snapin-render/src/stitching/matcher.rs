@@ -1,13 +1,35 @@
-//! 基于时域二维空间分块裁剪 SAD 与固定双栏剔除的单轴位移估计器。
+//! 基于沿主轴梯度加权、空间分块裁剪与峰值独特性验证的单轴位移估计器。
 
 use super::overlay::detect_sticky_bands;
 use super::types::{MatchResult, StitchDirection, StitchOptions};
 use image::RgbaImage;
 
+/// 同一主峰局部极值盆地的半径（像素），用于剥离主峰邻域后再搜索次优竞争峰。
+const PEAK_BASIN_RADIUS: i32 = 6;
+/// 参与沿主轴梯度加权的最小纵向局部梯度，过滤传感器/渲染 1~2 LSB 抖动。
+const MIN_EFFECTIVE_GRAD: u8 = 3;
+
 /// 快速单通道灰度亮度提取（基于标准 Rec.601 亮度加权系数）
 #[inline]
 pub(crate) fn rgb_to_luma(r: u8, g: u8, b: u8) -> u8 {
     ((u32::from(r) * 77 + u32::from(g) * 150 + u32::from(b) * 29) >> 8) as u8
+}
+
+/// 预计算沿滚动主轴方向的一阶绝对梯度图（`|I(y, x) - I(y-1, x)|`）。
+///
+/// 实现初衷：平行于滚动方向的纯竖线（对垂直滚动而言）在位移前后完全不变，无法锁定位移；
+/// 只有沿主滚动方向存在灰度变化的结构边缘才具备空间定位信息。预计算一次梯度图并在后续
+/// 全部候选位移评分中复用，避免外层循环重复邻域寻址。
+fn compute_axis_gradients(luma: &[u8], width: usize, height: usize) -> Vec<u8> {
+    let mut grad = vec![0u8; width.saturating_mul(height)];
+    for y in 1..height {
+        let row = y * width;
+        let prev_row = (y - 1) * width;
+        for x in 0..width {
+            grad[row + x] = luma[row + x].abs_diff(luma[prev_row + x]);
+        }
+    }
+    grad
 }
 
 /// 将 RGBA 图像转换为单通道灰度二维向量
@@ -50,98 +72,134 @@ fn to_luma_plane_transposed(image: &RgbaImage) -> (Vec<u8>, usize, usize) {
     (luma, transposed_width, transposed_height)
 }
 
-struct GridEvalSpec {
+struct GridEvalContext<'a> {
+    prev: &'a [u8],
+    curr: &'a [u8],
+    grad_prev: &'a [u8],
+    grad_curr: &'a [u8],
     width: usize,
     x_start: usize,
     x_end: usize,
     y_start: usize,
     active_height: usize,
-    shift: i32,
 }
 
-/// 以 4×4 二维空间栅格计算对齐误差并只保留误差最小的前 75% 分块，
-/// 彻底免疫局部悬浮按钮、Hover 卡片或动态角标对全局置信度的毒化，同时防止纯全局失配混入。
-fn evaluate_trimmed_grid_error(prev: &[u8], curr: &[u8], spec: GridEvalSpec) -> f64 {
-    let abs_shift = spec.shift.unsigned_abs() as usize;
-    let overlap_rows = spec.active_height.saturating_sub(abs_shift);
-    if overlap_rows < 15 || spec.x_end <= spec.x_start {
+#[derive(Default)]
+struct GridAccumulators {
+    weighted_sad: [u64; 16],
+    weight_sum: [u64; 16],
+    textured_px: [usize; 16],
+    roi_samples: usize,
+    textured_samples: usize,
+    total_weight: u64,
+}
+
+impl GridAccumulators {
+    fn has_sufficient_texture(&self) -> bool {
+        let min_textured = (self.roi_samples / 150).max(16);
+        let min_weight = (self.roi_samples as u64 / 12).max(128);
+        self.textured_samples >= min_textured && self.total_weight >= min_weight
+    }
+
+    fn trimmed_error(&self) -> f64 {
+        if !self.has_sufficient_texture() {
+            return f64::MAX;
+        }
+        let mut cell_errs = [0.0f64; 16];
+        let mut count = 0usize;
+        for idx in 0..16 {
+            // 跳过无特征空白格，避免大面积留白稀释失配误差或吞掉 75% 裁剪名额。
+            if self.textured_px[idx] >= 2 && self.weight_sum[idx] >= 8 {
+                cell_errs[count] = (self.weighted_sad[idx] as f64) / (self.weight_sum[idx] as f64);
+                count += 1;
+            }
+        }
+        if count == 0 {
+            return f64::MAX;
+        }
+        cell_errs[..count].sort_by(|a, b| a.total_cmp(b));
+        let keep = ((count * 3) / 4).max(1);
+        let sum_keep: f64 = cell_errs[..keep].iter().sum();
+        sum_keep / (keep as f64)
+    }
+}
+
+/// 基于沿主轴局部梯度加权计算 4×4 空间栅格的 75% 裁剪平均误差。
+fn evaluate_weighted_grid_error(ctx: &GridEvalContext<'_>, shift: i32) -> f64 {
+    let abs_shift = shift.unsigned_abs() as usize;
+    let overlap_rows = ctx.active_height.saturating_sub(abs_shift);
+    if overlap_rows < 15 || ctx.x_end <= ctx.x_start {
         return f64::MAX;
     }
 
-    let roi_w = spec.x_end - spec.x_start;
+    let roi_w = ctx.x_end - ctx.x_start;
     let cols = roi_w.min(4);
     let step_y = if overlap_rows > 120 { 2 } else { 1 };
-    let mut grid_sad = [0u64; 16];
-    let mut grid_px = [0usize; 16];
+    let mut acc = GridAccumulators::default();
 
     for r in (0..overlap_rows).step_by(step_y) {
-        let (prev_y, curr_y) = if spec.shift >= 0 {
-            (spec.y_start + r + abs_shift, spec.y_start + r)
+        let (prev_y, curr_y) = if shift >= 0 {
+            (ctx.y_start + r + abs_shift, ctx.y_start + r)
         } else {
-            (spec.y_start + r, spec.y_start + r + abs_shift)
+            (ctx.y_start + r, ctx.y_start + r + abs_shift)
         };
         let row_band = ((r * 4) / overlap_rows).min(3);
-        let p_base = prev_y * spec.width;
-        let c_base = curr_y * spec.width;
+        let p_base = prev_y * ctx.width;
+        let c_base = curr_y * ctx.width;
 
         for c_idx in 0..cols {
-            let x0 = spec.x_start + (roi_w * c_idx) / cols;
-            let x1 = spec.x_start + (roi_w * (c_idx + 1)) / cols;
-            let mut seg_sad = 0u64;
-            for x in x0..x1 {
-                seg_sad += u64::from(prev[p_base + x].abs_diff(curr[c_base + x]));
-            }
-            let cell = row_band * 4 + c_idx;
-            grid_sad[cell] += seg_sad;
-            grid_px[cell] += x1 - x0;
+            let x0 = ctx.x_start + (roi_w * c_idx) / cols;
+            let x1 = ctx.x_start + (roi_w * (c_idx + 1)) / cols;
+            accumulate_cell_row(
+                ctx,
+                &mut acc,
+                (p_base, c_base),
+                (x0, x1),
+                row_band * 4 + c_idx,
+            );
         }
     }
 
-    let mut cell_errs = [0.0f64; 16];
-    let mut count = 0usize;
-    for idx in 0..16 {
-        if grid_px[idx] > 0 {
-            cell_errs[count] = (grid_sad[idx] as f64) / (grid_px[idx] as f64);
-            count += 1;
-        }
-    }
-    if count == 0 {
-        return f64::MAX;
-    }
-
-    cell_errs[..count].sort_by(|a, b| a.total_cmp(b));
-    let keep = ((count * 3) / 4).max(1);
-    let sum_keep: f64 = cell_errs[..keep].iter().sum();
-    sum_keep / (keep as f64)
+    acc.trimmed_error()
 }
 
-struct ShiftSearchSpec {
-    width: usize,
-    x_start: usize,
-    x_end: usize,
-    y_start: usize,
-    active_height: usize,
+#[inline]
+fn accumulate_cell_row(
+    ctx: &GridEvalContext<'_>,
+    acc: &mut GridAccumulators,
+    (p_base, c_base): (usize, usize),
+    (x0, x1): (usize, usize),
+    cell: usize,
+) {
+    for x in x0..x1 {
+        let p_idx = p_base + x;
+        let c_idx = c_base + x;
+        let w = ctx.grad_prev[p_idx].max(ctx.grad_curr[c_idx]);
+        acc.roi_samples += 1;
+        if w >= MIN_EFFECTIVE_GRAD {
+            let weight = u64::from(w);
+            let diff = u64::from(ctx.prev[p_idx].abs_diff(ctx.curr[c_idx]));
+            acc.weighted_sad[cell] += weight * diff;
+            acc.weight_sum[cell] += weight;
+            acc.textured_px[cell] += 1;
+            acc.textured_samples += 1;
+            acc.total_weight += weight;
+        }
+    }
+}
+
+fn collect_shift_scores(
+    ctx: &GridEvalContext<'_>,
     min_shift: usize,
     max_shift: usize,
     sign: i32,
-}
-
-fn search_best_shift(prev: &[u8], curr: &[u8], spec: ShiftSearchSpec) -> Option<(i32, f64)> {
+    out: &mut Vec<(i32, f64)>,
+) -> Option<(i32, f64)> {
     let mut best: Option<(i32, f64)> = None;
-    for shift in spec.min_shift..=spec.max_shift {
-        let signed = (shift as i32) * spec.sign;
-        let err = evaluate_trimmed_grid_error(
-            prev,
-            curr,
-            GridEvalSpec {
-                width: spec.width,
-                x_start: spec.x_start,
-                x_end: spec.x_end,
-                y_start: spec.y_start,
-                active_height: spec.active_height,
-                shift: signed,
-            },
-        );
+    for shift in min_shift..=max_shift {
+        let signed = (shift as i32) * sign;
+        let err = evaluate_weighted_grid_error(ctx, signed);
+        out.push((signed, err));
         if best.is_none_or(|(_, best_err)| err < best_err) {
             best = Some((signed, err));
         }
@@ -149,7 +207,32 @@ fn search_best_shift(prev: &[u8], curr: &[u8], spec: ShiftSearchSpec) -> Option<
     best
 }
 
-/// 垂直主方向单轴位移估计（剔除固定头尾栏并对局部浮层遮挡免疫）
+fn find_second_best_outside_basin(scores: &[(i32, f64)], best_shift: i32) -> f64 {
+    scores
+        .iter()
+        .filter(|(shift, _)| (shift - best_shift).abs() > PEAK_BASIN_RADIUS)
+        .map(|(_, err)| *err)
+        .fold(f64::MAX, f64::min)
+}
+
+/// 验证获胜位移是否真正优于静止帧、且未落入周期性重复纹理的多义陷阱。
+fn passes_ambiguity_guards(best_err: f64, err_zero: f64, second_err: f64) -> bool {
+    if !best_err.is_finite() || best_err == f64::MAX || !err_zero.is_finite() {
+        return false;
+    }
+    // 静止基准防漂移：有效正文未发生明显位移时，禁止强行挑选最小步长作为伪滚动。
+    if err_zero < best_err * 1.4 + 2.5 {
+        return false;
+    }
+    // 周期重复纹理峰独特性比值检查（Lowe's Ratio 思想）：
+    // 若在主峰邻域外仍存在误差极接近的竞争位移，说明画面为等周期重复条纹或相同骨架，放弃猜测。
+    if second_err < 25.0 && second_err < best_err * 1.8 + 6.0 {
+        return false;
+    }
+    true
+}
+
+/// 垂直主方向单轴位移估计（剔除固定头尾栏、抵抗局部浮层与重复纯色误匹配）
 pub(crate) fn estimate_vertical_shift(
     prev: &[u8],
     curr: &[u8],
@@ -183,52 +266,56 @@ pub(crate) fn estimate_vertical_shift(
         return MatchResult::idle();
     }
 
-    let max_shift = (options.max_step as usize).min(active_height / 2);
-    let min_shift = options.min_step as usize;
-    let (mut best_shift, mut min_avg_error) = search_best_shift(
+    let grad_prev = compute_axis_gradients(prev, width, height);
+    let grad_curr = compute_axis_gradients(curr, width, height);
+    let ctx = GridEvalContext {
         prev,
         curr,
-        ShiftSearchSpec {
-            width,
-            x_start,
-            x_end,
-            y_start: bands.header,
-            active_height,
-            min_shift,
-            max_shift,
-            sign: 1,
-        },
-    )
-    .unwrap_or((0, f64::MAX));
+        grad_prev: &grad_prev,
+        grad_curr: &grad_curr,
+        width,
+        x_start,
+        x_end,
+        y_start: bands.header,
+        active_height,
+    };
 
+    let err_zero = evaluate_weighted_grid_error(&ctx, 0);
+    if err_zero == f64::MAX {
+        return MatchResult::idle();
+    }
+
+    let max_shift = (options.max_step as usize).min(active_height / 2);
+    let min_shift = options.min_step as usize;
+    let mut scores = Vec::with_capacity(max_shift.saturating_mul(2));
+
+    let (mut best_shift, mut min_avg_error) =
+        collect_shift_scores(&ctx, min_shift, max_shift, 1, &mut scores).unwrap_or((0, f64::MAX));
+
+    let max_rev = max_shift.min(80);
     if min_avg_error > 8.0 || best_shift == 0 {
-        if let Some((rev_shift, rev_err)) = search_best_shift(
-            prev,
-            curr,
-            ShiftSearchSpec {
-                width,
-                x_start,
-                x_end,
-                y_start: bands.header,
-                active_height,
-                min_shift,
-                max_shift: max_shift.min(80),
-                sign: -1,
-            },
-        ) {
+        if let Some((rev_shift, rev_err)) =
+            collect_shift_scores(&ctx, min_shift, max_rev, -1, &mut scores)
+        {
             if rev_err < min_avg_error {
                 min_avg_error = rev_err;
                 best_shift = rev_shift;
             }
         }
+    } else if (best_shift.unsigned_abs() as usize) >= min_shift
+        && (best_shift.unsigned_abs() as usize) <= max_rev
+    {
+        // 追加镜像反向位移点作为半周期周期纹理反对称歧义校验，成本仅 O(1)。
+        let mirror = -best_shift;
+        scores.push((mirror, evaluate_weighted_grid_error(&ctx, mirror)));
     }
 
-    let confidence = if min_avg_error < f64::MAX {
-        ((255.0 - min_avg_error) / 255.0).clamp(0.0, 1.0) as f32
-    } else {
-        0.0
-    };
+    let second_err = find_second_best_outside_basin(&scores, best_shift);
+    if !passes_ambiguity_guards(min_avg_error, err_zero, second_err) {
+        return MatchResult::idle();
+    }
 
+    let confidence = (1.0 - min_avg_error / 100.0).clamp(0.0, 1.0) as f32;
     MatchResult {
         offset: best_shift,
         confidence,

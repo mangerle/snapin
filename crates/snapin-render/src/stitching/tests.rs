@@ -630,3 +630,126 @@ fn test_floating_overlay_robust_matching_and_clean_backfill_healing() {
         }
     }
 }
+
+#[test]
+fn test_solid_and_vertical_stripe_regions_reject_min_step_drift() {
+    let options = StitchOptions::default();
+
+    // 1. 纯白背景仅局部角落轻微闪烁：不得漂移匹配为 min_step=2。
+    let solid0 = RgbaImage::from_pixel(160, 200, Rgba([248, 248, 248, 255]));
+    let mut solid1 = solid0.clone();
+    for y in 185..195 {
+        for x in 20..32 {
+            solid1.put_pixel(x, y, Rgba([180, 180, 190, 255]));
+        }
+    }
+    let res_solid = estimate_shift(&solid0, &solid1, StitchDirection::Vertical, &options);
+    assert!(
+        !res_solid.is_matched(options.confidence_threshold),
+        "无沿轴结构纹理的纯色画面不得误判为 min_step 伪位移: {res_solid:?}"
+    );
+    let mut stitcher = LongCaptureStitcher::new(solid0, StitchDirection::Vertical, options);
+    assert!(matches!(
+        stitcher.feed_frame_outcome(&solid1),
+        StitchFrameOutcome::Unmatched { .. }
+    ));
+    assert_eq!(stitcher.dimensions(), (160, 200));
+
+    // 2. 纯垂直条纹（垂直于滚动方向梯度全为 0，平行方向永远不变）：同样不得发生 min_step 漂移。
+    let mut vstripe0 = RgbaImage::new(160, 200);
+    for y in 0..200 {
+        for x in 0..160 {
+            let v = if (x / 10) % 2 == 0 { 240 } else { 40 };
+            vstripe0.put_pixel(x, y, Rgba([v, v, v, 255]));
+        }
+    }
+    let mut vstripe1 = vstripe0.clone();
+    for x in 40..50 {
+        vstripe1.put_pixel(x, 192, Rgba([20, 120, 220, 255]));
+    }
+    let res_vstripe = estimate_shift(&vstripe0, &vstripe1, StitchDirection::Vertical, &options);
+    assert!(
+        !res_vstripe.is_matched(options.confidence_threshold),
+        "纯纵向条纹缺乏主轴纵向梯度，无法锁定滚动位移: {res_vstripe:?}"
+    );
+}
+
+#[test]
+fn test_periodic_repetitive_stripes_rejected_by_distinctiveness_guard() {
+    let options = StitchOptions::default();
+    let width = 160u32;
+    let height = 220u32;
+    let period = 24u32;
+
+    let build_periodic = |phase: u32| -> RgbaImage {
+        let mut img = RgbaImage::new(width, height);
+        for y in 0..height {
+            let py = (y + phase) % period;
+            let luma = if py < 10 { 245 } else { 70 };
+            for x in 0..width {
+                let accent = if (x / 16) % 2 == 0 { 0 } else { 15 };
+                img.put_pixel(x, y, Rgba([luma - accent, luma, luma - accent, 255]));
+            }
+        }
+        img
+    };
+
+    let f0 = build_periodic(0);
+    let f1 = build_periodic(12); // 半周期偏移：err(0) 很大，且 +12/+36/+60/-12 全等价
+    let res = estimate_shift(&f0, &f1, StitchDirection::Vertical, &options);
+    assert!(
+        !res.is_matched(options.confidence_threshold),
+        "等周期重复条纹在多个非邻域位移均可完美对齐，应由主峰独特性拦截而非盲目猜错步长: {res:?}"
+    );
+}
+
+#[test]
+fn test_sparse_text_over_periodic_zebra_rows_still_matches_uniquely() {
+    let options = StitchOptions::default();
+    let width = 200u32;
+    let height = 220u32;
+    let row_h = 24u32;
+
+    let build_zebra_table = |scroll: u32| -> RgbaImage {
+        let mut img = RgbaImage::from_pixel(width, height, Rgba([250, 250, 250, 255]));
+        for y in 0..height {
+            let doc_y = y + scroll;
+            let row_idx = doc_y / row_h;
+            let in_row = doc_y % row_h;
+            let bg = if row_idx.is_multiple_of(2) { 248 } else { 234 };
+            for x in 0..width {
+                img.put_pixel(x, y, Rgba([bg, bg, bg, 255]));
+            }
+            // 在每一行中间绘制独一无二的拟真高对比短文本笔画块（x 位置与宽度随行号唯一变化）。
+            if (6..16).contains(&in_row) {
+                let tok_x0 = 32 + ((row_idx * 37) % 70);
+                let tok_len = 24 + ((row_idx * 13) % 36);
+                for x in tok_x0..(tok_x0 + tok_len).min(width - 25) {
+                    if !(x + in_row).is_multiple_of(3) {
+                        img.put_pixel(x, y, Rgba([30, 35, 45, 255]));
+                    }
+                }
+            }
+        }
+        img
+    };
+
+    let f0 = build_zebra_table(0);
+    let f1 = build_zebra_table(24);
+    let res = estimate_shift(&f0, &f1, StitchDirection::Vertical, &options);
+    assert!(
+        res.is_matched(options.confidence_threshold),
+        "带唯一文本特征的斑马纹表格应当精准唯一匹配: {res:?}"
+    );
+    assert_eq!(res.offset, 24);
+}
+
+#[test]
+fn test_legitimate_minimal_two_pixel_scroll_still_accepted() {
+    let options = StitchOptions::default();
+    let f0 = create_test_pattern(160, 200, 0, 0);
+    let f1 = create_test_pattern(160, 200, 2, 0);
+    let res = estimate_shift(&f0, &f1, StitchDirection::Vertical, &options);
+    assert!(res.is_matched(options.confidence_threshold));
+    assert_eq!(res.offset, 2);
+}
