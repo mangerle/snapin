@@ -58,7 +58,17 @@ fn scan_sticky_header(
             break;
         }
     }
-    if rows == 0 || !band_has_horizontal_texture(curr, 0, rows, width, x_start, x_end) {
+    if rows == 0 {
+        return 0;
+    }
+    let band = BandRegion {
+        y_start: 0,
+        y_end: rows,
+        width,
+        x_start,
+        x_end,
+    };
+    if !band_has_horizontal_texture(curr, band) && !band_has_vertical_structure(curr, band) {
         return 0;
     }
     rows
@@ -86,7 +96,14 @@ fn scan_sticky_footer(
         return 0;
     }
     let y_start = height - rows;
-    if !band_has_2d_ui_texture(curr, y_start, height, width, x_start, x_end) {
+    let band = BandRegion {
+        y_start,
+        y_end: height,
+        width,
+        x_start,
+        x_end,
+    };
+    if !band_has_2d_ui_texture(curr, band) {
         return 0;
     }
     rows
@@ -108,71 +125,76 @@ fn row_avg_diff(
     (sum as f64) / (row_len as f64)
 }
 
-fn band_has_horizontal_texture(
-    plane: &[u8],
+#[derive(Clone, Copy)]
+struct BandRegion {
     y_start: usize,
     y_end: usize,
     width: usize,
     x_start: usize,
     x_end: usize,
-) -> bool {
-    let row_len = x_end.saturating_sub(x_start);
-    if row_len < 2 || y_start >= y_end {
+}
+
+fn band_has_horizontal_texture(plane: &[u8], band: BandRegion) -> bool {
+    let row_len = band.x_end.saturating_sub(band.x_start);
+    if row_len < 2 || band.y_start >= band.y_end {
         return false;
     }
-    for y in y_start..y_end {
-        let base = y * width;
+    for y in band.y_start..band.y_end {
+        let base = y * band.width;
         let mut min_v = u8::MAX;
         let mut max_v = u8::MIN;
         let mut grad_sum = 0u64;
-        for x in x_start..x_end {
+        for x in band.x_start..band.x_end {
             let v = plane[base + x];
             min_v = min_v.min(v);
             max_v = max_v.max(v);
-            if x > x_start {
+            if x > band.x_start {
                 grad_sum += u64::from(v.abs_diff(plane[base + x - 1]));
             }
         }
-        if max_v.saturating_sub(min_v) >= 8 || (grad_sum as f64 / ((row_len - 1) as f64)) > 1.2 {
+        if max_v.saturating_sub(min_v) >= 5 || (grad_sum as f64 / ((row_len - 1) as f64)) > 0.6 {
             return true;
         }
     }
     false
 }
 
-/// 要求候选页脚同时具备横向细节与纵向结构变化，防止垂直无变化的纯条纹或纯白边距误当固定底栏剥离。
-fn band_has_2d_ui_texture(
-    plane: &[u8],
-    y_start: usize,
-    y_end: usize,
-    width: usize,
-    x_start: usize,
-    x_end: usize,
-) -> bool {
-    if !band_has_horizontal_texture(plane, y_start, y_end, width, x_start, x_end) {
+/// 检测候选栏是否存在跨行均值差异或静态水平分割线，兼顾极简纯色底栏与带边线顶栏。
+fn band_has_vertical_structure(plane: &[u8], band: BandRegion) -> bool {
+    let row_len = band.x_end.saturating_sub(band.x_start).max(1);
+    if band.y_end.saturating_sub(band.y_start) < 2 {
         return false;
     }
-    let row_len = x_end.saturating_sub(x_start).max(1);
     let mut min_row_mean = f64::MAX;
     let mut max_row_mean = f64::MIN;
     let mut max_adj_v_diff = 0.0f64;
 
-    for y in y_start..y_end {
-        let base = y * width;
-        let sum: u64 = (x_start..x_end).map(|x| u64::from(plane[base + x])).sum();
+    for y in band.y_start..band.y_end {
+        let base = y * band.width;
+        let sum: u64 = (band.x_start..band.x_end)
+            .map(|x| u64::from(plane[base + x]))
+            .sum();
         let mean = (sum as f64) / (row_len as f64);
         min_row_mean = min_row_mean.min(mean);
         max_row_mean = max_row_mean.max(mean);
 
-        if y > y_start {
-            let prev_base = (y - 1) * width;
-            let v_sum: u64 = (x_start..x_end)
+        if y > band.y_start {
+            let prev_base = (y - 1) * band.width;
+            let v_sum: u64 = (band.x_start..band.x_end)
                 .map(|x| u64::from(plane[base + x].abs_diff(plane[prev_base + x])))
                 .sum();
             max_adj_v_diff = max_adj_v_diff.max((v_sum as f64) / (row_len as f64));
         }
     }
-    (max_row_mean - min_row_mean) >= 4.0 || max_adj_v_diff >= 3.0
+    (max_row_mean - min_row_mean) >= 3.0 || max_adj_v_diff >= 3.0
+}
+
+/// 要求候选页脚具备纵向结构变化（防止纯垂直条纹误检），同时兼容极简纯色+分割线或低对比度 UI 图标。
+fn band_has_2d_ui_texture(plane: &[u8], band: BandRegion) -> bool {
+    if !band_has_vertical_structure(plane, band) {
+        return false;
+    }
+    band_has_horizontal_texture(plane, band) || band.y_end.saturating_sub(band.y_start) >= 4
 }
 
 /// 浮动前景遮挡自愈输入上下文。
@@ -418,4 +440,46 @@ fn read_axis_pixel(img: &RgbaImage, main: u32, cross: u32, direction: StitchDire
         StitchDirection::Horizontal => (main, cross),
     };
     img.get_pixel(x, y).0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_minimalist_solid_header_with_divider_detected_while_uniform_margin_rejected() {
+        let width = 120usize;
+        let height = 120usize;
+        let mut prev = vec![250u8; width * height];
+        let mut curr = vec![250u8; width * height];
+
+        // 顶部 18px 极简纯白顶栏 + 第 18px 静态 1px 灰色分割线，紧接着下方为滚动正文纹理。
+        for x in 0..width {
+            prev[18 * width + x] = 225;
+            curr[18 * width + x] = 225;
+        }
+        for y in 19..height {
+            for x in 0..width {
+                prev[y * width + x] = ((y * 17 + x * 5) % 200) as u8;
+                curr[y * width + x] = (((y + 20) * 17 + x * 5) % 200) as u8;
+            }
+        }
+
+        let bands = detect_sticky_bands(&prev, &curr, width, height, 0.35, 12, 108);
+        assert_eq!(bands.header, 19, "带静态 1px 分割线的极简纯色顶栏应被识别");
+        assert_eq!(bands.footer, 0);
+
+        // 纯白无分割线、无图标的空白边距不得被误识别为固定顶栏。
+        let mut uniform_prev = vec![250u8; width * height];
+        let mut uniform_curr = vec![250u8; width * height];
+        for y in 19..height {
+            for x in 0..width {
+                uniform_prev[y * width + x] = ((y * 17 + x * 5) % 200) as u8;
+                uniform_curr[y * width + x] = (((y + 20) * 17 + x * 5) % 200) as u8;
+            }
+        }
+        let uniform_bands =
+            detect_sticky_bands(&uniform_prev, &uniform_curr, width, height, 0.35, 12, 108);
+        assert_eq!(uniform_bands.header, 0, "纯白均匀边距不应误判为固定顶栏");
+    }
 }
