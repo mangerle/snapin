@@ -70,8 +70,13 @@ impl<'a> SnipperCanvas<'a> {
         }
     }
 
-    /// 绘制高亮线框与 8 个缩放手柄 (自适应 HiDPI 缩放)
-    pub(super) fn render_selection_borders_and_handles(&self, pixmap: &mut PixmapMut, rect: &Rect) {
+    /// 绘制高亮线框，并在允许调整选区几何尺寸时绘制 8 个缩放手柄 (自适应 HiDPI 缩放)
+    pub(super) fn render_selection_borders_and_handles(
+        &self,
+        pixmap: &mut PixmapMut,
+        rect: &Rect,
+        show_handles: bool,
+    ) {
         let s = self.ui_scale;
         if let Some(skia_r) = SkiaRect::from_xywh(rect.x, rect.y, rect.width, rect.height) {
             let (ar, ag, ab) = self.accent_color;
@@ -87,15 +92,17 @@ impl<'a> SnipperCanvas<'a> {
             if let Some(path) = pb.finish() {
                 pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
             }
-            render_handle_grid(
-                pixmap,
-                HandleGridSpec {
-                    centers: Self::handle_positions(rect),
-                    size: (6.0 * s).round().max(4.0),
-                    accent: (ar, ag, ab),
-                    scale: s,
-                },
-            );
+            if show_handles {
+                render_handle_grid(
+                    pixmap,
+                    HandleGridSpec {
+                        centers: Self::handle_positions(rect),
+                        size: (6.0 * s).round().max(4.0),
+                        accent: (ar, ag, ab),
+                        scale: s,
+                    },
+                );
+            }
         }
     }
 

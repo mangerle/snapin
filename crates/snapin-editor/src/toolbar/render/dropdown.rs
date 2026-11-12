@@ -206,7 +206,7 @@ fn preview_for_row(
             let mode = match index {
                 0 => MosaicMode::Mosaic,
                 1 => MosaicMode::Blur,
-                2 => MosaicMode::SmartRedact,
+                2 if toolbar.smart_redact_enabled => MosaicMode::SmartRedact,
                 _ => return None,
             };
             (

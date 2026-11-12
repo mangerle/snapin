@@ -79,6 +79,8 @@ pub struct Toolbar {
     pub show_shortcut_hints: bool,
     /// 是否将当前标注工具栏选项复用到下一次截图。
     pub remember_sub_options: bool,
+    /// 马赛克模式下拉中是否允许展示与触发“智能打码”（长图滚动编辑态关闭）。
+    pub smart_redact_enabled: bool,
 }
 
 impl Default for Toolbar {
@@ -107,6 +109,7 @@ impl Default for Toolbar {
             drag_offset: None,
             show_shortcut_hints: true,
             remember_sub_options: false,
+            smart_redact_enabled: true,
         }
     }
 }
@@ -132,6 +135,30 @@ impl Toolbar {
         ToolbarItem::Action(ToolbarAction::Translate),
         ToolbarItem::Action(ToolbarAction::ScreenRecording),
         ToolbarItem::Action(ToolbarAction::LongCapture),
+        ToolbarItem::Action(ToolbarAction::Close),
+        ToolbarItem::Action(ToolbarAction::Pin),
+        ToolbarItem::Action(ToolbarAction::Save),
+        ToolbarItem::Action(ToolbarAction::Copy),
+    ];
+
+    /// 长截图编辑态主工具列表：仅保留标注工具、撤销重做与贴图/保存/复制/关闭动作。
+    ///
+    /// 之所以剔除二维码/OCR/翻译/录屏/重入长截图，是因为这些动作依赖静态全屏底图或与长图会话互斥，
+    /// 直接暴露给用户会产生坐标错乱或无效阻塞。
+    pub const LONG_CAPTURE_EDIT_MAIN_ITEMS: &'static [ToolbarItem] = &[
+        ToolbarItem::Tool(Tool::Rect),
+        ToolbarItem::Tool(Tool::Badge),
+        ToolbarItem::Tool(Tool::Arrow),
+        ToolbarItem::Tool(Tool::Pen),
+        ToolbarItem::Tool(Tool::Line),
+        ToolbarItem::Tool(Tool::Marker),
+        ToolbarItem::Tool(Tool::Mosaic),
+        ToolbarItem::Tool(Tool::Magnifier),
+        ToolbarItem::Tool(Tool::Spotlight),
+        ToolbarItem::Tool(Tool::Eraser),
+        ToolbarItem::Tool(Tool::Text),
+        ToolbarItem::Action(ToolbarAction::Undo),
+        ToolbarItem::Action(ToolbarAction::Redo),
         ToolbarItem::Action(ToolbarAction::Close),
         ToolbarItem::Action(ToolbarAction::Pin),
         ToolbarItem::Action(ToolbarAction::Save),

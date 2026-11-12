@@ -105,6 +105,7 @@ impl SnipperState {
         self.editor.annotation.stroke.clear();
         self.editor.annotation.toolbar.active_tool = None;
         self.editor.annotation.toolbar.sub_rect = None;
+        self.editor.annotation.toolbar.restore_default_items();
         self.editor.selected_annotation = None;
         self.editor.annotation_drag = None;
         self.editor.annotations.clear();

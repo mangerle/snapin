@@ -261,19 +261,17 @@ impl LongCaptureSession {
         matched
     }
 
-    /// 上次投喂帧以来的耗时
-    pub fn last_feed_elapsed(&self) -> std::time::Duration {
-        self.last_feed_time.elapsed()
-    }
-
     /// 上裁剪（裁剪长图顶部/左侧）
     pub fn crop_head(&mut self, pixels: u32) {
         self.stitcher.crop_head(pixels);
     }
 
-    /// 下裁剪（裁剪长图底部/右侧）
+    /// 下裁剪（裁剪长图底部/右侧），当裁剪回退到初始首帧尺度时同步重置主方向。
     pub fn crop_tail(&mut self, pixels: u32) {
         self.stitcher.crop_tail(pixels);
+        if self.is_at_initial_size() {
+            self.reset_direction();
+        }
     }
 
     /// 获取当前视窗在长图中的映射区间

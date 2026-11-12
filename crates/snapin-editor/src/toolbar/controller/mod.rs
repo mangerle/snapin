@@ -5,6 +5,7 @@
 
 mod click;
 
+use super::items::{MosaicMode, SubToolOptions};
 use super::layout::{
     calculate_main_layout, calculate_sub_layout, MainLayoutRequest, SubControl, SubLayout,
     SubLayoutOptions, SubLayoutRequest,
@@ -17,9 +18,13 @@ use super::state::store_remembered_sub_options;
 use crate::geometry::Rect;
 
 /// 将当前工具栏状态收敛为布局层需要的只读选项。
-fn calculate_sub_layout_options(options: &super::items::SubToolOptions) -> SubLayoutOptions {
+fn calculate_sub_layout_options(
+    options: &SubToolOptions,
+    smart_redact_enabled: bool,
+) -> SubLayoutOptions {
     SubLayoutOptions {
         mosaic_mode: options.mosaic_mode,
+        smart_redact_enabled,
     }
 }
 
@@ -172,7 +177,7 @@ impl Toolbar {
             screen_width: self.screen_size.0,
             screen_height: self.screen_size.1,
             ui_scale: self.ui_scale,
-            options: calculate_sub_layout_options(&self.sub_options),
+            options: calculate_sub_layout_options(&self.sub_options, self.smart_redact_enabled),
         });
         self.sub_rect = self.sub_layout.as_ref().map(|layout| layout.rect);
         if self.sub_layout.is_none() {
@@ -261,5 +266,39 @@ impl Toolbar {
             Some(layout) => layout.rect.contains(px, py) || layout.dropdown_contains(px, py),
             None => false,
         }
+    }
+
+    /// 切换工具栏至长截图编辑模式：仅保留 11 个标注工具及核心输出操作，并禁用智能马赛克入口。
+    ///
+    /// 长截图编辑阶段不再暴露全局截图动作（OCR/翻译/二维码/录屏/长截图重启）及依赖原图识别的
+    /// 智能马赛克，从界面入口与下拉菜单两层彻底隔离非法状态转换。
+    pub fn configure_for_long_capture_editing(&mut self) {
+        self.main_items = Self::LONG_CAPTURE_EDIT_MAIN_ITEMS;
+        self.smart_redact_enabled = false;
+        if matches!(self.sub_options.mosaic_mode, MosaicMode::SmartRedact) {
+            self.sub_options.mosaic_mode = MosaicMode::Mosaic;
+        }
+        if let Some(tool) = self.active_tool {
+            let still_present = self.main_items.contains(&ToolbarItem::Tool(tool));
+            if !still_present {
+                self.active_tool = None;
+            }
+        }
+        self.open_dropdown = None;
+        self.dropdown_hover = None;
+        self.hovered_sub_control = None;
+        self.hovered_item = None;
+        self.update_sub_rect();
+    }
+
+    /// 恢复主截图默认工具栏与智能马赛克可用状态。
+    pub fn restore_default_items(&mut self) {
+        self.main_items = Self::MAIN_ITEMS;
+        self.smart_redact_enabled = true;
+        self.open_dropdown = None;
+        self.dropdown_hover = None;
+        self.hovered_sub_control = None;
+        self.hovered_item = None;
+        self.update_sub_rect();
     }
 }

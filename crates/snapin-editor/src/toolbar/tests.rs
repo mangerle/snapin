@@ -3,8 +3,9 @@
 use super::*;
 use crate::geometry::Rect;
 use crate::toolbar::items::preset_colors;
+use crate::toolbar::items::MosaicMode;
 use crate::toolbar::items::{Tool, ToolbarItem};
-use crate::toolbar::layout::SubControl;
+use crate::toolbar::layout::{SubControl, SubDropdown};
 
 #[test]
 fn test_toolbar_layout_adaptation() {
@@ -770,4 +771,55 @@ fn test_drag_handle_renders_dots_without_preceding_divider() {
         }
     }
     assert!(dot_pixel_found, "拖动手柄中心必须渲染抓握圆点像素");
+}
+
+/// 进入长截图编辑模式时应隐藏全局截图动作，并从马赛克下拉菜单移除智能打码项。
+#[test]
+fn test_long_capture_editing_toolbar_restricts_items_and_smart_redact() {
+    let mut tb = Toolbar::default();
+    tb.sub_options.mosaic_mode = MosaicMode::SmartRedact;
+    tb.active_tool = Some(Tool::Mosaic);
+    let selection = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 500.0,
+        height: 400.0,
+    };
+    tb.update_layout(&selection, 1920.0, 1080.0);
+
+    tb.configure_for_long_capture_editing();
+
+    assert_eq!(tb.main_items, Toolbar::LONG_CAPTURE_EDIT_MAIN_ITEMS);
+    assert!(!tb.smart_redact_enabled);
+    assert_eq!(tb.sub_options.mosaic_mode, MosaicMode::Mosaic);
+    assert!(!tb
+        .main_items
+        .contains(&ToolbarItem::Action(ToolbarAction::Ocr)));
+    assert!(!tb
+        .main_items
+        .contains(&ToolbarItem::Action(ToolbarAction::LongCapture)));
+    assert!(!tb
+        .main_items
+        .contains(&ToolbarItem::Action(ToolbarAction::ScreenRecording)));
+    assert!(tb
+        .main_items
+        .contains(&ToolbarItem::Action(ToolbarAction::Pin)));
+
+    // 展开马赛克模式下拉时应只有马赛克与模糊两行，不包含第 3 行智能打码。
+    let mode_rect = tb
+        .sub_layout()
+        .and_then(|layout| layout.rect_of(SubControl::MosaicMode))
+        .expect("长截图编辑模式下马赛克工具应显示模式控件");
+    tb.handle_click(mode_rect.x + 4.0, mode_rect.y + 4.0);
+    let dropdown = tb
+        .sub_layout()
+        .and_then(|layout| layout.dropdown.as_ref())
+        .expect("马赛克模式下拉菜单应展开");
+    assert_eq!(dropdown.kind, SubDropdown::MosaicMode);
+    assert_eq!(dropdown.rows.len(), 2, "禁用智能马赛克后应仅展示两行");
+
+    // 退出并恢复默认工具栏后应还原完整按钮列表与智能打码开关。
+    tb.restore_default_items();
+    assert_eq!(tb.main_items, Toolbar::MAIN_ITEMS);
+    assert!(tb.smart_redact_enabled);
 }

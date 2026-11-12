@@ -19,5 +19,10 @@ pub enum PresentOutcome {
     Deferred,
 }
 
+/// 贴图窗口单边允许的最大物理像素。
+///
+/// 兼顾 Wayland `wl_shm`、X11 与 GPU 纹理上限，避免长截图或极端放大请求导致底层图形表面分配失败或卡死。
+pub(crate) const MAX_PIN_WINDOW_DIM: u32 = 8192;
+
 pub use crate::model::{GroupId, PasterId, PasterItem, PasterTransform};
 pub use text_to_pin::{render_color_swatch_card, render_simple_text_card, try_parse_hex_color};

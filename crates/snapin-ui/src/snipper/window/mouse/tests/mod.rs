@@ -5,15 +5,19 @@ mod wheel;
 use super::super::types::SnipMode;
 use super::*;
 use crate::editor::text_input::TextInputSession;
-use crate::editor::toolbar::{MosaicMode, SubControl, ToolbarAction, ToolbarItem};
+use crate::editor::toolbar::{MosaicMode, SubControl, Toolbar, ToolbarAction, ToolbarItem};
 use crate::geometry::Point;
 use crate::ports::{NoopScreenRecorder, OcrTextItem};
+use crate::snipper::canvas::long_capture::types::{
+    long_capture_main_button_defs, long_capture_size_readout_width,
+};
 use crate::snipper::canvas::recording::{calculate_recording_layout, RecordingLayoutRequest};
 use crate::snipper::window::ocr_menu::OcrMenuAction;
 use crate::snipper::window::redaction::{apply_redaction, is_redaction_applied, RedactionPreview};
 use crate::snipper::window::state::{
     LongCaptureAction, LongCaptureSession, RecordingAction, RecordingItem, RecordingSession,
 };
+use image::Rgba;
 use snapin_annotation::action::AnnotationShape;
 use snapin_annotation::shapes::RectAction;
 use snapin_annotation::LineStyle;
@@ -945,4 +949,154 @@ fn test_click_inside_active_text_input_moves_cursor_without_commit() {
         1,
         "点击输入框外部必须提交原会话"
     );
+}
+
+/// 长截图录制中、暂停态与编辑态的鼠标事件、选区保护及编辑工具栏必须严格隔离。
+#[test]
+fn test_long_capture_isolates_mouse_and_toolbar_across_phases() {
+    let mut state = SnipperState::new();
+    state.viewport.screen_size = (1280.0, 800.0);
+    let original = RgbaImage::from_pixel(1280, 800, Rgba([220, 230, 240, 255]));
+    let rect = Rect {
+        x: 200.0,
+        y: 200.0,
+        width: 300.0,
+        height: 400.0,
+    };
+    state.viewport.selection = SelectionState::Locked {
+        rect,
+        active_drag: None,
+    };
+    let mut session =
+        LongCaptureSession::new(RgbaImage::from_pixel(300, 400, Rgba([1, 2, 3, 255])));
+    session.is_capturing = true;
+    session.crop_sub_menu_open = true;
+    session.toolbar_rect = Some(Rect {
+        x: 200.0,
+        y: 140.0,
+        width: 480.0,
+        height: 40.0,
+    });
+    state.long_capture = Some(session);
+
+    // 1. 录制中点击空白外部：只收起裁剪子菜单，不得重置选区
+    assert!(handle_left_press(&mut state, 50.0, 50.0, &original));
+    assert!(
+        !state
+            .long_capture
+            .as_ref()
+            .expect("会话应在")
+            .crop_sub_menu_open
+    );
+    assert!(matches!(
+        state.viewport.selection,
+        SelectionState::Locked {
+            active_drag: None,
+            ..
+        }
+    ));
+
+    // 2. 录制中点击选区缩放手柄或内部并移动释放：不得缩放、不得移动、不得触发幽灵拼接
+    assert!(!handle_left_press(&mut state, 200.0, 200.0, &original));
+    assert!(!handle_left_press(&mut state, 320.0, 350.0, &original));
+    assert!(!handle_cursor_move(
+        &mut state,
+        (340.0, 420.0),
+        1280.0,
+        800.0
+    ));
+    handle_mouse_button(
+        &mut state,
+        MouseButton::Left,
+        ElementState::Released,
+        &original,
+    );
+    if let SelectionState::Locked {
+        rect: current,
+        active_drag,
+    } = state.viewport.selection
+    {
+        assert_eq!(current, rect);
+        assert!(active_drag.is_none());
+    } else {
+        panic!("录制中选区不得退出 Locked");
+    }
+    assert_eq!(
+        state
+            .long_capture
+            .as_ref()
+            .expect("会话应在")
+            .stitcher
+            .canvas()
+            .height(),
+        400,
+        "录制中鼠标拖拽不得触发幽灵拼接"
+    );
+
+    // 3. 暂停后：选区内部允许移动，但选区外点击依然不得重置选区
+    state
+        .long_capture
+        .as_mut()
+        .expect("会话应在")
+        .toggle_capture();
+    assert!(!handle_left_press(&mut state, 50.0, 50.0, &original));
+    assert!(matches!(
+        state.viewport.selection,
+        SelectionState::Locked { .. }
+    ));
+    assert!(handle_left_press(&mut state, 300.0, 300.0, &original));
+    assert!(matches!(
+        state.viewport.selection,
+        SelectionState::Locked {
+            active_drag: Some(DragMode::Move { .. }),
+            ..
+        }
+    ));
+    handle_mouse_button(
+        &mut state,
+        MouseButton::Left,
+        ElementState::Released,
+        &original,
+    );
+
+    // 4. 点击真实控制栏上的“进入编辑”按钮：切换精简编辑工具栏，并禁用手柄缩放/整区拖动/选区重置
+    let (bar_rect, defs, readout_w) = {
+        let s = state.long_capture.as_ref().expect("会话应在");
+        let bar = s.toolbar_rect.expect("toolbar_rect 应就绪");
+        let defs = long_capture_main_button_defs(s, 300, 400);
+        let rw = long_capture_size_readout_width(300, 400);
+        (bar, defs, rw)
+    };
+    let mut cur_x = bar_rect.x + 6.0 + readout_w + 8.0;
+    let mut edit_center = None;
+    for (idx, def) in defs.iter().enumerate() {
+        if idx > 0 {
+            cur_x += 3.0;
+        }
+        if def.action == LongCaptureAction::EnterEditing {
+            edit_center = Some((cur_x + def.width * 0.5, bar_rect.y + bar_rect.height * 0.5));
+            break;
+        }
+        cur_x += def.width;
+    }
+    let (ex, ey) = edit_center.expect("应定位到 EnterEditing 按钮");
+    assert!(handle_left_press(&mut state, ex, ey, &original));
+    assert!(state.long_capture.as_ref().expect("会话应在").is_editing);
+    assert_eq!(
+        state.editor.annotation.toolbar.main_items,
+        Toolbar::LONG_CAPTURE_EDIT_MAIN_ITEMS
+    );
+    assert!(!state.editor.annotation.toolbar.smart_redact_enabled);
+
+    // 编辑态点击手柄和内部（无激活工具）不得进入调整/移动，点击外部不得重置选区
+    assert!(!handle_left_press(&mut state, 200.0, 200.0, &original));
+    assert!(!handle_left_press(&mut state, 300.0, 300.0, &original));
+    assert!(!handle_left_press(&mut state, 50.0, 50.0, &original));
+    assert!(matches!(
+        state.viewport.selection,
+        SelectionState::Locked {
+            active_drag: None,
+            ..
+        }
+    ));
 }

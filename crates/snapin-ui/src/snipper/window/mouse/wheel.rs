@@ -47,6 +47,8 @@ pub fn handle_mouse_wheel(state: &mut SnipperState, delta: MouseScrollDelta) -> 
             // 反向自动裁剪统一交由拼接器在新帧位移确认后执行，避免重复裁剪。
             return true;
         }
+        // 已暂停且未进入长图编辑框时，严禁滚轮穿透到普通截图的放大镜或隐藏工具栏控件。
+        return false;
     }
 
     if state.editor.annotation.toolbar.active_tool == Some(Tool::Magnifier)

@@ -52,7 +52,16 @@ pub(super) fn handle_long_capture_press(
                     "长截图已停止：可调整选区或裁剪，点击开始重新录制",
                 ));
             } else if let Some(first_frame) = current_selection_frame(state, original_rgba) {
+                if let SelectionState::Locked { active_drag, .. } = &mut state.viewport.selection {
+                    *active_drag = None;
+                }
+                state.editor.annotation.active_text_input = None;
+                state.editor.annotation.is_selecting_text = false;
+                state.editor.annotation.stroke.clear();
+                state.editor.annotation.toolbar.active_tool = None;
+                crate::snipper::window::annotation_edit::clear(state);
                 if let Some(session) = state.long_capture.as_mut() {
+                    session.crop_sub_menu_open = false;
                     session.start_capture(first_frame);
                 }
                 state.set_status_message(snapin_foundation::i18n::tr(
@@ -111,6 +120,28 @@ pub(super) fn handle_long_capture_press(
         LongCaptureAction::EnterEditing => {
             if let Some(session) = state.long_capture.as_mut() {
                 session.enter_editing();
+                if let SelectionState::Locked {
+                    rect, active_drag, ..
+                } = &mut state.viewport.selection
+                {
+                    *active_drag = None;
+                    state
+                        .editor
+                        .annotation
+                        .toolbar
+                        .configure_for_long_capture_editing();
+                    state.editor.annotation.toolbar.update_layout(
+                        rect,
+                        state.viewport.screen_size.0,
+                        state.viewport.screen_size.1,
+                    );
+                } else {
+                    state
+                        .editor
+                        .annotation
+                        .toolbar
+                        .configure_for_long_capture_editing();
+                }
                 state.set_status_message(snapin_foundation::i18n::tr(
                     "已进入长图编辑框：滚轮滚动浏览长图，可使用标注工具",
                 ));

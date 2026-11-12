@@ -61,7 +61,10 @@ impl Toolbar {
         if let Some(row) = row {
             let dropdown = self.open_dropdown;
             self.apply_dropdown_row(row);
-            return if dropdown == Some(SubDropdown::MosaicMode) && row == 2 {
+            return if dropdown == Some(SubDropdown::MosaicMode)
+                && row == 2
+                && self.smart_redact_enabled
+            {
                 DropdownClickOutcome::Action(ToolbarAction::SmartRedact)
             } else {
                 DropdownClickOutcome::Consumed

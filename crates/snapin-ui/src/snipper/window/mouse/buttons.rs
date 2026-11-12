@@ -3,7 +3,6 @@
 use super::*;
 use crate::geometry::Point;
 use crate::snipper::selection::ResizeHandle;
-use tracing::debug;
 
 /// 鼠标按键点击事件处理
 pub fn handle_mouse_button(
@@ -109,8 +108,8 @@ fn handle_locked_press(
     pointer: Point,
     original_rgba: &RgbaImage,
 ) -> bool {
-    // 长截图捕获阶段使用独立控制条，命中后不再落入常规画布或工具栏逻辑。
-    if let Some(session) = &state.long_capture {
+    // 长截图非编辑态仅允许交互专用控制条，或（仅当已暂停时）调整选区范围。
+    if let Some(session) = state.long_capture.as_mut() {
         if !session.is_editing {
             let in_bar = session
                 .toolbar_rect
@@ -125,6 +124,17 @@ fn handle_locked_press(
                     original_rgba,
                 );
             }
+            let closed_submenu = std::mem::take(&mut session.crop_sub_menu_open);
+            if !state.can_adjust_selection() {
+                return closed_submenu;
+            }
+            if let Some(handle) = selection_handle_at(state, rect, pointer.x, pointer.y) {
+                return begin_selection_resize(state, handle);
+            }
+            if rect.contains(pointer.x, pointer.y) {
+                return begin_selection_move(state, rect, pointer.x, pointer.y);
+            }
+            return closed_submenu;
         }
     }
 
@@ -169,6 +179,7 @@ fn handle_locked_press(
             return true;
         }
     }
+    let had_active_text = state.editor.annotation.active_text_input.is_some();
     commit_active_text_input(state);
 
     if let Some(handled) =
@@ -176,11 +187,18 @@ fn handle_locked_press(
     {
         return handled;
     }
-    if let Some(handle) = selection_handle_at(state, rect, pointer.x, pointer.y) {
-        return begin_selection_resize(state, handle);
+    if state.can_adjust_selection() {
+        if let Some(handle) = selection_handle_at(state, rect, pointer.x, pointer.y) {
+            return begin_selection_resize(state, handle);
+        }
     }
     if rect.contains(pointer.x, pointer.y) {
-        return handle_inside_selection_press(state, rect, pointer.x, pointer.y);
+        return handle_inside_selection_press(state, rect, pointer.x, pointer.y, had_active_text);
+    }
+    if state.phase().is_long_capture() {
+        let had_selection = state.editor.selected_annotation.is_some();
+        crate::snipper::window::annotation_edit::clear(state);
+        return had_active_text || had_selection;
     }
     reset_selection_from_canvas(state, pointer.x, pointer.y);
     true
@@ -205,8 +223,30 @@ fn begin_selection_resize(state: &mut SnipperState, handle: ResizeHandle) -> boo
     true
 }
 
+/// 进入选区整体拖动状态。
+fn begin_selection_move(state: &mut SnipperState, rect: Rect, cx: f32, cy: f32) -> bool {
+    crate::snipper::window::annotation_edit::clear(state);
+    if let SelectionState::Locked {
+        ref mut active_drag,
+        ..
+    } = state.viewport.selection
+    {
+        *active_drag = Some(DragMode::Move {
+            offset_x: (cx - rect.x) as i32,
+            offset_y: (cy - rect.y) as i32,
+        });
+    }
+    true
+}
+
 /// 处理选区内部的橡皮擦、绘制工具或整体拖动。
-fn handle_inside_selection_press(state: &mut SnipperState, rect: Rect, cx: f32, cy: f32) -> bool {
+fn handle_inside_selection_press(
+    state: &mut SnipperState,
+    rect: Rect,
+    cx: f32,
+    cy: f32,
+    had_active_text: bool,
+) -> bool {
     if state.editor.annotation.toolbar.active_tool == Some(Tool::Eraser) {
         return eraser::handle_press(state, cx, cy);
     }
@@ -231,18 +271,12 @@ fn handle_inside_selection_press(state: &mut SnipperState, rect: Rect, cx: f32, 
             .begin(crate::geometry::Point::new(cx, cy));
         return true;
     }
+    let had_selection = state.editor.selected_annotation.is_some();
     crate::snipper::window::annotation_edit::clear(state);
-    if let SelectionState::Locked {
-        ref mut active_drag,
-        ..
-    } = state.viewport.selection
-    {
-        *active_drag = Some(DragMode::Move {
-            offset_x: (cx - rect.x) as i32,
-            offset_y: (cy - rect.y) as i32,
-        });
+    if !state.can_adjust_selection() {
+        return had_active_text || had_selection;
     }
-    true
+    begin_selection_move(state, rect, cx, cy)
 }
 
 /// 点击空白画布时清除旧选区并开始新的框选。
@@ -432,26 +466,6 @@ fn finish_locked_drag(state: &mut SnipperState, rect: Rect, release: &PointerRel
         release.original_rgba.width() as f32,
         release.original_rgba.height() as f32,
     );
-
-    if let Some(session) = &mut state.long_capture {
-        if session.is_capturing {
-            let x = (rect.x.max(0.0) as u32).min(release.original_rgba.width());
-            let y = (rect.y.max(0.0) as u32).min(release.original_rgba.height());
-            let w = (rect.width as u32).min(release.original_rgba.width().saturating_sub(x));
-            let h = (rect.height as u32).min(release.original_rgba.height().saturating_sub(y));
-            if w > 0 && h > 0 {
-                use image::GenericImageView;
-                let frame = release.original_rgba.view(x, y, w, h).to_image();
-                let matched = session.feed_frame(&frame);
-                debug!(
-                    "长截图选区拖拽拼接: 匹配={}, 上次投喂间隔={}ms",
-                    matched,
-                    session.last_feed_elapsed().as_millis()
-                );
-            }
-            session.last_drag_coord = None;
-        }
-    }
 }
 
 /// 选区锁定后执行一次性自动复制或自动翻译。

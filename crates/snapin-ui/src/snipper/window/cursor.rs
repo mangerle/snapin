@@ -5,7 +5,7 @@
 
 use super::annotation_edit::{self, AnnotationDrag};
 use super::events::SnipperState;
-use super::state::SnipperPhase;
+use super::state::{LongCaptureAction, LongCaptureSession, SnipperPhase};
 use crate::snipper::canvas::recording::{calculate_recording_layout, RecordingLayoutRequest};
 use crate::snipper::selection::{hit_test_handle, DragMode, Rect, ResizeHandle, SelectionState};
 use winit::window::{CursorIcon, Window};
@@ -34,6 +34,11 @@ fn desired_cursor_icon(state: &SnipperState) -> CursorIcon {
     };
     if state.recording.is_some() {
         return recording_cursor(state, rect);
+    }
+    if let Some(session) = state.long_capture.as_ref() {
+        if !session.is_editing {
+            return long_capture_cursor(state, session, rect, active_drag);
+        }
     }
     let (cx, cy) = (
         state.viewport.cursor_pos.0 as f32,
@@ -136,11 +141,54 @@ fn annotation_cursor(state: &SnipperState, cx: f32, cy: f32) -> Option<CursorIco
     .then_some(CursorIcon::Default)
 }
 
-/// 根据选区手柄、绘制工具与选区内部决定最终光标。
-fn selection_cursor(state: &SnipperState, rect: &Rect, cx: f32, cy: f32) -> CursorIcon {
+/// 长截图非编辑态专用光标：控制条拖拽把手显示抓握光标，仅在暂停且允许调整选区时显示缩放/移动光标。
+fn long_capture_cursor(
+    state: &SnipperState,
+    session: &LongCaptureSession,
+    rect: &Rect,
+    active_drag: &Option<DragMode>,
+) -> CursorIcon {
+    if session.is_dragging_toolbar() {
+        return CursorIcon::Grabbing;
+    }
+    if session.hovered_action == Some(LongCaptureAction::DragToolbar) {
+        return CursorIcon::Grab;
+    }
+    let (cx, cy) = (
+        state.viewport.cursor_pos.0 as f32,
+        state.viewport.cursor_pos.1 as f32,
+    );
+    let in_bar = session.toolbar_rect.is_some_and(|r| r.contains(cx, cy))
+        || session
+            .crop_submenu_rect
+            .is_some_and(|r| r.contains(cx, cy));
+    if in_bar || !state.can_adjust_selection() {
+        return CursorIcon::Default;
+    }
+    if let Some(drag) = active_drag {
+        return match drag {
+            DragMode::Move { .. } => CursorIcon::Move,
+            DragMode::Resize(handle) => resize_cursor(*handle),
+        };
+    }
     let tolerance = 8.0 * state.editor.annotation.toolbar.ui_scale;
     if let Some(handle) = hit_test_handle(rect, cx, cy, tolerance) {
         return resize_cursor(handle);
+    }
+    if rect.contains(cx, cy) {
+        return CursorIcon::Move;
+    }
+    CursorIcon::Default
+}
+
+/// 根据选区手柄、绘制工具与选区内部决定最终光标。
+fn selection_cursor(state: &SnipperState, rect: &Rect, cx: f32, cy: f32) -> CursorIcon {
+    let adjustable = state.can_adjust_selection();
+    let tolerance = 8.0 * state.editor.annotation.toolbar.ui_scale;
+    if adjustable {
+        if let Some(handle) = hit_test_handle(rect, cx, cy, tolerance) {
+            return resize_cursor(handle);
+        }
     }
 
     if state.editor.annotation.toolbar.active_tool.is_some() {
@@ -150,7 +198,7 @@ fn selection_cursor(state: &SnipperState, rect: &Rect, cx: f32, cy: f32) -> Curs
             CursorIcon::Default
         };
     }
-    if rect.contains(cx, cy) {
+    if adjustable && rect.contains(cx, cy) {
         return CursorIcon::Move;
     }
 
@@ -285,5 +333,61 @@ mod tests {
         assert_eq!(desired_cursor_icon(&state), CursorIcon::Move);
         state.viewport.cursor_pos = (850.0, 650.0);
         assert_eq!(desired_cursor_icon(&state), CursorIcon::Default);
+    }
+
+    /// 长截图录制中、暂停态与编辑态必须展示隔离的光标反馈，禁止非法拖拽/缩放光标提示。
+    #[test]
+    fn test_desired_cursor_icon_isolates_long_capture_phases() {
+        use crate::editor::toolbar::Tool;
+        use crate::snipper::window::state::LongCaptureSession;
+        use image::RgbaImage;
+
+        let mut state = SnipperState::new();
+        state.editor.annotation.toolbar.ui_scale = 1.0;
+        let rect = Rect {
+            x: 100.0,
+            y: 100.0,
+            width: 200.0,
+            height: 150.0,
+        };
+        state.viewport.selection = SelectionState::Locked {
+            rect,
+            active_drag: None,
+        };
+        let mut session = LongCaptureSession::new(RgbaImage::new(200, 150));
+        session.is_capturing = true;
+        session.hovered_action = Some(LongCaptureAction::DragToolbar);
+        state.long_capture = Some(session);
+
+        // 1. 录制中：悬停拖拽把手为 Grab，手柄边角与选区内部均返回 Default
+        assert_eq!(desired_cursor_icon(&state), CursorIcon::Grab);
+        if let Some(s) = state.long_capture.as_mut() {
+            s.hovered_action = None;
+        }
+        state.viewport.cursor_pos = (300.0, 250.0);
+        assert_eq!(desired_cursor_icon(&state), CursorIcon::Default);
+        state.viewport.cursor_pos = (200.0, 175.0);
+        assert_eq!(desired_cursor_icon(&state), CursorIcon::Default);
+
+        // 2. 暂停态：恢复边界缩放手柄与内部移动光标
+        if let Some(s) = state.long_capture.as_mut() {
+            s.is_capturing = false;
+        }
+        state.viewport.cursor_pos = (300.0, 250.0);
+        assert_eq!(desired_cursor_icon(&state), CursorIcon::NwseResize);
+        state.viewport.cursor_pos = (200.0, 175.0);
+        assert_eq!(desired_cursor_icon(&state), CursorIcon::Move);
+
+        // 3. 长图编辑态：边角与无工具内部均恢复 Default；激活工具时选区内部显示 Crosshair
+        if let Some(s) = state.long_capture.as_mut() {
+            s.enter_editing();
+        }
+        state.viewport.cursor_pos = (300.0, 250.0);
+        assert_eq!(desired_cursor_icon(&state), CursorIcon::Default);
+        state.viewport.cursor_pos = (200.0, 175.0);
+        assert_eq!(desired_cursor_icon(&state), CursorIcon::Default);
+
+        state.editor.annotation.toolbar.active_tool = Some(Tool::Rect);
+        assert_eq!(desired_cursor_icon(&state), CursorIcon::Crosshair);
     }
 }

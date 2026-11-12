@@ -1,7 +1,6 @@
 //! 鼠标移动、选区约束与画笔光标判定。
 
 use super::*;
-use snapin_render::stitching::StitchDirection;
 
 /// 鼠标移动事件统一处理 (更新光标坐标、选区创建与调整手柄拖拽)
 pub fn handle_cursor_move(
@@ -210,6 +209,7 @@ fn handle_locked_cursor(
             {
                 return false;
             }
+            return false;
         }
     }
     if state.recording.is_none()
@@ -247,48 +247,8 @@ fn handle_locked_cursor(
 
 /// 更新选区移动或缩放手柄拖动，并同步工具栏布局。
 fn update_selection_drag(state: &mut SnipperState, rect: Rect, drag: DragMode, frame: CursorFrame) {
-    let (mut next_rect, next_drag) =
+    let (next_rect, next_drag) =
         crate::snipper::window::drag_calculator::calculate_drag(&rect, &drag, (frame.x, frame.y));
-    if let Some(session) = &mut state.long_capture {
-        if session.is_capturing && matches!(drag, DragMode::Move { .. }) {
-            // 1. 录制态锁定单轴移动：纵向截图只允许沿上下拖动，横向截图只允许沿左右拖动
-            match session.direction {
-                StitchDirection::Vertical => next_rect.x = rect.x,
-                StitchDirection::Horizontal => next_rect.y = rect.y,
-            }
-
-            // 2. 自动裁剪核心状态机：根据移动方向确定拼接方向，反向移动时自动裁剪
-            let cur_pos = match session.direction {
-                StitchDirection::Vertical => next_rect.y,
-                StitchDirection::Horizontal => next_rect.x,
-            };
-
-            if let Some(last_pos) = session.last_drag_coord {
-                let delta = cur_pos - last_pos;
-                if delta.abs() >= 1.0 {
-                    // 若尚未确立拼接方向，根据第一波移动确立主方向
-                    if session.locked_direction.is_none() && delta.abs() >= 3.0 {
-                        session.locked_direction = Some(if delta > 0.0 { 1 } else { -1 });
-                    }
-
-                    if let Some(dir) = session.locked_direction {
-                        let movement_dir = if delta > 0.0 { 1 } else { -1 };
-                        if movement_dir != dir && session.auto_crop {
-                            // 检测到反方向移动：自动裁剪！
-                            let crop_pixels = delta.abs().round() as u32;
-                            session.crop_tail(crop_pixels);
-
-                            // 时机 4: 截图区域框与长截图缩略图尺寸一致时（退回原点），重新更新拼接方向
-                            if session.is_at_initial_size() {
-                                session.reset_direction();
-                            }
-                        }
-                    }
-                }
-            }
-            session.last_drag_coord = Some(cur_pos);
-        }
-    }
     state.viewport.selection = SelectionState::Locked {
         rect: next_rect,
         active_drag: Some(next_drag),
@@ -409,6 +369,13 @@ pub(super) fn constrain_with_shift(
 
 /// 当前工具是否需要持续跟随光标重绘圆形画笔轮廓。
 fn has_brush_cursor(state: &SnipperState) -> bool {
+    if state
+        .long_capture
+        .as_ref()
+        .is_some_and(|session| !session.is_editing)
+    {
+        return false;
+    }
     match state.editor.annotation.toolbar.active_tool {
         Some(Tool::Mosaic) => {
             state

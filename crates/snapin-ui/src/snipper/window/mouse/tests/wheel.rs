@@ -348,3 +348,26 @@ fn test_mouse_wheel_adjusts_font_size_of_selected_text_annotation() {
         other => panic!("应为 Text 图元，实际: {other:?}"),
     }
 }
+
+/// 长截图已暂停且尚未进入编辑态时，滚轮不得穿透调节画笔粗细或放大镜倍率。
+#[test]
+fn test_wheel_is_ignored_when_long_capture_is_paused() {
+    let mut state = SnipperState::new();
+    state.viewport.selection = SelectionState::Locked {
+        rect: Rect::new(50.0, 50.0, 300.0, 300.0),
+        active_drag: None,
+    };
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Pen);
+    let initial_width = state.editor.annotation.toolbar.sub_options.stroke_width;
+    let mut session = LongCaptureSession::new(RgbaImage::new(300, 300));
+    session.is_capturing = false;
+    session.is_editing = false;
+    state.long_capture = Some(session);
+
+    let delta = MouseScrollDelta::LineDelta(0.0, 2.0);
+    assert!(!handle_mouse_wheel(&mut state, delta));
+    assert_eq!(
+        state.editor.annotation.toolbar.sub_options.stroke_width,
+        initial_width
+    );
+}

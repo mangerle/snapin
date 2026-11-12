@@ -166,7 +166,11 @@ impl<'a> SnipperCanvas<'a> {
             self.render_active_brush_cursor(pixmap, rect);
         }
         if !recording_active && !recording_completed {
-            self.render_selection_borders_and_handles(pixmap, rect);
+            let show_handles = !self
+                .long_capture
+                .as_ref()
+                .is_some_and(|session| session.is_capturing || session.is_editing);
+            self.render_selection_borders_and_handles(pixmap, rect, show_handles);
             if let Some(selected) = self.selected_annotation {
                 self.render_annotation_selection(pixmap, &selected);
             }

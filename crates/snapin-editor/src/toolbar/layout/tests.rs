@@ -17,6 +17,7 @@ fn layout_for(
         ui_scale,
         options: SubLayoutOptions {
             mosaic_mode: MosaicMode::Mosaic,
+            smart_redact_enabled: true,
         },
     })
 }
@@ -53,6 +54,7 @@ fn layout_for_dropdown(
         ui_scale: 1.0,
         options: SubLayoutOptions {
             mosaic_mode: MosaicMode::Mosaic,
+            smart_redact_enabled: true,
         },
     })
 }
@@ -171,6 +173,7 @@ fn test_sub_controls_follow_active_tool() {
         (1920.0, 1080.0),
         super::SubLayoutOptions {
             mosaic_mode: super::MosaicMode::SmartRedact,
+            smart_redact_enabled: true,
         },
     )
     .expect("智能马赛克应生成模式属性栏");
@@ -413,6 +416,7 @@ fn test_badge_sub_bar_fits_common_screen() {
         (1366.0, 768.0),
         super::SubLayoutOptions {
             mosaic_mode: super::MosaicMode::Mosaic,
+            smart_redact_enabled: true,
         },
     )
     .expect("序号属性栏应存在");

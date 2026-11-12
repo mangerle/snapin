@@ -1,6 +1,6 @@
 //! 截图任务结果回填与状态流转。
 
-use super::super::actions::build_pin_item;
+use super::super::actions::{build_pin_item, evaluate_pin_size_policy, PinSizeDecision};
 use super::SnipperJobKind;
 use crate::ports::{JobId, MediaJobOutcome, OcrTextItem, QrCodeItem};
 use crate::snipper::window::clipboard::SnipperClipboardAction;
@@ -56,7 +56,20 @@ fn handle_beautified_outcome(
                 tracing::error!("贴图任务缺少落点信息，美化结果已丢弃");
                 return;
             };
-            match build_pin_item(image, position) {
+            let fit_scale = match evaluate_pin_size_policy(
+                image.width(),
+                image.height(),
+                state.viewport.screen_size,
+            ) {
+                PinSizeDecision::Allow { scale } => scale,
+                PinSizeDecision::TooLarge { width, height } => {
+                    state.set_status_message(format!(
+                        "美化后图像尺寸过大 ({width}x{height})，超出贴图安全范围，请改用保存或复制"
+                    ));
+                    return;
+                }
+            };
+            match build_pin_item(image, position, fit_scale) {
                 Some(item) => state.session.outcome = Some(SnipperOutcome::Pinned(item)),
                 None => state.set_status_message(snapin_foundation::i18n::tr("创建贴图缓冲区失败")),
             }

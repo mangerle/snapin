@@ -3,6 +3,7 @@ use crate::ports::NoopScreenRecorder;
 use crate::snipper::magnifier::ColorFormat;
 use crate::snipper::selection::Rect;
 use crate::snipper::window::state::{LongCaptureSession, RecordingSession};
+use crate::snipper::window::types::SnipperOutcome;
 use image::Rgba;
 use snapin_annotation::action::AnnotationShape;
 use snapin_annotation::shapes::RectAction;
@@ -223,4 +224,101 @@ fn test_configured_beautify_options_produce_social_canvas() {
     let output =
         snapin_render::render_beautified(input.as_ref(), &options).expect("美化输出应成功");
     assert_eq!((output.width(), output.height()), (1080, 1080));
+}
+
+/// 超大贴图策略应在屏幕安全范围外自动按可读倍率缩放，超出下限时阻止创建以保护图形表面。
+#[test]
+fn test_evaluate_pin_size_policy_scales_or_rejects_oversized_images() {
+    assert_eq!(
+        evaluate_pin_size_policy(2, 2, (1920.0, 1080.0)),
+        PinSizeDecision::Allow { scale: 1.0 }
+    );
+    assert_eq!(
+        evaluate_pin_size_policy(800, 600, (1920.0, 1080.0)),
+        PinSizeDecision::Allow { scale: 1.0 }
+    );
+
+    match evaluate_pin_size_policy(800, 2000, (1920.0, 1080.0)) {
+        PinSizeDecision::Allow { scale } => {
+            assert!((0.25..1.0).contains(&scale), "异常长图应自动缩放到可读倍率");
+        }
+        other => panic!("中等长图应允许等比缩放贴图，实际: {other:?}"),
+    }
+
+    assert_eq!(
+        evaluate_pin_size_policy(1000, 8000, (1920.0, 1080.0)),
+        PinSizeDecision::TooLarge {
+            width: 1000,
+            height: 8000,
+        }
+    );
+    assert_eq!(
+        evaluate_pin_size_policy(40, 2000, (1920.0, 1080.0)),
+        PinSizeDecision::TooLarge {
+            width: 40,
+            height: 2000,
+        }
+    );
+}
+
+/// 长截图尺寸超限时 Pin 必须安全拒绝，中等长图则生成带适配倍率的贴图；其余冲突动作入口应静默隔离。
+#[test]
+fn test_oversized_pin_guard_and_long_capture_action_isolation() {
+    let mut state = SnipperState::new();
+    state.viewport.screen_size = (1920.0, 1080.0);
+    let original = RgbaImage::from_pixel(600, 400, Rgba([255, 255, 255, 255]));
+    state.viewport.selection = SelectionState::Locked {
+        rect: Rect::new(20.0, 20.0, 300.0, 200.0),
+        active_drag: None,
+    };
+
+    // 预先污染普通截图遗留工具与标注，启动长截图必须彻底重置它们
+    state.editor.annotation.toolbar.active_tool = Some(crate::editor::toolbar::Tool::Rect);
+    state
+        .editor
+        .annotations
+        .push(AnnotationShape::Rect(RectAction {
+            rect: Rect::new(20.0, 20.0, 50.0, 50.0),
+            color: (255, 0, 0, 255).into(),
+            stroke_width: 2.0,
+            is_filled: false,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
+        }));
+    handle_action_long_capture(&mut state, &original);
+    assert!(state.long_capture.is_some());
+    assert!(state.editor.annotation.toolbar.active_tool.is_none());
+    assert!(!state.editor.annotations.can_undo());
+
+    // 冲突动作入口在长截图阶段不得修改结果或提交任何动作
+    handle_action_pick_color(&mut state, &original);
+    assert!(state.session.outcome.is_none());
+    handle_action_ocr(&mut state, &original);
+    handle_action_ocr_edit(&mut state, &original);
+    handle_action_redact(&mut state, &original);
+    handle_action_qr(&mut state, &original);
+    handle_action_translate(&mut state, &original);
+    assert!(state.session.status_message.is_none() || state.jobs.pending_media.is_none());
+
+    // 超大长图（height = 8000）执行 Pin 时必须拒绝创建并保留会话、给出提示
+    let huge = RgbaImage::from_pixel(800, 8000, Rgba([10, 20, 30, 255]));
+    state.long_capture = Some(LongCaptureSession::new(huge));
+    handle_action_pin(&mut state, &original);
+    assert!(state.session.outcome.is_none(), "超限长图不得创建贴图");
+    assert!(state.long_capture.is_some(), "拒绝贴图后不得销毁长截图会话");
+    assert!(
+        state.session.status_message.is_some(),
+        "拒绝贴图后应提示用户改用保存或复制"
+    );
+
+    // 可适应范围的长图（600x1600）应允许贴图并自动设置 < 1.0 的初始倍率
+    let moderate = RgbaImage::from_pixel(600, 1600, Rgba([10, 20, 30, 255]));
+    state.long_capture = Some(LongCaptureSession::new(moderate));
+    handle_action_pin(&mut state, &original);
+    match state.session.outcome.take() {
+        Some(SnipperOutcome::Pinned(item)) => {
+            assert!(item.transform.scale() < 1.0 && item.transform.scale() >= 0.25);
+        }
+        other => panic!("中等长图应生成缩放贴图，实际: {other:?}"),
+    }
 }

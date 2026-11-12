@@ -5,6 +5,7 @@ use crate::paster::context_menu::ContextMenuState;
 use crate::paster::window::annotation::{
     create_paster_toolbar, screen_to_image_point, toolbar_required_extent,
 };
+use crate::paster::MAX_PIN_WINDOW_DIM;
 use crate::ports::NoopDesktop;
 use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 
@@ -420,7 +421,10 @@ pub(crate) fn apply_window_scale_resize(state: &mut PasterWindowState, window: &
         new_h = new_h.max(req_h);
     }
 
-    let _ = window.request_inner_size(PhysicalSize::new(new_w as u32, new_h as u32));
+    let max_dim = MAX_PIN_WINDOW_DIM as f32;
+    let clamped_w = new_w.min(max_dim) as u32;
+    let clamped_h = new_h.min(max_dim) as u32;
+    let _ = window.request_inner_size(PhysicalSize::new(clamped_w, clamped_h));
 }
 
 /// 当前窗口后端是否允许客户端查询和设置顶层窗口位置。

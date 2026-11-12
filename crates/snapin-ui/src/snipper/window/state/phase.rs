@@ -59,6 +59,11 @@ impl SnipperPhase {
     pub fn is_busy(self) -> bool {
         matches!(self, Self::Busy)
     }
+
+    /// 当前是否处于长截图流程（正在采集、已暂停长截图或进入长图编辑态）。
+    pub fn is_long_capture(self) -> bool {
+        matches!(self, Self::LongCapturing | Self::LongCaptureEditing)
+    }
 }
 
 impl SnipperState {
@@ -102,6 +107,17 @@ impl SnipperState {
                 active_drag: None, ..
             } => SnipperPhase::SelectionSettled,
         }
+    }
+
+    /// 当前阶段是否允许拖拽边界手柄、整体移动或使用方向键微调锁定选区。
+    ///
+    /// 长截图仅在“已暂停且未进入长图编辑态”时允许重新调整选区；正在录制或处于
+    /// 长图编辑态时必须锁定选区几何尺寸，防止破坏当前已拼接或待标注的画布坐标系。
+    pub(crate) fn can_adjust_selection(&self) -> bool {
+        !self
+            .long_capture
+            .as_ref()
+            .is_some_and(|session| session.is_capturing || session.is_editing)
     }
 }
 

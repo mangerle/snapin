@@ -2,7 +2,7 @@
 
 use super::actions::{handle_action_copy, handle_action_pin, handle_action_save};
 use super::clipboard::SnipperClipboardAction;
-pub use super::state::{commit_active_text_input, SnipperState};
+pub use super::state::{commit_active_text_input, SnipperPhase, SnipperState};
 use super::types::SnipperOutcome;
 use crate::editor::toolbar::Tool;
 use crate::snipper::selection::{SelectionConstraint, SelectionState};
@@ -114,7 +114,13 @@ fn handle_named_key(state: &mut SnipperState, key: NamedKey, original_rgba: &Rgb
             state.viewport.magnifier.format = state.viewport.magnifier.format.next();
             true
         }
-        NamedKey::Enter if state.viewport.modifiers.control_key() => handle_qr_open_link(state),
+        NamedKey::Enter if state.viewport.modifiers.control_key() => {
+            if state.phase().is_long_capture() {
+                false
+            } else {
+                handle_qr_open_link(state)
+            }
+        }
         NamedKey::Enter if !state.viewport.modifiers.control_key() => {
             if let Some(index) = state.editor.selected_annotation.map(|id| id.get()) {
                 if matches!(
@@ -166,6 +172,9 @@ fn handle_control_character(
     }
     match key.to_ascii_lowercase().as_str() {
         "z" => {
+            if state.phase() == SnipperPhase::LongCapturing {
+                return Some(false);
+            }
             let changed = state.editor.annotations.undo();
             state.sync_recording_overlay();
             // 撤销后新的文档最后一条接管可编辑权；文档为空则清除选中。
@@ -173,6 +182,9 @@ fn handle_control_character(
             Some(changed)
         }
         "y" => {
+            if state.phase() == SnipperPhase::LongCapturing {
+                return Some(false);
+            }
             let changed = state.editor.annotations.redo();
             state.sync_recording_overlay();
             super::annotation_edit::select_latest(state);
@@ -196,6 +208,9 @@ fn handle_action_character(
     key: &str,
     original_rgba: &RgbaImage,
 ) -> Option<bool> {
+    if state.phase().is_long_capture() {
+        return Some(false);
+    }
     if key.eq_ignore_ascii_case("c") && !state.viewport.modifiers.control_key() {
         handle_copy_hex_color(state, original_rgba);
         return Some(false);
@@ -228,6 +243,9 @@ fn handle_selection_character(
     key: &str,
     original_rgba: &RgbaImage,
 ) -> bool {
+    if state.phase().is_long_capture() {
+        return false;
+    }
     match key {
         "," => handle_history_back(state, original_rgba),
         "." => handle_history_forward(state, original_rgba),
@@ -315,6 +333,9 @@ fn nudge_locked_selection(
     dy: i32,
     original_rgba: &RgbaImage,
 ) -> bool {
+    if !state.can_adjust_selection() {
+        return false;
+    }
     let step = if state.viewport.modifiers.shift_key() {
         10
     } else {

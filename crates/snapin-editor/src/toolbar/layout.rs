@@ -18,6 +18,8 @@ pub use types::{DropdownLayout, SubControl, SubDropdown, SubEntry, SubLayout};
 pub(crate) struct SubLayoutOptions {
     /// 当前马赛克工具模式；智能马赛克会隐藏绘制模式和强度控件。
     pub mosaic_mode: MosaicMode,
+    /// 是否显示智能马赛克模式项；长截图编辑阶段需将其禁用。
+    pub smart_redact_enabled: bool,
 }
 
 /// 主工具栏自适应摆放参数。
@@ -393,7 +395,7 @@ fn build_dropdown_layout(
         .find(|entry| entry.control == Some(anchor))?
         .rect;
     let scale = request.ui_scale;
-    let rows = dropdown_row_count(kind);
+    let rows = dropdown_row_count(kind, request.options.smart_redact_enabled);
     let row_height = 28.0 * scale;
     let panel_height = rows as f32 * row_height + 8.0 * scale;
     let panel_width = 108.0 * scale;
@@ -438,7 +440,7 @@ fn dropdown_anchor(kind: SubDropdown) -> SubControl {
 }
 
 /// 返回下拉菜单包含的选项数量。
-fn dropdown_row_count(kind: SubDropdown) -> usize {
+fn dropdown_row_count(kind: SubDropdown, smart_redact_enabled: bool) -> usize {
     match kind {
         SubDropdown::Line => snapin_annotation::LineStyle::ALL.len(),
         SubDropdown::Badge => 2,
@@ -448,7 +450,13 @@ fn dropdown_row_count(kind: SubDropdown) -> usize {
             snapin_annotation::style::ArrowHeadStyle::ALL.len()
         }
         SubDropdown::BadgeSequence => snapin_annotation::BadgeSequence::ALL.len(),
-        SubDropdown::MosaicMode => 3,
+        SubDropdown::MosaicMode => {
+            if smart_redact_enabled {
+                3
+            } else {
+                2
+            }
+        }
         SubDropdown::FontFamily => FONT_FAMILY_PRESETS.len(),
         SubDropdown::MagnifierConnector => snapin_annotation::MagnifierConnector::ALL.len(),
         SubDropdown::MarkerShape | SubDropdown::MarkerBlendMode => 2,

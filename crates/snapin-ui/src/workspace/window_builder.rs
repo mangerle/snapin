@@ -6,6 +6,7 @@ use crate::model::PasterId;
 use crate::model::PasterItem;
 use crate::paster::surface::PasterSurface;
 use crate::paster::window::events::PasterWindowState;
+use crate::paster::MAX_PIN_WINDOW_DIM;
 use std::sync::Arc;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::ActiveEventLoop;
@@ -31,8 +32,9 @@ pub(crate) fn create_new_paster_window(
     item.group_id = runtime.manager.active_group();
     let initial_w = item.pixmap.width();
     let initial_h = item.pixmap.height();
+    let initial_size = clamp_initial_paster_size(&mut item, elwt);
     let title = item.title.clone();
-    let window = create_window(&item, elwt)?;
+    let window = create_window(&item, initial_size, elwt)?;
 
     // 图形表面优先走支持透明像素的 ARGB8888 共享内存通路，失败时内部回退 softbuffer
     let surface = PasterSurface::new(window.clone())?;
@@ -58,20 +60,69 @@ pub(crate) fn create_new_paster_window(
 
     runtime.instances.insert(win_id, instance);
     tracing::info!(
-        "已成功在集中工作区创建贴图: {title} ({initial_w}x{initial_h})，工作区活跃窗口数: {}",
+        "已成功在集中工作区创建贴图: {title} ({initial_w}x{initial_h}, 窗口 {}x{})，工作区活跃窗口数: {}",
+        initial_size.0,
+        initial_size.1,
         runtime.instances.len()
     );
 
     Ok(())
 }
 
+/// 计算并夹紧新贴图窗口的初始物理尺寸，同时回写贴图初始显示倍率。
+///
+/// 无论贴图来源是普通截屏、长截图还是导入，都确保底层物理窗口与帧缓冲不超出当前所在显示器
+/// 视口安全阈值以及图形表面单边上限，防止创建超大透明窗口引发 Wayland/X11/GPU 崩溃。
+fn clamp_initial_paster_size(item: &mut PasterItem, elwt: &ActiveEventLoop) -> (u32, u32) {
+    let (mon_w, mon_h) = target_monitor_dimensions(item.position, elwt);
+    let max_w = ((mon_w as f32) * 0.90).clamp(20.0, MAX_PIN_WINDOW_DIM as f32);
+    let max_h = ((mon_h as f32) * 0.90).clamp(20.0, MAX_PIN_WINDOW_DIM as f32);
+    let wf = item.pixmap.width().max(1) as f32;
+    let hf = item.pixmap.height().max(1) as f32;
+    let fit_scale = (max_w / wf).min(max_h / hf);
+    let clamped_scale = item.transform.scale().min(fit_scale).clamp(0.1, 10.0);
+    if clamped_scale < item.transform.scale() {
+        item.transform.set_scale(clamped_scale);
+    }
+    let scale = item.transform.scale();
+    let win_w = ((wf * scale).round() as u32).clamp(20, MAX_PIN_WINDOW_DIM);
+    let win_h = ((hf * scale).round() as u32).clamp(20, MAX_PIN_WINDOW_DIM);
+    (win_w, win_h)
+}
+
+/// 查询贴图落点所属显示器的物理像素尺寸；无可用信息时回退常规 1080p 边界。
+fn target_monitor_dimensions(position: (i32, i32), elwt: &ActiveEventLoop) -> (u32, u32) {
+    let monitor = elwt
+        .available_monitors()
+        .find(|m| {
+            let pos = m.position();
+            let size = m.size();
+            let right = pos.x.saturating_add(size.width as i32);
+            let bottom = pos.y.saturating_add(size.height as i32);
+            position.0 >= pos.x && position.0 < right && position.1 >= pos.y && position.1 < bottom
+        })
+        .or_else(|| elwt.primary_monitor())
+        .or_else(|| elwt.available_monitors().next());
+    match monitor {
+        Some(m) => {
+            let size = m.size();
+            if size.width > 0 && size.height > 0 {
+                (size.width, size.height)
+            } else {
+                (1920, 1080)
+            }
+        }
+        None => (1920, 1080),
+    }
+}
+
 /// 创建贴图子窗口的物理属性。
-fn window_attributes(item: &PasterItem) -> WindowAttributes {
+fn window_attributes(item: &PasterItem, initial_size: (u32, u32)) -> WindowAttributes {
     let attributes = Window::default_attributes()
         .with_title(&item.title)
         .with_decorations(false)
         .with_window_level(WindowLevel::AlwaysOnTop)
-        .with_inner_size(PhysicalSize::new(item.pixmap.width(), item.pixmap.height()))
+        .with_inner_size(PhysicalSize::new(initial_size.0, initial_size.1))
         .with_position(PhysicalPosition::new(item.position.0, item.position.1));
 
     #[cfg(target_os = "linux")]
@@ -88,8 +139,12 @@ fn window_attributes(item: &PasterItem) -> WindowAttributes {
 }
 
 /// 在当前事件循环中创建贴图窗口。
-fn create_window(item: &PasterItem, elwt: &ActiveEventLoop) -> Result<Arc<Window>, UiError> {
-    elwt.create_window(window_attributes(item))
+fn create_window(
+    item: &PasterItem,
+    initial_size: (u32, u32),
+    elwt: &ActiveEventLoop,
+) -> Result<Arc<Window>, UiError> {
+    elwt.create_window(window_attributes(item, initial_size))
         .map(Arc::new)
         .map_err(|error| UiError::Window {
             message: format!("创建集中工作区贴图窗口失败: {error}"),

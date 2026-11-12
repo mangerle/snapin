@@ -3,11 +3,13 @@
 use super::clipboard::SnipperClipboardAction;
 use super::events::SnipperState;
 use super::jobs::SnipperJobKind;
-use super::types::SnipperOutcome;
-use crate::model::PasterItem;
 use crate::ports::MediaJob;
 use crate::snipper::selection::{Rect, SelectionState};
 use image::{GenericImageView, RgbaImage};
+
+mod pin;
+pub use pin::handle_action_pin;
+pub(crate) use pin::{build_pin_item, evaluate_pin_size_policy, PinSizeDecision};
 
 /// 裁剪当前选区图像并合成已绘制的矢量标注
 pub fn crop_selection_image(
@@ -138,52 +140,11 @@ pub fn handle_action_save_beautified(state: &mut SnipperState, original_rgba: &R
     }
 }
 
-/// 将选区转为贴图固定在屏幕。
-///
-/// 贴图落点在提交时固化；开启美化时由后台线程渲染，结果回来后按同一点位创建窗口。
-pub fn handle_action_pin(state: &mut SnipperState, original_rgba: &RgbaImage) {
-    state.clear_status_message();
-    if state.session.config.beautify.enabled && state.has_pending_job() {
-        state.set_status_message(snapin_foundation::i18n::tr("请等待当前任务完成"));
-        return;
-    }
-    let pin_pos = match &state.viewport.selection {
-        SelectionState::Locked { rect, .. } => (rect.x as i32, rect.y as i32),
-        _ => return,
-    };
-
-    if let Some(cropped) = crop_selection_image(state, original_rgba) {
-        if state.session.config.beautify.enabled {
-            dispatch_pin_job(
-                state,
-                MediaJob::Beautify {
-                    image: cropped,
-                    options: (&state.session.config.beautify).into(),
-                },
-                pin_pos,
-            );
-            return;
-        }
-        match build_pin_item(cropped, pin_pos) {
-            Some(item) => state.session.outcome = Some(SnipperOutcome::Pinned(item)),
-            None => {
-                tracing::error!("创建贴图像素缓冲区失败");
-                state.set_status_message(snapin_foundation::i18n::tr("创建贴图缓冲区失败"));
-            }
-        }
-    }
-}
-
-/// 将已合成的 RGBA 图像包装为贴图窗口条目；缓冲区分配失败时返回 `None`。
-pub(crate) fn build_pin_item(image: RgbaImage, position: (i32, i32)) -> Option<PasterItem> {
-    let mut pixmap = tiny_skia::Pixmap::new(image.width(), image.height())?;
-    pixmap.data_mut().copy_from_slice(image.as_raw());
-    let id = snapin_foundation::AppPaths::generate_unique_id();
-    Some(PasterItem::new(id, format!("pin_{id}"), pixmap, position))
-}
-
 /// 取色器单击：读取光标处像素，按用户设置的格式复制颜色并退出。
 pub fn handle_action_pick_color(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    if state.long_capture.is_some() {
+        return;
+    }
     state.clear_status_message();
     let text = color_text_at_cursor(state, original_rgba);
     state.submit_clipboard_text(text.clone(), SnipperClipboardAction::PickColor(text));
@@ -215,6 +176,9 @@ pub fn handle_action_ocr_edit(state: &mut SnipperState, original_rgba: &RgbaImag
 
 /// 按目标交互模式提交同一个 OCR 媒体任务。
 fn dispatch_ocr_job(state: &mut SnipperState, original_rgba: &RgbaImage, kind: SnipperJobKind) {
+    if state.long_capture.is_some() {
+        return;
+    }
     state.clear_status_message();
     if state.has_pending_job() {
         state.set_status_message(snapin_foundation::i18n::tr("请等待当前任务完成"));
@@ -244,6 +208,9 @@ fn dispatch_ocr_job(state: &mut SnipperState, original_rgba: &RgbaImage, kind: S
 
 /// 执行智能打码 OCR，完成后先进入遮挡样式预览。
 pub fn handle_action_redact(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    if state.long_capture.is_some() {
+        return;
+    }
     state.clear_status_message();
     if state.has_pending_job() {
         state.set_status_message(snapin_foundation::i18n::tr("请等待当前任务完成"));
@@ -266,6 +233,9 @@ pub fn handle_action_redact(state: &mut SnipperState, original_rgba: &RgbaImage)
 
 /// 识别选区中的全部二维码，并将首个结果复制到剪贴板。
 pub fn handle_action_qr(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    if state.long_capture.is_some() {
+        return;
+    }
     state.clear_status_message();
     if state.has_pending_job() {
         state.set_status_message(snapin_foundation::i18n::tr("请等待当前任务完成"));
@@ -302,11 +272,6 @@ pub(super) fn dispatch_job(state: &mut SnipperState, kind: SnipperJobKind, job: 
     dispatch_job_at(state, kind, job, None);
 }
 
-/// 提交贴图美化任务，并把提交时的落点固化到在途任务中。
-fn dispatch_pin_job(state: &mut SnipperState, job: MediaJob, position: (i32, i32)) {
-    dispatch_job_at(state, SnipperJobKind::Pin, job, Some(position));
-}
-
 /// 提交任务的统一实现；`pin_position` 只允许与 `Pin` 任务同时出现。
 fn dispatch_job_at(
     state: &mut SnipperState,
@@ -339,6 +304,9 @@ fn dispatch_job_at(
 }
 /// 执行选区截图原位翻译替换
 pub fn handle_action_translate(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    if state.long_capture.is_some() {
+        return;
+    }
     state.clear_status_message();
     if state.has_pending_job() {
         state.set_status_message(snapin_foundation::i18n::tr("请等待当前任务完成"));
@@ -395,6 +363,17 @@ pub fn handle_action_long_capture(state: &mut SnipperState, original_rgba: &Rgba
         state.set_status_message(snapin_foundation::i18n::tr("选区过小，无法进入长截图"));
         return;
     }
+
+    // 进入长截图前彻底清空普通截图阶段遗留的标注草稿、工具激活状态与默认工具栏扩展项。
+    state.editor.annotation.active_text_input = None;
+    state.editor.annotation.is_selecting_text = false;
+    state.editor.annotation.stroke.clear();
+    state.editor.annotation.toolbar.active_tool = None;
+    state.editor.annotation.toolbar.sub_rect = None;
+    state.editor.annotation.toolbar.restore_default_items();
+    state.editor.selected_annotation = None;
+    state.editor.annotation_drag = None;
+    state.editor.annotations.clear();
 
     let first_frame = original_rgba.view(px, py, pw, ph).to_image();
     state.long_capture = Some(super::state::LongCaptureSession::new(first_frame));

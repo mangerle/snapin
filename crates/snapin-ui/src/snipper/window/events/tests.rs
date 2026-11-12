@@ -270,3 +270,120 @@ fn test_long_capture_toolbar_close_and_text_reedit_escape() {
         Some(SnipperOutcome::Cancelled)
     ));
 }
+
+/// 长截图录制中与编辑态必须屏蔽冲突快捷键与方向键选区微调，仅暂停态允许微调。
+#[test]
+fn test_long_capture_blocks_conflicting_shortcuts_and_nudge() {
+    use crate::editor::toolbar::Tool;
+    use crate::snipper::selection::Rect;
+    use crate::snipper::window::state::LongCaptureSession;
+
+    let mut state = SnipperState::new();
+    let image = RgbaImage::new(600, 600);
+    let rect = Rect {
+        x: 100.0,
+        y: 100.0,
+        width: 200.0,
+        height: 150.0,
+    };
+    state.viewport.selection = SelectionState::Locked {
+        rect,
+        active_drag: None,
+    };
+    state.ocr.qr_result = Some(vec![crate::ports::QrCodeItem {
+        text: "https://example.com".to_string(),
+        bounds: (100, 100, 20, 20).into(),
+    }]);
+    let mut session = LongCaptureSession::new(RgbaImage::new(200, 150));
+    session.is_capturing = true;
+    state.long_capture = Some(session);
+
+    // 1. 录制中：方向键不得微调选区位置
+    assert!(!handle_key_input(
+        &mut state,
+        &Key::Named(NamedKey::ArrowRight),
+        ElementState::Pressed,
+        &image,
+    ));
+    if let SelectionState::Locked { rect: current, .. } = state.viewport.selection {
+        assert_eq!(current, rect);
+    } else {
+        panic!("选区应保持 Locked");
+    }
+
+    // 2. 录制中：动作快捷键、选区约束键、历史回溯与 Ctrl+Z 均不得生效
+    for ch in ["o", "t", "r", "q", "l", "g", "c", ",", ".", "1", "5"] {
+        assert!(!handle_key_input(
+            &mut state,
+            &Key::Character(ch.into()),
+            ElementState::Pressed,
+            &image,
+        ));
+    }
+    state.viewport.modifiers = ModifiersState::CONTROL;
+    assert!(!handle_key_input(
+        &mut state,
+        &Key::Named(NamedKey::Enter),
+        ElementState::Pressed,
+        &image,
+    ));
+    state.editor.annotations.push(AnnotationShape::Rect(
+        snapin_annotation::shapes::RectAction {
+            rect,
+            color: (255, 0, 0, 255).into(),
+            stroke_width: 2.0,
+            is_filled: false,
+            corner_radius: 0.0,
+            line_style: snapin_annotation::LineStyle::Solid,
+        },
+    ));
+    assert!(!handle_key_input(
+        &mut state,
+        &Key::Character("z".into()),
+        ElementState::Pressed,
+        &image,
+    ));
+    assert!(state.editor.annotations.can_undo(), "录制中不得执行 Ctrl+Z");
+    state.viewport.modifiers = ModifiersState::empty();
+    assert_eq!(state.phase(), SnipperPhase::LongCapturing);
+
+    // 3. 暂停态：允许方向键微调选区，但依然屏蔽冲突字符快捷键
+    if let Some(s) = state.long_capture.as_mut() {
+        s.is_capturing = false;
+    }
+    assert!(handle_key_input(
+        &mut state,
+        &Key::Named(NamedKey::ArrowRight),
+        ElementState::Pressed,
+        &image,
+    ));
+    if let SelectionState::Locked { rect: moved, .. } = state.viewport.selection {
+        assert_eq!(moved.x, 101.0);
+    }
+
+    // 4. 编辑态：禁用方向键微调和全局动作键，恢复 Ctrl+Z 撤销标注能力
+    if let Some(s) = state.long_capture.as_mut() {
+        s.enter_editing();
+    }
+    state.editor.annotation.toolbar.active_tool = Some(Tool::Rect);
+    assert!(!handle_key_input(
+        &mut state,
+        &Key::Named(NamedKey::ArrowDown),
+        ElementState::Pressed,
+        &image,
+    ));
+    assert!(!handle_key_input(
+        &mut state,
+        &Key::Character("r".into()),
+        ElementState::Pressed,
+        &image,
+    ));
+    state.viewport.modifiers = ModifiersState::CONTROL;
+    assert!(handle_key_input(
+        &mut state,
+        &Key::Character("z".into()),
+        ElementState::Pressed,
+        &image,
+    ));
+    assert!(!state.editor.annotations.can_undo(), "编辑态应恢复 Ctrl+Z");
+}

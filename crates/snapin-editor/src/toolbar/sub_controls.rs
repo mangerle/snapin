@@ -98,7 +98,7 @@ impl Toolbar {
                 self.sub_options.mosaic_mode = match row {
                     0 => MosaicMode::Mosaic,
                     1 => MosaicMode::Blur,
-                    2 => MosaicMode::SmartRedact,
+                    2 if self.smart_redact_enabled => MosaicMode::SmartRedact,
                     _ => self.sub_options.mosaic_mode,
                 };
             }
