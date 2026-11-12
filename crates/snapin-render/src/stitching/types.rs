@@ -62,8 +62,10 @@ pub struct MatchResult {
     pub offset: i32,
     /// 匹配置信度得分（0.0 ~ 1.0）
     pub confidence: f32,
-    /// 识别出的固定顶栏（或固定侧边栏）厚度（像素）
+    /// 识别出的固定顶栏（或固定左侧边栏）厚度（像素）
     pub sticky_header_size: u32,
+    /// 识别出的固定底栏（或固定右侧边栏）厚度（像素）
+    pub sticky_footer_size: u32,
 }
 
 impl MatchResult {
@@ -73,6 +75,7 @@ impl MatchResult {
             offset: 0,
             confidence: 0.0,
             sticky_header_size: 0,
+            sticky_footer_size: 0,
         }
     }
 
@@ -95,8 +98,10 @@ pub enum StitchFrameOutcome {
         offset: i32,
         /// 匹配置信度得分（0.0 ~ 1.0）
         confidence: f32,
-        /// 识别出的固定顶栏或侧边栏厚度（像素）
+        /// 识别出的固定顶栏或左侧边栏厚度（像素）
         sticky_header_size: u32,
+        /// 识别出的固定底栏或右侧边栏厚度（像素）
+        sticky_footer_size: u32,
     },
     /// 画面相比上一基准帧未发生有效位移，画布与基准帧保持不变
     Unchanged,

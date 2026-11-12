@@ -1,6 +1,8 @@
 //! 长截图连续帧图像拼接引擎与位移估计。
 
+mod history;
 mod matcher;
+mod overlay;
 mod stitcher;
 mod thumbnail;
 mod types;

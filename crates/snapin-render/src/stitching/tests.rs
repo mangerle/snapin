@@ -430,3 +430,203 @@ fn test_extreme_aspect_thumbnail_overview_preserves_readable_cross_axis() {
     assert!(h_overview.image.height() >= 48);
     assert!(h_overview.slice_start_ratio > 0.5 && h_overview.slice_start_ratio < 0.99);
 }
+
+#[test]
+fn test_sticky_header_and_footer_do_not_duplicate_and_rollback_cleanly() {
+    // 构造顶部 20px 固定标题栏 + 底部 24px 固定工具栏 + 中间真实滚动正文的场景。
+    let width = 120u32;
+    let height = 220u32;
+    let header = 20u32;
+    let footer = 24u32;
+
+    let build_frame = |scroll: u32| -> RgbaImage {
+        let mut img = create_test_pattern(width, height, scroll, 0);
+        for y in 0..header {
+            for x in 0..width {
+                let stripe = ((x / 8) % 2) as u8 * 40;
+                img.put_pixel(x, y, Rgba([30 + stripe, 50 + (y as u8) * 3, 120, 255]));
+            }
+        }
+        for y in (height - footer)..height {
+            let rel_y = y - (height - footer);
+            for x in 0..width {
+                let tab = ((x / 15) % 2) as u8 * 50;
+                img.put_pixel(x, y, Rgba([20 + tab, 40 + (rel_y as u8) * 4, 210, 255]));
+            }
+        }
+        img
+    };
+
+    let f0 = build_frame(0);
+    let f1 = build_frame(60);
+    let f2 = build_frame(120);
+
+    let mut stitcher =
+        LongCaptureStitcher::new(f0, StitchDirection::Vertical, StitchOptions::default());
+
+    let out1 = stitcher.feed_frame_outcome(&f1);
+    match out1 {
+        StitchFrameOutcome::Stitched {
+            offset,
+            sticky_header_size,
+            sticky_footer_size,
+            ..
+        } => {
+            assert!(
+                (offset - 60).abs() <= 1,
+                "期望正向位移 ~60px，实际 {offset}"
+            );
+            assert!(sticky_header_size >= 16, "应检测到固定顶栏");
+            assert!(sticky_footer_size >= 16, "应检测到固定底栏");
+        }
+        other => panic!("期望 Stitched，实际 {other:?}"),
+    }
+
+    let out2 = stitcher.feed_frame_outcome(&f2);
+    assert!(out2.is_stitched());
+    assert_eq!(stitcher.dimensions(), (120, 340));
+
+    // 验证拼接结果中原本被底栏遮挡的正文行没有丢失，且顶栏/底栏只保留各自一处。
+    let stitched = stitcher.canvas();
+    let probe_body_y = height - footer + 10;
+    let body_ref = create_test_pattern(width, 400, 0, 0);
+    let expected_body_pixel = *body_ref.get_pixel(35, probe_body_y);
+    let actual_body_pixel = *stitched.get_pixel(35, probe_body_y);
+    assert_eq!(
+        actual_body_pixel, expected_body_pixel,
+        "底栏剥离后中间连续正文像素应准确衔接，而非重复粘贴底栏"
+    );
+
+    // 验证底端唯一保留的固定底栏像素完整。
+    let footer_ref = build_frame(120);
+    let expected_footer_pixel = *footer_ref.get_pixel(10, height - 10);
+    let actual_footer_pixel = *stitched.get_pixel(10, stitched.height() - 10);
+    assert_eq!(actual_footer_pixel, expected_footer_pixel);
+
+    // 向前回滚 60px 时，不仅回滚正文，也应恢复底栏至最末位置。
+    let f1_back = build_frame(60);
+    let back_out = stitcher.feed_frame_outcome(&f1_back);
+    assert!(
+        matches!(back_out, StitchFrameOutcome::Stitched { offset, .. } if offset < 0),
+        "期望负位移回滚，实际 {back_out:?}"
+    );
+    assert_eq!(stitcher.dimensions(), (120, 280));
+    assert_eq!(
+        *stitcher
+            .canvas()
+            .get_pixel(10, stitcher.dimensions().1 - 10),
+        expected_footer_pixel
+    );
+}
+
+#[test]
+fn test_horizontal_sticky_right_sidebar_avoidance() {
+    // 构造左侧 20px 固定导航 + 右侧 24px 固定工具条的横向滚动场景。
+    let width = 220u32;
+    let height = 100u32;
+    let left_bar = 20u32;
+    let right_bar = 24u32;
+
+    let build_frame = |scroll_x: u32| -> RgbaImage {
+        let mut img = create_horizontal_test_pattern(width, height, scroll_x, 0);
+        for x in 0..left_bar {
+            for y in 0..height {
+                let stripe = ((y / 8) % 2) as u8 * 45;
+                img.put_pixel(x, y, Rgba([25 + (x as u8) * 3, 70 + stripe, 140, 255]));
+            }
+        }
+        for x in (width - right_bar)..width {
+            let rel_x = x - (width - right_bar);
+            for y in 0..height {
+                let tab = ((y / 12) % 2) as u8 * 65;
+                img.put_pixel(
+                    x,
+                    y,
+                    Rgba([200 - tab, 30 + (rel_x as u8) * 4, 60 + tab, 255]),
+                );
+            }
+        }
+        img
+    };
+
+    let mut stitcher = LongCaptureStitcher::new(
+        build_frame(0),
+        StitchDirection::Horizontal,
+        StitchOptions::default(),
+    );
+    let out1 = stitcher.feed_frame_outcome(&build_frame(60));
+    match out1 {
+        StitchFrameOutcome::Stitched {
+            offset,
+            sticky_header_size,
+            sticky_footer_size,
+            ..
+        } => {
+            assert!(
+                (offset - 60).abs() <= 1,
+                "横向期望位移 ~60px，实际 {offset}"
+            );
+            assert!(sticky_header_size >= 16);
+            assert!(sticky_footer_size >= 16);
+        }
+        other => panic!("期望 Stitched，实际 {other:?}"),
+    }
+    assert_eq!(stitcher.dimensions(), (280, 100));
+    assert_eq!(
+        stitcher
+            .canvas()
+            .get_pixel(stitcher.dimensions().0 - 10, 25),
+        build_frame(60).get_pixel(width - 10, 25)
+    );
+}
+
+#[test]
+fn test_floating_overlay_robust_matching_and_clean_backfill_healing() {
+    // 构造正文右下角存在 24x24px 悬浮按钮（不随滚动移动）的场景。
+    let width = 160u32;
+    let height = 220u32;
+    let btn_x0 = 116u32;
+    let btn_x1 = 140u32;
+    let btn_y0 = 160u32;
+    let btn_y1 = 184u32;
+
+    let build_frame = |scroll: u32| -> RgbaImage {
+        let mut img = create_test_pattern(width, height, scroll, 0);
+        for y in btn_y0..btn_y1 {
+            for x in btn_x0..btn_x1 {
+                let ring = ((x - btn_x0) / 4 + (y - btn_y0) / 4) as u8 * 20;
+                img.put_pixel(x, y, Rgba([240, 60 + ring % 120, 40, 255]));
+            }
+        }
+        img
+    };
+
+    let f0 = build_frame(0);
+    let f1 = build_frame(60);
+    let mut stitcher =
+        LongCaptureStitcher::new(f0, StitchDirection::Vertical, StitchOptions::default());
+
+    let out1 = stitcher.feed_frame_outcome(&f1);
+    match out1 {
+        StitchFrameOutcome::Stitched { offset, .. } => {
+            assert!(
+                (offset - 60).abs() <= 1,
+                "即使被局部悬浮按钮遮挡，也应精准匹配偏移 60px，实际 {offset}"
+            );
+        }
+        other => panic!("期望 Stitched，实际 {other:?}"),
+    }
+
+    // 原本在第一帧 (btn_x0..btn_x1, 160..184) 处被悬浮按钮挡住的内容，
+    // 在第二帧滚动 60px 后移到了帧内 y = 100..124（已脱出按钮），应被干净地自愈回填！
+    let expected_clean = create_test_pattern(width, height, 0, 0);
+    for y in btn_y0..btn_y1 {
+        for x in btn_x0..btn_x1 {
+            assert_eq!(
+                stitcher.canvas().get_pixel(x, y),
+                expected_clean.get_pixel(x, y),
+                "位置 ({x}, {y}) 的悬浮按钮残影应被第二帧新露出的干净背景像素覆写治愈"
+            );
+        }
+    }
+}

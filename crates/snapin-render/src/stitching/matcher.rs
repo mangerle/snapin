@@ -1,5 +1,6 @@
-//! 基于时域行切片、SAD（差分绝对值）与固定顶栏剔除的单轴位移估计器。
+//! 基于时域二维空间分块裁剪 SAD 与固定双栏剔除的单轴位移估计器。
 
+use super::overlay::detect_sticky_bands;
 use super::types::{MatchResult, StitchDirection, StitchOptions};
 use image::RgbaImage;
 
@@ -49,65 +50,106 @@ fn to_luma_plane_transposed(image: &RgbaImage) -> (Vec<u8>, usize, usize) {
     (luma, transposed_width, transposed_height)
 }
 
-/// 探测前后两帧在画面顶部的固定静止行数（如微信窗口群名、网页 Sticky Header）。
-///
-/// 从第 0 行自上而下逐行对比。若两帧对应行的平均差分低于阈值，则判定为静止固定行。
-pub(crate) fn detect_vertical_sticky_header(
-    prev: &[u8],
-    curr: &[u8],
+struct GridEvalSpec {
     width: usize,
-    height: usize,
-    max_header_ratio: f32,
     x_start: usize,
     x_end: usize,
-) -> usize {
-    let max_rows = ((height as f32) * max_header_ratio).min(height as f32) as usize;
-    let row_len = (x_end - x_start).max(1);
-    let mut sticky_rows = 0;
+    y_start: usize,
+    active_height: usize,
+    shift: i32,
+}
 
-    for y in 0..max_rows {
-        let row_offset = y * width;
-        let mut row_diff_sum: u64 = 0;
-        for x in x_start..x_end {
-            let p = prev[row_offset + x];
-            let c = curr[row_offset + x];
-            row_diff_sum += p.abs_diff(c) as u64;
-        }
-        let avg_diff = (row_diff_sum as f64) / (row_len as f64);
-        // 单行平均像素差小于 3.5 视为固定不变
-        if avg_diff <= 3.5 {
-            sticky_rows += 1;
+/// 以 4×4 二维空间栅格计算对齐误差并只保留误差最小的前 75% 分块，
+/// 彻底免疫局部悬浮按钮、Hover 卡片或动态角标对全局置信度的毒化，同时防止纯全局失配混入。
+fn evaluate_trimmed_grid_error(prev: &[u8], curr: &[u8], spec: GridEvalSpec) -> f64 {
+    let abs_shift = spec.shift.unsigned_abs() as usize;
+    let overlap_rows = spec.active_height.saturating_sub(abs_shift);
+    if overlap_rows < 15 || spec.x_end <= spec.x_start {
+        return f64::MAX;
+    }
+
+    let roi_w = spec.x_end - spec.x_start;
+    let cols = roi_w.min(4);
+    let step_y = if overlap_rows > 120 { 2 } else { 1 };
+    let mut grid_sad = [0u64; 16];
+    let mut grid_px = [0usize; 16];
+
+    for r in (0..overlap_rows).step_by(step_y) {
+        let (prev_y, curr_y) = if spec.shift >= 0 {
+            (spec.y_start + r + abs_shift, spec.y_start + r)
         } else {
-            // 一旦出现明显变动的行，即判定为固定栏结束
-            break;
+            (spec.y_start + r, spec.y_start + r + abs_shift)
+        };
+        let row_band = ((r * 4) / overlap_rows).min(3);
+        let p_base = prev_y * spec.width;
+        let c_base = curr_y * spec.width;
+
+        for c_idx in 0..cols {
+            let x0 = spec.x_start + (roi_w * c_idx) / cols;
+            let x1 = spec.x_start + (roi_w * (c_idx + 1)) / cols;
+            let mut seg_sad = 0u64;
+            for x in x0..x1 {
+                seg_sad += u64::from(prev[p_base + x].abs_diff(curr[c_base + x]));
+            }
+            let cell = row_band * 4 + c_idx;
+            grid_sad[cell] += seg_sad;
+            grid_px[cell] += x1 - x0;
         }
     }
-    sticky_rows
+
+    let mut cell_errs = [0.0f64; 16];
+    let mut count = 0usize;
+    for idx in 0..16 {
+        if grid_px[idx] > 0 {
+            cell_errs[count] = (grid_sad[idx] as f64) / (grid_px[idx] as f64);
+            count += 1;
+        }
+    }
+    if count == 0 {
+        return f64::MAX;
+    }
+
+    cell_errs[..count].sort_by(|a, b| a.total_cmp(b));
+    let keep = ((count * 3) / 4).max(1);
+    let sum_keep: f64 = cell_errs[..keep].iter().sum();
+    sum_keep / (keep as f64)
 }
 
-/// 计算两行灰度切片在指定 X 范围内的平均差分绝对值
-#[inline]
-fn compute_row_sad(
-    prev: &[u8],
-    curr: &[u8],
-    prev_y: usize,
-    curr_y: usize,
+struct ShiftSearchSpec {
     width: usize,
     x_start: usize,
     x_end: usize,
-) -> u64 {
-    let p_offset = prev_y * width;
-    let c_offset = curr_y * width;
-    let mut sum: u64 = 0;
-    for x in x_start..x_end {
-        let p = prev[p_offset + x];
-        let c = curr[c_offset + x];
-        sum += p.abs_diff(c) as u64;
-    }
-    sum
+    y_start: usize,
+    active_height: usize,
+    min_shift: usize,
+    max_shift: usize,
+    sign: i32,
 }
 
-/// 垂直主方向单轴位移估计
+fn search_best_shift(prev: &[u8], curr: &[u8], spec: ShiftSearchSpec) -> Option<(i32, f64)> {
+    let mut best: Option<(i32, f64)> = None;
+    for shift in spec.min_shift..=spec.max_shift {
+        let signed = (shift as i32) * spec.sign;
+        let err = evaluate_trimmed_grid_error(
+            prev,
+            curr,
+            GridEvalSpec {
+                width: spec.width,
+                x_start: spec.x_start,
+                x_end: spec.x_end,
+                y_start: spec.y_start,
+                active_height: spec.active_height,
+                shift: signed,
+            },
+        );
+        if best.is_none_or(|(_, best_err)| err < best_err) {
+            best = Some((signed, err));
+        }
+    }
+    best
+}
+
+/// 垂直主方向单轴位移估计（剔除固定头尾栏并对局部浮层遮挡免疫）
 pub(crate) fn estimate_vertical_shift(
     prev: &[u8],
     curr: &[u8],
@@ -125,7 +167,7 @@ pub(crate) fn estimate_vertical_shift(
         .max(x_start.saturating_add(1))
         .min(width);
 
-    let sticky = detect_vertical_sticky_header(
+    let bands = detect_sticky_bands(
         prev,
         curr,
         width,
@@ -134,76 +176,53 @@ pub(crate) fn estimate_vertical_shift(
         x_start,
         x_end,
     );
-
-    let search_start_y = sticky;
-    let active_height = height.saturating_sub(search_start_y);
+    let active_height = height
+        .saturating_sub(bands.header)
+        .saturating_sub(bands.footer);
     if active_height <= (options.min_step as usize).saturating_mul(2) {
         return MatchResult::idle();
     }
 
     let max_shift = (options.max_step as usize).min(active_height / 2);
     let min_shift = options.min_step as usize;
+    let (mut best_shift, mut min_avg_error) = search_best_shift(
+        prev,
+        curr,
+        ShiftSearchSpec {
+            width,
+            x_start,
+            x_end,
+            y_start: bands.header,
+            active_height,
+            min_shift,
+            max_shift,
+            sign: 1,
+        },
+    )
+    .unwrap_or((0, f64::MAX));
 
-    let mut best_shift: i32 = 0;
-    let mut min_avg_error = f64::MAX;
-
-    // 1. 优先搜索正向位移（向下滚动）：内容向上移动，即 curr(y) 匹配 prev(y + shift)
-    for shift in min_shift..=max_shift {
-        let overlap_rows = active_height.saturating_sub(shift);
-        if overlap_rows < 15 {
-            continue;
-        }
-        let mut total_sad: u64 = 0;
-        // 采样对比行数（隔行抽样以进一步提升运算性能）
-        let step_y = if overlap_rows > 120 { 2 } else { 1 };
-        let mut sampled_rows = 0;
-
-        for r in (0..overlap_rows).step_by(step_y) {
-            let curr_y = search_start_y + r;
-            let prev_y = search_start_y + r + shift;
-            total_sad += compute_row_sad(prev, curr, prev_y, curr_y, width, x_start, x_end);
-            sampled_rows += 1;
-        }
-
-        let total_pixels = (sampled_rows * (x_end - x_start)).max(1) as f64;
-        let avg_error = (total_sad as f64) / total_pixels;
-
-        if avg_error < min_avg_error {
-            min_avg_error = avg_error;
-            best_shift = shift as i32;
-        }
-    }
-
-    // 2. 当正向未找到近似零误差对齐时检测反向滚动：即使调用方关闭了自动反向裁剪，
-    // 仍须由匹配器如实返回负位移，供上层区分“按策略忽略的回滚”与“真失配或正向强凑假阳性”。
     if min_avg_error > 8.0 || best_shift == 0 {
-        for shift in min_shift..=(max_shift.min(80)) {
-            let overlap_rows = active_height.saturating_sub(shift);
-            if overlap_rows < 15 {
-                continue;
-            }
-            let mut total_sad: u64 = 0;
-            let step_y = if overlap_rows > 120 { 2 } else { 1 };
-            let mut sampled_rows = 0;
-
-            for r in (0..overlap_rows).step_by(step_y) {
-                let curr_y = search_start_y + r + shift;
-                let prev_y = search_start_y + r;
-                total_sad += compute_row_sad(prev, curr, prev_y, curr_y, width, x_start, x_end);
-                sampled_rows += 1;
-            }
-
-            let total_pixels = (sampled_rows * (x_end - x_start)).max(1) as f64;
-            let avg_error = (total_sad as f64) / total_pixels;
-
-            if avg_error < min_avg_error {
-                min_avg_error = avg_error;
-                best_shift = -(shift as i32);
+        if let Some((rev_shift, rev_err)) = search_best_shift(
+            prev,
+            curr,
+            ShiftSearchSpec {
+                width,
+                x_start,
+                x_end,
+                y_start: bands.header,
+                active_height,
+                min_shift,
+                max_shift: max_shift.min(80),
+                sign: -1,
+            },
+        ) {
+            if rev_err < min_avg_error {
+                min_avg_error = rev_err;
+                best_shift = rev_shift;
             }
         }
     }
 
-    // 转换为 0.0 ~ 1.0 的置信度
     let confidence = if min_avg_error < f64::MAX {
         ((255.0 - min_avg_error) / 255.0).clamp(0.0, 1.0) as f32
     } else {
@@ -213,7 +232,8 @@ pub(crate) fn estimate_vertical_shift(
     MatchResult {
         offset: best_shift,
         confidence,
-        sticky_header_size: sticky as u32,
+        sticky_header_size: bands.header as u32,
+        sticky_footer_size: bands.footer as u32,
     }
 }
 

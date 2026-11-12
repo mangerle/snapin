@@ -1,30 +1,14 @@
-//! 长截图拼接管理器，负责增量画布扩容、反向回滚裁剪、首尾手动裁剪与缩略图生成。
+//! 长截图拼接管理器，负责增量画布扩容、固定页脚同步、局部浮层自愈、可逆裁剪与缩略图生成。
 
+use super::history::{concat_along_axis, CropEdge, CropHistory, CropHistoryEntry};
 use super::matcher::{estimate_shift, frames_visually_unchanged};
+use super::overlay::{heal_canvas_with_floating_mask, OverlayHealSpec};
 use super::thumbnail::render_thumbnail_overview;
 use super::types::{
     MatchResult, StitchDirection, StitchFrameOutcome, StitchOptions, ThumbnailOverview,
     ViewportWindow, MIN_CROPPED_SPAN,
 };
 use image::{GenericImage, GenericImageView, RgbaImage};
-
-/// 单次会话最多保留的手动裁剪撤销步数，防止频繁重录或连续裁剪长期占用堆内存。
-const MAX_CROP_HISTORY: usize = 24;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CropEdge {
-    Head,
-    Tail,
-}
-
-#[derive(Debug, Clone)]
-struct CropHistoryEntry {
-    edge: CropEdge,
-    /// 仅缓存被裁掉的窄边缘条带而非整张超长画布，兼顾多步撤回与低内存占用。
-    removed_strip: RgbaImage,
-    prev_last_frame: RgbaImage,
-    prev_tail_truncated_below_frame: bool,
-}
 
 /// 侧边缩略图缓存数据结构，保存最近渲染的高清概览及对应规格键。
 #[derive(Debug, Clone)]
@@ -37,7 +21,7 @@ struct ThumbnailCache {
 
 /// 长截图拼接引擎。
 ///
-/// 封装完整的画布状态、上一捕获参考帧、拼接方向、可逆裁剪历史与缩略图缓存。
+/// 封装完整的画布状态、上一捕获参考帧、拼接方向、固定页脚状态、可逆裁剪历史与缩略图缓存。
 #[derive(Debug, Clone)]
 pub struct LongCaptureStitcher {
     /// 拼接得到的全局超长位图画布
@@ -53,9 +37,11 @@ pub struct LongCaptureStitcher {
     /// 缓存的侧边缩略图及其映射信息
     thumbnail_cache: Option<ThumbnailCache>,
     /// 手动头/尾裁剪增量撤销栈
-    crop_history: Vec<CropHistoryEntry>,
+    crop_history: CropHistory,
     /// 尾部是否已被裁短至单帧尺度之下，用以保护后续不会出现断层拼接
     tail_truncated_below_frame: bool,
+    /// 当前画布最末端附加保留的固定页脚（或右侧固定栏）厚度，供下一帧剥离替换正文
+    attached_footer_size: u32,
 }
 
 impl LongCaptureStitcher {
@@ -69,8 +55,9 @@ impl LongCaptureStitcher {
             direction,
             options,
             thumbnail_cache: None,
-            crop_history: Vec::new(),
+            crop_history: CropHistory::default(),
             tail_truncated_below_frame: false,
+            attached_footer_size: 0,
         }
     }
 
@@ -154,8 +141,27 @@ impl LongCaptureStitcher {
         }
 
         if result.offset > 0 {
-            // 正向滚动：将新出现的尾部像素行拼接到画布末端
-            if !self.append_forward_slice(frame, result.offset as u32) {
+            let step = result.offset as u32;
+            let frame_main = self.main_axis_spans().1;
+            let footer = result.sticky_footer_size.min(frame_main / 2);
+            let peel = if self.attached_footer_size > 0 {
+                self.attached_footer_size
+            } else {
+                footer
+            };
+            heal_canvas_with_floating_mask(
+                &mut self.canvas,
+                &OverlayHealSpec {
+                    prev: &self.last_frame,
+                    curr: frame,
+                    direction: self.direction,
+                    step,
+                    header: result.sticky_header_size,
+                    footer,
+                    existing_canvas_footer: peel,
+                },
+            );
+            if !self.append_forward_slice(frame, step, footer, peel) {
                 return (MatchResult::idle(), StitchFrameOutcome::Ignored);
             }
             self.last_frame = frame.clone();
@@ -167,14 +173,18 @@ impl LongCaptureStitcher {
                     offset: result.offset,
                     confidence: result.confidence,
                     sticky_header_size: result.sticky_header_size,
+                    sticky_footer_size: result.sticky_footer_size,
                 },
             );
         }
 
         if result.offset < 0 && self.options.auto_crop_reverse {
-            // 反向回滚：自动从画布末端裁除回滚的多余行，保留至少初始单帧跨度且不写入手动撤回栈
             let rollback_pixels = (-result.offset) as u32;
-            self.truncate_tail_preserving_initial(rollback_pixels);
+            self.rollback_tail_preserving_initial(
+                frame,
+                rollback_pixels,
+                result.sticky_footer_size,
+            );
             self.last_frame = frame.clone();
             self.thumbnail_cache = None;
             self.crop_history.clear();
@@ -184,51 +194,96 @@ impl LongCaptureStitcher {
                     offset: result.offset,
                     confidence: result.confidence,
                     sticky_header_size: result.sticky_header_size,
+                    sticky_footer_size: result.sticky_footer_size,
                 },
             );
         }
 
-        // 未开启反向自动裁剪或位移为 0：画布与基准帧均不改变
         (result, StitchFrameOutcome::Ignored)
     }
 
-    /// 将正向滚动产生的新切片追加到当前长图画布末端
-    fn append_forward_slice(&mut self, frame: &RgbaImage, step: u32) -> bool {
-        match self.direction {
-            StitchDirection::Vertical => {
-                let (width, old_height) = self.canvas.dimensions();
-                let frame_height = frame.height();
-                let valid_step = step.min(frame_height);
-                let new_height = old_height.saturating_add(valid_step);
-                let mut new_canvas = RgbaImage::new(width, new_height);
-                if new_canvas.copy_from(&self.canvas, 0, 0).is_err() {
-                    return false;
-                }
-                let slice_y = frame_height.saturating_sub(valid_step);
-                let slice = frame.view(0, slice_y, width, valid_step).to_image();
-                if new_canvas.copy_from(&slice, 0, old_height).is_err() {
-                    return false;
-                }
-                self.canvas = new_canvas;
-            }
-            StitchDirection::Horizontal => {
-                let (old_width, height) = self.canvas.dimensions();
-                let frame_width = frame.width();
-                let valid_step = step.min(frame_width);
-                let new_width = old_width.saturating_add(valid_step);
-                let mut new_canvas = RgbaImage::new(new_width, height);
-                if new_canvas.copy_from(&self.canvas, 0, 0).is_err() {
-                    return false;
-                }
-                let slice_x = frame_width.saturating_sub(valid_step);
-                let slice = frame.view(slice_x, 0, valid_step, height).to_image();
-                if new_canvas.copy_from(&slice, old_width, 0).is_err() {
-                    return false;
-                }
-                self.canvas = new_canvas;
+    /// 剥离画布末端此前附着的固定页脚后，先贴入页脚正上方新滚出的正文，再将最新页脚挂在末尾。
+    fn append_forward_slice(
+        &mut self,
+        frame: &RgbaImage,
+        step: u32,
+        footer: u32,
+        peel: u32,
+    ) -> bool {
+        let (old_main, cross) = self.axis_canvas_dims();
+        let frame_main = self.main_axis_spans().1;
+        let safe_footer = footer.min(frame_main / 2);
+        let valid_step = step.min(frame_main.saturating_sub(safe_footer));
+        if valid_step == 0 {
+            return false;
+        }
+        let safe_peel = if safe_footer > 0 {
+            peel.min(old_main.saturating_sub(1))
+        } else {
+            0
+        };
+        let keep_main = old_main.saturating_sub(safe_peel);
+        let new_main = keep_main
+            .saturating_add(valid_step)
+            .saturating_add(safe_footer);
+        let mut new_canvas = self.alloc_axis_canvas(new_main, cross);
+
+        let head_keep = self.slice_along_axis(&self.canvas, 0, keep_main);
+        let body_start = frame_main
+            .saturating_sub(safe_footer)
+            .saturating_sub(valid_step);
+        let body_slice = self.slice_along_axis(frame, body_start, valid_step);
+
+        if !self.copy_along_axis(&mut new_canvas, &head_keep, 0)
+            || !self.copy_along_axis(&mut new_canvas, &body_slice, keep_main)
+        {
+            return false;
+        }
+        if safe_footer > 0 {
+            let footer_slice =
+                self.slice_along_axis(frame, frame_main.saturating_sub(safe_footer), safe_footer);
+            if !self.copy_along_axis(&mut new_canvas, &footer_slice, keep_main + valid_step) {
+                return false;
             }
         }
+        self.canvas = new_canvas;
+        self.attached_footer_size = safe_footer;
         true
+    }
+
+    /// 反向滚动自动回滚时兼顾剥离、裁除与重附页脚，保留至少初始单帧跨度且不写入手动撤回栈。
+    fn rollback_tail_preserving_initial(&mut self, frame: &RgbaImage, pixels: u32, footer: u32) {
+        let (old_main, cross) = self.axis_canvas_dims();
+        let frame_main = self.main_axis_spans().1;
+        let safe_footer = footer.min(frame_main / 2);
+        let safe_peel = if safe_footer > 0 {
+            self.attached_footer_size.min(old_main.saturating_sub(1))
+        } else {
+            0
+        };
+        let body_main = old_main.saturating_sub(safe_peel);
+        let min_body = frame_main.saturating_sub(safe_footer).min(body_main);
+        let crop = pixels.min(body_main.saturating_sub(min_body));
+        let keep_body = body_main.saturating_sub(crop);
+        let new_main = keep_body.saturating_add(safe_footer);
+        if crop == 0 && safe_peel == safe_footer {
+            return;
+        }
+
+        let mut new_canvas = self.alloc_axis_canvas(new_main, cross);
+        let body_keep = self.slice_along_axis(&self.canvas, 0, keep_body);
+        if !self.copy_along_axis(&mut new_canvas, &body_keep, 0) {
+            return;
+        }
+        if safe_footer > 0 {
+            let footer_slice =
+                self.slice_along_axis(frame, frame_main.saturating_sub(safe_footer), safe_footer);
+            if !self.copy_along_axis(&mut new_canvas, &footer_slice, keep_body) {
+                return;
+            }
+        }
+        self.canvas = new_canvas;
+        self.attached_footer_size = safe_footer;
     }
 
     /// 手动裁切画布首部（上裁剪 / 左裁剪），返回实际裁去的像素长度。
@@ -240,29 +295,16 @@ impl LongCaptureStitcher {
         if crop == 0 {
             return 0;
         }
-        let (width, height) = self.canvas.dimensions();
-        let (removed_strip, remaining) = match self.direction {
-            StitchDirection::Vertical => (
-                self.canvas.view(0, 0, width, crop).to_image(),
-                self.canvas
-                    .view(0, crop, width, height.saturating_sub(crop))
-                    .to_image(),
-            ),
-            StitchDirection::Horizontal => (
-                self.canvas.view(0, 0, crop, height).to_image(),
-                self.canvas
-                    .view(crop, 0, width.saturating_sub(crop), height)
-                    .to_image(),
-            ),
-        };
-        let prev_last_frame = self.last_frame.clone();
-        let prev_truncated = self.tail_truncated_below_frame;
-        self.push_crop_history(
-            CropEdge::Head,
+        let span = self.axis_canvas_dims().0;
+        let removed_strip = self.slice_along_axis(&self.canvas, 0, crop);
+        let remaining = self.slice_along_axis(&self.canvas, crop, span.saturating_sub(crop));
+        self.crop_history.push(CropHistoryEntry {
+            edge: CropEdge::Head,
             removed_strip,
-            prev_last_frame,
-            prev_truncated,
-        );
+            prev_last_frame: self.last_frame.clone(),
+            prev_tail_truncated_below_frame: self.tail_truncated_below_frame,
+            prev_attached_footer_size: self.attached_footer_size,
+        });
         self.canvas = remaining;
         self.thumbnail_cache = None;
         crop
@@ -279,32 +321,19 @@ impl LongCaptureStitcher {
         if crop == 0 {
             return 0;
         }
-        let (width, height) = self.canvas.dimensions();
-        let (removed_strip, remaining) = match self.direction {
-            StitchDirection::Vertical => {
-                let new_h = height.saturating_sub(crop);
-                (
-                    self.canvas.view(0, new_h, width, crop).to_image(),
-                    self.canvas.view(0, 0, width, new_h).to_image(),
-                )
-            }
-            StitchDirection::Horizontal => {
-                let new_w = width.saturating_sub(crop);
-                (
-                    self.canvas.view(new_w, 0, crop, height).to_image(),
-                    self.canvas.view(0, 0, new_w, height).to_image(),
-                )
-            }
-        };
-        let prev_last_frame = self.last_frame.clone();
-        let prev_truncated = self.tail_truncated_below_frame;
-        self.push_crop_history(
-            CropEdge::Tail,
+        let span = self.axis_canvas_dims().0;
+        let new_span = span.saturating_sub(crop);
+        let removed_strip = self.slice_along_axis(&self.canvas, new_span, crop);
+        let remaining = self.slice_along_axis(&self.canvas, 0, new_span);
+        self.crop_history.push(CropHistoryEntry {
+            edge: CropEdge::Tail,
             removed_strip,
-            prev_last_frame,
-            prev_truncated,
-        );
+            prev_last_frame: self.last_frame.clone(),
+            prev_tail_truncated_below_frame: self.tail_truncated_below_frame,
+            prev_attached_footer_size: self.attached_footer_size,
+        });
         self.canvas = remaining;
+        self.attached_footer_size = self.attached_footer_size.saturating_sub(crop);
         self.sync_last_frame_from_tail();
         self.thumbnail_cache = None;
         crop
@@ -335,29 +364,39 @@ impl LongCaptureStitcher {
         self.canvas = canvas;
         self.last_frame = entry.prev_last_frame;
         self.tail_truncated_below_frame = entry.prev_tail_truncated_below_frame;
+        self.attached_footer_size = entry.prev_attached_footer_size;
         self.thumbnail_cache = None;
         true
     }
 
-    /// 反向滚动自动回滚时仅裁掉不超过初始单帧跨度的尾部多余内容，不写入手动撤回栈。
-    fn truncate_tail_preserving_initial(&mut self, pixels: u32) {
-        let (span, frame_span) = self.main_axis_spans();
-        let min_span = frame_span.min(span);
-        let crop = pixels.min(span.saturating_sub(min_span));
-        if crop == 0 {
-            return;
+    fn axis_canvas_dims(&self) -> (u32, u32) {
+        let (w, h) = self.canvas.dimensions();
+        match self.direction {
+            StitchDirection::Vertical => (h, w),
+            StitchDirection::Horizontal => (w, h),
         }
-        let (width, height) = self.canvas.dimensions();
-        self.canvas = match self.direction {
-            StitchDirection::Vertical => self
-                .canvas
-                .view(0, 0, width, height.saturating_sub(crop))
-                .to_image(),
-            StitchDirection::Horizontal => self
-                .canvas
-                .view(0, 0, width.saturating_sub(crop), height)
-                .to_image(),
+    }
+
+    fn alloc_axis_canvas(&self, main_span: u32, cross_span: u32) -> RgbaImage {
+        match self.direction {
+            StitchDirection::Vertical => RgbaImage::new(cross_span, main_span),
+            StitchDirection::Horizontal => RgbaImage::new(main_span, cross_span),
+        }
+    }
+
+    fn slice_along_axis(&self, img: &RgbaImage, start: u32, len: u32) -> RgbaImage {
+        match self.direction {
+            StitchDirection::Vertical => img.view(0, start, img.width(), len).to_image(),
+            StitchDirection::Horizontal => img.view(start, 0, len, img.height()).to_image(),
+        }
+    }
+
+    fn copy_along_axis(&self, dst: &mut RgbaImage, src: &RgbaImage, main_offset: u32) -> bool {
+        let (x, y) = match self.direction {
+            StitchDirection::Vertical => (0, main_offset),
+            StitchDirection::Horizontal => (main_offset, 0),
         };
+        dst.copy_from(src, x, y).is_ok()
     }
 
     fn clamp_manual_crop(&self, pixels: u32) -> u32 {
@@ -374,41 +413,14 @@ impl LongCaptureStitcher {
         }
     }
 
-    fn push_crop_history(
-        &mut self,
-        edge: CropEdge,
-        removed_strip: RgbaImage,
-        prev_last_frame: RgbaImage,
-        prev_tail_truncated_below_frame: bool,
-    ) {
-        if self.crop_history.len() >= MAX_CROP_HISTORY {
-            self.crop_history.remove(0);
-        }
-        self.crop_history.push(CropHistoryEntry {
-            edge,
-            removed_strip,
-            prev_last_frame,
-            prev_tail_truncated_below_frame,
-        });
-    }
-
     fn sync_last_frame_from_tail(&mut self) {
         let (span, frame_span) = self.main_axis_spans();
         if span < frame_span || frame_span == 0 {
             self.tail_truncated_below_frame = true;
             return;
         }
-        let (width, height) = self.canvas.dimensions();
-        self.last_frame = match self.direction {
-            StitchDirection::Vertical => self
-                .canvas
-                .view(0, height - frame_span, width, frame_span)
-                .to_image(),
-            StitchDirection::Horizontal => self
-                .canvas
-                .view(width - frame_span, 0, frame_span, height)
-                .to_image(),
-        };
+        self.last_frame =
+            self.slice_along_axis(&self.canvas, span.saturating_sub(frame_span), frame_span);
         self.tail_truncated_below_frame = false;
     }
 
@@ -445,53 +457,26 @@ impl LongCaptureStitcher {
             }
             None => true,
         };
-
         if need_rebuild {
-            let overview = render_thumbnail_overview(
+            self.thumbnail_cache = None;
+        }
+        let cache = self.thumbnail_cache.get_or_insert_with(|| ThumbnailCache {
+            overview: render_thumbnail_overview(
                 &self.canvas,
                 self.direction,
                 max_w,
                 max_h,
                 min_readable_cross,
-            );
-            self.thumbnail_cache = Some(ThumbnailCache {
-                overview,
-                canvas_dim,
-                target_dim,
-                min_readable_cross,
-            });
-        }
-
-        &self
-            .thumbnail_cache
-            .as_ref()
-            .expect("缩略图缓存已即时构建完毕")
-            .overview
+            ),
+            canvas_dim,
+            target_dim,
+            min_readable_cross,
+        });
+        &cache.overview
     }
 
     /// 获取或按需生成整图等比缩放的缩略图位图（带尺寸缓存）。
     pub fn get_or_render_thumbnail(&mut self, max_w: u32, max_h: u32) -> &RgbaImage {
         &self.get_or_render_thumbnail_overview(max_w, max_h, 0).image
     }
-}
-
-/// 沿主拼接轴将前后两幅等副轴位图无损拼接为一幅画布，用于撤销头部或尾部手动裁剪。
-fn concat_along_axis(
-    first: &RgbaImage,
-    second: &RgbaImage,
-    direction: StitchDirection,
-) -> Option<RgbaImage> {
-    let (w1, h1) = first.dimensions();
-    let (w2, h2) = second.dimensions();
-    let mut combined = match direction {
-        StitchDirection::Vertical => RgbaImage::new(w1.max(w2), h1.saturating_add(h2)),
-        StitchDirection::Horizontal => RgbaImage::new(w1.saturating_add(w2), h1.max(h2)),
-    };
-    combined.copy_from(first, 0, 0).ok()?;
-    let (dx, dy) = match direction {
-        StitchDirection::Vertical => (0, h1),
-        StitchDirection::Horizontal => (w1, 0),
-    };
-    combined.copy_from(second, dx, dy).ok()?;
-    Some(combined)
 }
