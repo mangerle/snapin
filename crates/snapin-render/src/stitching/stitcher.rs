@@ -5,7 +5,7 @@ use super::canvas_ops::{
     rollback_head_preserving_initial, rollback_tail_preserving_initial, RollbackOutcome,
     RollbackSpec, SliceExtendOutcome, SliceExtendSpec,
 };
-use super::history::CropHistory;
+use super::history::{CropEdge, CropHistory};
 use super::matcher::{estimate_shift, frames_visually_unchanged};
 use super::overlay::{heal_canvas_with_floating_mask, OverlayHealSpec};
 use super::paged_canvas::{PagedCanvas, PagedCanvasSnapshot};
@@ -293,7 +293,7 @@ impl LongCaptureStitcher {
             SliceExtendOutcome::Applied(new_footer) => {
                 self.attached_footer_size = new_footer;
                 self.growth_polarity = Some(GrowthPolarity::Forward);
-                self.commit_matched_frame(frame, result)
+                self.commit_matched_frame(frame, result, CropEdge::Tail)
             }
             SliceExtendOutcome::LimitReached => (result, StitchFrameOutcome::LimitReached),
             SliceExtendOutcome::Ignored => (MatchResult::idle(), StitchFrameOutcome::Ignored),
@@ -344,7 +344,7 @@ impl LongCaptureStitcher {
             SliceExtendOutcome::Applied(new_header) => {
                 self.attached_header_size = new_header;
                 self.growth_polarity = Some(GrowthPolarity::Backward);
-                self.commit_matched_frame(frame, result)
+                self.commit_matched_frame(frame, result, CropEdge::Head)
             }
             SliceExtendOutcome::LimitReached => (result, StitchFrameOutcome::LimitReached),
             SliceExtendOutcome::Ignored => (MatchResult::idle(), StitchFrameOutcome::Ignored),
@@ -357,7 +357,7 @@ impl LongCaptureStitcher {
         result: MatchResult,
     ) -> (MatchResult, StitchFrameOutcome) {
         let pixels = result.offset.unsigned_abs();
-        let outcome = match self.growth_polarity {
+        let (outcome, mutated_edge) = match self.growth_polarity {
             Some(GrowthPolarity::Forward) => {
                 let res = rollback_tail_preserving_initial(
                     &mut self.canvas,
@@ -372,7 +372,7 @@ impl LongCaptureStitcher {
                 if let RollbackOutcome::Applied { band_size, .. } = res {
                     self.attached_footer_size = band_size;
                 }
-                res
+                (res, CropEdge::Tail)
             }
             Some(GrowthPolarity::Backward) => {
                 let res = rollback_head_preserving_initial(
@@ -388,7 +388,7 @@ impl LongCaptureStitcher {
                 if let RollbackOutcome::Applied { band_size, .. } = res {
                     self.attached_header_size = band_size;
                 }
-                res
+                (res, CropEdge::Head)
             }
             None => return (result, StitchFrameOutcome::Ignored),
         };
@@ -410,19 +410,20 @@ impl LongCaptureStitcher {
                 span.saturating_sub(frame_span)
             };
             let synced_anchor = self.canvas.slice_axis(anchor_start, frame_span);
-            return self.commit_matched_frame(&synced_anchor, result);
+            return self.commit_matched_frame(&synced_anchor, result, mutated_edge);
         }
-        self.commit_matched_frame(frame, result)
+        self.commit_matched_frame(frame, result, mutated_edge)
     }
 
     fn commit_matched_frame(
         &mut self,
         frame: &RgbaImage,
         result: MatchResult,
+        mutated_edge: CropEdge,
     ) -> (MatchResult, StitchFrameOutcome) {
         self.last_frame = Arc::new(frame.clone());
         self.generation = self.generation.wrapping_add(1);
-        self.crop_history.clear();
+        self.crop_history.retain_opposite_edge(mutated_edge);
         (
             result,
             StitchFrameOutcome::Stitched {

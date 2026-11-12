@@ -24,6 +24,8 @@ pub(crate) struct CropHistoryEntry {
     pub(crate) prev_attached_header_size: u32,
     pub(crate) prev_attached_footer_size: u32,
     pub(crate) prev_growth_polarity: Option<GrowthPolarity>,
+    /// 该裁剪记录之后对侧边缘是否已继续拼接推进；为 true 时撤回仅恢复本侧边缘像素与对应固定栏厚度。
+    pub(crate) opposite_edge_after_stitch: bool,
 }
 
 /// 有界手动裁剪撤回栈。
@@ -44,8 +46,12 @@ impl CropHistory {
         self.entries.pop_back()
     }
 
-    pub(crate) fn clear(&mut self) {
-        self.entries.clear();
+    /// 当画布某一端因新帧拼接或回滚推进而被修改时，仅失效同侧记录并保留对侧可无损撤销的裁剪历史。
+    pub(crate) fn retain_opposite_edge(&mut self, mutated_edge: CropEdge) {
+        self.entries.retain(|entry| entry.edge != mutated_edge);
+        for entry in &mut self.entries {
+            entry.opposite_edge_after_stitch = true;
+        }
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -69,6 +75,7 @@ mod tests {
                 prev_attached_header_size: i as u32,
                 prev_attached_footer_size: 0,
                 prev_growth_polarity: None,
+                opposite_edge_after_stitch: false,
             });
         }
 

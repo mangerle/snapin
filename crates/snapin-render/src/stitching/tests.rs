@@ -808,3 +808,34 @@ fn test_rollback_noop_preserves_anchor_and_generation_and_clamped_rollback_syncs
     assert_eq!(stitcher.growth_polarity(), None);
     assert_eq!(stitcher.last_frame(), &f0);
 }
+
+#[test]
+fn test_opposite_edge_crop_history_survives_stitch_and_restores_without_clobbering_anchor() {
+    let width = 120;
+    let height = 200;
+    let f0 = create_test_pattern(width, height, 0, 0);
+    let mut stitcher =
+        LongCaptureStitcher::new(f0, StitchDirection::Vertical, StitchOptions::default());
+
+    let f1 = create_test_pattern(width, height, 60, 0);
+    assert!(stitcher.feed_frame_outcome(&f1).is_stitched());
+    assert_eq!(stitcher.dimensions(), (width, 260));
+
+    // 先裁剪头部，再继续正向向下拼接新帧
+    assert_eq!(stitcher.crop_head(30), 30);
+    assert_eq!(stitcher.dimensions(), (width, 230));
+    assert!(stitcher.can_undo_crop());
+
+    let f2 = create_test_pattern(width, height, 100, 0);
+    assert!(stitcher.feed_frame_outcome(&f2).is_stitched());
+    assert_eq!(stitcher.dimensions(), (width, 270));
+    // 尾部增长不影响头部已裁剪区域的几何一致性，头部裁剪记录应保留
+    assert!(stitcher.can_undo_crop());
+
+    let anchor_before_undo = stitcher.last_frame_arc();
+    assert!(stitcher.undo_crop());
+    // 撤销后恢复头部 30px，新拼接的尾部与当前锚点帧保持不变
+    assert_eq!(stitcher.dimensions(), (width, 300));
+    assert_eq!(stitcher.last_frame(), anchor_before_undo.as_ref());
+    assert!(!stitcher.can_undo_crop());
+}

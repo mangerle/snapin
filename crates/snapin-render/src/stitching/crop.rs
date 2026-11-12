@@ -42,6 +42,7 @@ impl LongCaptureStitcher {
             prev_attached_header_size: self.attached_header_size,
             prev_attached_footer_size: self.attached_footer_size,
             prev_growth_polarity: self.growth_polarity,
+            opposite_edge_after_stitch: false,
         });
     }
 
@@ -74,11 +75,22 @@ impl LongCaptureStitcher {
             CropEdge::Head => self.canvas.prepend_contiguous(&entry.removed_strip),
             CropEdge::Tail => self.canvas.append_contiguous(&entry.removed_strip),
         }
-        self.last_frame = entry.prev_last_frame;
-        self.anchor_truncated_below_frame = entry.prev_anchor_truncated_below_frame;
-        self.attached_header_size = entry.prev_attached_header_size;
-        self.attached_footer_size = entry.prev_attached_footer_size;
-        self.growth_polarity = entry.prev_growth_polarity;
+        if entry.opposite_edge_after_stitch {
+            // 对侧已拼接新帧时，仅恢复被裁边对应的固定栏厚度，保留激活生长端的新锚点与极性。
+            match entry.edge {
+                CropEdge::Head => self.attached_header_size = entry.prev_attached_header_size,
+                CropEdge::Tail => self.attached_footer_size = entry.prev_attached_footer_size,
+            }
+            if self.anchor_truncated_below_frame {
+                self.refresh_polarity_and_anchor_after_crop();
+            }
+        } else {
+            self.last_frame = entry.prev_last_frame;
+            self.anchor_truncated_below_frame = entry.prev_anchor_truncated_below_frame;
+            self.attached_header_size = entry.prev_attached_header_size;
+            self.attached_footer_size = entry.prev_attached_footer_size;
+            self.growth_polarity = entry.prev_growth_polarity;
+        }
         self.generation = self.generation.wrapping_add(1);
         true
     }
