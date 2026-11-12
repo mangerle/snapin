@@ -231,6 +231,7 @@ mod tests {
         assert!(EXT_JAVASCRIPT.contains("CaptureFullscreenExcludingTitle"));
         assert!(EXT_JAVASCRIPT.contains("StartRecordingStream"));
         assert!(EXT_JAVASCRIPT.contains("SimulateScroll"));
+        assert!(EXT_JAVASCRIPT.contains("SimulateScroll2D"));
         assert!(EXT_JAVASCRIPT.contains("_focusWindowAtPointer"));
     }
 

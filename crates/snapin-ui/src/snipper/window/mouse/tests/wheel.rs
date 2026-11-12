@@ -371,3 +371,67 @@ fn test_wheel_is_ignored_when_long_capture_is_paused() {
         initial_width
     );
 }
+
+/// 横向长截图在捕获态与编辑态都应响应纯横向滚轮及触控板横滑输入。
+#[test]
+fn test_horizontal_long_capture_accepts_pure_horizontal_wheel() {
+    use snapin_render::stitching::StitchDirection;
+
+    let mut state = SnipperState::new();
+    state.viewport.selection = SelectionState::Locked {
+        rect: Rect::new(50.0, 50.0, 300.0, 200.0),
+        active_drag: None,
+    };
+    state.viewport.cursor_pos = (150.0, 150.0);
+
+    let mut session = LongCaptureSession::new(RgbaImage::new(300, 200));
+    session.direction = StitchDirection::Horizontal;
+    session.is_capturing = true;
+    state.long_capture = Some(session);
+
+    // 捕获态下纯水平滚轮应放行驱动滚动抓屏
+    assert!(handle_mouse_wheel(
+        &mut state,
+        MouseScrollDelta::LineDelta(-1.0, 0.0)
+    ));
+
+    // 拼接到宽画布后进入编辑态，纯水平滚轮应横向平移预览视口
+    if let Some(session) = state.long_capture.as_mut() {
+        let mut frame_a = RgbaImage::new(300, 200);
+        let mut frame_b = RgbaImage::new(300, 200);
+        for y in 0_u32..200 {
+            for x in 0_u32..300 {
+                let color_at = |world_x: u32| {
+                    let stripe = ((world_x / 16) % 7) as u8;
+                    let tone = ((world_x.wrapping_mul(29) ^ y.wrapping_mul(17)) & 0xFF) as u8;
+                    image::Rgba([stripe * 35, tone, 255 - stripe * 30, 255])
+                };
+                frame_a.put_pixel(x, y, color_at(x));
+                frame_b.put_pixel(x, y, color_at(x + 120));
+            }
+        }
+        let mut wide = LongCaptureSession::new(frame_a);
+        wide.toggle_direction();
+        assert_eq!(wide.direction, StitchDirection::Horizontal);
+        let outcome = wide.feed_frame_outcome(&frame_b);
+        assert!(
+            matches!(
+                outcome,
+                snapin_render::stitching::StitchFrameOutcome::Stitched { offset: 120, .. }
+            ),
+            "横向纹理右移帧应成功推进拼接，实际为 {outcome:?}"
+        );
+        wide.enter_editing();
+        *session = wide;
+    }
+
+    assert!(handle_mouse_wheel(
+        &mut state,
+        MouseScrollDelta::LineDelta(-2.0, 0.0)
+    ));
+    let session = state.long_capture.as_ref().expect("会话应存在");
+    assert!(
+        session.viewport_offset_x > 0.0,
+        "纯水平负向滚轮应使横向预览视口向右平移"
+    );
+}

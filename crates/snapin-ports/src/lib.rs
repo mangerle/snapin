@@ -39,7 +39,7 @@ pub use clipboard::{
 };
 pub use desktop::{
     noop_screen_capture_event_sink, DesktopPort, NoopDesktop, ScreenCaptureEventSink,
-    ScreenCaptureSink, WorkspaceState, WorkspaceStateStore,
+    ScreenCaptureSink, WheelDelta, WorkspaceState, WorkspaceStateStore,
 };
 pub use error::{PortError, PortErrorKind};
 pub use id::{GroupId, PasterId};

@@ -26,7 +26,11 @@ use std::time::Duration;
 #[cfg(target_os = "linux")]
 const WHEEL_COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// 异步模拟鼠标垂直滚轮滚动。
+/// 异步模拟鼠标二维滚轮滚动（支持垂直与水平长截图）。
+///
+/// 方向遵循 Winit `MouseScrollDelta` 语义：
+/// `delta_x > 0` 向左揭示内容、`delta_x < 0` 向右揭示内容；
+/// `delta_y > 0` 向上滚动、`delta_y < 0` 向下滚动。
 ///
 /// Linux 优先走 GNOME Shell 扩展的合成器内虚拟指针，不依赖 `/dev/uinput` 写权限；
 /// 扩展不可用时再降级到外部输入工具。Windows 与 macOS 在阻塞线程调用原生输入 API。
@@ -34,15 +38,15 @@ const WHEEL_COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
 /// # Errors
 ///
 /// 当前平台没有可用滚轮注入通路、扩展调用失败，或阻塞任务异常结束时返回 [`PlatformError`]。
-pub async fn simulate_mouse_wheel_async(delta_y: f32) -> Result<(), PlatformError> {
-    if delta_y.abs() < f32::EPSILON {
+pub async fn simulate_mouse_wheel_async(delta_x: f32, delta_y: f32) -> Result<(), PlatformError> {
+    if !has_effective_wheel_delta(delta_x, delta_y) {
         return Ok(());
     }
 
     #[cfg(target_os = "linux")]
     {
         if get_platform_capabilities().gnome_extension_active {
-            match simulate_mouse_wheel_extension(delta_y).await {
+            match simulate_mouse_wheel_extension(delta_x, delta_y).await {
                 Ok(true) => return Ok(()),
                 Ok(false) => {
                     tracing::debug!("GNOME 扩展拒绝注入滚轮事件，降级到外部输入工具");
@@ -52,7 +56,7 @@ pub async fn simulate_mouse_wheel_async(delta_y: f32) -> Result<(), PlatformErro
                 }
             }
         }
-        tokio::task::spawn_blocking(move || simulate_linux_wheel(delta_y))
+        tokio::task::spawn_blocking(move || simulate_linux_wheel(delta_x, delta_y))
             .await
             .map_err(|error| PlatformError::Unsupported {
                 capability: format!("等待 Linux 滚轮注入任务失败: {error}"),
@@ -61,7 +65,7 @@ pub async fn simulate_mouse_wheel_async(delta_y: f32) -> Result<(), PlatformErro
 
     #[cfg(not(target_os = "linux"))]
     {
-        tokio::task::spawn_blocking(move || simulate_mouse_wheel(delta_y))
+        tokio::task::spawn_blocking(move || simulate_mouse_wheel(delta_x, delta_y))
             .await
             .map_err(|error| PlatformError::Unsupported {
                 capability: format!("等待滚轮注入任务失败: {error}"),
@@ -69,48 +73,59 @@ pub async fn simulate_mouse_wheel_async(delta_y: f32) -> Result<(), PlatformErro
     }
 }
 
-/// 模拟鼠标垂直滚轮滚动。
+/// 模拟鼠标二维滚轮滚动（同步阻塞入口）。
 ///
-/// `delta_y` 为正数表示向上滚动（远离用户），负数表示向下滚动（朝向用户）。
+/// `delta_x` 正数向左、负数向右；`delta_y` 正数向上、负数向下。
 ///
 /// # Errors
 ///
 /// 当前平台缺少可用的滚轮注入通路、外部输入工具执行失败，或原生事件源创建失败时
 /// 返回 [`PlatformError`]；零位移会直接成功返回，不产生任何输入事件。
-pub fn simulate_mouse_wheel(delta_y: f32) -> Result<(), PlatformError> {
-    if delta_y.abs() < f32::EPSILON {
+pub fn simulate_mouse_wheel(delta_x: f32, delta_y: f32) -> Result<(), PlatformError> {
+    if !has_effective_wheel_delta(delta_x, delta_y) {
         return Ok(());
     }
 
     #[cfg(target_os = "windows")]
     {
-        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{mouse_event, MOUSEEVENTF_WHEEL};
-        let clicks = (delta_y * 120.0) as i32;
-        unsafe {
-            mouse_event(MOUSEEVENTF_WHEEL, 0, 0, clicks, 0);
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+            mouse_event, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_WHEEL,
+        };
+        if is_nonzero_delta(delta_y) {
+            let clicks = (delta_y * 120.0) as i32;
+            unsafe {
+                mouse_event(MOUSEEVENTF_WHEEL, 0, 0, clicks, 0);
+            }
+        }
+        if is_nonzero_delta(delta_x) {
+            // Win32 WM_MOUSEHWHEEL 正值表示向右滚动，与 Winit delta_x 符号相反。
+            let clicks = (-delta_x * 120.0) as i32;
+            unsafe {
+                mouse_event(MOUSEEVENTF_HWHEEL, 0, 0, clicks, 0);
+            }
         }
         Ok(())
     }
 
     #[cfg(target_os = "linux")]
     {
-        simulate_linux_wheel(delta_y)
+        simulate_linux_wheel(delta_x, delta_y)
     }
 
     #[cfg(target_os = "macos")]
     {
-        simulate_macos_wheel(delta_y)
+        simulate_macos_wheel(delta_x, delta_y)
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
-        let _ = delta_y;
+        let _ = (delta_x, delta_y);
         Ok(())
     }
 }
 
 #[cfg(target_os = "macos")]
-fn simulate_macos_wheel(delta_y: f32) -> Result<(), PlatformError> {
+fn simulate_macos_wheel(delta_x: f32, delta_y: f32) -> Result<(), PlatformError> {
     use core_graphics::event::{CGEvent, CGEventTapLocation, ScrollEventUnit};
     use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 
@@ -119,37 +134,55 @@ fn simulate_macos_wheel(delta_y: f32) -> Result<(), PlatformError> {
             message: "创建 macOS 滚轮事件源失败".to_string(),
         }
     })?;
-    let lines = (delta_y * 3.0).round().clamp(-30.0, 30.0) as i32;
-    let event =
-        CGEvent::new_scroll_event(source, ScrollEventUnit::LINE, 1, lines, 0, 0).map_err(|()| {
-            PlatformError::Capture {
-                message: "创建 macOS 滚轮事件失败".to_string(),
-            }
+    let lines_y = if is_nonzero_delta(delta_y) {
+        (delta_y * 3.0).round().clamp(-30.0, 30.0) as i32
+    } else {
+        0
+    };
+    let lines_x = if is_nonzero_delta(delta_x) {
+        (delta_x * 3.0).round().clamp(-30.0, 30.0) as i32
+    } else {
+        0
+    };
+    let event = CGEvent::new_scroll_event(source, ScrollEventUnit::LINE, 2, lines_y, lines_x, 0)
+        .map_err(|()| PlatformError::Capture {
+            message: "创建 macOS 滚轮事件失败".to_string(),
         })?;
     event.post(CGEventTapLocation::HID);
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn simulate_linux_wheel(delta_y: f32) -> Result<(), PlatformError> {
+fn simulate_linux_wheel(delta_x: f32, delta_y: f32) -> Result<(), PlatformError> {
+    if is_nonzero_delta(delta_y) {
+        let xdo_btn = if delta_y > 0.0 { "4" } else { "5" };
+        let ydo_btn = if delta_y > 0.0 { "0xC4" } else { "0xC5" };
+        inject_linux_wheel_button(xdo_btn, Some(ydo_btn))?;
+    }
+    if is_nonzero_delta(delta_x) {
+        // X11 滚轮按键 6 向左、7 向右；ydotool click 不具备独立的水平滚轮键值。
+        let xdo_btn = if delta_x > 0.0 { "6" } else { "7" };
+        inject_linux_wheel_button(xdo_btn, None)?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn inject_linux_wheel_button(xdo_btn: &str, ydo_btn: Option<&str>) -> Result<(), PlatformError> {
     use std::process::Command;
 
-    // Linux 滚轮通常映射为按键：4 为向上滚动，5 为向下滚动
-    let button = if delta_y > 0.0 { "4" } else { "5" };
-
-    // 优先尝试 ydotool (兼容 Wayland 与 X11)
-    let ydo_btn = if delta_y > 0.0 { "0xC4" } else { "0xC5" };
-    let mut ydotool = Command::new("ydotool");
-    ydotool.args(["click", ydo_btn]);
-    if output_with_timeout(ydotool, WHEEL_COMMAND_TIMEOUT)
-        .is_ok_and(|output| output.status.success())
-    {
-        return Ok(());
+    if let Some(ydo_btn) = ydo_btn {
+        let mut ydotool = Command::new("ydotool");
+        ydotool.args(["click", ydo_btn]);
+        if output_with_timeout(ydotool, WHEEL_COMMAND_TIMEOUT)
+            .is_ok_and(|output| output.status.success())
+        {
+            return Ok(());
+        }
     }
 
-    // 降级尝试 xdotool (X11)
     let mut xdotool = Command::new("xdotool");
-    xdotool.args(["click", button]);
+    xdotool.args(["click", xdo_btn]);
     if output_with_timeout(xdotool, WHEEL_COMMAND_TIMEOUT)
         .is_ok_and(|output| output.status.success())
     {
@@ -159,4 +192,12 @@ fn simulate_linux_wheel(delta_y: f32) -> Result<(), PlatformError> {
     Err(PlatformError::Unsupported {
         capability: "鼠标滚轮模拟（需要可用的 ydotool 或 xdotool）".to_string(),
     })
+}
+
+fn is_nonzero_delta(delta: f32) -> bool {
+    delta.is_finite() && delta.abs() >= f32::EPSILON
+}
+
+fn has_effective_wheel_delta(delta_x: f32, delta_y: f32) -> bool {
+    is_nonzero_delta(delta_x) || is_nonzero_delta(delta_y)
 }

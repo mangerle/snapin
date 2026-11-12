@@ -14,7 +14,7 @@ use crate::ports::DesktopPort;
 #[cfg(target_os = "linux")]
 use crate::ports::{
     ClipboardJobId, ClipboardResult, ClipboardSink, ClipboardWrite, PortError, PortErrorKind,
-    ScreenCaptureSink,
+    ScreenCaptureSink, WheelDelta,
 };
 #[cfg(target_os = "linux")]
 use snapin_foundation::Rect;
@@ -303,10 +303,10 @@ impl DesktopPort for WorkspaceDesktop {
 
     fn capture_long_capture_frame(
         &self,
-        delta_y: f32,
+        delta: WheelDelta,
         sink: ScreenCaptureSink,
     ) -> Result<(), PortError> {
-        self.inner.capture_long_capture_frame(delta_y, sink)
+        self.inner.capture_long_capture_frame(delta, sink)
     }
 }
 

@@ -4,7 +4,7 @@ use super::cursor::refresh_cursor;
 use super::events::handle_key_input;
 use super::events::SnipperState;
 use super::mouse::{
-    handle_cursor_move, handle_mouse_button, handle_mouse_wheel, normalized_wheel_delta,
+    handle_cursor_move, handle_mouse_button, handle_mouse_wheel, resolve_long_capture_wheel_delta,
 };
 use super::presenter::SnipperPresenter;
 use super::types::SnipperOutcome;
@@ -151,7 +151,16 @@ fn start_long_capture_frame(
     context: &mut SnipperDispatchContext<'_>,
     delta: winit::event::MouseScrollDelta,
 ) {
-    let Some(delta_y) = normalized_wheel_delta(delta) else {
+    let Some(direction) = context
+        .state
+        .long_capture
+        .as_ref()
+        .map(|session| session.direction)
+    else {
+        context.window.request_redraw();
+        return;
+    };
+    let Some(wheel_delta) = resolve_long_capture_wheel_delta(direction, delta) else {
         context.window.request_redraw();
         return;
     };
@@ -159,12 +168,16 @@ fn start_long_capture_frame(
         return;
     };
 
-    tracing::debug!("启动长截图滚动抓屏，请求序号: {request_id}，滚动增量: {delta_y:.3}");
+    tracing::debug!(
+        "启动长截图滚动抓屏，请求序号: {request_id}，滚动增量: ({:.3}, {:.3})",
+        wheel_delta.x,
+        wheel_delta.y
+    );
     context.window.set_visible(false);
     let screen_capture_events = context.state.jobs.screen_capture_events.clone();
     let desktop = context.state.session.desktop.clone();
     let submitted = desktop.capture_long_capture_frame(
-        delta_y,
+        wheel_delta,
         Box::new(move |result| screen_capture_events(request_id, result)),
     );
     if let Err(error) = submitted {

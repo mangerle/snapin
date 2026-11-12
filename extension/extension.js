@@ -11,7 +11,7 @@ import Clutter from 'gi://Clutter';
 //   2. CaptureFullscreen   —— 用合成器内部对象直接把整屏写进给定文件流，无快门白闪。
 //      CaptureFullscreenWithCursor 为同一能力的显式指针开关版本。
 //   3. ListWindows         —— 枚举 Mutter 当前所有可见窗口几何，为快速吸附提供依据。
-//   4. SimulateScroll      —— 通过 Clutter 虚拟指针向当前焦点应用注入滚轮事件。
+//   4. SimulateScroll / SimulateScroll2D —— 通过 Clutter 虚拟指针向当前焦点应用注入滚轮事件。
 const IFACE_XML = `
 <node>
   <interface name="org.gnome.Shell.Extensions.Snapin">
@@ -59,6 +59,12 @@ const IFACE_XML = `
     </method>
     <method name="SimulateScroll">
       <arg type="s" direction="in" name="authToken"/>
+      <arg type="d" direction="in" name="deltaY"/>
+      <arg type="b" direction="out" name="success"/>
+    </method>
+    <method name="SimulateScroll2D">
+      <arg type="s" direction="in" name="authToken"/>
+      <arg type="d" direction="in" name="deltaX"/>
       <arg type="d" direction="in" name="deltaY"/>
       <arg type="b" direction="out" name="success"/>
     </method>
@@ -495,15 +501,52 @@ export default class SnapinHelperExtension extends Extension {
     }
 
     /**
-     * 向当前焦点应用注入离散垂直滚轮事件。
+     * 按指定方向与步数向虚拟指针发送离散滚轮事件。
+     * @param {Clutter.VirtualInputDevice} device 虚拟指针设备
+     * @param {Clutter.ScrollDirection} direction 滚轮方向
+     * @param {number} delta 对应轴的滚动增量
+     */
+    _emitDiscreteScrollSteps(device, direction, delta) {
+        const steps = Math.max(1, Math.min(30, Math.round(Math.abs(delta))));
+        for (let index = 0; index < steps; index++) {
+            device.notify_discrete_scroll(
+                GLib.get_monotonic_time(),
+                direction,
+                Clutter.ScrollSource.WHEEL
+            );
+        }
+    }
+
+    /**
+     * 向当前焦点应用注入离散垂直滚轮事件（兼容旧客户端入口）。
      *
      * 使用离散滚动而非伪造输入设备节点，避免依赖 ydotool/uinput 权限；
-     * deltaY 的正负遵循 Clutter 滚轮方向，正数向上、负数向下。
-     * @param {number} deltaY 滚轮增量
+     * deltaY 的正负遵循 Winit/Clutter 滚轮方向，正数向上、负数向下。
+     * @param {string} authToken 能力令牌
+     * @param {number} deltaY 垂直滚轮增量
      * @returns {boolean} 是否成功注入
      */
     SimulateScroll(authToken, deltaY) {
-        if (!this._isAuthorized(authToken) || !Number.isFinite(deltaY) || deltaY === 0)
+        return this.SimulateScroll2D(authToken, 0, deltaY);
+    }
+
+    /**
+     * 向当前焦点应用注入离散二维滚轮事件（支持横向与纵向长截图）。
+     *
+     * 方向遵循 Winit 约定：deltaX 正数向左滚动、负数向右滚动；
+     * deltaY 正数向上滚动、负数向下滚动。
+     * @param {string} authToken 能力令牌
+     * @param {number} deltaX 水平滚轮增量
+     * @param {number} deltaY 垂直滚轮增量
+     * @returns {boolean} 是否成功注入
+     */
+    SimulateScroll2D(authToken, deltaX, deltaY) {
+        if (!this._isAuthorized(authToken))
+            return false;
+
+        const validX = Number.isFinite(deltaX) && deltaX !== 0;
+        const validY = Number.isFinite(deltaY) && deltaY !== 0;
+        if (!validX && !validY)
             return false;
 
         const device = this._getVirtualPointer();
@@ -512,16 +555,17 @@ export default class SnapinHelperExtension extends Extension {
 
         try {
             this._focusWindowAtPointer();
-            const direction = deltaY > 0
-                ? Clutter.ScrollDirection.UP
-                : Clutter.ScrollDirection.DOWN;
-            const steps = Math.max(1, Math.min(30, Math.round(Math.abs(deltaY))));
-            for (let index = 0; index < steps; index++) {
-                device.notify_discrete_scroll(
-                    GLib.get_monotonic_time(),
-                    direction,
-                    Clutter.ScrollSource.WHEEL
-                );
+            if (validY) {
+                const verticalDirection = deltaY > 0
+                    ? Clutter.ScrollDirection.UP
+                    : Clutter.ScrollDirection.DOWN;
+                this._emitDiscreteScrollSteps(device, verticalDirection, deltaY);
+            }
+            if (validX) {
+                const horizontalDirection = deltaX > 0
+                    ? Clutter.ScrollDirection.LEFT
+                    : Clutter.ScrollDirection.RIGHT;
+                this._emitDiscreteScrollSteps(device, horizontalDirection, deltaX);
             }
             return true;
         } catch (e) {

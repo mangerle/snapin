@@ -25,7 +25,7 @@ use snapin_platform::{
 };
 use snapin_ports::{
     ClipboardJobId, ClipboardPayload, ClipboardResult, ClipboardSink, ClipboardWrite, DesktopPort,
-    PortError, PortErrorKind, ScreenCaptureSink,
+    PortError, PortErrorKind, ScreenCaptureSink, WheelDelta,
 };
 use snapin_runtime::{TaskPool, TaskRuntime};
 use snapin_storage::{load_last_selection, save_last_selection};
@@ -362,13 +362,13 @@ impl DesktopPort for AppDesktop {
 
     fn capture_long_capture_frame(
         &self,
-        delta_y: f32,
+        delta: WheelDelta,
         sink: ScreenCaptureSink,
     ) -> Result<(), PortError> {
         let mut completion = ScreenCaptureCompletion { sink: Some(sink) };
         self.runtime
             .spawn_in(TaskPool::Default, async move {
-                let result = capture_long_capture_frame_async(delta_y).await;
+                let result = capture_long_capture_frame_async(delta).await;
                 completion.complete(result);
             })
             .map(|_| ())
@@ -377,9 +377,11 @@ impl DesktopPort for AppDesktop {
 }
 
 /// 在覆盖层隐藏后驱动底层滚动，并异步抓取滚动后的完整屏幕帧。
-async fn capture_long_capture_frame_async(delta_y: f32) -> Result<image::RgbaImage, PortError> {
+async fn capture_long_capture_frame_async(
+    delta: WheelDelta,
+) -> Result<image::RgbaImage, PortError> {
     tokio::time::sleep(LONG_CAPTURE_HIDE_SETTLE).await;
-    snapin_platform::simulate_mouse_wheel_async(delta_y)
+    snapin_platform::simulate_mouse_wheel_async(delta.x, delta.y)
         .await
         .map_err(|error| {
             PortError::with_kind(

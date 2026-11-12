@@ -19,7 +19,7 @@ use buttons::{handle_left_press, handle_left_release};
 use movement::constrain_with_shift;
 pub use movement::handle_cursor_move;
 pub use wheel::handle_mouse_wheel;
-pub(crate) use wheel::normalized_wheel_delta;
+pub(crate) use wheel::resolve_long_capture_wheel_delta;
 
 use super::annotation_builder::commit_annotation;
 use super::events::{commit_active_text_input, handle_escape, SnipperState};

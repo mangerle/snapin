@@ -277,19 +277,47 @@ pub async fn list_windows() -> Result<Vec<WindowRect>, PlatformError> {
     parse_windows_json(&json)
 }
 
-/// 请求 GNOME 扩展通过 Clutter 虚拟指针向当前焦点应用注入垂直滚轮事件。
+/// 请求 GNOME 扩展通过 Clutter 虚拟指针向当前焦点应用注入二维滚轮事件。
 ///
 /// 该通路不依赖 `/dev/uinput` 写权限或 `ydotool` 守护进程，适用于 GNOME Wayland。
-/// `delta_y` 沿用 Winit 语义：正数向上滚动，负数向下滚动。
+/// 方向沿用 Winit 约定：`delta_x > 0` 向左滚动、`delta_x < 0` 向右滚动；
+/// `delta_y > 0` 向上滚动、`delta_y < 0` 向下滚动。
+///
+/// 当仅存在垂直滚动时优先调用旧签名 `SimulateScroll` 以兼容尚未重启的扩展实例；
+/// 存在水平滚动时调用 `SimulateScroll2D`。
 ///
 /// # Errors
 ///
 /// 扩展不在线、能力令牌不可用、D-Bus 调用超时或返回值解析失败时返回 [`PlatformError`]。
-pub async fn simulate_mouse_wheel_extension(delta_y: f32) -> Result<bool, PlatformError> {
+pub async fn simulate_mouse_wheel_extension(
+    delta_x: f32,
+    delta_y: f32,
+) -> Result<bool, PlatformError> {
+    let valid_x = delta_x.is_finite() && delta_x.abs() >= f32::EPSILON;
+    let valid_y = delta_y.is_finite() && delta_y.abs() >= f32::EPSILON;
+    if !valid_x && !valid_y {
+        return Ok(false);
+    }
+
     let token = read_extension_token().await?;
-    let arguments = (token.as_str(), f64::from(delta_y));
-    let (success,): (bool,) = call_extension("SimulateScroll", &arguments).await?;
-    Ok(success)
+    if !valid_x {
+        let arguments = (token.as_str(), f64::from(delta_y));
+        let (success,): (bool,) = call_extension("SimulateScroll", &arguments).await?;
+        return Ok(success);
+    }
+
+    let arguments = (token.as_str(), f64::from(delta_x), f64::from(delta_y));
+    let response: Result<(bool,), _> = call_extension("SimulateScroll2D", &arguments).await;
+    match response {
+        Ok((success,)) => Ok(success),
+        Err(PlatformError::DBus { message, .. }) if message.contains("UnknownMethod") => {
+            tracing::warn!(
+                "GNOME 扩展版本过旧尚未加载 SimulateScroll2D，请重新登录会话以支持横向滚轮注入"
+            );
+            Ok(false)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 /// 解析扩展返回的窗口 JSON，并把逻辑坐标换算为物理像素。
