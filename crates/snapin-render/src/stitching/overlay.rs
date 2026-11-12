@@ -42,6 +42,15 @@ pub(crate) fn detect_sticky_bands(
     StickyBands { header, footer }
 }
 
+/// 允许桥接固定栏内部完全波动（如动态分割线、光标闪烁）的最大连续行数。
+const MAX_PURE_JITTER_ROWS: usize = 2;
+/// 允许桥接固定栏内部局部小控件（如时钟、角标）波动的最大连续行数。
+const MAX_LOCAL_INDICATOR_ROWS: usize = 12;
+/// 桥接局部动态控件后，要求恢复的静态且带纹理边框段的最少连续行数。
+const MIN_RESUME_STATIC_ROWS: usize = 3;
+/// 单条固定栏内部累计允许豁免的动态行数上限，防止跨多个内容块误桥接。
+const MAX_TOTAL_BRIDGED_ROWS: usize = 16;
+
 fn scan_sticky_header(
     prev: &[u8],
     curr: &[u8],
@@ -50,14 +59,18 @@ fn scan_sticky_header(
     x_start: usize,
     x_end: usize,
 ) -> usize {
-    let mut rows = 0usize;
-    for y in 0..max_rows {
-        if row_avg_diff(prev, curr, y, width, x_start, x_end) <= 3.5 {
-            rows += 1;
-        } else {
-            break;
-        }
-    }
+    let rows = scan_sticky_edge_rows(
+        &StickyScanView {
+            prev,
+            curr,
+            width,
+            height: max_rows,
+            x_start,
+            x_end,
+        },
+        max_rows,
+        false,
+    );
     if rows == 0 {
         return 0;
     }
@@ -83,15 +96,18 @@ fn scan_sticky_footer(
     x_start: usize,
     x_end: usize,
 ) -> usize {
-    let mut rows = 0usize;
-    for offset in 0..max_rows {
-        let y = height - 1 - offset;
-        if row_avg_diff(prev, curr, y, width, x_start, x_end) <= 3.5 {
-            rows += 1;
-        } else {
-            break;
-        }
-    }
+    let rows = scan_sticky_edge_rows(
+        &StickyScanView {
+            prev,
+            curr,
+            width,
+            height,
+            x_start,
+            x_end,
+        },
+        max_rows,
+        true,
+    );
     if rows < 4 {
         return 0;
     }
@@ -107,6 +123,147 @@ fn scan_sticky_footer(
         return 0;
     }
     rows
+}
+
+struct StickyScanView<'a> {
+    prev: &'a [u8],
+    curr: &'a [u8],
+    width: usize,
+    height: usize,
+    x_start: usize,
+    x_end: usize,
+}
+
+impl StickyScanView<'_> {
+    fn map_y(&self, step: usize, from_bottom: bool) -> usize {
+        if from_bottom {
+            self.height - 1 - step
+        } else {
+            step
+        }
+    }
+
+    fn is_strict_static(&self, y: usize) -> bool {
+        row_avg_diff(
+            self.prev,
+            self.curr,
+            y,
+            self.width,
+            self.x_start,
+            self.x_end,
+        ) <= 3.5
+    }
+
+    fn is_mostly_static(&self, y: usize) -> bool {
+        row_unchanged_ratio(
+            self.prev,
+            self.curr,
+            y,
+            self.width,
+            self.x_start,
+            self.x_end,
+        ) >= 0.90
+    }
+}
+
+/// 扫描固定栏（顶栏或底栏），在确认已进入静态栏后容忍内部局部动态指示器（如时钟、角标）。
+fn scan_sticky_edge_rows(view: &StickyScanView<'_>, max_rows: usize, from_bottom: bool) -> usize {
+    let mut rows = 0usize;
+    while rows < max_rows && view.is_strict_static(view.map_y(rows, from_bottom)) {
+        rows += 1;
+    }
+    if rows < 2 {
+        return rows;
+    }
+
+    let mut bridged_total = 0usize;
+    while rows < max_rows && bridged_total < MAX_TOTAL_BRIDGED_ROWS {
+        let Some((resume_end, gap_len)) =
+            try_bridge_dynamic_gap(view, rows, max_rows, from_bottom, bridged_total)
+        else {
+            break;
+        };
+        bridged_total += gap_len;
+        rows = resume_end;
+    }
+    rows
+}
+
+fn try_bridge_dynamic_gap(
+    view: &StickyScanView<'_>,
+    start_step: usize,
+    max_rows: usize,
+    from_bottom: bool,
+    bridged_total: usize,
+) -> Option<(usize, usize)> {
+    let remaining_budget = MAX_TOTAL_BRIDGED_ROWS.saturating_sub(bridged_total);
+    let max_gap = MAX_LOCAL_INDICATOR_ROWS.min(remaining_budget);
+    let mut probe = start_step;
+    let mut gap_len = 0usize;
+
+    while probe < max_rows {
+        let y = view.map_y(probe, from_bottom);
+        if view.is_strict_static(y) {
+            break;
+        }
+        gap_len += 1;
+        if gap_len > max_gap {
+            return None;
+        }
+        if gap_len > MAX_PURE_JITTER_ROWS && !view.is_mostly_static(y) {
+            return None;
+        }
+        probe += 1;
+    }
+
+    if gap_len == 0 || probe >= max_rows {
+        return None;
+    }
+
+    let resume_start = probe;
+    let mut resume_end = resume_start;
+    while resume_end < max_rows && view.is_strict_static(view.map_y(resume_end, from_bottom)) {
+        resume_end += 1;
+    }
+    if resume_end - resume_start < MIN_RESUME_STATIC_ROWS {
+        return None;
+    }
+
+    let (y_start, y_end) = if from_bottom {
+        (view.height - resume_end, view.height - resume_start)
+    } else {
+        (resume_start, resume_end)
+    };
+    let resume_band = BandRegion {
+        y_start,
+        y_end,
+        width: view.width,
+        x_start: view.x_start,
+        x_end: view.x_end,
+    };
+    if !band_has_horizontal_texture(view.curr, resume_band)
+        && !band_has_vertical_structure(view.curr, resume_band)
+    {
+        return None;
+    }
+
+    Some((resume_end, gap_len))
+}
+
+fn row_unchanged_ratio(
+    prev: &[u8],
+    curr: &[u8],
+    y: usize,
+    width: usize,
+    x_start: usize,
+    x_end: usize,
+) -> f64 {
+    let base = y * width;
+    let row_len = (x_end - x_start).max(1);
+    let unchanged = (x_start..x_end)
+        .filter(|&x| prev[base + x].abs_diff(curr[base + x]) <= 3)
+        .count();
+    (unchanged as f64) / (row_len as f64)
 }
 
 fn row_avg_diff(
@@ -481,5 +638,66 @@ mod tests {
         let uniform_bands =
             detect_sticky_bands(&uniform_prev, &uniform_curr, width, height, 0.35, 12, 108);
         assert_eq!(uniform_bands.header, 0, "纯白均匀边距不应误判为固定顶栏");
+    }
+
+    #[test]
+    fn test_sticky_bars_tolerate_localized_dynamic_clock_without_swallowing_sparse_body() {
+        let width = 200usize;
+        let height = 220usize;
+        let mut prev = vec![248u8; width * height];
+        let mut curr = vec![248u8; width * height];
+
+        // 顶部 32px 顶栏：y=0..8 为静态标题带，y=8..16 存在 10px 宽动态闪烁角标，y=16..31 为静态下衬与第 31 行分割线
+        for x in 20..120 {
+            for y in 2..7 {
+                prev[y * width + x] = 80;
+                curr[y * width + x] = 80;
+            }
+        }
+        for y in 8..16 {
+            for x in 170..180 {
+                prev[y * width + x] = 40;
+                curr[y * width + x] = 240;
+            }
+        }
+        for x in 0..width {
+            prev[31 * width + x] = 210;
+            curr[31 * width + x] = 210;
+        }
+
+        // 底部 26px 底栏：y=height-26 为顶分割线，y=height-14..height-8 存在局部动态指示灯
+        for x in 0..width {
+            prev[(height - 26) * width + x] = 205;
+            curr[(height - 26) * width + x] = 205;
+        }
+        for y in (height - 14)..(height - 8) {
+            for x in 30..38 {
+                prev[y * width + x] = 30;
+                curr[y * width + x] = 220;
+            }
+        }
+
+        // 正文区 y=32..height-26：y=32..40 故意放置窄列文本后接纯白行距 (y=40..50)，验证不会被误桥接吞入顶栏
+        for y in 32..40 {
+            for x in 24..34 {
+                prev[y * width + x] = 35;
+            }
+        }
+        for y in 50..(height - 26) {
+            for x in 16..184 {
+                prev[y * width + x] = ((y * 19 + x * 7) % 190 + 30) as u8;
+                curr[y * width + x] = (((y + 24) * 19 + x * 7) % 190 + 30) as u8;
+            }
+        }
+
+        let bands = detect_sticky_bands(&prev, &curr, width, height, 0.35, 16, 184);
+        assert_eq!(
+            bands.header, 32,
+            "含内部局部动态角标的固定顶栏应完整识别到分割线"
+        );
+        assert_eq!(
+            bands.footer, 26,
+            "含内部局部动态指示灯的固定底栏应完整识别到顶分割线"
+        );
     }
 }
