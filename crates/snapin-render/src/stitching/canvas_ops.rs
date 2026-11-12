@@ -140,11 +140,24 @@ pub(crate) fn prepend_backward_slice(
     SliceExtendOutcome::Applied(safe_header)
 }
 
+/// 双向自动回滚的执行结果。
+pub(crate) enum RollbackOutcome {
+    /// 实际裁除了回退内容并重附最新固定栏
+    Applied {
+        /// 重附后的固定栏厚度（像素）
+        band_size: u32,
+        /// 回滚位移超出可裁上限并贴近初始单帧边界被夹断
+        clamped_to_initial: bool,
+    },
+    /// 当前已无回滚裁剪余量，未对画布做任何修改
+    NoOp,
+}
+
 /// 正向扩展后的反向回滚：直接弹出尾部回滚块并重贴最新页脚，至少保留单帧长度。
 pub(crate) fn rollback_tail_preserving_initial(
     canvas: &mut PagedCanvas,
     spec: &RollbackSpec<'_>,
-) -> u32 {
+) -> RollbackOutcome {
     let old_main = canvas.main_span();
     let frame_main = img_axis_dims(spec.frame, spec.direction).0;
     let safe_footer = spec.band_size.min(frame_main / 2);
@@ -153,11 +166,14 @@ pub(crate) fn rollback_tail_preserving_initial(
     } else {
         0
     };
-    let body_main = old_main.saturating_sub(safe_peel);
-    let min_body = frame_main.saturating_sub(safe_footer).min(body_main);
-    let crop = spec.pixels.min(body_main.saturating_sub(min_body));
-    if crop == 0 && safe_peel == safe_footer {
-        return safe_footer;
+    let available_after_band = old_main
+        .saturating_sub(safe_peel)
+        .saturating_add(safe_footer);
+    let crop = spec
+        .pixels
+        .min(available_after_band.saturating_sub(frame_main));
+    if crop == 0 {
+        return RollbackOutcome::NoOp;
     }
 
     let _ = canvas.pop_tail(safe_peel.saturating_add(crop));
@@ -170,14 +186,17 @@ pub(crate) fn rollback_tail_preserving_initial(
         );
         canvas.append_contiguous(&footer_slice);
     }
-    safe_footer
+    RollbackOutcome::Applied {
+        band_size: safe_footer,
+        clamped_to_initial: crop < spec.pixels,
+    }
 }
 
 /// 反向前插后的回滚：直接弹出首部回滚块并重贴最新页眉，至少保留单帧长度。
 pub(crate) fn rollback_head_preserving_initial(
     canvas: &mut PagedCanvas,
     spec: &RollbackSpec<'_>,
-) -> u32 {
+) -> RollbackOutcome {
     let old_main = canvas.main_span();
     let frame_main = img_axis_dims(spec.frame, spec.direction).0;
     let safe_header = spec.band_size.min(frame_main / 2);
@@ -186,11 +205,14 @@ pub(crate) fn rollback_head_preserving_initial(
     } else {
         0
     };
-    let body_main = old_main.saturating_sub(safe_peel);
-    let min_body = frame_main.saturating_sub(safe_header).min(body_main);
-    let crop = spec.pixels.min(body_main.saturating_sub(min_body));
-    if crop == 0 && safe_peel == safe_header {
-        return safe_header;
+    let available_after_band = old_main
+        .saturating_sub(safe_peel)
+        .saturating_add(safe_header);
+    let crop = spec
+        .pixels
+        .min(available_after_band.saturating_sub(frame_main));
+    if crop == 0 {
+        return RollbackOutcome::NoOp;
     }
 
     let _ = canvas.pop_head(safe_peel.saturating_add(crop));
@@ -198,7 +220,10 @@ pub(crate) fn rollback_head_preserving_initial(
         let header_slice = slice_img_axis(spec.frame, spec.direction, 0, safe_header);
         canvas.prepend_contiguous(&header_slice);
     }
-    safe_header
+    RollbackOutcome::Applied {
+        band_size: safe_header,
+        clamped_to_initial: crop < spec.pixels,
+    }
 }
 
 /// 从主轴像素集合并拼接成多段小条带所需的底层搬运函数

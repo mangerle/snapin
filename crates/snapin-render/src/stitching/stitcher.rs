@@ -2,8 +2,8 @@
 
 use super::canvas_ops::{
     append_forward_slice, exceeds_canvas_limits, plan_extend_span, prepend_backward_slice,
-    rollback_head_preserving_initial, rollback_tail_preserving_initial, RollbackSpec,
-    SliceExtendOutcome, SliceExtendSpec,
+    rollback_head_preserving_initial, rollback_tail_preserving_initial, RollbackOutcome,
+    RollbackSpec, SliceExtendOutcome, SliceExtendSpec,
 };
 use super::history::CropHistory;
 use super::matcher::{estimate_shift, frames_visually_unchanged};
@@ -357,9 +357,9 @@ impl LongCaptureStitcher {
         result: MatchResult,
     ) -> (MatchResult, StitchFrameOutcome) {
         let pixels = result.offset.unsigned_abs();
-        match self.growth_polarity {
+        let outcome = match self.growth_polarity {
             Some(GrowthPolarity::Forward) => {
-                self.attached_footer_size = rollback_tail_preserving_initial(
+                let res = rollback_tail_preserving_initial(
                     &mut self.canvas,
                     &RollbackSpec {
                         frame,
@@ -369,9 +369,13 @@ impl LongCaptureStitcher {
                         attached_band_size: self.attached_footer_size,
                     },
                 );
+                if let RollbackOutcome::Applied { band_size, .. } = res {
+                    self.attached_footer_size = band_size;
+                }
+                res
             }
             Some(GrowthPolarity::Backward) => {
-                self.attached_header_size = rollback_head_preserving_initial(
+                let res = rollback_head_preserving_initial(
                     &mut self.canvas,
                     &RollbackSpec {
                         frame,
@@ -381,12 +385,32 @@ impl LongCaptureStitcher {
                         attached_band_size: self.attached_header_size,
                     },
                 );
+                if let RollbackOutcome::Applied { band_size, .. } = res {
+                    self.attached_header_size = band_size;
+                }
+                res
             }
             None => return (result, StitchFrameOutcome::Ignored),
-        }
+        };
+        let RollbackOutcome::Applied {
+            clamped_to_initial, ..
+        } = outcome
+        else {
+            // 未发生任何实质裁剪时严禁更新锚点帧或自增代际，防止参考帧与画布末端失步
+            return (result, StitchFrameOutcome::Ignored);
+        };
         let (span, frame_span) = self.main_axis_spans();
         if span <= frame_span {
             self.growth_polarity = None;
+        }
+        if clamped_to_initial {
+            let anchor_start = if self.growth_polarity == Some(GrowthPolarity::Backward) {
+                0
+            } else {
+                span.saturating_sub(frame_span)
+            };
+            let synced_anchor = self.canvas.slice_axis(anchor_start, frame_span);
+            return self.commit_matched_frame(&synced_anchor, result);
         }
         self.commit_matched_frame(frame, result)
     }

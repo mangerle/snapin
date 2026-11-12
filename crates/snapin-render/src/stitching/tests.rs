@@ -753,3 +753,58 @@ fn test_legitimate_minimal_two_pixel_scroll_still_accepted() {
     assert!(res.is_matched(options.confidence_threshold));
     assert_eq!(res.offset, 2);
 }
+
+#[test]
+fn test_rollback_noop_preserves_anchor_and_generation_and_clamped_rollback_syncs_anchor() {
+    use super::types::{FrameShiftAnalysis, MatchResult};
+
+    let width = 120;
+    let height = 180;
+    let f0 = create_test_pattern(width, height, 40, 0);
+    let mut stitcher = LongCaptureStitcher::new(
+        f0.clone(),
+        StitchDirection::Vertical,
+        StitchOptions::default(),
+    );
+
+    // 正向推进 +10px 后，构造 attached_footer_size 大于当前帧 footer 的临界场景，确保不会缩到单帧以下且零裁剪不污染锚点
+    let f1 = create_test_pattern(width, height, 50, 0);
+    assert!(stitcher.feed_frame_outcome(&f1).is_stitched());
+    stitcher.attached_footer_size = 30;
+    let gen_before = stitcher.generation();
+    let anchor_before = stitcher.last_frame_arc();
+
+    let overshot = create_test_pattern(width, height, 20, 0);
+    let noop_outcome = stitcher.apply_analyzed_shift(
+        overshot,
+        gen_before,
+        FrameShiftAnalysis::Matched(MatchResult {
+            offset: -15,
+            confidence: 0.95,
+            sticky_header_size: 0,
+            sticky_footer_size: 10,
+        }),
+    );
+    assert_eq!(noop_outcome, StitchFrameOutcome::Ignored);
+    assert_eq!(stitcher.generation(), gen_before);
+    assert_eq!(stitcher.last_frame(), anchor_before.as_ref());
+    assert_eq!(stitcher.dimensions(), (width, 190));
+
+    // 当回滚位移超过可裁余量 (crop=10 < pixels=25) 时，锚点帧必须同步为实际画布末端切片而非越界帧
+    stitcher.attached_footer_size = 0;
+    let over_rollback = create_test_pattern(width, height, 25, 0);
+    let clamped_outcome = stitcher.apply_analyzed_shift(
+        over_rollback,
+        gen_before,
+        FrameShiftAnalysis::Matched(MatchResult {
+            offset: -25,
+            confidence: 0.95,
+            sticky_header_size: 0,
+            sticky_footer_size: 0,
+        }),
+    );
+    assert!(clamped_outcome.is_stitched());
+    assert_eq!(stitcher.dimensions(), (width, height));
+    assert_eq!(stitcher.growth_polarity(), None);
+    assert_eq!(stitcher.last_frame(), &f0);
+}
