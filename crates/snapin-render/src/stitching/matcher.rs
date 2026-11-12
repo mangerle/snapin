@@ -339,8 +339,11 @@ pub(crate) fn frames_visually_unchanged(
         return true;
     }
     let (x_start, x_end, y_start, y_end) = active_static_roi(w, h, direction, options.margin_ratio);
-    let roi_pixels = (x_end.saturating_sub(x_start)).saturating_mul(y_end.saturating_sub(y_start));
-    let max_total_changed = (roi_pixels / 500).clamp(16, 64);
+    let roi_w = x_end.saturating_sub(x_start);
+    let roi_pixels = roi_w.saturating_mul(y_end.saturating_sub(y_start));
+    // 按有效选区面积与行宽等比放大容差上限，避免大尺寸选区下微小光标/角标抖动误触发全帧金字塔搜索。
+    let max_total_changed = (roi_pixels / 500).clamp(16, 1024);
+    let max_row_changed = (roi_w / 48).clamp(4, 32);
 
     let prev_raw = prev.as_raw();
     let curr_raw = curr.as_raw();
@@ -358,7 +361,7 @@ pub(crate) fn frames_visually_unchanged(
             if dr > 2 || dg > 2 || db > 2 {
                 row_changed += 1;
                 total_changed += 1;
-                if row_changed > 4 || total_changed > max_total_changed {
+                if row_changed > max_row_changed || total_changed > max_total_changed {
                     return false;
                 }
             }
@@ -454,5 +457,39 @@ mod tests {
         let res = estimate_shift(&prev, &curr, StitchDirection::Vertical, &options);
         assert!(res.is_matched(options.confidence_threshold));
         assert_eq!(res.offset, -16);
+    }
+
+    #[test]
+    fn test_large_viewport_static_detection_tolerates_small_indicator_flicker() {
+        let width = 1280u32;
+        let height = 720u32;
+        let prev = RgbaImage::from_pixel(width, height, Rgba([245, 246, 248, 255]));
+        let mut curr = prev.clone();
+        // 16x16 动态加载微标 (256px) 位于大选区内：应视为画面静止而免除高耗时匹配
+        for y in 120..136 {
+            for x in 400..416 {
+                curr.put_pixel(x, y, Rgba([60, 130, 240, 255]));
+            }
+        }
+        let options = StitchOptions::default();
+        assert!(frames_visually_unchanged(
+            &prev,
+            &curr,
+            StitchDirection::Vertical,
+            &options
+        ));
+
+        // 超过单行与总面积容差的真实滚动文本行仍应立即检出变化
+        for y in 300..308 {
+            for x in 200..360 {
+                curr.put_pixel(x, y, Rgba([30, 30, 35, 255]));
+            }
+        }
+        assert!(!frames_visually_unchanged(
+            &prev,
+            &curr,
+            StitchDirection::Vertical,
+            &options
+        ));
     }
 }
