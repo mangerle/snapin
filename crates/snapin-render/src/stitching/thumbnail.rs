@@ -87,22 +87,18 @@ impl LongCaptureStitcher {
             .as_ref()
             .is_none_or(|cached| cached.canvas_dim != canvas_dim || cached.spec != spec);
         if need_rebuild {
-            let snapshot = self.canvas.snapshot();
-            let overview = render_thumbnail_overview(&snapshot, spec);
-            let entry = self.thumbnail_cache.insert(ThumbnailCache {
-                overview,
-                canvas_dim,
-                spec,
-            });
-            return &entry.overview;
+            self.thumbnail_cache = None;
         }
-        let snapshot = self.canvas.snapshot();
+        let canvas = &self.canvas;
         &self
             .thumbnail_cache
-            .get_or_insert_with(|| ThumbnailCache {
-                overview: render_thumbnail_overview(&snapshot, spec),
-                canvas_dim,
-                spec,
+            .get_or_insert_with(|| {
+                let snapshot = canvas.snapshot();
+                ThumbnailCache {
+                    overview: render_thumbnail_overview(&snapshot, spec),
+                    canvas_dim,
+                    spec,
+                }
             })
             .overview
     }
@@ -288,5 +284,28 @@ fn extract_snapshot_rect(snapshot: &PagedCanvasSnapshot, src: SrcRegion) -> Rgba
     match snapshot.direction() {
         StitchDirection::Vertical => snapshot.slice_axis(src.y, src.height),
         StitchDirection::Horizontal => snapshot.slice_axis(src.x, src.width),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stitching::types::StitchOptions;
+
+    #[test]
+    fn test_thumbnail_cache_hit_reuses_existing_overview_without_rebuild() {
+        let frame = RgbaImage::from_pixel(120, 240, Rgba([40, 80, 120, 255]));
+        let mut stitcher =
+            LongCaptureStitcher::new(frame, StitchDirection::Vertical, StitchOptions::default());
+
+        let first_ptr = {
+            let first = stitcher.get_or_render_thumbnail_overview(60, 120, 32);
+            first as *const ThumbnailOverview
+        };
+        let second_ptr = {
+            let second = stitcher.get_or_render_thumbnail_overview(60, 120, 32);
+            second as *const ThumbnailOverview
+        };
+        assert_eq!(first_ptr, second_ptr, "相同规格与尺寸应直接复用缓存缩略图");
     }
 }
