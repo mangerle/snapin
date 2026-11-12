@@ -4,9 +4,9 @@
 //!
 //! 长截图抓屏返回的全屏图像裁剪、多层高斯金字塔 ZNCC 位移匹配与超长缩略图双线性降采样
 //! 均属于计算密集型操作，若放在 Winit GUI 主线程执行会直接阻塞用户输入与动画渲染。
-//! 本模块使用单一有界同步通道（`sync_channel(4)`，杜绝无界通道内存失控）驱动后台专用线程：
-//! - 帧匹配任务按捕获序在后台无副作用完成，通过状态代际号 `expected_generation` 防呆；
-//! - 缩略图任务通过最新单槽合并替换实现背压折半覆盖（连续快速滚动期间自动跳过中间过期帧）。
+//! 本模块采用职责分离的独立有界后台线程（杜绝无界通道内存失控，并消除缩略图对帧分析的队头阻塞）：
+//! - **帧分析线程**（`sync_channel(4)`）：按捕获序无副作用执行位移匹配，通过 `expected_generation` 防呆；
+//! - **缩略图线程**（`sync_channel(2)` + 最新单槽合并）：在独立线程中降采样预览图，绝不阻塞高优位移分析。
 
 use image::{GenericImageView, RgbaImage};
 use snapin_render::{
@@ -78,47 +78,52 @@ pub struct ThumbnailRenderTask {
     pub spec: ThumbnailRenderSpec,
 }
 
-enum WorkerMsg {
-    Analyze(Box<AnalyzeFrameTask>),
-    ThumbnailTick,
-}
-
-/// 长截图专用有界后台计算线程控制器，退出作用域时依赖 RAII 自动平滑停止。
+/// 长截图专用有界后台双线程控制器，退出作用域时依赖 RAII 自动平滑停止。
 pub struct LongCaptureWorker {
-    sender: Option<SyncSender<WorkerMsg>>,
+    analyze_sender: Option<SyncSender<Box<AnalyzeFrameTask>>>,
+    thumb_sender: Option<SyncSender<()>>,
     latest_thumb: Arc<Mutex<Option<ThumbnailRenderTask>>>,
     thumb_queued: Arc<AtomicBool>,
-    handle: Option<JoinHandle<()>>,
+    analyze_handle: Option<JoinHandle<()>>,
+    thumb_handle: Option<JoinHandle<()>>,
 }
 
 impl LongCaptureWorker {
-    /// 启动长截图专用后台工作线程，并绑定 UI 事件唤醒回传通道。
+    /// 启动长截图专用后台分析线程与缩略图降采样线程，并绑定 UI 事件唤醒回传通道。
     pub fn new(sink: LongCaptureEventSink) -> Self {
-        let (sender, receiver) = mpsc::sync_channel::<WorkerMsg>(4);
+        let (analyze_sender, analyze_receiver) = mpsc::sync_channel::<Box<AnalyzeFrameTask>>(4);
+        let (thumb_sender, thumb_receiver) = mpsc::sync_channel::<()>(2);
         let latest_thumb = Arc::new(Mutex::new(None::<ThumbnailRenderTask>));
         let thumb_queued = Arc::new(AtomicBool::new(false));
         let thumb_slot = latest_thumb.clone();
         let queued_flag = thumb_queued.clone();
 
-        let builder = thread::Builder::new().name("snapin-long-capture".to_string());
-        let handle = builder
+        let analyze_sink = sink.clone();
+        let analyze_handle = thread::Builder::new()
+            .name("snapin-long-analyze".to_string())
             .spawn(move || {
-                for msg in receiver {
-                    match msg {
-                        WorkerMsg::Analyze(task) => run_analyze_task(*task, &sink),
-                        WorkerMsg::ThumbnailTick => {
-                            run_latest_thumbnail_task(&thumb_slot, &queued_flag, &sink);
-                        }
-                    }
+                for task in analyze_receiver {
+                    run_analyze_task(*task, &analyze_sink);
+                }
+            })
+            .ok();
+
+        let thumb_handle = thread::Builder::new()
+            .name("snapin-long-thumb".to_string())
+            .spawn(move || {
+                for () in thumb_receiver {
+                    run_latest_thumbnail_task(&thumb_slot, &queued_flag, &sink);
                 }
             })
             .ok();
 
         Self {
-            sender: Some(sender),
+            analyze_sender: Some(analyze_sender),
+            thumb_sender: Some(thumb_sender),
             latest_thumb,
             thumb_queued,
-            handle,
+            analyze_handle,
+            thumb_handle,
         }
     }
 
@@ -127,20 +132,20 @@ impl LongCaptureWorker {
         &self,
         task: AnalyzeFrameTask,
     ) -> Result<(), Box<AnalyzeFrameTask>> {
-        let Some(sender) = &self.sender else {
+        let Some(sender) = &self.analyze_sender else {
             return Err(Box::new(task));
         };
-        match sender.try_send(WorkerMsg::Analyze(Box::new(task))) {
+        match sender.try_send(Box::new(task)) {
             Ok(()) => Ok(()),
-            Err(mpsc::TrySendError::Full(WorkerMsg::Analyze(task)))
-            | Err(mpsc::TrySendError::Disconnected(WorkerMsg::Analyze(task))) => Err(task),
-            Err(_) => unreachable!("分析派发通道只可能回传 Analyze 消息"),
+            Err(mpsc::TrySendError::Full(task)) | Err(mpsc::TrySendError::Disconnected(task)) => {
+                Err(task)
+            }
         }
     }
 
     /// 以最新覆盖合并语义非阻塞调度缩略图渲染，自动丢弃被超越的过期中间任务。
     pub fn schedule_thumbnail_render(&self, task: ThumbnailRenderTask) {
-        let Some(sender) = &self.sender else {
+        let Some(sender) = &self.thumb_sender else {
             return;
         };
         {
@@ -150,9 +155,7 @@ impl LongCaptureWorker {
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             *slot = Some(task);
         }
-        if !self.thumb_queued.swap(true, Ordering::AcqRel)
-            && sender.try_send(WorkerMsg::ThumbnailTick).is_err()
-        {
+        if !self.thumb_queued.swap(true, Ordering::AcqRel) && sender.try_send(()).is_err() {
             self.thumb_queued.store(false, Ordering::Release);
         }
     }
@@ -160,8 +163,12 @@ impl LongCaptureWorker {
 
 impl Drop for LongCaptureWorker {
     fn drop(&mut self) {
-        drop(self.sender.take());
-        if let Some(handle) = self.handle.take() {
+        drop(self.analyze_sender.take());
+        drop(self.thumb_sender.take());
+        if let Some(handle) = self.analyze_handle.take() {
+            let _ = handle.join();
+        }
+        if let Some(handle) = self.thumb_handle.take() {
             let _ = handle.join();
         }
     }
