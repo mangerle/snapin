@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 /// 原生抓屏或解码任务的最长等待时间，避免 macOS 权限弹窗或驱动挂起拖死整条流程。
-const CAPTURE_TIMEOUT: Duration = Duration::from_secs(15);
+pub(crate) const CAPTURE_TIMEOUT: Duration = Duration::from_secs(15);
 /// 跨平台屏幕捕获允许合成的最大像素数，与原生像素载荷上限保持一致。
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
 const MAX_CAPTURE_PIXELS: u64 = 100_000_000;
@@ -243,7 +243,7 @@ fn capture_xcap_blocking() -> Result<ScreenSnapshot, PlatformError> {
 /// 若不纠正为 255，在 DWM 预乘透明混合下会导致贴图加法过曝发白，
 /// 且容易在后续的图像切片与缩放中出现色彩失真。
 #[cfg(target_os = "windows")]
-fn normalize_windows_capture_alpha(image: &mut RgbaImage) {
+pub(crate) fn normalize_windows_capture_alpha(image: &mut RgbaImage) {
     for pixel in image.as_chunks_mut::<4>().0 {
         pixel[3] = 255;
     }
@@ -254,7 +254,7 @@ fn normalize_windows_capture_alpha(image: &mut RgbaImage) {
 fn capture_single_monitor_with_origin(
     monitor: &xcap::Monitor,
 ) -> Result<((i32, i32), RgbaImage), PlatformError> {
-    let (x, y, expected_width, expected_height) = capture_monitor_geometry(monitor)?;
+    let area = capture_monitor_physical_geometry(monitor)?;
     let captured = monitor.capture_image().map_err(|error| {
         #[cfg(target_os = "macos")]
         let hint = "（请检查是否已在“系统设置 -> 隐私与安全性 -> 屏幕录制”中授予 Snapin 权限）";
@@ -265,10 +265,12 @@ fn capture_single_monitor_with_origin(
         }
     })?;
     let (width, height) = (captured.width(), captured.height());
-    if width != expected_width || height != expected_height {
+    // macOS Retina 显示器逻辑点转物理像素存在舍入误差，允许 2 像素内轻微浮动。
+    if width.abs_diff(area.width) > 2 || height.abs_diff(area.height) > 2 {
         return Err(PlatformError::Capture {
             message: format!(
-                "显示器捕获尺寸与系统物理尺寸不一致，期望: {expected_width}x{expected_height}，实际: {width}x{height}"
+                "显示器捕获尺寸与系统物理尺寸不一致，期望: {}x{}，实际: {width}x{height}",
+                area.width, area.height
             ),
         });
     }
@@ -277,7 +279,7 @@ fn capture_single_monitor_with_origin(
             message: "显示器捕获像素缓冲区转换为图像失败".to_string(),
         }
     })?;
-    Ok(((x, y), image))
+    Ok(((area.x, area.y), image))
 }
 
 /// 捕获全部显示器并合成到虚拟桌面坐标系。
@@ -286,35 +288,37 @@ fn capture_monitor_desktop(monitors: &[xcap::Monitor]) -> Result<ScreenSnapshot,
     let mut bounds = DesktopBounds::default();
     let mut frames = Vec::with_capacity(monitors.len());
     for monitor in monitors {
-        let (x, y, width, height) = capture_monitor_geometry(monitor)?;
-        bounds.include(CaptureArea {
-            x,
-            y,
-            width,
-            height,
-        })?;
+        let area = capture_monitor_physical_geometry(monitor)?;
         let monitor_name = monitor.name().unwrap_or_else(|_| "未知显示器".to_string());
         let frame = monitor
             .capture_image()
             .map_err(|error| PlatformError::Capture {
                 message: format!("多屏环境中捕获显示器 {monitor_name} 失败: {error}"),
             })?;
-        let frame = RgbaImage::from_raw(frame.width(), frame.height(), frame.into_raw())
-            .ok_or_else(|| PlatformError::Capture {
+        let (fw, fh) = (frame.width(), frame.height());
+        let frame = RgbaImage::from_raw(fw, fh, frame.into_raw()).ok_or_else(|| {
+            PlatformError::Capture {
                 message: format!("显示器 {monitor_name} 的像素缓冲区转换为图像失败"),
-            })?;
-        frames.push((x, y, frame));
+            }
+        })?;
+        bounds.include(CaptureArea {
+            x: area.x,
+            y: area.y,
+            width: fw,
+            height: fh,
+        })?;
+        frames.push((area.x, area.y, frame));
     }
     let origin = bounds.origin()?;
     let image = bounds.compose(frames)?;
     Ok(ScreenSnapshot { image, origin })
 }
 
-/// 读取单个显示器坐标与尺寸；任一项失败都返回明确错误而不是伪造为零。
+/// 读取单个显示器的物理像素坐标与尺寸；在 macOS 上自动按 `scale_factor` 从逻辑点换算。
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-fn capture_monitor_geometry(
+pub(crate) fn capture_monitor_physical_geometry(
     monitor: &xcap::Monitor,
-) -> Result<(i32, i32, u32, u32), PlatformError> {
+) -> Result<CaptureArea, PlatformError> {
     let name = monitor.name().unwrap_or_else(|_| "未知显示器".to_string());
     let x = monitor.x().map_err(|error| PlatformError::Capture {
         message: format!("读取显示器 {name} 的 X 坐标失败: {error}"),
@@ -328,7 +332,26 @@ fn capture_monitor_geometry(
     let height = monitor.height().map_err(|error| PlatformError::Capture {
         message: format!("读取显示器 {name} 的高度失败: {error}"),
     })?;
-    Ok((x, y, width, height))
+
+    #[cfg(target_os = "macos")]
+    {
+        let scale = f64::from(monitor.scale_factor().unwrap_or(1.0).max(1.0));
+        Ok(CaptureArea {
+            x: (f64::from(x) * scale).round() as i32,
+            y: (f64::from(y) * scale).round() as i32,
+            width: (f64::from(width) * scale).round().max(1.0) as u32,
+            height: (f64::from(height) * scale).round().max(1.0) as u32,
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(CaptureArea {
+            x,
+            y,
+            width,
+            height,
+        })
+    }
 }
 
 /// 临时截图文件的取消安全清理守卫。
@@ -361,17 +384,17 @@ impl Drop for TemporaryScreenshotFile {
 /// 单个显示器在虚拟桌面中的有符号坐标与像素尺寸。
 #[derive(Clone, Copy)]
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
-struct CaptureArea {
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
+pub(crate) struct CaptureArea {
+    pub(crate) x: i32,
+    pub(crate) y: i32,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
 }
 
 /// 多显示器虚拟桌面联合边界。
 #[derive(Default)]
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
-struct DesktopBounds {
+pub(crate) struct DesktopBounds {
     min_x: i64,
     min_y: i64,
     max_x: i64,
@@ -384,7 +407,7 @@ impl DesktopBounds {
     /// 返回虚拟桌面左上角的物理像素坐标。
     ///
     /// 多屏排列允许显示器使用负坐标，覆盖层必须沿用该原点才能与合成底图逐像素对齐。
-    fn origin(&self) -> Result<(i32, i32), PlatformError> {
+    pub(crate) fn origin(&self) -> Result<(i32, i32), PlatformError> {
         let x = i32::try_from(self.min_x).map_err(|_| PlatformError::Capture {
             message: format!("虚拟桌面 X 原点超出支持范围: {}", self.min_x),
         })?;
@@ -394,7 +417,7 @@ impl DesktopBounds {
         Ok((x, y))
     }
 
-    fn include(&mut self, area: CaptureArea) -> Result<(), PlatformError> {
+    pub(crate) fn include(&mut self, area: CaptureArea) -> Result<(), PlatformError> {
         if area.width == 0 || area.height == 0 {
             return Err(PlatformError::Capture {
                 message: format!(
