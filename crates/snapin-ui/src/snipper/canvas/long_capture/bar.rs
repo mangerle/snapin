@@ -1,6 +1,8 @@
 //! 长截图控制栏尺寸信息、分组按钮与右侧拖动手柄的绘制辅助。
 
-use super::icons::{draw_bidirectional_arrow, draw_grip_dots};
+use super::icons::{
+    draw_auto_scroll_icon, draw_bidirectional_arrow, draw_grip_dots, AutoScrollIconStyle,
+};
 use super::types;
 use crate::drawing::{add_round_rect, RoundRect};
 use crate::geometry::Rect;
@@ -106,6 +108,10 @@ pub(super) fn draw_button_active_bg(pixmap: &mut PixmapMut, rect: &Rect, s: f32)
 
 /// 绘制统一圆角按钮底色。
 fn draw_button_bg(pixmap: &mut PixmapMut, rect: &Rect, s: f32, alpha: u8) {
+    draw_button_bg_rgba(pixmap, rect, s, (0, 0, 0, alpha));
+}
+
+fn draw_button_bg_rgba(pixmap: &mut PixmapMut, rect: &Rect, s: f32, rgba: (u8, u8, u8, u8)) {
     let mut pb = PathBuilder::new();
     add_round_rect(
         &mut pb,
@@ -119,7 +125,7 @@ fn draw_button_bg(pixmap: &mut PixmapMut, rect: &Rect, s: f32, alpha: u8) {
     );
     if let Some(path) = pb.finish() {
         let mut paint = Paint::default();
-        paint.set_color_rgba8(0, 0, 0, alpha);
+        paint.set_color_rgba8(rgba.0, rgba.1, rgba.2, rgba.3);
         pixmap.fill_path(
             &path,
             &paint,
@@ -128,4 +134,31 @@ fn draw_button_bg(pixmap: &mut PixmapMut, rect: &Rect, s: f32, alpha: u8) {
             None,
         );
     }
+}
+
+/// 绘制自动滚到底开关按钮及其激活/悬停状态。
+pub(super) fn draw_auto_scroll_button(
+    pixmap: &mut PixmapMut,
+    rect: &Rect,
+    direction: StitchDirection,
+    is_active: bool,
+    is_hovered: bool,
+    s: f32,
+) {
+    if is_active {
+        draw_button_bg_rgba(pixmap, rect, s, (37, 99, 235, 28));
+    } else if is_hovered {
+        draw_button_hover_bg(pixmap, rect, s);
+    }
+    draw_auto_scroll_icon(
+        pixmap,
+        rect.x + rect.width / 2.0,
+        rect.y + rect.height / 2.0,
+        AutoScrollIconStyle {
+            scale: s,
+            hovered: is_hovered,
+            active: is_active,
+            direction,
+        },
+    );
 }

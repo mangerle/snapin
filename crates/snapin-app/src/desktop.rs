@@ -20,12 +20,13 @@ use arc_swap::ArcSwap;
 use snapin_foundation::Rect;
 use snapin_platform::{
     capture_fullscreen_snapshot_excluding_window, open_path_in_file_manager, open_url,
-    read_clipboard_image, read_clipboard_text, send_desktop_notification, write_image_to_clipboard,
-    write_text_to_clipboard,
+    read_clipboard_image, read_clipboard_text, send_desktop_notification,
+    simulate_mouse_wheel_with_focus_async, write_image_to_clipboard, write_text_to_clipboard,
+    WheelInputSpec,
 };
 use snapin_ports::{
     ClipboardJobId, ClipboardPayload, ClipboardResult, ClipboardSink, ClipboardWrite, DesktopPort,
-    PortError, PortErrorKind, ScreenCaptureSink, WheelDelta,
+    LongCaptureFrameRequest, PortError, PortErrorKind, ScreenCaptureSink,
 };
 use snapin_runtime::{TaskPool, TaskRuntime};
 use snapin_storage::{load_last_selection, save_last_selection};
@@ -362,13 +363,13 @@ impl DesktopPort for AppDesktop {
 
     fn capture_long_capture_frame(
         &self,
-        delta: WheelDelta,
+        request: LongCaptureFrameRequest,
         sink: ScreenCaptureSink,
     ) -> Result<(), PortError> {
         let mut completion = ScreenCaptureCompletion { sink: Some(sink) };
         self.runtime
             .spawn_in(TaskPool::Default, async move {
-                let result = capture_long_capture_frame_async(delta).await;
+                let result = capture_long_capture_frame_async(request).await;
                 completion.complete(result);
             })
             .map(|_| ())
@@ -378,18 +379,22 @@ impl DesktopPort for AppDesktop {
 
 /// 在覆盖层隐藏后驱动底层滚动，并异步抓取滚动后的完整屏幕帧。
 async fn capture_long_capture_frame_async(
-    delta: WheelDelta,
+    request: LongCaptureFrameRequest,
 ) -> Result<image::RgbaImage, PortError> {
     tokio::time::sleep(LONG_CAPTURE_HIDE_SETTLE).await;
-    snapin_platform::simulate_mouse_wheel_async(delta.x, delta.y)
-        .await
-        .map_err(|error| {
-            PortError::with_kind(
-                PortErrorKind::Unavailable,
-                "模拟长截图滚动输入",
-                error.to_string(),
-            )
-        })?;
+    simulate_mouse_wheel_with_focus_async(WheelInputSpec {
+        delta_x: request.delta.x,
+        delta_y: request.delta.y,
+        focus_point: request.focus_point,
+    })
+    .await
+    .map_err(|error| {
+        PortError::with_kind(
+            PortErrorKind::Unavailable,
+            "模拟长截图滚动输入",
+            error.to_string(),
+        )
+    })?;
     tokio::time::sleep(LONG_CAPTURE_SCROLL_SETTLE).await;
     // 即使 winit 的隐藏请求尚未被合成器完全应用，也要在抓帧瞬间由扩展临时隐藏
     // Snapin actor，避免把透明覆盖层合成出的黑色区域写入长截图底图。

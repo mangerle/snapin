@@ -54,7 +54,18 @@ pub(crate) fn long_capture_main_button_defs(
         width: 28.0,
     });
 
-    // 4. 完成并二次编辑（带笔方框）
+    // 4. 自动滚动到底（支持一键自动步进，触底自动停机）
+    defs.push(LongCaptureButtonDef {
+        action: LongCaptureAction::ToggleAutoScroll,
+        tooltip: if session.is_auto_scrolling() {
+            "停止自动滚动 (A)"
+        } else {
+            "自动滚到底部 (A)"
+        },
+        width: 28.0,
+    });
+
+    // 5. 完成并二次编辑（带笔方框）
     defs.push(LongCaptureButtonDef {
         action: LongCaptureAction::EnterEditing,
         tooltip: "编辑",
@@ -129,6 +140,7 @@ mod tests {
                 LongCaptureAction::ToggleDirection,
                 LongCaptureAction::ToggleCropSubMenu,
                 LongCaptureAction::ToggleCapture,
+                LongCaptureAction::ToggleAutoScroll,
                 LongCaptureAction::EnterEditing,
                 LongCaptureAction::Save,
                 LongCaptureAction::Pin,

@@ -67,6 +67,23 @@ impl WheelDelta {
     }
 }
 
+/// 单次长截图底层滚动抓屏请求参数。
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct LongCaptureFrameRequest {
+    /// 需要向底层应用注入的双轴滚轮增量。
+    pub delta: WheelDelta,
+    /// 长截图选区中心在覆盖层坐标系下的物理像素坐标，用于精准定位待聚焦目标窗口。
+    pub focus_point: Option<(f32, f32)>,
+}
+
+impl LongCaptureFrameRequest {
+    /// 构造滚动抓屏请求。
+    #[must_use]
+    pub const fn new(delta: WheelDelta, focus_point: Option<(f32, f32)>) -> Self {
+        Self { delta, focus_point }
+    }
+}
+
 /// 桌面副作用端口。
 ///
 /// 该特型只承载“用户动作产生的系统交互”，不包含业务决策。例如是否发送通知、
@@ -124,7 +141,7 @@ pub trait DesktopPort: Send + Sync {
     /// 宿主不支持抓屏或后台任务队列无法接收请求时返回 [`PortError`]。
     fn capture_long_capture_frame(
         &self,
-        _delta: WheelDelta,
+        _request: LongCaptureFrameRequest,
         _sink: ScreenCaptureSink,
     ) -> Result<(), PortError> {
         Err(PortError::with_kind(

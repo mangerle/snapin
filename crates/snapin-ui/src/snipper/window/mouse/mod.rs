@@ -15,6 +15,7 @@ mod wheel;
 pub use buttons::handle_mouse_button;
 #[cfg(test)]
 use buttons::{handle_left_press, handle_left_release};
+pub(crate) use long_capture::toggle_long_capture_auto_scroll;
 #[cfg(test)]
 use movement::constrain_with_shift;
 pub use movement::handle_cursor_move;

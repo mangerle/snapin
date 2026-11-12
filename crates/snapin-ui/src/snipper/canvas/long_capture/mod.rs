@@ -253,6 +253,16 @@ pub(crate) fn render_long_capture_control_bar(
                 // 开始/停止录制红框胶囊
                 draw_capture_toggle_button(pixmap, &btn_rect, session.is_capturing, is_hovered, s);
             }
+            LongCaptureAction::ToggleAutoScroll => {
+                draw_auto_scroll_button(
+                    pixmap,
+                    &btn_rect,
+                    session.direction,
+                    session.is_auto_scrolling(),
+                    is_hovered,
+                    s,
+                );
+            }
             LongCaptureAction::EnterEditing => {
                 // 二次编辑图标（带铅笔方框）
                 if is_hovered {

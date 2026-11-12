@@ -2,7 +2,9 @@
 //!
 //! 管理长截图的捕获状态、拼接引擎、视口偏移、缩略图热区与专用控制条。
 
+use super::long_capture_scroll::{AutoScrollStopReason, LongCaptureScrollDriver};
 use crate::geometry::{Point, Rect};
+use crate::ports::WheelDelta;
 use snapin_render::stitching::{
     FrameShiftAnalysis, LongCaptureStitcher, StitchDirection, StitchFrameOutcome, StitchOptions,
     ThumbnailRenderSpec, ViewportWindow,
@@ -18,6 +20,8 @@ pub enum LongCaptureAction {
     ToggleDirection,
     /// 开始/停止捕获（停止状态显示“开始”，录制状态显示“停止”）
     ToggleCapture,
+    /// 启动或停止自动滚到底连续拼接
+    ToggleAutoScroll,
     /// 展开或收起裁剪子菜单
     ToggleCropSubMenu,
     /// 上方裁剪（纵向时为上裁剪，横向时为左裁剪）
@@ -47,6 +51,7 @@ impl LongCaptureAction {
             Self::DragToolbar => "拖动工具栏",
             Self::ToggleDirection => "切换截图方向",
             Self::ToggleCapture => "开始/停止截图",
+            Self::ToggleAutoScroll => "自动滚动/停止自动滚动",
             Self::ToggleCropSubMenu => "裁剪功能",
             Self::CropHead => "上裁剪/左裁剪",
             Self::CropTail => "下裁剪/右裁剪",
@@ -117,6 +122,8 @@ pub struct LongCaptureSession {
     pub(crate) desired_thumbnail_spec: Option<(u64, ThumbnailRenderSpec)>,
     /// 最近一次在面板上展示使用的缩略图规格，供拼接提交后提前派发后台预生成
     pub(crate) last_thumbnail_spec: Option<ThumbnailRenderSpec>,
+    /// 滚轮增量蓄水池与自动滚动驱动器
+    scroll_driver: LongCaptureScrollDriver,
 }
 
 impl LongCaptureSession {
@@ -147,6 +154,7 @@ impl LongCaptureSession {
             async_thumbnail_enabled: false,
             desired_thumbnail_spec: None,
             last_thumbnail_spec: None,
+            scroll_driver: LongCaptureScrollDriver::default(),
         }
     }
 
@@ -221,6 +229,7 @@ impl LongCaptureSession {
     pub fn toggle_capture(&mut self) {
         self.is_capturing = !self.is_capturing;
         self.reset_direction();
+        self.scroll_driver.clear_all();
         self.pending_direction_confirm = false;
         if self.is_capturing {
             // 开始录制时关闭裁剪子菜单，聚焦于录制
@@ -240,6 +249,7 @@ impl LongCaptureSession {
         self.is_capturing = true;
         self.is_editing = false;
         self.reset_direction();
+        self.scroll_driver.clear_all();
         self.crop_sub_menu_open = false;
         self.pending_direction_confirm = false;
         self.is_matched = true;
@@ -258,6 +268,7 @@ impl LongCaptureSession {
         // 两个方向的主增长轴不同，必须从最近一帧重建画布，不能沿用旧方向的长图。
         self.stitcher.restart_with_direction(self.direction);
         self.reset_direction();
+        self.scroll_driver.clear_all();
         self.crop_sub_menu_open = false;
         self.pending_direction_confirm = false;
         self.viewport_offset_y = 0.0;
@@ -336,7 +347,47 @@ impl LongCaptureSession {
             }
             StitchFrameOutcome::LimitReached | StitchFrameOutcome::Ignored => {}
         }
+        self.scroll_driver.record_outcome(&outcome, Instant::now());
         outcome
+    }
+
+    /// 是否正在执行自动连续滚动抓屏。
+    #[must_use]
+    pub fn is_auto_scrolling(&self) -> bool {
+        self.scroll_driver.auto_scrolling
+    }
+
+    /// 将捕获态收到的高频手动滚轮增量并入待消费队列。
+    pub(crate) fn enqueue_wheel_delta(&mut self, delta: WheelDelta) {
+        self.scroll_driver.enqueue_manual_wheel(delta);
+    }
+
+    /// 启动自动连续滚动并立即触发首步抓帧。
+    pub fn start_auto_scroll(&mut self, now: Instant) {
+        self.pending_direction_confirm = false;
+        self.crop_sub_menu_open = false;
+        self.scroll_driver.start_auto_scroll(now);
+    }
+
+    /// 停止自动连续滚动。
+    pub fn stop_auto_scroll(&mut self) {
+        self.scroll_driver.stop_auto_scroll();
+    }
+
+    /// 取出下一批准备提交给底层滚动注入的增量。
+    pub(crate) fn take_ready_dispatch_delta(&mut self, now: Instant) -> Option<WheelDelta> {
+        self.scroll_driver
+            .take_ready_dispatch_delta(self.direction, now)
+    }
+
+    /// 返回自动滚动模式下次必须唤醒检查的时刻。
+    pub(crate) fn auto_scroll_deadline(&self) -> Option<Instant> {
+        self.scroll_driver.auto_scroll_deadline()
+    }
+
+    /// 消费最近一次自动滚动被动停止原因，以便界面展示精准中文状态文案。
+    pub(crate) fn take_last_auto_stop_reason(&mut self) -> Option<AutoScrollStopReason> {
+        self.scroll_driver.take_stop_reason()
     }
 
     /// 上裁剪（裁剪长图顶部/左侧），返回实际裁去的像素量。
@@ -353,6 +404,7 @@ impl LongCaptureSession {
         }
         if self.stitcher.is_anchor_truncated_below_frame() && self.is_capturing {
             self.is_capturing = false;
+            self.scroll_driver.clear_all();
         }
         cropped
     }
@@ -372,6 +424,7 @@ impl LongCaptureSession {
         }
         if self.stitcher.is_anchor_truncated_below_frame() && self.is_capturing {
             self.is_capturing = false;
+            self.scroll_driver.clear_all();
         }
         cropped
     }
@@ -402,6 +455,7 @@ impl LongCaptureSession {
         self.is_editing = true;
         self.crop_sub_menu_open = false;
         self.pending_direction_confirm = false;
+        self.scroll_driver.clear_all();
     }
 
     /// 在长图编辑模式下根据滚轮滚动调整视口偏移

@@ -335,6 +335,18 @@ pub fn tr(zh: &str) -> &str {
         "当前横向截图 (点击切换纵向)" => "Horizontal capture (click for vertical)",
         "停止截图" => "Stop capture",
         "开始截图" => "Start capture",
+        "停止自动滚动 (A)" => "Stop auto-scroll (A)",
+        "自动滚到底部 (A)" => "Auto-scroll to end (A)",
+        "自动滚到底录制中：再次点击自动滚动按钮或滚动鼠标可随时停止" => {
+            "Auto-scrolling: click Auto-Scroll or scroll manually to stop"
+        }
+        "已自动滚动到底部并停止" => "Reached end and stopped auto-scrolling",
+        "自动滚动连续未能匹配新画面，已安全停止" => {
+            "Auto-scroll stopped safely after consecutive unmatched frames"
+        }
+        "已停止自动滚动，请手动滚动或调整选区" => {
+            "Auto-scroll stopped; scroll manually or adjust selection"
+        }
         "编辑" => "Edit",
         "拖动工具栏" => "Drag toolbar",
         "上裁剪 (30px)" => "Crop top (30px)",

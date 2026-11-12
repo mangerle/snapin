@@ -218,6 +218,13 @@ fn handle_action_character(
     original_rgba: &RgbaImage,
 ) -> Option<bool> {
     if state.phase().is_long_capture() {
+        if state.phase() == SnipperPhase::LongCapturing
+            && key.eq_ignore_ascii_case("a")
+            && !state.viewport.modifiers.control_key()
+        {
+            super::mouse::toggle_long_capture_auto_scroll(state, original_rgba);
+            return Some(true);
+        }
         return Some(false);
     }
     if key.eq_ignore_ascii_case("c") && !state.viewport.modifiers.control_key() {

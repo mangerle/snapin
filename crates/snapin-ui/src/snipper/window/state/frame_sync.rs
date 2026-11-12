@@ -3,7 +3,7 @@
 //! 将抓屏帧校验、后台分析任务打包以及最终 `StitchFrameOutcome` 的底图/状态收敛逻辑
 //! 集中管理，使同步单测入口 `apply_captured_long_frame` 与真实异步流水线共享同一套状态语义。
 
-use super::{CapturedFrameEffect, SnipperState};
+use super::{AutoScrollStopReason, CapturedFrameEffect, SnipperState};
 use crate::ports::PortError;
 use crate::snipper::selection::SelectionState;
 use crate::snipper::window::jobs::AnalyzeFrameTask;
@@ -44,6 +44,9 @@ impl SnipperState {
             Ok(frame) => frame,
             Err(error) => {
                 self.jobs.finish_screen_capture(request_id);
+                if let Some(session) = self.long_capture.as_mut() {
+                    session.stop_auto_scroll();
+                }
                 warn!("长截图抓屏失败，请求序号: {request_id}，原因: {error}");
                 self.set_status_message(trf!(
                     "长截图抓屏失败: {}",
@@ -150,8 +153,19 @@ impl SnipperState {
         frame: RgbaImage,
         outcome: StitchFrameOutcome,
     ) -> CapturedFrameEffect {
-        let recording_hint = tr("长截图录制中：在选区内滚动鼠标自动拼接");
-        match outcome {
+        let stop_reason = self.long_capture.as_mut().and_then(
+            crate::snipper::window::state::LongCaptureSession::take_last_auto_stop_reason,
+        );
+        let is_auto = self
+            .long_capture
+            .as_ref()
+            .is_some_and(crate::snipper::window::state::LongCaptureSession::is_auto_scrolling);
+        let recording_hint = if is_auto {
+            tr("自动滚到底录制中：再次点击自动滚动按钮或滚动鼠标可随时停止")
+        } else {
+            tr("长截图录制中：在选区内滚动鼠标自动拼接")
+        };
+        let effect = match outcome {
             StitchFrameOutcome::Stitched { .. } => {
                 *bg_image = frame;
                 if self.session.status_message.as_deref() != Some(recording_hint) {
@@ -180,7 +194,17 @@ impl SnipperState {
                 CapturedFrameEffect::NoBgUpdate
             }
             StitchFrameOutcome::Ignored => CapturedFrameEffect::NoBgUpdate,
+        };
+        match stop_reason {
+            Some(AutoScrollStopReason::ReachedEnd) => {
+                self.set_status_message(tr("已自动滚动到底部并停止"));
+            }
+            Some(AutoScrollStopReason::UnmatchedStalled) => {
+                self.set_status_message(tr("自动滚动连续未能匹配新画面，已安全停止"));
+            }
+            Some(AutoScrollStopReason::CanvasLimitReached) | None => {}
         }
+        effect
     }
 }
 

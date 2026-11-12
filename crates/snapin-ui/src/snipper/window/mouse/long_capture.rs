@@ -61,30 +61,13 @@ fn dispatch_long_capture_action(
                 if let Some(session) = state.long_capture.as_mut() {
                     session.toggle_capture();
                 }
-                state.set_status_message(snapin_foundation::i18n::tr(
-                    "长截图已停止：可调整选区或裁剪，点击开始重新录制",
-                ));
-            } else if let Some(first_frame) = current_selection_frame(state, original_rgba) {
-                if let SelectionState::Locked { active_drag, .. } = &mut state.viewport.selection {
-                    *active_drag = None;
-                }
-                state.editor.annotation.active_text_input = None;
-                state.editor.annotation.is_selecting_text = false;
-                state.editor.annotation.stroke.clear();
-                state.editor.annotation.toolbar.active_tool = None;
-                crate::snipper::window::annotation_edit::clear(state);
-                if let Some(session) = state.long_capture.as_mut() {
-                    session.crop_sub_menu_open = false;
-                    session.start_capture(first_frame);
-                }
-                state.set_status_message(snapin_foundation::i18n::tr(
-                    "长截图录制中：在选区内滚动鼠标自动拼接",
-                ));
+                state.set_status_message(tr("长截图已停止：可调整选区或裁剪，点击开始重新录制"));
             } else {
-                state.set_status_message(snapin_foundation::i18n::tr(
-                    "选区过小，无法开始长截图录制",
-                ));
+                start_long_capture_recording(state, original_rgba);
             }
+        }
+        LongCaptureAction::ToggleAutoScroll => {
+            toggle_long_capture_auto_scroll(state, original_rgba)
         }
         LongCaptureAction::ToggleDirection => {
             if let Some(session) = state.long_capture.as_mut() {
@@ -271,6 +254,64 @@ fn handle_crop_tail_action(state: &mut SnipperState) {
     state.set_status_message(msg);
 }
 
+/// 若当前未处于录制状态，提取选区首帧并重启一轮长截图录制；返回是否处于有效录制态。
+fn ensure_long_capture_recording(state: &mut SnipperState, original_rgba: &RgbaImage) -> bool {
+    if state
+        .long_capture
+        .as_ref()
+        .is_some_and(|session| session.is_capturing && !session.is_editing)
+    {
+        return true;
+    }
+    start_long_capture_recording(state, original_rgba)
+}
+
+fn start_long_capture_recording(state: &mut SnipperState, original_rgba: &RgbaImage) -> bool {
+    let Some(first_frame) = current_selection_frame(state, original_rgba) else {
+        state.set_status_message(tr("选区过小，无法开始长截图录制"));
+        return false;
+    };
+    if let SelectionState::Locked { active_drag, .. } = &mut state.viewport.selection {
+        *active_drag = None;
+    }
+    state.editor.annotation.active_text_input = None;
+    state.editor.annotation.is_selecting_text = false;
+    state.editor.annotation.stroke.clear();
+    state.editor.annotation.toolbar.active_tool = None;
+    crate::snipper::window::annotation_edit::clear(state);
+    if let Some(session) = state.long_capture.as_mut() {
+        session.crop_sub_menu_open = false;
+        session.start_capture(first_frame);
+    }
+    state.set_status_message(tr("长截图录制中：在选区内滚动鼠标自动拼接"));
+    true
+}
+
+/// 切换长截图“自动滚到底部”开关，同步处理暂停态自动续拍。
+pub(crate) fn toggle_long_capture_auto_scroll(state: &mut SnipperState, original_rgba: &RgbaImage) {
+    let already_auto = state
+        .long_capture
+        .as_ref()
+        .is_some_and(LongCaptureSession::is_auto_scrolling);
+    if already_auto {
+        if let Some(session) = state.long_capture.as_mut() {
+            session.stop_auto_scroll();
+        }
+        state.set_status_message(tr("已停止自动滚动，请手动滚动或调整选区"));
+        return;
+    }
+
+    if !ensure_long_capture_recording(state, original_rgba) {
+        return;
+    }
+    if let Some(session) = state.long_capture.as_mut() {
+        session.start_auto_scroll(std::time::Instant::now());
+        state.set_status_message(tr(
+            "自动滚到底录制中：再次点击自动滚动按钮或滚动鼠标可随时停止",
+        ));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -405,6 +446,49 @@ mod tests {
         assert_eq!(
             state.session.status_message.as_deref(),
             Some(tr("暂无可撤销的裁剪记录"))
+        );
+    }
+
+    #[test]
+    fn test_toggle_auto_scroll_restarts_paused_session_and_stops_on_static_end() {
+        let mut state = SnipperState::new();
+        let rect = Rect::new(20.0, 20.0, 80.0, 120.0);
+        state.viewport.selection = SelectionState::Locked {
+            rect,
+            active_drag: None,
+        };
+        let bg = make_vertical_pattern(200, 200, 0);
+        let first = make_vertical_pattern(80, 120, 20);
+        let mut session = LongCaptureSession::new(first);
+        session.toggle_capture();
+        assert!(!session.is_capturing);
+        state.long_capture = Some(session);
+
+        // 在暂停状态下直接点击“自动滚动”应自动恢复录制并开启自动滚动
+        handle_long_capture_action(&mut state, LongCaptureAction::ToggleAutoScroll, &bg);
+        let started = state.long_capture.as_ref().expect("会话应存在");
+        assert!(started.is_capturing);
+        assert!(started.is_auto_scrolling());
+
+        // 投喂连续 3 帧静止相同画面后，应判定已滚动到底部并安全停止自动滚动
+        for index in 0..3 {
+            let req = state.jobs.begin_screen_capture().expect("应登记请求");
+            let mut mutable_bg = bg.clone();
+            state.apply_captured_long_frame(&mut mutable_bg, req, Ok(bg.clone()));
+            let auto_now = state
+                .long_capture
+                .as_ref()
+                .expect("会话应存在")
+                .is_auto_scrolling();
+            if index < 2 {
+                assert!(auto_now, "第 {index} 帧静止尚不应提前停机");
+            } else {
+                assert!(!auto_now, "连续 3 帧静止后应自动停止滚动");
+            }
+        }
+        assert_eq!(
+            state.session.status_message.as_deref(),
+            Some(tr("已自动滚动到底部并停止"))
         );
     }
 }

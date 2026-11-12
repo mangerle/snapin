@@ -11,7 +11,7 @@ import Clutter from 'gi://Clutter';
 //   2. CaptureFullscreen   —— 用合成器内部对象直接把整屏写进给定文件流，无快门白闪。
 //      CaptureFullscreenWithCursor 为同一能力的显式指针开关版本。
 //   3. ListWindows         —— 枚举 Mutter 当前所有可见窗口几何，为快速吸附提供依据。
-//   4. SimulateScroll / SimulateScroll2D —— 通过 Clutter 虚拟指针向当前焦点应用注入滚轮事件。
+//   4. SimulateScroll / SimulateScroll2D / SimulateScrollAt —— 通过 Clutter 虚拟指针向目标窗口注入滚轮事件。
 const IFACE_XML = `
 <node>
   <interface name="org.gnome.Shell.Extensions.Snapin">
@@ -66,6 +66,15 @@ const IFACE_XML = `
       <arg type="s" direction="in" name="authToken"/>
       <arg type="d" direction="in" name="deltaX"/>
       <arg type="d" direction="in" name="deltaY"/>
+      <arg type="b" direction="out" name="success"/>
+    </method>
+    <method name="SimulateScrollAt">
+      <arg type="s" direction="in" name="authToken"/>
+      <arg type="d" direction="in" name="deltaX"/>
+      <arg type="d" direction="in" name="deltaY"/>
+      <arg type="b" direction="in" name="hasAnchor"/>
+      <arg type="d" direction="in" name="anchorX"/>
+      <arg type="d" direction="in" name="anchorY"/>
       <arg type="b" direction="out" name="success"/>
     </method>
   </interface>
@@ -166,29 +175,48 @@ export default class SnapinHelperExtension extends Extension {
      * 窗口堆叠顺序从顶层向下查找指针命中的非 Snapin 窗口并显式聚焦。
      * @returns {boolean} 是否找到并尝试聚焦目标窗口
      */
-    _focusWindowAtPointer() {
+    /**
+     * 定位并聚焦目标坐标（或回退到当前鼠标指针）命中的最顶层非 Snapin 应用窗口。
+     *
+     * 长截图录制时用户可能把光标停在选区外控制栏（或触发自动滚动），仅按指针位置
+     * 聚焦会误将焦点激活到控制栏下方标题栏甚至空白桌面；这里优先按选区物理锚点
+     * 换算出的 stage 坐标命中目标应用窗口，未命中或未传锚点时再回退指针坐标。
+     * @param {number|null} anchorPhysX 可选物理聚焦点 X
+     * @param {number|null} anchorPhysY 可选物理聚焦点 Y
+     * @returns {boolean} 是否找到并尝试聚焦目标窗口
+     */
+    _focusWindowAtPointer(anchorPhysX = null, anchorPhysY = null) {
         try {
+            const candidatePoints = [];
+            if (Number.isFinite(anchorPhysX) && Number.isFinite(anchorPhysY)) {
+                const stage = this._physicalAreaToStage(anchorPhysX, anchorPhysY, 2, 2);
+                candidatePoints.push([stage.x, stage.y]);
+            }
             const [pointerX, pointerY] = global.get_pointer();
+            candidatePoints.push([pointerX, pointerY]);
+
             const workspace = global.workspace_manager.get_active_workspace();
             const actors = global.get_window_actors();
-            for (let index = actors.length - 1; index >= 0; index--) {
-                const win = actors[index].get_meta_window();
-                if (!win || win.minimized) continue;
-                if (!win.located_on_workspace(workspace) && !win.is_on_all_workspaces()) continue;
-                const title = win.get_title() || '';
-                const wmClass = (win.get_wm_class() || '').toLowerCase();
-                if (title === 'Snapin' || wmClass.includes('snapin')) continue;
-                const rect = win.get_frame_rect();
-                if (pointerX < rect.x || pointerX >= rect.x + rect.width
-                    || pointerY < rect.y || pointerY >= rect.y + rect.height) {
-                    continue;
+            for (const [targetX, targetY] of candidatePoints) {
+                for (let index = actors.length - 1; index >= 0; index--) {
+                    const win = actors[index].get_meta_window();
+                    if (!win || win.minimized) continue;
+                    if (!win.located_on_workspace(workspace) && !win.is_on_all_workspaces()) continue;
+                    const title = win.get_title() || '';
+                    const wmClass = (win.get_wm_class() || '').toLowerCase();
+                    if (title === 'Snapin' || wmClass.includes('snapin')) continue;
+                    const rect = win.get_frame_rect();
+                    if (targetX < rect.x || targetX >= rect.x + rect.width
+                        || targetY < rect.y || targetY >= rect.y + rect.height) {
+                        continue;
+                    }
+                    if (typeof global.display.focus_window === 'function') {
+                        global.display.focus_window(win);
+                    } else {
+                        win.activate(global.get_current_time());
+                    }
+                    return true;
                 }
-                if (typeof global.display.focus_window === 'function') {
-                    global.display.focus_window(win);
-                } else {
-                    win.activate(global.get_current_time());
-                }
-                return true;
             }
         } catch (e) {
             console.debug('Snapin 聚焦滚轮目标窗口失败:', e.message);
@@ -541,6 +569,20 @@ export default class SnapinHelperExtension extends Extension {
      * @returns {boolean} 是否成功注入
      */
     SimulateScroll2D(authToken, deltaX, deltaY) {
+        return this.SimulateScrollAt(authToken, deltaX, deltaY, false, 0, 0);
+    }
+
+    /**
+     * 向指定物理锚点（通常为长截图选区中心）命中的窗口注入离散二维滚轮事件。
+     * @param {string} authToken 能力令牌
+     * @param {number} deltaX 水平滚轮增量
+     * @param {number} deltaY 垂直滚轮增量
+     * @param {boolean} hasAnchor 是否提供物理锚点坐标
+     * @param {number} anchorX 物理聚焦锚点 X
+     * @param {number} anchorY 物理聚焦锚点 Y
+     * @returns {boolean} 是否成功注入
+     */
+    SimulateScrollAt(authToken, deltaX, deltaY, hasAnchor, anchorX, anchorY) {
         if (!this._isAuthorized(authToken))
             return false;
 
@@ -554,7 +596,11 @@ export default class SnapinHelperExtension extends Extension {
             return false;
 
         try {
-            this._focusWindowAtPointer();
+            if (hasAnchor && Number.isFinite(anchorX) && Number.isFinite(anchorY)) {
+                this._focusWindowAtPointer(anchorX, anchorY);
+            } else {
+                this._focusWindowAtPointer();
+            }
             if (validY) {
                 const verticalDirection = deltaY > 0
                     ? Clutter.ScrollDirection.UP

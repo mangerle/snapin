@@ -373,12 +373,16 @@ impl SnipperView {
     /// 录制中用于独立刷新秒表，结果页用于推进内嵌预览；暂停和编码收尾阶段无需
     /// 保持高频唤醒，以降低常驻事件循环负载。
     pub fn needs_periodic_ui_tick(&self) -> bool {
-        self.state.recording.as_ref().is_some_and(|session| {
+        let recording_needs = self.state.recording.as_ref().is_some_and(|session| {
             matches!(
                 session.status(),
                 super::state::RecordingStatus::Active | super::state::RecordingStatus::Completed
             )
-        })
+        });
+        let auto_scroll_needs = self.state.long_capture.as_ref().is_some_and(|session| {
+            session.is_capturing && !session.is_editing && session.is_auto_scrolling()
+        });
+        recording_needs || auto_scroll_needs
     }
 
     /// 推进结果页内嵌预览；返回是否需要重绘。
@@ -403,10 +407,20 @@ impl SnipperView {
             .recording
             .as_ref()
             .and_then(super::state::RecordingSession::preview_deadline);
-        match (self.presenter.present_retry_deadline(), preview) {
-            (Some(left), Some(right)) => Some(left.min(right)),
-            (left, right) => left.or(right),
-        }
+        let auto_scroll = self
+            .state
+            .long_capture
+            .as_ref()
+            .filter(|session| session.is_capturing && !session.is_editing)
+            .and_then(|session| session.auto_scroll_deadline());
+        [
+            self.presenter.present_retry_deadline(),
+            preview,
+            auto_scroll,
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// 请求重绘。

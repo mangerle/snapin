@@ -72,11 +72,13 @@ pub(crate) fn handle_workspace_user_event(
                 view.handle_screen_capture_finished(request_id, result);
                 view.request_redraw();
             }
+            sync_snipper_ui_ticker(runtime);
         }
         PasterAppEvent::SnipperLongCaptureEvent { event } => {
             if let Some(view) = runtime.snipper.as_mut() {
                 view.handle_long_capture_event(event);
             }
+            sync_snipper_ui_ticker(runtime);
         }
         PasterAppEvent::HostWake => {
             if let Some(on_host_wake) = runtime.on_host_wake.as_mut() {
@@ -294,6 +296,7 @@ fn handle_snipper_ui_tick(runtime: &mut WorkspaceRuntime) {
     if let Some(view) = runtime.snipper.as_mut() {
         redraw |= view.refresh_recording_elapsed(now);
         redraw |= view.advance_recording_preview(now);
+        redraw |= view.tick_long_capture_auto_scroll(now);
     }
     if redraw {
         if let Some(view) = runtime.snipper.as_ref() {
@@ -340,6 +343,7 @@ pub(crate) fn handle_workspace_window_event(
         if let Some(view) = runtime.snipper.as_mut() {
             view.dispatch(event);
         }
+        sync_snipper_ui_ticker(runtime);
         finish_snipper_if_ready(runtime);
         return;
     }

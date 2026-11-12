@@ -8,7 +8,10 @@ use super::mouse::{
 };
 use super::presenter::SnipperPresenter;
 use super::types::SnipperOutcome;
+use crate::ports::LongCaptureFrameRequest;
+use crate::snipper::selection::SelectionState;
 use image::RgbaImage;
+use std::time::Instant;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{Ime, WindowEvent};
 use winit::window::Window;
@@ -128,10 +131,7 @@ fn handle_cursor_position(
 
 /// 处理鼠标滚轮并请求重绘。
 fn handle_wheel(context: &mut SnipperDispatchContext<'_>, delta: winit::event::MouseScrollDelta) {
-    if context.state.jobs.has_pending_screen_capture() {
-        return;
-    }
-    let capture_after_wheel = context
+    let capturing_long = context
         .state
         .long_capture
         .as_ref()
@@ -139,57 +139,70 @@ fn handle_wheel(context: &mut SnipperDispatchContext<'_>, delta: winit::event::M
     if !handle_mouse_wheel(context.state, delta) {
         return;
     }
-    if capture_after_wheel {
-        start_long_capture_frame(context, delta);
+    if capturing_long {
+        if let Some(session) = context.state.long_capture.as_mut() {
+            if let Some(wheel_delta) = resolve_long_capture_wheel_delta(session.direction, delta) {
+                session.enqueue_wheel_delta(wheel_delta);
+            }
+        }
+        dispatch_pending_long_capture_frame(context.window, context.state);
     } else {
         context.window.request_redraw();
     }
 }
 
-/// 隐藏覆盖层、请求底层滚动抓屏，并登记唯一在途请求。
-fn start_long_capture_frame(
-    context: &mut SnipperDispatchContext<'_>,
-    delta: winit::event::MouseScrollDelta,
-) {
-    let Some(direction) = context
-        .state
+/// 若长截图处于可捕获状态且无在途抓屏请求，从滚轮蓄水池/自动节拍中取出一批增量并触发底层滚动抓屏。
+pub(super) fn dispatch_pending_long_capture_frame(
+    window: &Window,
+    state: &mut SnipperState,
+) -> bool {
+    if state.jobs.has_pending_screen_capture() {
+        return false;
+    }
+    let Some(wheel_delta) = state
         .long_capture
-        .as_ref()
-        .map(|session| session.direction)
+        .as_mut()
+        .filter(|session| session.is_capturing && !session.is_editing)
+        .and_then(|session| session.take_ready_dispatch_delta(Instant::now()))
     else {
-        context.window.request_redraw();
-        return;
+        return false;
     };
-    let Some(wheel_delta) = resolve_long_capture_wheel_delta(direction, delta) else {
-        context.window.request_redraw();
-        return;
+    let Some(request_id) = state.jobs.begin_screen_capture() else {
+        return false;
     };
-    let Some(request_id) = context.state.jobs.begin_screen_capture() else {
-        return;
+    let focus_point = match state.viewport.selection {
+        SelectionState::Locked { rect, .. } => {
+            Some((rect.x + rect.width * 0.5, rect.y + rect.height * 0.5))
+        }
+        _ => None,
     };
 
     tracing::debug!(
-        "启动长截图滚动抓屏，请求序号: {request_id}，滚动增量: ({:.3}, {:.3})",
+        "启动长截图滚动抓屏，请求序号: {request_id}，滚动增量: ({:.3}, {:.3})，锚点: {:?}",
         wheel_delta.x,
-        wheel_delta.y
+        wheel_delta.y,
+        focus_point
     );
-    context.window.set_visible(false);
-    let screen_capture_events = context.state.jobs.screen_capture_events.clone();
-    let desktop = context.state.session.desktop.clone();
+    window.set_visible(false);
+    let screen_capture_events = state.jobs.screen_capture_events.clone();
+    let desktop = state.session.desktop.clone();
     let submitted = desktop.capture_long_capture_frame(
-        wheel_delta,
+        LongCaptureFrameRequest::new(wheel_delta, focus_point),
         Box::new(move |result| screen_capture_events(request_id, result)),
     );
     if let Err(error) = submitted {
-        context.state.jobs.finish_screen_capture(request_id);
-        context.window.set_visible(true);
-        context.window.focus_window();
+        state.jobs.finish_screen_capture(request_id);
+        if let Some(session) = state.long_capture.as_mut() {
+            session.stop_auto_scroll();
+        }
+        window.set_visible(true);
+        window.focus_window();
         tracing::warn!("提交长截图抓屏任务失败，请求序号: {request_id}，原因: {error}");
-        context
-            .state
-            .set_status_message(format!("提交长截图抓屏任务失败: {error}"));
-        context.window.request_redraw();
+        state.set_status_message(format!("提交长截图抓屏任务失败: {error}"));
+        window.request_redraw();
+        return false;
     }
+    true
 }
 
 /// 处理鼠标按键并请求重绘。
@@ -200,6 +213,7 @@ fn handle_pointer_button(
 ) {
     let need_redraw = handle_mouse_button(context.state, button, button_state, context.bg_image);
     if need_redraw {
+        dispatch_pending_long_capture_frame(context.window, context.state);
         context.window.request_redraw();
     }
 }
@@ -213,6 +227,7 @@ fn handle_keyboard(context: &mut SnipperDispatchContext<'_>, key_event: &winit::
         context.bg_image,
     );
     if need_redraw {
+        dispatch_pending_long_capture_frame(context.window, context.state);
         context.window.request_redraw();
     }
 }

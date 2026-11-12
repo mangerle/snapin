@@ -26,27 +26,56 @@ use std::time::Duration;
 #[cfg(target_os = "linux")]
 const WHEEL_COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// 二维滚轮模拟请求参数。
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct WheelInputSpec {
+    /// 水平滚轮增量（正数向左、负数向右）
+    pub delta_x: f32,
+    /// 垂直滚轮增量（正数向上、负数向下）
+    pub delta_y: f32,
+    /// 目标窗口所在选区中心的物理像素坐标，供合成器精准聚焦目标窗口。
+    pub focus_point: Option<(f32, f32)>,
+}
+
 /// 异步模拟鼠标二维滚轮滚动（支持垂直与水平长截图）。
 ///
 /// 方向遵循 Winit `MouseScrollDelta` 语义：
 /// `delta_x > 0` 向左揭示内容、`delta_x < 0` 向右揭示内容；
 /// `delta_y > 0` 向上滚动、`delta_y < 0` 向下滚动。
 ///
-/// Linux 优先走 GNOME Shell 扩展的合成器内虚拟指针，不依赖 `/dev/uinput` 写权限；
-/// 扩展不可用时再降级到外部输入工具。Windows 与 macOS 在阻塞线程调用原生输入 API。
-///
 /// # Errors
 ///
 /// 当前平台没有可用滚轮注入通路、扩展调用失败，或阻塞任务异常结束时返回 [`PlatformError`]。
 pub async fn simulate_mouse_wheel_async(delta_x: f32, delta_y: f32) -> Result<(), PlatformError> {
-    if !has_effective_wheel_delta(delta_x, delta_y) {
+    simulate_mouse_wheel_with_focus_async(WheelInputSpec {
+        delta_x,
+        delta_y,
+        focus_point: None,
+    })
+    .await
+}
+
+/// 带目标窗口聚焦锚点的异步二维滚轮模拟入口。
+///
+/// Linux 优先走 GNOME Shell 扩展的合成器内虚拟指针，按 `focus_point`（通常为长截图
+/// 选区中心）聚焦目标应用窗口，不依赖 `/dev/uinput` 写权限；扩展不可用时降级到外部输入
+/// 工具。Windows 与 macOS 在阻塞线程调用原生输入 API。
+///
+/// # Errors
+///
+/// 当前平台没有可用滚轮注入通路、扩展调用失败，或阻塞任务异常结束时返回 [`PlatformError`]。
+pub async fn simulate_mouse_wheel_with_focus_async(
+    spec: WheelInputSpec,
+) -> Result<(), PlatformError> {
+    if !has_effective_wheel_delta(spec.delta_x, spec.delta_y) {
         return Ok(());
     }
 
     #[cfg(target_os = "linux")]
     {
         if get_platform_capabilities().gnome_extension_active {
-            match simulate_mouse_wheel_extension(delta_x, delta_y).await {
+            match simulate_mouse_wheel_extension(spec.delta_x, spec.delta_y, spec.focus_point).await
+            {
                 Ok(true) => return Ok(()),
                 Ok(false) => {
                     tracing::debug!("GNOME 扩展拒绝注入滚轮事件，降级到外部输入工具");
@@ -56,7 +85,7 @@ pub async fn simulate_mouse_wheel_async(delta_x: f32, delta_y: f32) -> Result<()
                 }
             }
         }
-        tokio::task::spawn_blocking(move || simulate_linux_wheel(delta_x, delta_y))
+        tokio::task::spawn_blocking(move || simulate_linux_wheel(spec.delta_x, spec.delta_y))
             .await
             .map_err(|error| PlatformError::Unsupported {
                 capability: format!("等待 Linux 滚轮注入任务失败: {error}"),
@@ -65,7 +94,7 @@ pub async fn simulate_mouse_wheel_async(delta_x: f32, delta_y: f32) -> Result<()
 
     #[cfg(not(target_os = "linux"))]
     {
-        tokio::task::spawn_blocking(move || simulate_mouse_wheel(delta_x, delta_y))
+        tokio::task::spawn_blocking(move || simulate_mouse_wheel(spec.delta_x, spec.delta_y))
             .await
             .map_err(|error| PlatformError::Unsupported {
                 capability: format!("等待滚轮注入任务失败: {error}"),

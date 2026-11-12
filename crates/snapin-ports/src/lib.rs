@@ -38,8 +38,8 @@ pub use clipboard::{
     ClipboardResult, ClipboardSink, ClipboardTarget, ClipboardWrite,
 };
 pub use desktop::{
-    noop_screen_capture_event_sink, DesktopPort, NoopDesktop, ScreenCaptureEventSink,
-    ScreenCaptureSink, WheelDelta, WorkspaceState, WorkspaceStateStore,
+    noop_screen_capture_event_sink, DesktopPort, LongCaptureFrameRequest, NoopDesktop,
+    ScreenCaptureEventSink, ScreenCaptureSink, WheelDelta, WorkspaceState, WorkspaceStateStore,
 };
 pub use error::{PortError, PortErrorKind};
 pub use id::{GroupId, PasterId};

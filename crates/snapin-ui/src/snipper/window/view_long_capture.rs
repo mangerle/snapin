@@ -1,5 +1,6 @@
 //! `SnipperView` 长截图异步抓取、后台匹配提交与缩略图后台预渲染流水线扩展。
 
+use super::event_dispatcher::dispatch_pending_long_capture_frame;
 use super::jobs::{AnalyzeFrameTask, LongCaptureAsyncEvent, ThumbnailRenderTask};
 use super::state::frame_sync::{AnalyzedLongFrame, PlannedLongFrame};
 use super::state::CapturedFrameEffect;
@@ -124,7 +125,23 @@ impl SnipperView {
                 self.schedule_desired_long_capture_thumbnail();
             }
         }
+        // 前帧分析刚落盘，若用户在这期间持续滑动留下了累积滚轮增量则立刻无缝续拍
+        dispatch_pending_long_capture_frame(&self.window, &mut self.state);
         self.window.request_redraw();
+    }
+
+    /// 推进长截图自动滚到底节拍；到达预定空窗间隔后触发下一轮滚动抓屏。
+    pub fn tick_long_capture_auto_scroll(&mut self, now: std::time::Instant) -> bool {
+        let due = self
+            .state
+            .long_capture
+            .as_ref()
+            .and_then(|session| session.auto_scroll_deadline())
+            .is_some_and(|deadline| now >= deadline);
+        if !due {
+            return false;
+        }
+        dispatch_pending_long_capture_frame(&self.window, &mut self.state)
     }
 
     pub(super) fn schedule_desired_long_capture_thumbnail(&mut self) {

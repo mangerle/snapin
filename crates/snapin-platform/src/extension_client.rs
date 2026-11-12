@@ -277,14 +277,11 @@ pub async fn list_windows() -> Result<Vec<WindowRect>, PlatformError> {
     parse_windows_json(&json)
 }
 
-/// 请求 GNOME 扩展通过 Clutter 虚拟指针向当前焦点应用注入二维滚轮事件。
+/// 请求 GNOME 扩展通过 Clutter 虚拟指针注入二维滚轮事件，并优先聚焦指定选区坐标命中的目标窗口。
 ///
-/// 该通路不依赖 `/dev/uinput` 写权限或 `ydotool` 守护进程，适用于 GNOME Wayland。
-/// 方向沿用 Winit 约定：`delta_x > 0` 向左滚动、`delta_x < 0` 向右滚动；
-/// `delta_y > 0` 向上滚动、`delta_y < 0` 向下滚动。
-///
-/// 当仅存在垂直滚动时优先调用旧签名 `SimulateScroll` 以兼容尚未重启的扩展实例；
-/// 存在水平滚动时调用 `SimulateScroll2D`。
+/// 方向沿用 Winit 约定：`delta_x > 0` 向左、`delta_x < 0` 向右；`delta_y > 0` 向上、`delta_y < 0` 向下。
+/// 若提供 `focus_point`（物理像素坐标），优先调用 `SimulateScrollAt` 以免指针悬停在选区外控制条上时
+/// 误聚焦标题栏或空白桌面；遇到尚未重启加载新方法的旧扩展实例时自动降级到 `SimulateScroll2D` / `SimulateScroll`。
 ///
 /// # Errors
 ///
@@ -292,6 +289,7 @@ pub async fn list_windows() -> Result<Vec<WindowRect>, PlatformError> {
 pub async fn simulate_mouse_wheel_extension(
     delta_x: f32,
     delta_y: f32,
+    focus_point: Option<(f32, f32)>,
 ) -> Result<bool, PlatformError> {
     let valid_x = delta_x.is_finite() && delta_x.abs() >= f32::EPSILON;
     let valid_y = delta_y.is_finite() && delta_y.abs() >= f32::EPSILON;
@@ -300,6 +298,27 @@ pub async fn simulate_mouse_wheel_extension(
     }
 
     let token = read_extension_token().await?;
+    if let Some((anchor_x, anchor_y)) =
+        focus_point.filter(|(ax, ay)| ax.is_finite() && ay.is_finite())
+    {
+        let args = (
+            token.as_str(),
+            f64::from(delta_x),
+            f64::from(delta_y),
+            true,
+            f64::from(anchor_x),
+            f64::from(anchor_y),
+        );
+        let response: Result<(bool,), _> = call_extension("SimulateScrollAt", &args).await;
+        match response {
+            Ok((success,)) => return Ok(success),
+            Err(PlatformError::DBus { message, .. }) if message.contains("UnknownMethod") => {
+                tracing::debug!("GNOME 扩展尚未加载 SimulateScrollAt，降级为无锚点滚轮注入");
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
     if !valid_x {
         let arguments = (token.as_str(), f64::from(delta_y));
         let (success,): (bool,) = call_extension("SimulateScroll", &arguments).await?;

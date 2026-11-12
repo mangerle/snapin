@@ -54,7 +54,10 @@ pub use lifecycle::{
     open_path_in_file_manager, open_url, run_bounded_system_command, spawn_independent_process,
     start_daemon_process, stop_systemd_service,
 };
-pub use mouse_input::{simulate_mouse_wheel, simulate_mouse_wheel_async};
+pub use mouse_input::{
+    simulate_mouse_wheel, simulate_mouse_wheel_async, simulate_mouse_wheel_with_focus_async,
+    WheelInputSpec,
+};
 pub use notification::send_desktop_notification;
 
 pub use dialog::{pick_config_export_path, pick_config_import_path, pick_save_path};

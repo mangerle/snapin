@@ -13,8 +13,8 @@ use super::wayland_clipboard::{PreparedSelection, SelectionTarget};
 use crate::ports::DesktopPort;
 #[cfg(target_os = "linux")]
 use crate::ports::{
-    ClipboardJobId, ClipboardResult, ClipboardSink, ClipboardWrite, PortError, PortErrorKind,
-    ScreenCaptureSink, WheelDelta,
+    ClipboardJobId, ClipboardResult, ClipboardSink, ClipboardWrite, LongCaptureFrameRequest,
+    PortError, PortErrorKind, ScreenCaptureSink,
 };
 #[cfg(target_os = "linux")]
 use snapin_foundation::Rect;
@@ -303,10 +303,10 @@ impl DesktopPort for WorkspaceDesktop {
 
     fn capture_long_capture_frame(
         &self,
-        delta: WheelDelta,
+        request: LongCaptureFrameRequest,
         sink: ScreenCaptureSink,
     ) -> Result<(), PortError> {
-        self.inner.capture_long_capture_frame(delta, sink)
+        self.inner.capture_long_capture_frame(request, sink)
     }
 }
 

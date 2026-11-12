@@ -437,3 +437,56 @@ pub(crate) fn draw_undo_crop_icon(pixmap: &mut PixmapMut, cx: f32, cy: f32, styl
         pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
     }
 }
+
+/// 自动滚动图标绘制样式。
+#[derive(Clone, Copy)]
+pub(crate) struct AutoScrollIconStyle {
+    pub(crate) scale: f32,
+    pub(crate) hovered: bool,
+    pub(crate) active: bool,
+    pub(crate) direction: StitchDirection,
+}
+
+/// 绘制自动滚到底部图标（纵向双向下折箭头，横向双向右折箭头）。
+pub(crate) fn draw_auto_scroll_icon(
+    pixmap: &mut PixmapMut,
+    cx: f32,
+    cy: f32,
+    style: AutoScrollIconStyle,
+) {
+    let s = style.scale;
+    let color = if style.active {
+        (37, 99, 235, 255)
+    } else if style.hovered {
+        (17, 24, 39, 255)
+    } else {
+        (75, 85, 99, 255)
+    };
+    let paint = make_fill_paint(color.0, color.1, color.2, color.3);
+    let stroke = make_stroke(1.5 * s);
+
+    let mut pb = PathBuilder::new();
+    match style.direction {
+        StitchDirection::Vertical => {
+            pb.move_to(cx - 4.0 * s, cy - 4.2 * s);
+            pb.line_to(cx, cy - 0.5 * s);
+            pb.line_to(cx + 4.0 * s, cy - 4.2 * s);
+
+            pb.move_to(cx - 4.0 * s, cy + 0.5 * s);
+            pb.line_to(cx, cy + 4.2 * s);
+            pb.line_to(cx + 4.0 * s, cy + 0.5 * s);
+        }
+        StitchDirection::Horizontal => {
+            pb.move_to(cx - 4.2 * s, cy - 4.0 * s);
+            pb.line_to(cx - 0.5 * s, cy);
+            pb.line_to(cx - 4.2 * s, cy + 4.0 * s);
+
+            pb.move_to(cx + 0.5 * s, cy - 4.0 * s);
+            pb.line_to(cx + 4.2 * s, cy);
+            pb.line_to(cx + 0.5 * s, cy + 4.0 * s);
+        }
+    }
+    if let Some(path) = pb.finish() {
+        pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+    }
+}

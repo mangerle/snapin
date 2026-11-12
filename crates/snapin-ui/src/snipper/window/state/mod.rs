@@ -4,6 +4,7 @@ mod editor;
 pub(crate) mod frame_sync;
 mod jobs;
 pub(crate) mod long_capture;
+mod long_capture_scroll;
 mod ocr;
 mod phase;
 mod recording;
@@ -25,6 +26,7 @@ use image::RgbaImage;
 use jobs::{PendingMediaJob, SnipperJobs};
 pub(crate) use long_capture::LongCanvasSpace;
 pub use long_capture::{DirectionToggleOutcome, LongCaptureAction, LongCaptureSession};
+pub(crate) use long_capture_scroll::AutoScrollStopReason;
 use ocr::SnipperOcr;
 pub use phase::SnipperPhase;
 pub use recording::{
