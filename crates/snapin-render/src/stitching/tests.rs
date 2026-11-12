@@ -885,3 +885,40 @@ fn test_extreme_aspect_thumbnail_anchors_to_cropped_head_then_returns_to_tail() 
     assert!((back_to_tail.slice_end_ratio - 1.0).abs() < 1e-4);
     assert!(back_to_tail.slice_start_ratio > 0.01);
 }
+
+#[test]
+fn test_periodic_repeating_rows_with_jitter_rejected_by_harmonic_guard() {
+    let options = StitchOptions::default();
+    let width = 200u32;
+    let height = 340u32;
+    let period = 24u32;
+
+    let build_jittered_rows = |scroll: u32| -> RgbaImage {
+        let mut img = RgbaImage::new(width, height);
+        for y in 0..height {
+            let doc_y = y + scroll;
+            let row_idx = doc_y / period;
+            let py = doc_y % period;
+            // 基础条纹高度周期重复，仅叠加轻微奇偶行亮度微扰(±8)使 err(3*12)≈8 落入谐波陷阱
+            let jitter = if row_idx.is_multiple_of(2) { 0u8 } else { 8 };
+            let base = if py < 8 { 60 + jitter } else { 240 - jitter };
+            for x in 0..width {
+                let col_accent = if (x / 20).is_multiple_of(2) { 0 } else { 12 };
+                img.put_pixel(
+                    x,
+                    y,
+                    Rgba([base - col_accent, base, base - col_accent, 255]),
+                );
+            }
+        }
+        img
+    };
+
+    let f0 = build_jittered_rows(0);
+    let f1 = build_jittered_rows(12);
+    let res = estimate_shift(&f0, &f1, StitchDirection::Vertical, &options);
+    assert!(
+        !res.is_matched(options.confidence_threshold),
+        "周期性重复行仅存在轻微微扰时，3 倍频谐波(+36)低误差陷阱应被多义性守卫拦截: {res:?}"
+    );
+}

@@ -151,6 +151,33 @@ fn eval_and_record(ctx: &GridEvalContext<'_>, shift: i32, scores: &mut Vec<(i32,
     scores.push((shift, err));
 }
 
+fn probe_harmonic_candidates(
+    ctx: &GridEvalContext<'_>,
+    best_shift: i32,
+    min_shift: usize,
+    max_shift: usize,
+    scores: &mut Vec<(i32, f64)>,
+) {
+    let mag = best_shift.unsigned_abs() as usize;
+    let sign = best_shift.signum();
+    if mag == 0 || sign == 0 {
+        return;
+    }
+    for factor in [2usize, 3] {
+        if let Some(up) = mag.checked_mul(factor) {
+            if up >= min_shift && up <= max_shift {
+                eval_and_record(ctx, (up as i32) * sign, scores);
+            }
+        }
+        if mag.is_multiple_of(factor) {
+            let down = mag / factor;
+            if down >= min_shift && down <= max_shift {
+                eval_and_record(ctx, (down as i32) * sign, scores);
+            }
+        }
+    }
+}
+
 fn search_shifts_pyramid_or_dense(
     ctx: &GridEvalContext<'_>,
     min_shift: usize,
@@ -192,7 +219,9 @@ fn search_shifts_pyramid_or_dense(
             }
             if let Some(best) = pick_best(&scores) {
                 eval_and_record(ctx, -best.0, &mut scores);
-                return (scores, best);
+                probe_harmonic_candidates(ctx, best.0, min_shift, max_shift, &mut scores);
+                let refined_best = pick_best(&scores).unwrap_or(best);
+                return (scores, refined_best);
             }
         }
     }
@@ -210,23 +239,44 @@ fn pick_best(scores: &[(i32, f64)]) -> Option<(i32, f64)> {
     scores.iter().copied().min_by(|a, b| a.1.total_cmp(&b.1))
 }
 
-fn find_second_best_outside_basin(scores: &[(i32, f64)], best_shift: i32) -> f64 {
-    scores
-        .iter()
-        .filter(|(shift, _)| (shift - best_shift).abs() > PEAK_BASIN_RADIUS)
-        .map(|(_, err)| *err)
-        .fold(f64::MAX, f64::min)
+fn is_same_sign_harmonic(best_shift: i32, other_shift: i32) -> bool {
+    if best_shift == 0 || other_shift == 0 || best_shift.signum() != other_shift.signum() {
+        return false;
+    }
+    let a = best_shift.unsigned_abs();
+    let b = other_shift.unsigned_abs();
+    let (big, small) = (a.max(b), a.min(b));
+    small > 0 && big.is_multiple_of(small) && big / small >= 2
 }
 
-/// 验证获胜位移是否真正优于静止帧、且未落入周期性重复纹理的多义陷阱。
-fn passes_ambiguity_guards(best_err: f64, err_zero: f64, second_err: f64) -> bool {
+/// 验证获胜位移是否真正优于静止帧、且未落入周期性重复纹理或谐波倍频的多义陷阱。
+fn passes_ambiguity_guards(
+    best_shift: i32,
+    best_err: f64,
+    err_zero: f64,
+    scores: &[(i32, f64)],
+) -> bool {
     if !best_err.is_finite() || best_err == f64::MAX || !err_zero.is_finite() {
         return false;
     }
     if err_zero < best_err * 1.4 + 2.5 {
         return false;
     }
+    let mut second_err = f64::MAX;
+    let mut harmonic_err = f64::MAX;
+    for &(shift, err) in scores {
+        if (shift - best_shift).abs() <= PEAK_BASIN_RADIUS {
+            continue;
+        }
+        second_err = second_err.min(err);
+        if is_same_sign_harmonic(best_shift, shift) {
+            harmonic_err = harmonic_err.min(err);
+        }
+    }
     if second_err < 25.0 && second_err < best_err * 1.8 + 6.0 {
+        return false;
+    }
+    if harmonic_err < 25.0 && harmonic_err < best_err * 2.2 + 12.0 {
         return false;
     }
     true
@@ -295,8 +345,7 @@ pub(crate) fn estimate_plane_shift(
 
     let (scores, (best_shift, min_avg_error)) =
         search_shifts_pyramid_or_dense(&ctx, min_shift, max_shift);
-    let second_err = find_second_best_outside_basin(&scores, best_shift);
-    if !passes_ambiguity_guards(min_avg_error, err_zero, second_err) {
+    if !passes_ambiguity_guards(best_shift, min_avg_error, err_zero, &scores) {
         return MatchResult::idle();
     }
 
@@ -490,6 +539,25 @@ mod tests {
             &curr,
             StitchDirection::Vertical,
             &options
+        ));
+    }
+
+    #[test]
+    fn test_passes_ambiguity_guards_rejects_low_error_harmonic_trap() {
+        // 次优峰误差=8.0 在主峰=0.0 时刚好躲过普通独特性阈值(8.0 >= 6.0)，
+        // 但作为 2 倍谐波(48 == 2 * 24) 必须被谐波多义性保护拦截。
+        assert!(!passes_ambiguity_guards(
+            24,
+            0.0,
+            45.0,
+            &[(24, 0.0), (48, 8.0), (36, 30.0)],
+        ));
+        // 若谐波误差明显偏高(>= 25.0)说明行内容具备唯一区分度，应正常放行。
+        assert!(passes_ambiguity_guards(
+            24,
+            0.0,
+            45.0,
+            &[(24, 0.0), (48, 28.0), (36, 35.0)],
         ));
     }
 }
