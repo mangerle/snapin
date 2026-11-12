@@ -9,4 +9,4 @@ mod tests;
 
 pub use matcher::estimate_shift;
 pub use stitcher::LongCaptureStitcher;
-pub use types::{MatchResult, StitchDirection, StitchOptions, ViewportWindow};
+pub use types::{MatchResult, StitchDirection, StitchFrameOutcome, StitchOptions, ViewportWindow};

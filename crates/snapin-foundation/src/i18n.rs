@@ -313,6 +313,9 @@ pub fn tr(zh: &str) -> &str {
         "已进入长图编辑框：滚轮滚动浏览长图，可使用标注工具" => {
             "Entered long capture editor: scroll to navigate, annotation tools available"
         }
+        "抓屏分辨率与当前画布不一致，已保留原底图" => {
+            "Capture resolution differs from current canvas; kept previous frame"
+        }
         _ => zh,
     }
 }

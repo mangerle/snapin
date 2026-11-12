@@ -12,7 +12,7 @@ mod viewport;
 use super::jobs::SnipperJobKind;
 use super::types::SnipMode;
 use crate::editor::toolbar::{clear_remembered_sub_options, remembered_sub_options, Toolbar};
-use crate::ports::{DesktopPort, JobCancel, JobId, NoopDesktop};
+use crate::ports::{DesktopPort, JobCancel, JobId, NoopDesktop, PortError};
 use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::window_rect::WindowRect;
 use editor::SnipperEditor;
@@ -27,8 +27,26 @@ pub use recording::{
 };
 use session::SnipperSession;
 use snapin_config::config::{Config, InterfaceConfig, SnipConfig};
+use snapin_foundation::{i18n::tr, trf};
+use snapin_render::StitchFrameOutcome;
 use std::sync::Arc;
+use tracing::{debug, warn};
 use viewport::SnipperViewport;
+
+/// 异步抓屏结果对覆盖层冻结底图造成的影响。
+///
+/// 之所以单独建模而非仅返回布尔值，是因为 `Stale`（过期回调）、`NoBgUpdate`（静止、
+/// 失配或尺寸漂移帧仍需更新状态提示与指示灯）和 `BgUpdated`（仅在长截图参考帧推进或
+/// 反向裁剪时替换 `bg_image` 并重建整屏暗化缓存）对应不同的重绘成本，避免冗余像素遍历。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CapturedFrameEffect {
+    /// 抓屏序号已过期或与当前在途请求不匹配，忽略本次结果。
+    Stale,
+    /// 本次结果已被处理（状态提示或指示灯可能更新），但参考底图未变化，无需重建整屏暗化缓存。
+    NoBgUpdate,
+    /// 拼接画布与参考帧已更新，`bg_image` 已被替换为最新帧，需重建暗化背景。
+    BgUpdated,
+}
 
 /// 截图会话可变运行状态封装。
 ///
@@ -191,28 +209,111 @@ impl SnipperState {
 
     /// 将异步抓取的完整屏幕帧裁剪到当前选区，并投喂给长截图拼接器。
     ///
-    /// 返回 `true` 表示位移估计达到置信阈值并成功把新内容拼入长图。抓屏回包可能晚于
-    /// 用户停止或关闭长截图，因此会话不存在或已停止时只安全丢弃，不影响普通截图流程。
-    pub(crate) fn apply_long_capture_frame(&mut self, full_frame: &RgbaImage) -> bool {
+    /// 返回 [`StitchFrameOutcome`] 以明确告知上层是否真实修改了画布与参考帧。抓屏回包
+    /// 可能晚于用户停止或关闭长截图，或在窗口/缩放波动时返回不同尺寸，因此任何无效帧均安全
+    /// 返回 [`StitchFrameOutcome::Ignored`] 而不污染现存会话与冻结底图。
+    pub(crate) fn apply_long_capture_frame(
+        &mut self,
+        full_frame: &RgbaImage,
+    ) -> StitchFrameOutcome {
         let SelectionState::Locked { rect, .. } = self.viewport.selection else {
-            return false;
+            return StitchFrameOutcome::Ignored;
         };
         let x = (rect.x.max(0.0) as u32).min(full_frame.width());
         let y = (rect.y.max(0.0) as u32).min(full_frame.height());
         let width = (rect.width as u32).min(full_frame.width().saturating_sub(x));
         let height = (rect.height as u32).min(full_frame.height().saturating_sub(y));
         if width == 0 || height == 0 {
-            return false;
+            return StitchFrameOutcome::Ignored;
         }
 
         let Some(session) = self.long_capture.as_mut() else {
-            return false;
+            return StitchFrameOutcome::Ignored;
         };
-        if !session.is_capturing {
-            return false;
+        if !session.is_capturing || (width, height) != session.stitcher.initial_frame_size() {
+            return StitchFrameOutcome::Ignored;
         }
         let selection_frame = full_frame.view(x, y, width, height).to_image();
-        session.feed_frame(&selection_frame)
+        session.feed_frame_outcome(&selection_frame)
+    }
+
+    /// 校验异步抓屏序号与全屏分辨率，并依据真实拼接结果决定是否更新覆盖层冻结底图。
+    ///
+    /// 按真实状态转移返回 [`CapturedFrameEffect`]：仅在画布末端参考帧变化时替换 `bg_image`，
+    /// 避免静止、失配、暂停后滞留回包或分辨率突变误覆底图或反复重建整屏暗化纹理。
+    pub(crate) fn apply_captured_long_frame(
+        &mut self,
+        bg_image: &mut RgbaImage,
+        request_id: u64,
+        result: Result<RgbaImage, PortError>,
+    ) -> CapturedFrameEffect {
+        if !self.jobs.finish_screen_capture(request_id) {
+            return CapturedFrameEffect::Stale;
+        }
+        let frame = match result {
+            Ok(frame) => frame,
+            Err(error) => {
+                warn!("长截图抓屏失败，请求序号: {request_id}，原因: {error}");
+                self.set_status_message(trf!(
+                    "长截图抓屏失败: {}",
+                    "Long capture failed: {}",
+                    error
+                ));
+                return CapturedFrameEffect::NoBgUpdate;
+            }
+        };
+        if !self
+            .long_capture
+            .as_ref()
+            .is_some_and(|session| session.is_capturing)
+        {
+            return CapturedFrameEffect::NoBgUpdate;
+        }
+        if frame.dimensions() != bg_image.dimensions() {
+            warn!(
+                "长截图抓屏分辨率与当前画布不一致，抓屏={}x{}，画布={}x{}，已保留原底图",
+                frame.width(),
+                frame.height(),
+                bg_image.width(),
+                bg_image.height()
+            );
+            self.set_status_message(tr("抓屏分辨率与当前画布不一致，已保留原底图"));
+            return CapturedFrameEffect::NoBgUpdate;
+        }
+        self.apply_matched_long_frame(bg_image, frame)
+    }
+
+    fn apply_matched_long_frame(
+        &mut self,
+        bg_image: &mut RgbaImage,
+        frame: RgbaImage,
+    ) -> CapturedFrameEffect {
+        let recording_hint = tr("长截图录制中：在选区内滚动鼠标自动拼接");
+        match self.apply_long_capture_frame(&frame) {
+            StitchFrameOutcome::Stitched { .. } => {
+                *bg_image = frame;
+                if self.session.status_message.as_deref() != Some(recording_hint) {
+                    self.set_status_message(recording_hint);
+                }
+                CapturedFrameEffect::BgUpdated
+            }
+            StitchFrameOutcome::Unchanged => {
+                if self.session.status_message.as_deref() != Some(recording_hint) {
+                    self.set_status_message(recording_hint);
+                }
+                CapturedFrameEffect::NoBgUpdate
+            }
+            StitchFrameOutcome::Unmatched { confidence } => {
+                debug!(confidence, "长截图新帧未能匹配当前画布");
+                self.set_status_message(trf!(
+                    "未能匹配新画面（重叠度 {:.0}%）：请减慢滚动速度或回退重叠内容",
+                    "Failed to match new frame (overlap {:.0}%): scroll slower or scroll back to overlap",
+                    confidence * 100.0
+                ));
+                CapturedFrameEffect::NoBgUpdate
+            }
+            StitchFrameOutcome::Ignored => CapturedFrameEffect::NoBgUpdate,
+        }
     }
 
     /// 根据用户配置、触发模式与宿主端口构建初始状态。
@@ -551,5 +652,152 @@ mod tests {
         assert_eq!(window_at((30.0, 30.0), &[bottom, top]), Some(top));
         assert_eq!(window_at((5.0, 5.0), &[bottom, top]), Some(bottom));
         assert_eq!(window_at((200.0, 200.0), &[bottom, top]), None);
+    }
+
+    fn make_textured_screen(scroll_y: u32) -> (RgbaImage, RgbaImage) {
+        use image::Rgba;
+
+        let mut screen = RgbaImage::from_pixel(120, 140, Rgba([10, 10, 10, 255]));
+        let mut crop = RgbaImage::new(80, 100);
+        for y in 0..100u32 {
+            let wy = y.saturating_add(scroll_y);
+            for x in 0..80u32 {
+                let r = ((wy.wrapping_mul(37).wrapping_add(x * 13)) % 251) as u8;
+                let g = ((wy.wrapping_mul(73).wrapping_add(x * 29)) % 241) as u8;
+                let b = ((((wy * wy) / 17).wrapping_add(x * 41)) % 239) as u8;
+                let px = Rgba([r, g, b, 255]);
+                screen.put_pixel(20 + x, 20 + y, px);
+                crop.put_pixel(x, y, px);
+            }
+        }
+        (screen, crop)
+    }
+
+    fn setup_long_capture_state() -> (SnipperState, RgbaImage) {
+        let mut state = SnipperState::new();
+        let rect = Rect::new(20.0, 20.0, 80.0, 100.0);
+        state.viewport.selection = SelectionState::Locked {
+            rect,
+            active_drag: None,
+        };
+        let (screen, crop) = make_textured_screen(0);
+        state.long_capture = Some(LongCaptureSession::new(crop));
+        (state, screen)
+    }
+
+    #[test]
+    fn test_apply_captured_long_frame_syncs_bg_on_stitch_and_preserves_on_unchanged_or_unmatched() {
+        use image::Rgba;
+
+        let (mut state, mut bg_image) = setup_long_capture_state();
+
+        let (shifted_screen, _) = make_textured_screen(30);
+        let req1 = state.jobs.begin_screen_capture().expect("应成功注册抓屏");
+        assert_eq!(
+            state.apply_captured_long_frame(&mut bg_image, req1, Ok(shifted_screen.clone())),
+            CapturedFrameEffect::BgUpdated
+        );
+        assert_eq!(bg_image, shifted_screen);
+        let session = state.long_capture.as_ref().expect("会话应存在");
+        assert!(session.is_matched);
+        assert_eq!(session.stitcher.canvas().dimensions(), (80, 130));
+
+        let mut unrelated_screen = RgbaImage::from_pixel(120, 140, Rgba([10, 10, 10, 255]));
+        for y in 0..100u32 {
+            for x in 0..80u32 {
+                let v = if ((x / 7) + (y / 7)) % 2 == 0 { 0 } else { 255 };
+                unrelated_screen.put_pixel(20 + x, 20 + y, Rgba([v, v, v, 255]));
+            }
+        }
+        let req2 = state.jobs.begin_screen_capture().expect("应成功注册抓屏");
+        assert_eq!(
+            state.apply_captured_long_frame(&mut bg_image, req2, Ok(unrelated_screen)),
+            CapturedFrameEffect::NoBgUpdate
+        );
+        assert_eq!(bg_image, shifted_screen, "失配帧绝不能覆盖当前参考底图");
+        assert!(!state.long_capture.as_ref().expect("会话应存在").is_matched);
+        assert!(state
+            .session
+            .status_message
+            .as_deref()
+            .is_some_and(|msg| msg.contains("未能匹配新画面")));
+
+        let req3 = state.jobs.begin_screen_capture().expect("应成功注册抓屏");
+        assert_eq!(
+            state.apply_captured_long_frame(&mut bg_image, req3, Ok(shifted_screen.clone())),
+            CapturedFrameEffect::NoBgUpdate
+        );
+        assert_eq!(bg_image, shifted_screen);
+        assert!(state.long_capture.as_ref().expect("会话应存在").is_matched);
+        assert_eq!(
+            state.session.status_message.as_deref(),
+            Some(tr("长截图录制中：在选区内滚动鼠标自动拼接"))
+        );
+    }
+
+    #[test]
+    fn test_apply_captured_long_frame_rejects_mismatch_stale_error_and_paused() {
+        use image::Rgba;
+        use snapin_ports::PortErrorKind;
+
+        let (mut state, mut bg_image) = setup_long_capture_state();
+        let initial_bg = bg_image.clone();
+
+        let req = state.jobs.begin_screen_capture().expect("应成功注册抓屏");
+        let (shifted_screen, _) = make_textured_screen(25);
+        assert_eq!(
+            state.apply_captured_long_frame(
+                &mut bg_image,
+                req.saturating_add(1),
+                Ok(shifted_screen),
+            ),
+            CapturedFrameEffect::Stale
+        );
+        assert_eq!(bg_image, initial_bg);
+        assert!(state.jobs.has_pending_screen_capture());
+
+        assert_eq!(
+            state.apply_captured_long_frame(
+                &mut bg_image,
+                req,
+                Err(PortError::with_kind(
+                    PortErrorKind::Timeout,
+                    "capture",
+                    "超时",
+                )),
+            ),
+            CapturedFrameEffect::NoBgUpdate
+        );
+        assert_eq!(bg_image, initial_bg);
+        assert!(state
+            .session
+            .status_message
+            .as_deref()
+            .is_some_and(|msg| msg.contains("长截图抓屏失败")));
+
+        let wrong_size = RgbaImage::from_pixel(240, 280, Rgba([50, 60, 70, 255]));
+        let req2 = state.jobs.begin_screen_capture().expect("应成功注册抓屏");
+        assert_eq!(
+            state.apply_captured_long_frame(&mut bg_image, req2, Ok(wrong_size)),
+            CapturedFrameEffect::NoBgUpdate
+        );
+        assert_eq!(bg_image, initial_bg);
+        assert_eq!(
+            state.session.status_message.as_deref(),
+            Some(tr("抓屏分辨率与当前画布不一致，已保留原底图"))
+        );
+
+        state
+            .long_capture
+            .as_mut()
+            .expect("会话应存在")
+            .toggle_capture();
+        let (shifted_screen, _) = make_textured_screen(25);
+        let req3 = state.jobs.begin_screen_capture().expect("应成功注册抓屏");
+        assert_eq!(
+            state.apply_captured_long_frame(&mut bg_image, req3, Ok(shifted_screen)),
+            CapturedFrameEffect::NoBgUpdate
+        );
+        assert_eq!(bg_image, initial_bg);
     }
 }

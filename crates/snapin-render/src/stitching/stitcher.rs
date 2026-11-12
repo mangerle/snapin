@@ -1,7 +1,9 @@
 //! 长截图拼接管理器，负责增量画布扩容、反向回滚裁剪、首尾手动裁剪与缩略图生成。
 
-use super::matcher::estimate_shift;
-use super::types::{MatchResult, StitchDirection, StitchOptions, ViewportWindow};
+use super::matcher::{estimate_shift, frames_visually_unchanged};
+use super::types::{
+    MatchResult, StitchDirection, StitchFrameOutcome, StitchOptions, ViewportWindow,
+};
 use image::{imageops, GenericImage, GenericImageView, RgbaImage};
 
 /// 侧边缩略图缓存数据结构，保存已生成的缩略图及其对应的画布尺寸与目标尺寸。
@@ -91,33 +93,74 @@ impl LongCaptureStitcher {
         self.canvas.dimensions()
     }
 
-    /// 投喂最新捕获的屏幕帧进行位移分析与画布扩展
+    /// 返回上一帧成功拼入并用作下一轮对齐锚点的基准帧。
+    pub fn last_frame(&self) -> &RgbaImage {
+        &self.last_frame
+    }
+
+    /// 投喂最新捕获的屏幕帧进行位移分析与画布扩展（返回原始匹配诊断）。
     pub fn feed_frame(&mut self, frame: &RgbaImage) -> MatchResult {
+        self.feed_frame_with_outcome(frame).0
+    }
+
+    /// 投喂最新捕获的屏幕帧并返回强类型状态转移结果，明确区分拼接、静止、失配与忽略。
+    pub fn feed_frame_outcome(&mut self, frame: &RgbaImage) -> StitchFrameOutcome {
+        self.feed_frame_with_outcome(frame).1
+    }
+
+    fn feed_frame_with_outcome(&mut self, frame: &RgbaImage) -> (MatchResult, StitchFrameOutcome) {
         if frame.dimensions() != self.initial_frame_size {
-            return MatchResult::idle();
+            return (MatchResult::idle(), StitchFrameOutcome::Ignored);
+        }
+        if frames_visually_unchanged(&self.last_frame, frame, self.direction, &self.options) {
+            return (MatchResult::idle(), StitchFrameOutcome::Unchanged);
         }
 
         let result = estimate_shift(&self.last_frame, frame, self.direction, &self.options);
         if !result.is_matched(self.options.confidence_threshold) {
-            return result;
+            return (
+                result,
+                StitchFrameOutcome::Unmatched {
+                    confidence: result.confidence,
+                },
+            );
         }
 
         if result.offset > 0 {
             // 正向滚动：将新出现的尾部像素行拼接到画布末端
             if !self.append_forward_slice(frame, result.offset as u32) {
-                return MatchResult::idle();
+                return (MatchResult::idle(), StitchFrameOutcome::Ignored);
             }
             self.last_frame = frame.clone();
             self.thumbnail_cache = None;
-        } else if result.offset < 0 && self.options.auto_crop_reverse {
+            return (
+                result,
+                StitchFrameOutcome::Stitched {
+                    offset: result.offset,
+                    confidence: result.confidence,
+                    sticky_header_size: result.sticky_header_size,
+                },
+            );
+        }
+
+        if result.offset < 0 && self.options.auto_crop_reverse {
             // 反向回滚：自动从画布末端裁除回滚的多余行
             let rollback_pixels = (-result.offset) as u32;
             self.crop_tail(rollback_pixels);
             self.last_frame = frame.clone();
             self.thumbnail_cache = None;
+            return (
+                result,
+                StitchFrameOutcome::Stitched {
+                    offset: result.offset,
+                    confidence: result.confidence,
+                    sticky_header_size: result.sticky_header_size,
+                },
+            );
         }
 
-        result
+        // 未开启反向自动裁剪或位移为 0：画布与基准帧均不改变
+        (result, StitchFrameOutcome::Ignored)
     }
 
     /// 将正向滚动产生的新切片追加到当前长图画布末端

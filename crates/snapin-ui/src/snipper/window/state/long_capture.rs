@@ -4,7 +4,7 @@
 
 use crate::geometry::{Point, Rect};
 use snapin_render::stitching::{
-    LongCaptureStitcher, StitchDirection, StitchOptions, ViewportWindow,
+    LongCaptureStitcher, StitchDirection, StitchFrameOutcome, StitchOptions, ViewportWindow,
 };
 use std::time::Instant;
 
@@ -249,16 +249,23 @@ impl LongCaptureSession {
         self.crop_sub_menu_open = !self.crop_sub_menu_open;
     }
 
-    /// 投喂最新捕获的屏幕帧
-    pub fn feed_frame(&mut self, frame: &image::RgbaImage) -> bool {
+    /// 投喂最新捕获的屏幕帧并返回精细状态结果，精确区分推进、静止、失配与忽略。
+    pub fn feed_frame_outcome(&mut self, frame: &image::RgbaImage) -> StitchFrameOutcome {
         if !self.is_capturing || self.is_editing {
-            return false;
+            return StitchFrameOutcome::Ignored;
         }
         self.last_feed_time = Instant::now();
-        let res = self.stitcher.feed_frame(frame);
-        let matched = res.is_matched(self.stitcher.options().confidence_threshold);
-        self.is_matched = matched;
-        matched
+        let outcome = self.stitcher.feed_frame_outcome(frame);
+        match outcome {
+            StitchFrameOutcome::Stitched { .. } | StitchFrameOutcome::Unchanged => {
+                self.is_matched = true;
+            }
+            StitchFrameOutcome::Unmatched { .. } => {
+                self.is_matched = false;
+            }
+            StitchFrameOutcome::Ignored => {}
+        }
+        outcome
     }
 
     /// 上裁剪（裁剪长图顶部/左侧）
@@ -557,7 +564,7 @@ mod tests {
         state.long_capture = Some(session);
 
         let scrolled_full = create_pattern_frame(300, 400, 40);
-        assert!(state.apply_long_capture_frame(&scrolled_full));
+        assert!(state.apply_long_capture_frame(&scrolled_full).is_stitched());
         assert_eq!(
             state
                 .long_capture
@@ -568,13 +575,45 @@ mod tests {
     }
 
     #[test]
+    fn test_feed_frame_outcome_updates_match_indicator() {
+        let frame1 = create_pattern_frame(160, 160, 0);
+        let mut session = LongCaptureSession::new(frame1.clone());
+
+        // 静止帧返回 Unchanged，但指示器保持绿色对齐（is_matched = true）
+        assert_eq!(
+            session.feed_frame_outcome(&frame1),
+            StitchFrameOutcome::Unchanged
+        );
+        assert!(session.is_matched);
+
+        // 失配帧将指示器切换为黄色预警，不改变画布与基准帧
+        let unmatched = image::RgbaImage::from_fn(160, 160, |x, y| {
+            let v = if ((x / 7) + (y / 7)) % 2 == 0 { 0 } else { 255 };
+            image::Rgba([v, v, v, 255])
+        });
+        assert!(matches!(
+            session.feed_frame_outcome(&unmatched),
+            StitchFrameOutcome::Unmatched { .. }
+        ));
+        assert!(!session.is_matched);
+        assert_eq!(session.stitcher.canvas().dimensions(), (160, 160));
+        assert_eq!(session.stitcher.last_frame(), &frame1);
+
+        // 随后传入与 frame1 连续的滚动帧仍可恢复拼接与绿色状态
+        let frame2 = create_pattern_frame(160, 160, 30);
+        assert!(session.feed_frame_outcome(&frame2).is_stitched());
+        assert!(session.is_matched);
+        assert_eq!(session.stitcher.canvas().dimensions(), (160, 190));
+    }
+
+    #[test]
     fn test_crop_head_and_tail() {
         let frame1 = create_pattern_frame(200, 200, 0);
         let mut session = LongCaptureSession::new(frame1);
 
         // 投喂位移 40 像素的第 2 帧，长图画布扩展至 240
         let frame2 = create_pattern_frame(200, 200, 40);
-        let matched = session.feed_frame(&frame2);
+        let matched = session.feed_frame_outcome(&frame2).is_stitched();
         assert!(matched, "应成功完成位移匹配");
         assert_eq!(session.stitcher.canvas().height(), 240);
 
@@ -598,7 +637,7 @@ mod tests {
 
         // 模拟正向位移 50px：画布延伸
         let frame2 = create_pattern_frame(200, 200, 50);
-        session.feed_frame(&frame2);
+        assert!(session.feed_frame_outcome(&frame2).is_stitched());
         assert_eq!(session.stitcher.canvas().height(), 250);
         assert!(!session.is_at_initial_size());
 
@@ -639,7 +678,7 @@ mod tests {
         assert_eq!(session.stitcher.canvas().dimensions(), (240, 120));
 
         let second = create_horizontal_pattern_frame(240, 120, 50);
-        assert!(session.feed_frame(&second));
+        assert!(session.feed_frame_outcome(&second).is_stitched());
         assert_eq!(session.stitcher.canvas().dimensions(), (290, 120));
 
         session.enter_editing();

@@ -174,8 +174,9 @@ pub(crate) fn estimate_vertical_shift(
         }
     }
 
-    // 2. 检查反向滚动（向上回滚）
-    if options.auto_crop_reverse && (min_avg_error > 8.0 || best_shift == 0) {
+    // 2. 当正向未找到近似零误差对齐时检测反向滚动：即使调用方关闭了自动反向裁剪，
+    // 仍须由匹配器如实返回负位移，供上层区分“按策略忽略的回滚”与“真失配或正向强凑假阳性”。
+    if min_avg_error > 8.0 || best_shift == 0 {
         for shift in min_shift..=(max_shift.min(80)) {
             let overlap_rows = active_height.saturating_sub(shift);
             if overlap_rows < 15 {
@@ -213,6 +214,82 @@ pub(crate) fn estimate_vertical_shift(
         offset: best_shift,
         confidence,
         sticky_header_size: sticky as u32,
+    }
+}
+
+/// 判定两帧在排除边缘滚动条干扰后的有效内容区域内是否视觉静止无滚动。
+///
+/// 实现初衷：若画面未滚动（完全相同或仅存在局部文本光标闪烁），直接跳过全量 SAD 搜索，
+/// 避免纯色/低纹理静态画面被误判为 `min_step` 伪位移或触发无意义的匹配失败告警；
+/// 同时按“单行变点数 `<= 4` 且总变点极少”早停退出，确保仅一两行微弱文本滚动也不会被吞掉。
+pub(crate) fn frames_visually_unchanged(
+    prev: &RgbaImage,
+    curr: &RgbaImage,
+    direction: StitchDirection,
+    options: &StitchOptions,
+) -> bool {
+    if prev.dimensions() != curr.dimensions() {
+        return false;
+    }
+    let (w, h) = (prev.width() as usize, prev.height() as usize);
+    if w == 0 || h == 0 {
+        return true;
+    }
+    let (x_start, x_end, y_start, y_end) = active_static_roi(w, h, direction, options.margin_ratio);
+    let roi_pixels = (x_end.saturating_sub(x_start)).saturating_mul(y_end.saturating_sub(y_start));
+    let max_total_changed = (roi_pixels / 500).clamp(16, 64);
+
+    let prev_raw = prev.as_raw();
+    let curr_raw = curr.as_raw();
+    let stride = w * 4;
+    let mut total_changed = 0usize;
+
+    for y in y_start..y_end {
+        let row_base = y * stride;
+        let mut row_changed = 0usize;
+        for x in x_start..x_end {
+            let idx = row_base + x * 4;
+            let dr = prev_raw[idx].abs_diff(curr_raw[idx]);
+            let dg = prev_raw[idx + 1].abs_diff(curr_raw[idx + 1]);
+            let db = prev_raw[idx + 2].abs_diff(curr_raw[idx + 2]);
+            if dr > 2 || dg > 2 || db > 2 {
+                row_changed += 1;
+                total_changed += 1;
+                if row_changed > 4 || total_changed > max_total_changed {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// 计算静止检测排除横向滚动条（垂直拼图）或底部进度条（横向拼图）后的 ROI 边界。
+fn active_static_roi(
+    width: usize,
+    height: usize,
+    direction: StitchDirection,
+    margin_ratio: f32,
+) -> (usize, usize, usize, usize) {
+    match direction {
+        StitchDirection::Vertical => {
+            let margin = ((width as f32) * margin_ratio).round() as usize;
+            let x_start = margin.min(width / 4);
+            let x_end = width
+                .saturating_sub(x_start)
+                .max(x_start.saturating_add(1))
+                .min(width);
+            (x_start, x_end, 0, height)
+        }
+        StitchDirection::Horizontal => {
+            let margin = ((height as f32) * margin_ratio).round() as usize;
+            let y_start = margin.min(height / 4);
+            let y_end = height
+                .saturating_sub(y_start)
+                .max(y_start.saturating_add(1))
+                .min(height);
+            (0, width, y_start, y_end)
+        }
     }
 }
 

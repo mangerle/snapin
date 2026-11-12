@@ -2,7 +2,7 @@
 
 use super::matcher::estimate_shift;
 use super::stitcher::LongCaptureStitcher;
-use super::types::{StitchDirection, StitchOptions};
+use super::types::{StitchDirection, StitchFrameOutcome, StitchOptions};
 use image::{Rgba, RgbaImage};
 
 /// 辅助生成带丰富几何条纹特征的合成图像，用于位移与拼接精度验证
@@ -244,4 +244,77 @@ fn test_viewport_window_calculation() {
     assert_eq!(vp.start, 50.0);
     assert!((vp.normalized_start() - 50.0 / 150.0).abs() < 1e-4);
     assert!((vp.normalized_size() - 100.0 / 150.0).abs() < 1e-4);
+}
+
+#[test]
+fn test_feed_frame_outcome_distinguishes_unchanged_unmatched_and_ignored() {
+    let width = 120;
+    let height = 160;
+    let frame0 = create_test_pattern(width, height, 0, 0);
+    let mut stitcher = LongCaptureStitcher::new(
+        frame0.clone(),
+        StitchDirection::Vertical,
+        StitchOptions {
+            auto_crop_reverse: false,
+            ..StitchOptions::default()
+        },
+    );
+
+    // 1. 完全静止帧返回 Unchanged，画布和参考帧不变
+    assert_eq!(
+        stitcher.feed_frame_outcome(&frame0),
+        StitchFrameOutcome::Unchanged
+    );
+    assert_eq!(stitcher.dimensions(), (width, height));
+
+    // 2. 仅 2x12 光标闪烁仍判定为 Unchanged，不进入失配流程
+    let mut cursor_blink = frame0.clone();
+    for y in 40..52 {
+        for x in 60..62 {
+            cursor_blink.put_pixel(x, y, Rgba([255, 255, 255, 255]));
+        }
+    }
+    assert_eq!(
+        stitcher.feed_frame_outcome(&cursor_blink),
+        StitchFrameOutcome::Unchanged
+    );
+
+    // 3. 正常正向滚动 40px 推进画布并更新 last_frame
+    let frame1 = create_test_pattern(width, height, 40, 0);
+    assert!(matches!(
+        stitcher.feed_frame_outcome(&frame1),
+        StitchFrameOutcome::Stitched { offset: 40, .. }
+    ));
+    assert_eq!(stitcher.dimensions(), (width, 200));
+    assert_eq!(stitcher.last_frame(), &frame1);
+
+    // 4. 关闭反向自动裁剪时回退到 frame0：返回 Ignored，不得覆盖 last_frame
+    assert_eq!(
+        stitcher.feed_frame_outcome(&frame0),
+        StitchFrameOutcome::Ignored
+    );
+    assert_eq!(stitcher.dimensions(), (width, 200));
+    assert_eq!(stitcher.last_frame(), &frame1);
+
+    // 5. 完全无关的高对比噪声帧（重叠失效）必须返回 Unmatched 且保留原基准帧 frame1
+    let mut unmatched = RgbaImage::new(width, height);
+    for y in 0..height {
+        for x in 0..width {
+            let v = if ((x / 7) + (y / 7)) % 2 == 0 { 0 } else { 255 };
+            unmatched.put_pixel(x, y, Rgba([v, v, v, 255]));
+        }
+    }
+    assert!(matches!(
+        stitcher.feed_frame_outcome(&unmatched),
+        StitchFrameOutcome::Unmatched { .. }
+    ));
+    assert_eq!(stitcher.dimensions(), (width, 200));
+    assert_eq!(stitcher.last_frame(), &frame1);
+
+    // 6. 尺寸异常帧返回 Ignored
+    let wrong_size = create_test_pattern(width + 10, height, 0, 0);
+    assert_eq!(
+        stitcher.feed_frame_outcome(&wrong_size),
+        StitchFrameOutcome::Ignored
+    );
 }

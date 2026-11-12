@@ -70,6 +70,45 @@ impl MatchResult {
     }
 }
 
+/// 单帧图像投喂给长截图拼接器后的真实状态转移结果。
+///
+/// 实现初衷：仅仅返回 `MatchResult` 无法区分“画面静止无变化”、“匹配失败未拼接”、
+/// “尺寸/回滚设置被忽略”以及“正向拼入或反向裁剪确实更新了画布与参考帧”，
+/// 容易导致覆盖层错误地用失败帧替换当前冻结底图。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StitchFrameOutcome {
+    /// 成功匹配位移并已更新拼接画布与基准帧（正向为扩展，负向为自动裁剪回退）
+    Stitched {
+        /// 沿主方向的像素位移量（正为前进扩展，负为反向回退裁剪）
+        offset: i32,
+        /// 匹配置信度得分（0.0 ~ 1.0）
+        confidence: f32,
+        /// 识别出的固定顶栏或侧边栏厚度（像素）
+        sticky_header_size: u32,
+    },
+    /// 画面相比上一基准帧未发生有效位移，画布与基准帧保持不变
+    Unchanged,
+    /// 帧间重叠不足或特征差异过大，本次未更新画布且必须保留原基准帧
+    Unmatched {
+        /// 最佳候选位移对应的置信度得分
+        confidence: f32,
+    },
+    /// 帧尺寸不匹配、回滚裁剪已关闭或会话当前不接受新帧，未修改任何拼接状态
+    Ignored,
+}
+
+impl StitchFrameOutcome {
+    /// 本帧是否实际推进或裁剪了长图画布并更新了基准帧。
+    pub const fn is_stitched(self) -> bool {
+        matches!(self, Self::Stitched { .. })
+    }
+
+    /// 画面是否仍处于可对齐健康状态（拼接成功或静止未变均视为绿框对齐，失配才转黄预警）。
+    pub const fn is_aligned(self) -> bool {
+        matches!(self, Self::Stitched { .. } | Self::Unchanged)
+    }
+}
+
 /// 当前屏幕捕获视窗在整张超长位图上的映射区间。
 /// 用于侧边实时缩略图悬浮面板上绘制绿色视口方框。
 #[derive(Debug, Clone, Copy, PartialEq)]

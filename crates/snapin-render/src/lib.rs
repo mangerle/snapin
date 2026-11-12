@@ -18,7 +18,8 @@ pub use raster::{
 };
 pub use snapin_foundation::beautify::{BeautifyBackground, BeautifyOptions, SocialSize};
 pub use stitching::{
-    LongCaptureStitcher, MatchResult, StitchDirection, StitchOptions, ViewportWindow,
+    LongCaptureStitcher, MatchResult, StitchDirection, StitchFrameOutcome, StitchOptions,
+    ViewportWindow,
 };
 pub use text::{
     with_thread_local_text_renderer, StyledTextDrawOptions, TextBoxOptions, TextDrawOptions,

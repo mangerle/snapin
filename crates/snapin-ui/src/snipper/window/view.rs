@@ -13,7 +13,7 @@ use super::event_dispatcher::{SnipperDispatchContext, SnipperEventDispatcher};
 use super::events::SnipperState;
 use super::jobs::{handle_job_outcome, SnipperJobKind, SnipperJobRuntime, SnipperJobSink};
 use super::presenter::{SnipperPresenter, SnipperPresenterInit};
-use super::state::{clamp_window_rect, RecordingTransition};
+use super::state::{clamp_window_rect, CapturedFrameEffect, RecordingTransition};
 use super::types::{SnipMode, SnipperLaunch, SnipperOutcome, SnipperRuntime};
 use crate::error::UiError;
 use crate::ports::{
@@ -342,28 +342,16 @@ impl SnipperView {
     ) {
         self.window.set_visible(true);
         self.window.focus_window();
-        if !self.state.jobs.finish_screen_capture(request_id) {
-            return;
-        }
-        match result {
-            Ok(frame) => {
-                self.state.apply_long_capture_frame(&frame);
-                if self
-                    .state
-                    .long_capture
-                    .as_ref()
-                    .is_some_and(|session| session.is_capturing)
-                {
-                    self.bg_image = frame;
-                    if let Err(error) = self.presenter.replace_background(&self.bg_image, true) {
-                        tracing::warn!("更新长截图实时底图失败: {error}");
-                    }
+        match self
+            .state
+            .apply_captured_long_frame(&mut self.bg_image, request_id, result)
+        {
+            CapturedFrameEffect::Stale => return,
+            CapturedFrameEffect::NoBgUpdate => {}
+            CapturedFrameEffect::BgUpdated => {
+                if let Err(error) = self.presenter.replace_background(&self.bg_image, true) {
+                    tracing::warn!("更新长截图实时底图失败: {error}");
                 }
-            }
-            Err(error) => {
-                tracing::warn!("长截图抓屏失败，请求序号: {request_id}，原因: {error}");
-                self.state
-                    .set_status_message(format!("长截图抓屏失败: {error}"));
             }
         }
         self.window.request_redraw();
