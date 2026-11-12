@@ -92,5 +92,10 @@ impl SnipperJobRuntime {
     }
 }
 
+pub mod long_capture_worker;
 mod outcome;
+pub use long_capture_worker::{
+    AnalyzeFrameTask, LongCaptureAsyncEvent, LongCaptureEventSink, LongCaptureWorker,
+    ThumbnailRenderTask,
+};
 pub use outcome::handle_job_outcome;

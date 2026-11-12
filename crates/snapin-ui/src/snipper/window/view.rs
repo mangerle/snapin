@@ -11,9 +11,12 @@
 
 use super::event_dispatcher::{SnipperDispatchContext, SnipperEventDispatcher};
 use super::events::SnipperState;
-use super::jobs::{handle_job_outcome, SnipperJobKind, SnipperJobRuntime, SnipperJobSink};
+use super::jobs::{
+    handle_job_outcome, LongCaptureEventSink, LongCaptureWorker, SnipperJobKind, SnipperJobRuntime,
+    SnipperJobSink,
+};
 use super::presenter::{SnipperPresenter, SnipperPresenterInit};
-use super::state::{clamp_window_rect, CapturedFrameEffect, RecordingTransition};
+use super::state::{clamp_window_rect, RecordingTransition};
 use super::types::{SnipMode, SnipperLaunch, SnipperOutcome, SnipperRuntime};
 use crate::error::UiError;
 use crate::ports::{
@@ -22,6 +25,7 @@ use crate::ports::{
 };
 use crate::snipper::selection::{Rect, SelectionState};
 use image::RgbaImage;
+use snapin_render::ThumbnailRenderSpec;
 use std::sync::Arc;
 #[cfg(target_os = "windows")]
 use winit::dpi::PhysicalPosition;
@@ -44,14 +48,19 @@ pub struct SnipperViewInit {
     pub clipboard_events: ClipboardEventSink,
     /// 长截图抓屏完成回传。
     pub screen_capture_events: ScreenCaptureEventSink,
+    /// 长截图后台分析与缩略图降采样完成回传。
+    pub long_capture_events: LongCaptureEventSink,
 }
 
 /// 全屏截图覆盖层视图。
 pub struct SnipperView {
-    window: Arc<Window>,
-    presenter: SnipperPresenter,
-    state: SnipperState,
-    bg_image: RgbaImage,
+    pub(super) window: Arc<Window>,
+    pub(super) presenter: SnipperPresenter,
+    pub(super) state: SnipperState,
+    pub(super) bg_image: RgbaImage,
+    pub(super) long_capture_worker: LongCaptureWorker,
+    pub(super) last_scheduled_thumb: Option<(u64, ThumbnailRenderSpec)>,
+    pub(super) last_installed_thumb_gen: u64,
 }
 
 impl SnipperView {
@@ -67,6 +76,7 @@ impl SnipperView {
             recording_sink,
             clipboard_events,
             screen_capture_events,
+            long_capture_events,
         } = init;
         let SnipperLaunch {
             bg_image,
@@ -103,6 +113,9 @@ impl SnipperView {
             presenter,
             state,
             bg_image,
+            long_capture_worker: LongCaptureWorker::new(long_capture_events),
+            last_scheduled_thumb: None,
+            last_installed_thumb_gen: 0,
         })
     }
 }
@@ -257,6 +270,9 @@ impl SnipperView {
 
     /// 处理一个属于本窗口的 winit 事件。
     pub fn dispatch(&mut self, event: WindowEvent) {
+        if let Some(session) = self.state.long_capture.as_mut() {
+            session.async_thumbnail_enabled = true;
+        }
         SnipperEventDispatcher::dispatch(
             event,
             SnipperDispatchContext {
@@ -266,6 +282,7 @@ impl SnipperView {
                 bg_image: &mut self.bg_image,
             },
         );
+        self.schedule_desired_long_capture_thumbnail();
     }
 
     /// 处理媒体任务完成事件。
@@ -329,32 +346,6 @@ impl SnipperView {
             self.state
                 .set_status_message(snapin_foundation::i18n::tr(&message).to_string());
         }
-    }
-
-    /// 处理异步长截图抓屏结果，恢复覆盖层并把画面投喂给拼接器。
-    ///
-    /// 抓屏期间覆盖层被隐藏以确保捕获到底层应用；无论成功、失败还是结果已过期，
-    /// 都必须先恢复窗口，避免因一次抓屏异常让整个截图界面永久不可见。
-    pub fn handle_screen_capture_finished(
-        &mut self,
-        request_id: u64,
-        result: Result<RgbaImage, PortError>,
-    ) {
-        self.window.set_visible(true);
-        self.window.focus_window();
-        match self
-            .state
-            .apply_captured_long_frame(&mut self.bg_image, request_id, result)
-        {
-            CapturedFrameEffect::Stale => return,
-            CapturedFrameEffect::NoBgUpdate => {}
-            CapturedFrameEffect::BgUpdated => {
-                if let Err(error) = self.presenter.replace_background(&self.bg_image, true) {
-                    tracing::warn!("更新长截图实时底图失败: {error}");
-                }
-            }
-        }
-        self.window.request_redraw();
     }
 
     /// 取出会话结果；存在结果时会取消仍在执行的后台任务。

@@ -77,6 +77,11 @@ impl SnipperJobs {
         self.pending_screen_capture.is_some()
     }
 
+    /// 检查给定请求序号是否仍为当前唯一在途抓屏请求（不消耗该请求）。
+    pub(crate) fn is_active_screen_capture(&self, request_id: u64) -> bool {
+        self.pending_screen_capture == Some(request_id)
+    }
+
     /// 丢弃在途抓屏请求标识，使随后返回的陈旧结果无法再修改已结束的截图会话。
     pub(crate) fn cancel_screen_capture(&mut self) {
         self.pending_screen_capture = None;

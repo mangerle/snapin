@@ -38,6 +38,48 @@ pub fn create_dimmed_pixmap_fast(img: &RgbaImage) -> Result<Pixmap, UiError> {
     Ok(dimmed)
 }
 
+/// 局部刷新预计算底图上指定像素边界矩形的明暗像素，避免长截图每次滚动都重扫全屏像素。
+pub(super) fn update_dimmed_region_fast(
+    base_bg: &mut Pixmap,
+    bg_image: &RgbaImage,
+    bounds: (u32, u32, u32, u32),
+    dimmed: bool,
+) {
+    let (px, py, pw, ph) = bounds;
+    let width = base_bg.width();
+    let height = base_bg.height();
+    if width != bg_image.width() || height != bg_image.height() || pw == 0 || ph == 0 {
+        return;
+    }
+    let row_end = py.saturating_add(ph).min(height) as usize;
+    let col_start = (px.min(width) as usize) * 4;
+    let col_end = (px.saturating_add(pw).min(width) as usize) * 4;
+    let stride = (width as usize) * 4;
+    let src = bg_image.as_raw();
+    let dst = base_bg.data_mut();
+
+    for row in (py as usize)..row_end {
+        let base = row * stride;
+        let dst_slice = &mut dst[base + col_start..base + col_end];
+        let src_slice = &src[base + col_start..base + col_end];
+        if dimmed {
+            for (d, s) in dst_slice
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .zip(src_slice.as_chunks::<4>().0)
+            {
+                d[0] = ((s[0] as u16 * 107) >> 8) as u8;
+                d[1] = ((s[1] as u16 * 107) >> 8) as u8;
+                d[2] = ((s[2] as u16 * 107) >> 8) as u8;
+                d[3] = s[3];
+            }
+        } else {
+            dst_slice.copy_from_slice(src_slice);
+        }
+    }
+}
+
 /// 根据截图模式创建原始底图或预计算暗化底图。
 pub(super) fn create_base_pixmap(
     bg_image: &RgbaImage,

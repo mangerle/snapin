@@ -316,6 +316,9 @@ pub fn tr(zh: &str) -> &str {
         "抓屏分辨率与当前画布不一致，已保留原底图" => {
             "Capture resolution differs from current canvas; kept previous frame"
         }
+        "长截图画布已达最大安全上限，已暂停追加后续内容" => {
+            "Long capture canvas reached safety limit; paused appending"
+        }
         "已有已拼接内容，再次点击方向按钮将清空重拍" => {
             "Stitched content exists; click Direction again to reset"
         }

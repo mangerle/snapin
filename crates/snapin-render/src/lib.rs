@@ -18,8 +18,10 @@ pub use raster::{
 };
 pub use snapin_foundation::beautify::{BeautifyBackground, BeautifyOptions, SocialSize};
 pub use stitching::{
-    LongCaptureStitcher, MatchResult, StitchDirection, StitchFrameOutcome, StitchOptions,
-    ThumbnailOverview, ViewportWindow, DEFAULT_MIN_THUMBNAIL_CROSS, MIN_CROPPED_SPAN,
+    analyze_frame_shift, render_thumbnail_overview, FrameShiftAnalysis, LongCaptureStitcher,
+    MatchResult, PagedCanvasSnapshot, StitchDirection, StitchFrameOutcome, StitchOptions,
+    ThumbnailOverview, ThumbnailRenderSpec, ViewportWindow, DEFAULT_MAX_CANVAS_EXTENT,
+    DEFAULT_MAX_CANVAS_PIXELS, DEFAULT_MIN_THUMBNAIL_CROSS, MIN_CROPPED_SPAN,
 };
 pub use text::{
     with_thread_local_text_renderer, StyledTextDrawOptions, TextBoxOptions, TextDrawOptions,

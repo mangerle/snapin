@@ -7,7 +7,7 @@ use crate::ports::{
     ClipboardJobId, ClipboardResult, ClipboardTarget, JobId, MediaJobOutcome, PasterJobKind,
     PortError, RecordingEvent,
 };
-use crate::snipper::window::jobs::SnipperJobKind;
+use crate::snipper::window::jobs::{LongCaptureAsyncEvent, SnipperJobKind};
 use crate::snipper::SnipperLaunch;
 use async_trait::async_trait;
 use image::RgbaImage;
@@ -48,6 +48,11 @@ pub enum PasterAppEvent {
         request_id: u64,
         /// 完整屏幕帧或可展示的中文错误
         result: Result<RgbaImage, PortError>,
+    },
+    /// 截图覆盖层长截图后台分析与缩略图降采样完成回传。
+    SnipperLongCaptureEvent {
+        /// 后台异步工作结果
+        event: LongCaptureAsyncEvent,
     },
     /// 批量切换当前分组内所有贴图的显隐状态
     ToggleVisibility,

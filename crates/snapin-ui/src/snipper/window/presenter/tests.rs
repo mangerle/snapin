@@ -71,3 +71,22 @@ fn test_scale_pixmap_to_target_size() {
     let scaled = scale_pixmap_to(&source, 8, 4).expect("缩放应成功");
     assert_eq!((scaled.width(), scaled.height()), (8, 4));
 }
+
+/// 长截图局部底图更新仅修改选区边界内的像素，选区外既定暗化屏幕像素保持零接触。
+#[test]
+fn test_update_dimmed_region_fast_only_modifies_selection() {
+    let orig = RgbaImage::from_pixel(10, 10, Rgba([20, 20, 20, 255]));
+    let mut base = create_dimmed_pixmap_fast(&orig).expect("创建底图失败");
+    let before_outside = base.data()[0..4].to_vec();
+
+    let updated = RgbaImage::from_pixel(10, 10, Rgba([255, 255, 255, 255]));
+    update_dimmed_region_fast(&mut base, &updated, (2, 2, 4, 4), true);
+
+    // 选区外 `(0, 0)` 必须仍为原像素暗化值
+    assert_eq!(&base.data()[0..4], &before_outside);
+    // 选区内 `(3, 3)` 必须更新为 255 定点暗化值 `106`
+    let inside_idx = (3 * 10 + 3) * 4;
+    assert_eq!(base.data()[inside_idx], 106);
+    assert_eq!(base.data()[inside_idx + 1], 106);
+    assert_eq!(base.data()[inside_idx + 2], 106);
+}

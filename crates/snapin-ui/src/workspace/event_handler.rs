@@ -9,7 +9,7 @@ use super::window_builder::create_new_paster_window;
 use super::WorkspaceRuntime;
 use crate::model::GroupId;
 use crate::ports::ScreenCaptureEventSink;
-use crate::snipper::window::jobs::SnipperJobSink;
+use crate::snipper::window::jobs::{LongCaptureEventSink, SnipperJobSink};
 use crate::snipper::window::{SnipperView, SnipperViewInit};
 use crate::snipper::SnipperOutcome;
 use snapin_config::config::Config;
@@ -71,6 +71,11 @@ pub(crate) fn handle_workspace_user_event(
             if let Some(view) = runtime.snipper.as_mut() {
                 view.handle_screen_capture_finished(request_id, result);
                 view.request_redraw();
+            }
+        }
+        PasterAppEvent::SnipperLongCaptureEvent { event } => {
+            if let Some(view) = runtime.snipper.as_mut() {
+                view.handle_long_capture_event(event);
             }
         }
         PasterAppEvent::HostWake => {
@@ -216,6 +221,7 @@ fn open_snipper(
     let event_proxy = Arc::new(Mutex::new(runtime.event_proxy.clone()));
     let capture_proxy = event_proxy.clone();
     let recording_proxy = event_proxy.clone();
+    let long_capture_proxy = event_proxy.clone();
     let sink: SnipperJobSink = Arc::new(move |job_id, kind, outcome| {
         let proxy = event_proxy
             .lock()
@@ -239,12 +245,19 @@ fn open_snipper(
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _ = proxy.send_event(PasterAppEvent::SnipperScreenCaptured { request_id, result });
     });
+    let long_capture_events: LongCaptureEventSink = Arc::new(move |event| {
+        let proxy = long_capture_proxy
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _ = proxy.send_event(PasterAppEvent::SnipperLongCaptureEvent { event });
+    });
     let init = SnipperViewInit {
         launch,
         job_sink: sink,
         recording_sink,
         clipboard_events: runtime.clipboard_events.clone(),
         screen_capture_events,
+        long_capture_events,
     };
     match SnipperView::new(elwt, init) {
         Ok(view) => {

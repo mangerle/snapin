@@ -1,6 +1,7 @@
 //! 截图交互会话状态机模型与配置初始化。
 
 mod editor;
+pub(crate) mod frame_sync;
 mod jobs;
 pub(crate) mod long_capture;
 mod ocr;
@@ -12,11 +13,15 @@ mod viewport;
 use super::jobs::SnipperJobKind;
 use super::types::SnipMode;
 use crate::editor::toolbar::{clear_remembered_sub_options, remembered_sub_options, Toolbar};
-use crate::ports::{DesktopPort, JobCancel, JobId, NoopDesktop, PortError};
+#[cfg(test)]
+use crate::ports::PortError;
+use crate::ports::{DesktopPort, JobCancel, JobId, NoopDesktop};
 use crate::snipper::selection::{Rect, SelectionState};
 use crate::snipper::window_rect::WindowRect;
 use editor::SnipperEditor;
-use image::{GenericImageView, RgbaImage};
+#[cfg(test)]
+use image::GenericImageView;
+use image::RgbaImage;
 use jobs::{PendingMediaJob, SnipperJobs};
 pub(crate) use long_capture::LongCanvasSpace;
 pub use long_capture::{DirectionToggleOutcome, LongCaptureAction, LongCaptureSession};
@@ -27,10 +32,13 @@ pub use recording::{
 };
 use session::SnipperSession;
 use snapin_config::config::{Config, InterfaceConfig, SnipConfig};
+#[cfg(test)]
 use snapin_foundation::{i18n::tr, trf};
+#[cfg(test)]
 use snapin_render::StitchFrameOutcome;
 use std::sync::Arc;
-use tracing::{debug, warn};
+#[cfg(test)]
+use tracing::warn;
 use viewport::SnipperViewport;
 
 /// 异步抓屏结果对覆盖层冻结底图造成的影响。
@@ -212,6 +220,7 @@ impl SnipperState {
     /// 返回 [`StitchFrameOutcome`] 以明确告知上层是否真实修改了画布与参考帧。抓屏回包
     /// 可能晚于用户停止或关闭长截图，或在窗口/缩放波动时返回不同尺寸，因此任何无效帧均安全
     /// 返回 [`StitchFrameOutcome::Ignored`] 而不污染现存会话与冻结底图。
+    #[cfg(test)]
     pub(crate) fn apply_long_capture_frame(
         &mut self,
         full_frame: &RgbaImage,
@@ -241,6 +250,7 @@ impl SnipperState {
     ///
     /// 按真实状态转移返回 [`CapturedFrameEffect`]：仅在画布末端参考帧变化时替换 `bg_image`，
     /// 避免静止、失配、暂停后滞留回包或分辨率突变误覆底图或反复重建整屏暗化纹理。
+    #[cfg(test)]
     pub(crate) fn apply_captured_long_frame(
         &mut self,
         bg_image: &mut RgbaImage,
@@ -262,58 +272,11 @@ impl SnipperState {
                 return CapturedFrameEffect::NoBgUpdate;
             }
         };
-        if !self
-            .long_capture
-            .as_ref()
-            .is_some_and(|session| session.is_capturing)
-        {
+        if !self.is_valid_long_capture_dimensions(bg_image, &frame) {
             return CapturedFrameEffect::NoBgUpdate;
         }
-        if frame.dimensions() != bg_image.dimensions() {
-            warn!(
-                "长截图抓屏分辨率与当前画布不一致，抓屏={}x{}，画布={}x{}，已保留原底图",
-                frame.width(),
-                frame.height(),
-                bg_image.width(),
-                bg_image.height()
-            );
-            self.set_status_message(tr("抓屏分辨率与当前画布不一致，已保留原底图"));
-            return CapturedFrameEffect::NoBgUpdate;
-        }
-        self.apply_matched_long_frame(bg_image, frame)
-    }
-
-    fn apply_matched_long_frame(
-        &mut self,
-        bg_image: &mut RgbaImage,
-        frame: RgbaImage,
-    ) -> CapturedFrameEffect {
-        let recording_hint = tr("长截图录制中：在选区内滚动鼠标自动拼接");
-        match self.apply_long_capture_frame(&frame) {
-            StitchFrameOutcome::Stitched { .. } => {
-                *bg_image = frame;
-                if self.session.status_message.as_deref() != Some(recording_hint) {
-                    self.set_status_message(recording_hint);
-                }
-                CapturedFrameEffect::BgUpdated
-            }
-            StitchFrameOutcome::Unchanged => {
-                if self.session.status_message.as_deref() != Some(recording_hint) {
-                    self.set_status_message(recording_hint);
-                }
-                CapturedFrameEffect::NoBgUpdate
-            }
-            StitchFrameOutcome::Unmatched { confidence } => {
-                debug!(confidence, "长截图新帧未能匹配当前画布");
-                self.set_status_message(trf!(
-                    "未能匹配新画面（重叠度 {:.0}%）：请减慢滚动速度或回退重叠内容",
-                    "Failed to match new frame (overlap {:.0}%): scroll slower or scroll back to overlap",
-                    confidence * 100.0
-                ));
-                CapturedFrameEffect::NoBgUpdate
-            }
-            StitchFrameOutcome::Ignored => CapturedFrameEffect::NoBgUpdate,
-        }
+        let outcome = self.apply_long_capture_frame(&frame);
+        self.finish_stitch_outcome(bg_image, frame, outcome)
     }
 
     /// 根据用户配置、触发模式与宿主端口构建初始状态。

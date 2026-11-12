@@ -11,6 +11,7 @@
 //!    利用下一帧刚滑出浮层阴影的干净重叠区将此前压入画布的浮层残影无损擦除恢复正文。
 
 use super::matcher::rgb_to_luma;
+use super::paged_canvas::PagedCanvas;
 use super::types::StitchDirection;
 use image::RgbaImage;
 
@@ -189,9 +190,9 @@ pub(crate) struct OverlayHealSpec<'a> {
 }
 
 /// 识别静止不动的局部浮动浮层（如右下角悬浮按钮），并用当前帧刚刚滑出遮挡区的新露像素覆盖抹平旧残影。
-pub(crate) fn heal_canvas_with_floating_mask(canvas: &mut RgbaImage, spec: &OverlayHealSpec<'_>) {
+pub(crate) fn heal_canvas_with_floating_mask(canvas: &mut PagedCanvas, spec: &OverlayHealSpec<'_>) {
     let (frame_main, cross_span) = axis_dims(spec.curr, spec.direction);
-    let canvas_main = axis_dims(canvas, spec.direction).0;
+    let canvas_main = canvas.main_span();
     let body_end = frame_main.saturating_sub(spec.footer);
     let body_start = spec.header.min(body_end);
     if spec.step == 0 || body_end <= body_start + spec.step {
@@ -343,12 +344,12 @@ struct BackfillGrid {
 }
 
 fn apply_clean_backfill(
-    canvas: &mut RgbaImage,
+    canvas: &mut PagedCanvas,
     spec: &OverlayHealSpec<'_>,
     mask: &[bool],
     grid: BackfillGrid,
 ) {
-    let canvas_main = axis_dims(canvas, spec.direction).0;
+    let canvas_main = canvas.main_span();
     let range_start = if spec.is_prepend {
         grid.body_start + spec.step
     } else {
@@ -397,7 +398,7 @@ fn apply_clean_backfill(
                 let c1 = (c0 + grid.block_c).min(grid.cross_span);
                 for c in c0..c1 {
                     let clean_px = read_axis_pixel(spec.curr, curr_m, c, spec.direction);
-                    write_axis_pixel(canvas, canvas_m, c, spec.direction, clean_px);
+                    canvas.write_axis_pixel(canvas_m, c, clean_px);
                 }
             }
         }
@@ -417,18 +418,4 @@ fn read_axis_pixel(img: &RgbaImage, main: u32, cross: u32, direction: StitchDire
         StitchDirection::Horizontal => (main, cross),
     };
     img.get_pixel(x, y).0
-}
-
-fn write_axis_pixel(
-    img: &mut RgbaImage,
-    main: u32,
-    cross: u32,
-    direction: StitchDirection,
-    rgba: [u8; 4],
-) {
-    let (x, y) = match direction {
-        StitchDirection::Vertical => (cross, main),
-        StitchDirection::Horizontal => (main, cross),
-    };
-    img.put_pixel(x, y, image::Rgba(rgba));
 }

@@ -38,7 +38,7 @@ pub(crate) fn render_long_capture_dock(
 
     draw_dock_card(pixmap, &dock_rect, s);
 
-    let (cw, ch) = session.stitcher.canvas().dimensions();
+    let (cw, ch) = session.stitcher.dimensions();
     let title = if session.is_capturing {
         trf!("长图预览 {}×{}", "Preview {}×{}", cw, ch)
     } else {
@@ -86,10 +86,33 @@ fn render_dock_preview_content(
     let preview_max_h = avail_h.round().max(16.0) as u32;
     let min_cross = ((DEFAULT_MIN_THUMBNAIL_CROSS as f32) * s).round().max(24.0) as u32;
 
-    let overview: ThumbnailOverview = session
+    let spec = session
         .stitcher
-        .get_or_render_thumbnail_overview(preview_max_w, preview_max_h, min_cross)
-        .clone();
+        .build_thumbnail_spec(preview_max_w, preview_max_h, min_cross);
+    session.last_thumbnail_spec = Some(spec);
+
+    let overview: ThumbnailOverview = if let Some(exact) = session
+        .stitcher
+        .cached_thumbnail_overview(preview_max_w, preview_max_h, min_cross)
+    {
+        exact.clone()
+    } else if session.async_thumbnail_enabled {
+        let generation = session.stitcher.generation();
+        session.desired_thumbnail_spec = Some((generation, spec));
+        if let Some(prev) = session.stitcher.stale_thumbnail_overview() {
+            prev.clone()
+        } else {
+            session
+                .stitcher
+                .get_or_render_thumbnail_overview(preview_max_w, preview_max_h, min_cross)
+                .clone()
+        }
+    } else {
+        session
+            .stitcher
+            .get_or_render_thumbnail_overview(preview_max_w, preview_max_h, min_cross)
+            .clone()
+    };
     let (tw, th) = overview.image.dimensions();
     let thumb_x = dock_rect.x + 8.0 * s + ((preview_max_w.saturating_sub(tw)) as f32 / 2.0);
     let thumb_y = preview_top + ((preview_max_h.saturating_sub(th)) as f32 / 2.0);

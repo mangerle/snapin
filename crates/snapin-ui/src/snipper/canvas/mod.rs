@@ -253,12 +253,18 @@ impl<'a> SnipperCanvas<'a> {
             return;
         };
 
+        let visible_slice = session.stitcher.slice_region(
+            space.canvas_offset.0 as u32,
+            space.canvas_offset.1 as u32,
+            copy_w,
+            copy_h,
+        );
         blit_straight_rgba_region_to_pixmap(
-            session.stitcher.canvas(),
+            &visible_slice,
             &mut view_pixmap.as_mut(),
             BlitRgbaRegion {
-                src_x: space.canvas_offset.0 as u32,
-                src_y: space.canvas_offset.1 as u32,
+                src_x: 0,
+                src_y: 0,
                 dst_x: 0,
                 dst_y: 0,
                 width: copy_w,

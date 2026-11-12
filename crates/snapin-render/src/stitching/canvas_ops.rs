@@ -1,48 +1,208 @@
-//! 长截图单轴画布低层切片、前插、追加与双向回滚辅助操作。
+//! 长截图单轴画布低层切片、前插、追加、双向回滚及容量边界辅助操作。
 //!
-//! 之所以将纯像素缓冲搬运从 `stitcher.rs` 剥离到此子模块，是因为双向拼接
-//! （尾部追加/回滚与首部前插/回滚）均共享对称的轴向切片与页眉/页脚剥离重贴逻辑；
-//! 集中管理可确保单文件紧凑可读并消除双向分支的重复样板代码。
+//! # 设计原理
+//!
+//! 依托 [`PagedCanvas`] 的分块头/尾弹出（`pop_head` / `pop_tail`）与块末尾合并追加/前插，
+//! 滚动扩展与回滚彻底摆脱整图重分配与全量像素拷贝，单步耗时保持均摊 $O(1)$；
+//! 同时在扩展写入前前置校验像素总量与单轴长度上限，阻止恶意或无限页面耗尽内存。
 
-use super::types::StitchDirection;
-use image::{GenericImage, GenericImageView, RgbaImage};
+use super::paged_canvas::{alloc_axis_canvas, img_axis_dims, slice_img_axis, PagedCanvas};
+use super::types::{StitchDirection, StitchOptions};
+use image::RgbaImage;
 
-/// 按拼接主方向返回 `(主轴长度, 交叉轴长度)`。
-pub(crate) fn axis_dims(img: &RgbaImage, direction: StitchDirection) -> (u32, u32) {
-    let (w, h) = img.dimensions();
-    match direction {
-        StitchDirection::Vertical => (h, w),
-        StitchDirection::Horizontal => (w, h),
-    }
+/// 前向追加或反向前插的规划状态。
+pub(crate) enum SliceExtendOutcome {
+    /// 已将新正文切片与最新固定栏无损接入画布，返回最新附着的固定栏厚度
+    Applied(u32),
+    /// 扩展后画布像素或单轴尺寸将超越配置上限，已保持原画布零改动
+    LimitReached,
+    /// 当前步长退化为零，未修改画布
+    Ignored,
 }
 
-/// 按 `(主轴长度, 交叉轴长度)` 分配透明底图。
-pub(crate) fn alloc_axis_canvas(
-    direction: StitchDirection,
+/// 正向追加或反向前插的参数封装（收敛参数个数 <= 4）。
+pub(crate) struct SliceExtendSpec<'a> {
+    pub(crate) frame: &'a RgbaImage,
+    pub(crate) direction: StitchDirection,
+    pub(crate) step: u32,
+    pub(crate) band_size: u32,
+    pub(crate) peel_size: u32,
+    pub(crate) options: &'a StitchOptions,
+}
+
+/// 双向自动回滚的参数封装。
+pub(crate) struct RollbackSpec<'a> {
+    pub(crate) frame: &'a RgbaImage,
+    pub(crate) direction: StitchDirection,
+    pub(crate) pixels: u32,
+    pub(crate) band_size: u32,
+    pub(crate) attached_band_size: u32,
+}
+
+/// 校验扩展后画布是否超出最大单轴长度或总像素上限（0 代表关闭对应限制）。
+pub(crate) fn exceeds_canvas_limits(
     main_span: u32,
     cross_span: u32,
-) -> RgbaImage {
-    match direction {
-        StitchDirection::Vertical => RgbaImage::new(cross_span, main_span),
-        StitchDirection::Horizontal => RgbaImage::new(main_span, cross_span),
+    options: &StitchOptions,
+) -> bool {
+    if options.max_canvas_extent > 0 && main_span > options.max_canvas_extent {
+        return true;
     }
+    if options.max_canvas_pixels > 0 {
+        let total = u64::from(main_span).saturating_mul(u64::from(cross_span));
+        if total > options.max_canvas_pixels {
+            return true;
+        }
+    }
+    false
 }
 
-/// 沿主拼接轴截取 `[start .. start + len]` 区间条带。
-pub(crate) fn slice_along_axis(
-    img: &RgbaImage,
-    direction: StitchDirection,
-    start: u32,
-    len: u32,
-) -> RgbaImage {
-    match direction {
-        StitchDirection::Vertical => img.view(0, start, img.width(), len).to_image(),
-        StitchDirection::Horizontal => img.view(start, 0, len, img.height()).to_image(),
+/// 规划本次扩展后的实际有效步长、待剥离旧栏厚度、最新栏厚度以及预计总主轴跨度。
+pub(crate) fn plan_extend_span(
+    canvas: &PagedCanvas,
+    spec: &SliceExtendSpec<'_>,
+) -> Option<(u32, u32, u32, u32)> {
+    let old_main = canvas.main_span();
+    let frame_main = img_axis_dims(spec.frame, spec.direction).0;
+    let safe_band = spec.band_size.min(frame_main / 2);
+    let valid_step = spec.step.min(frame_main.saturating_sub(safe_band));
+    if valid_step == 0 {
+        return None;
     }
+    let safe_peel = if safe_band > 0 {
+        spec.peel_size.min(old_main.saturating_sub(1))
+    } else {
+        0
+    };
+    let projected = old_main
+        .saturating_sub(safe_peel)
+        .saturating_add(valid_step)
+        .saturating_add(safe_band);
+    Some((valid_step, safe_peel, safe_band, projected))
 }
 
-/// 将条带拷贝至目标画布主轴的 `main_offset` 偏移位置。
-pub(crate) fn copy_along_axis(
+/// 均摊 $O(1)$ 向画布尾部追加一截新增切片，剥离旧页脚并重附单一页脚。
+pub(crate) fn append_forward_slice(
+    canvas: &mut PagedCanvas,
+    spec: &SliceExtendSpec<'_>,
+) -> SliceExtendOutcome {
+    let Some((valid_step, safe_peel, safe_footer, projected_main)) = plan_extend_span(canvas, spec)
+    else {
+        return SliceExtendOutcome::Ignored;
+    };
+    if exceeds_canvas_limits(projected_main, canvas.cross_span(), spec.options) {
+        return SliceExtendOutcome::LimitReached;
+    }
+
+    let frame_main = img_axis_dims(spec.frame, spec.direction).0;
+    if safe_peel > 0 {
+        let _ = canvas.pop_tail(safe_peel);
+    }
+    let body_start = frame_main
+        .saturating_sub(safe_footer)
+        .saturating_sub(valid_step);
+    let body_slice = slice_img_axis(spec.frame, spec.direction, body_start, valid_step);
+    canvas.append_contiguous(&body_slice);
+    if safe_footer > 0 {
+        let footer_slice = slice_img_axis(
+            spec.frame,
+            spec.direction,
+            frame_main.saturating_sub(safe_footer),
+            safe_footer,
+        );
+        canvas.append_contiguous(&footer_slice);
+    }
+    SliceExtendOutcome::Applied(safe_footer)
+}
+
+/// 均摊 $O(1)$ 向画布首部前插一截上方/左侧新增切片，同时剥离并重附唯一首部固定栏。
+pub(crate) fn prepend_backward_slice(
+    canvas: &mut PagedCanvas,
+    spec: &SliceExtendSpec<'_>,
+) -> SliceExtendOutcome {
+    let Some((valid_step, safe_peel, safe_header, projected_main)) = plan_extend_span(canvas, spec)
+    else {
+        return SliceExtendOutcome::Ignored;
+    };
+    if exceeds_canvas_limits(projected_main, canvas.cross_span(), spec.options) {
+        return SliceExtendOutcome::LimitReached;
+    }
+
+    if safe_peel > 0 {
+        let _ = canvas.pop_head(safe_peel);
+    }
+    let body_slice = slice_img_axis(spec.frame, spec.direction, safe_header, valid_step);
+    canvas.prepend_contiguous(&body_slice);
+    if safe_header > 0 {
+        let header_slice = slice_img_axis(spec.frame, spec.direction, 0, safe_header);
+        canvas.prepend_contiguous(&header_slice);
+    }
+    SliceExtendOutcome::Applied(safe_header)
+}
+
+/// 正向扩展后的反向回滚：直接弹出尾部回滚块并重贴最新页脚，至少保留单帧长度。
+pub(crate) fn rollback_tail_preserving_initial(
+    canvas: &mut PagedCanvas,
+    spec: &RollbackSpec<'_>,
+) -> u32 {
+    let old_main = canvas.main_span();
+    let frame_main = img_axis_dims(spec.frame, spec.direction).0;
+    let safe_footer = spec.band_size.min(frame_main / 2);
+    let safe_peel = if safe_footer > 0 {
+        spec.attached_band_size.min(old_main.saturating_sub(1))
+    } else {
+        0
+    };
+    let body_main = old_main.saturating_sub(safe_peel);
+    let min_body = frame_main.saturating_sub(safe_footer).min(body_main);
+    let crop = spec.pixels.min(body_main.saturating_sub(min_body));
+    if crop == 0 && safe_peel == safe_footer {
+        return safe_footer;
+    }
+
+    let _ = canvas.pop_tail(safe_peel.saturating_add(crop));
+    if safe_footer > 0 {
+        let footer_slice = slice_img_axis(
+            spec.frame,
+            spec.direction,
+            frame_main.saturating_sub(safe_footer),
+            safe_footer,
+        );
+        canvas.append_contiguous(&footer_slice);
+    }
+    safe_footer
+}
+
+/// 反向前插后的回滚：直接弹出首部回滚块并重贴最新页眉，至少保留单帧长度。
+pub(crate) fn rollback_head_preserving_initial(
+    canvas: &mut PagedCanvas,
+    spec: &RollbackSpec<'_>,
+) -> u32 {
+    let old_main = canvas.main_span();
+    let frame_main = img_axis_dims(spec.frame, spec.direction).0;
+    let safe_header = spec.band_size.min(frame_main / 2);
+    let safe_peel = if safe_header > 0 {
+        spec.attached_band_size.min(old_main.saturating_sub(1))
+    } else {
+        0
+    };
+    let body_main = old_main.saturating_sub(safe_peel);
+    let min_body = frame_main.saturating_sub(safe_header).min(body_main);
+    let crop = spec.pixels.min(body_main.saturating_sub(min_body));
+    if crop == 0 && safe_peel == safe_header {
+        return safe_header;
+    }
+
+    let _ = canvas.pop_head(safe_peel.saturating_add(crop));
+    if safe_header > 0 {
+        let header_slice = slice_img_axis(spec.frame, spec.direction, 0, safe_header);
+        canvas.prepend_contiguous(&header_slice);
+    }
+    safe_header
+}
+
+/// 从主轴像素集合并拼接成多段小条带所需的底层搬运函数
+pub(crate) fn copy_at_axis(
     dst: &mut RgbaImage,
     src: &RgbaImage,
     direction: StitchDirection,
@@ -52,200 +212,57 @@ pub(crate) fn copy_along_axis(
         StitchDirection::Vertical => (0, main_offset),
         StitchDirection::Horizontal => (main_offset, 0),
     };
-    dst.copy_from(src, x, y).is_ok()
+    image::GenericImage::copy_from(dst, src, x, y).is_ok()
 }
 
-/// 向画布尾部追加一截新增切片，并正确剥离旧页脚、粘贴新正文与重附单一页脚。
-pub(crate) fn append_forward_slice(
-    canvas: &mut RgbaImage,
-    frame: &RgbaImage,
+pub(crate) fn copy_chunk_strip(
+    dst: &mut RgbaImage,
+    chunk: &RgbaImage,
     direction: StitchDirection,
-    step: u32,
-    footer: u32,
-    peel: u32,
-) -> Option<u32> {
-    let (old_main, cross) = axis_dims(canvas, direction);
-    let frame_main = axis_dims(frame, direction).0;
-    let safe_footer = footer.min(frame_main / 2);
-    let valid_step = step.min(frame_main.saturating_sub(safe_footer));
-    if valid_step == 0 {
-        return None;
-    }
-    let safe_peel = if safe_footer > 0 {
-        peel.min(old_main.saturating_sub(1))
-    } else {
-        0
-    };
-    let keep_main = old_main.saturating_sub(safe_peel);
-    let new_main = keep_main
-        .saturating_add(valid_step)
-        .saturating_add(safe_footer);
-    let mut new_canvas = alloc_axis_canvas(direction, new_main, cross);
-
-    let head_keep = slice_along_axis(canvas, direction, 0, keep_main);
-    let body_start = frame_main
-        .saturating_sub(safe_footer)
-        .saturating_sub(valid_step);
-    let body_slice = slice_along_axis(frame, direction, body_start, valid_step);
-
-    if !copy_along_axis(&mut new_canvas, &head_keep, direction, 0)
-        || !copy_along_axis(&mut new_canvas, &body_slice, direction, keep_main)
-    {
-        return None;
-    }
-    if safe_footer > 0 {
-        let footer_slice = slice_along_axis(
-            frame,
-            direction,
-            frame_main.saturating_sub(safe_footer),
-            safe_footer,
-        );
-        if !copy_along_axis(
-            &mut new_canvas,
-            &footer_slice,
-            direction,
-            keep_main + valid_step,
-        ) {
-            return None;
+    src_off: u32,
+    dst_off: u32,
+    len: u32,
+) {
+    match direction {
+        StitchDirection::Vertical => {
+            let view = image::GenericImageView::view(chunk, 0, src_off, chunk.width(), len);
+            let _ = image::GenericImage::copy_from(dst, &*view, 0, dst_off);
+        }
+        StitchDirection::Horizontal => {
+            let view = image::GenericImageView::view(chunk, src_off, 0, len, chunk.height());
+            let _ = image::GenericImage::copy_from(dst, &*view, dst_off, 0);
         }
     }
-    *canvas = new_canvas;
-    Some(safe_footer)
 }
 
-/// 向画布首部前插一截上方/左侧新增切片，同时剥离旧首部固定栏并重附到全图最前端。
-pub(crate) fn prepend_backward_slice(
-    canvas: &mut RgbaImage,
-    frame: &RgbaImage,
+pub(crate) fn concat_imgs(
+    first: &RgbaImage,
+    second: &RgbaImage,
     direction: StitchDirection,
-    step: u32,
-    header: u32,
-    peel: u32,
-) -> Option<u32> {
-    let (old_main, cross) = axis_dims(canvas, direction);
-    let frame_main = axis_dims(frame, direction).0;
-    let safe_header = header.min(frame_main / 2);
-    let valid_step = step.min(frame_main.saturating_sub(safe_header));
-    if valid_step == 0 {
-        return None;
-    }
-    let safe_peel = if safe_header > 0 {
-        peel.min(old_main.saturating_sub(1))
-    } else {
-        0
-    };
-    let keep_main = old_main.saturating_sub(safe_peel);
-    let new_main = safe_header
-        .saturating_add(valid_step)
-        .saturating_add(keep_main);
-    let mut new_canvas = alloc_axis_canvas(direction, new_main, cross);
-
-    if safe_header > 0 {
-        let header_slice = slice_along_axis(frame, direction, 0, safe_header);
-        if !copy_along_axis(&mut new_canvas, &header_slice, direction, 0) {
-            return None;
-        }
-    }
-    let body_slice = slice_along_axis(frame, direction, safe_header, valid_step);
-    let tail_keep = slice_along_axis(canvas, direction, safe_peel, keep_main);
-    if !copy_along_axis(&mut new_canvas, &body_slice, direction, safe_header)
-        || !copy_along_axis(
-            &mut new_canvas,
-            &tail_keep,
-            direction,
-            safe_header + valid_step,
-        )
-    {
-        return None;
-    }
-    *canvas = new_canvas;
-    Some(safe_header)
+) -> RgbaImage {
+    let (m1, c1) = img_axis_dims(first, direction);
+    let m2 = img_axis_dims(second, direction).0;
+    let mut out = alloc_axis_canvas(direction, m1.saturating_add(m2), c1);
+    let _ = copy_at_axis(&mut out, first, direction, 0);
+    let _ = copy_at_axis(&mut out, second, direction, m1);
+    out
 }
 
-/// 正向扩展后的反向回滚：从画布尾部裁去回滚像素并恢复页脚至新末端，至少保留单帧长度。
-pub(crate) fn rollback_tail_preserving_initial(
-    canvas: &mut RgbaImage,
-    frame: &RgbaImage,
+pub(crate) fn merge_img_parts(
+    parts: &[RgbaImage],
     direction: StitchDirection,
-    pixels: u32,
-    footer: u32,
-    attached_footer_size: u32,
-) -> u32 {
-    let (old_main, cross) = axis_dims(canvas, direction);
-    let frame_main = axis_dims(frame, direction).0;
-    let safe_footer = footer.min(frame_main / 2);
-    let safe_peel = if safe_footer > 0 {
-        attached_footer_size.min(old_main.saturating_sub(1))
-    } else {
-        0
-    };
-    let body_main = old_main.saturating_sub(safe_peel);
-    let min_body = frame_main.saturating_sub(safe_footer).min(body_main);
-    let crop = pixels.min(body_main.saturating_sub(min_body));
-    let keep_body = body_main.saturating_sub(crop);
-    let new_main = keep_body.saturating_add(safe_footer);
-    if crop == 0 && safe_peel == safe_footer {
-        return safe_footer;
+    total_main: u32,
+    cross_span: u32,
+) -> RgbaImage {
+    if parts.len() == 1 {
+        return parts[0].clone();
     }
-
-    let mut new_canvas = alloc_axis_canvas(direction, new_main, cross);
-    let body_keep = slice_along_axis(canvas, direction, 0, keep_body);
-    if !copy_along_axis(&mut new_canvas, &body_keep, direction, 0) {
-        return attached_footer_size;
+    let mut out = alloc_axis_canvas(direction, total_main, cross_span);
+    let mut cursor = 0u32;
+    for part in parts {
+        let m = img_axis_dims(part, direction).0;
+        let _ = copy_at_axis(&mut out, part, direction, cursor);
+        cursor = cursor.saturating_add(m);
     }
-    if safe_footer > 0 {
-        let footer_slice = slice_along_axis(
-            frame,
-            direction,
-            frame_main.saturating_sub(safe_footer),
-            safe_footer,
-        );
-        if !copy_along_axis(&mut new_canvas, &footer_slice, direction, keep_body) {
-            return attached_footer_size;
-        }
-    }
-    *canvas = new_canvas;
-    safe_footer
-}
-
-/// 反向前插后的回滚：从画布首部裁去正向回滚的像素并重附最新页眉至新首端，至少保留单帧长度。
-pub(crate) fn rollback_head_preserving_initial(
-    canvas: &mut RgbaImage,
-    frame: &RgbaImage,
-    direction: StitchDirection,
-    pixels: u32,
-    header: u32,
-    attached_header_size: u32,
-) -> u32 {
-    let (old_main, cross) = axis_dims(canvas, direction);
-    let frame_main = axis_dims(frame, direction).0;
-    let safe_header = header.min(frame_main / 2);
-    let safe_peel = if safe_header > 0 {
-        attached_header_size.min(old_main.saturating_sub(1))
-    } else {
-        0
-    };
-    let body_main = old_main.saturating_sub(safe_peel);
-    let min_body = frame_main.saturating_sub(safe_header).min(body_main);
-    let crop = pixels.min(body_main.saturating_sub(min_body));
-    let keep_start = safe_peel.saturating_add(crop);
-    let keep_len = old_main.saturating_sub(keep_start);
-    let new_main = safe_header.saturating_add(keep_len);
-    if crop == 0 && safe_peel == safe_header {
-        return safe_header;
-    }
-
-    let mut new_canvas = alloc_axis_canvas(direction, new_main, cross);
-    if safe_header > 0 {
-        let header_slice = slice_along_axis(frame, direction, 0, safe_header);
-        if !copy_along_axis(&mut new_canvas, &header_slice, direction, 0) {
-            return attached_header_size;
-        }
-    }
-    let body_keep = slice_along_axis(canvas, direction, keep_start, keep_len);
-    if !copy_along_axis(&mut new_canvas, &body_keep, direction, safe_header) {
-        return attached_header_size;
-    }
-    *canvas = new_canvas;
-    safe_header
+    out
 }

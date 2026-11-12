@@ -4,7 +4,8 @@
 
 use crate::geometry::{Point, Rect};
 use snapin_render::stitching::{
-    LongCaptureStitcher, StitchDirection, StitchFrameOutcome, StitchOptions, ViewportWindow,
+    FrameShiftAnalysis, LongCaptureStitcher, StitchDirection, StitchFrameOutcome, StitchOptions,
+    ThumbnailRenderSpec, ViewportWindow,
 };
 use std::time::Instant;
 
@@ -110,6 +111,12 @@ pub struct LongCaptureSession {
     pub toolbar_position: Option<(f32, f32)>,
     /// 正在拖动控制栏时记录的鼠标起点与工具栏起点
     toolbar_drag_origin: Option<((f32, f32), (f32, f32))>,
+    /// 是否由异步后台工作线程承担侧边缩略图重采样，启用后允许重绘期优先展示最近一次已完成的旧缩略图
+    pub(crate) async_thumbnail_enabled: bool,
+    /// 最近一次渲染请求期望的后台缩略图代际号与规格键
+    pub(crate) desired_thumbnail_spec: Option<(u64, ThumbnailRenderSpec)>,
+    /// 最近一次在面板上展示使用的缩略图规格，供拼接提交后提前派发后台预生成
+    pub(crate) last_thumbnail_spec: Option<ThumbnailRenderSpec>,
 }
 
 impl LongCaptureSession {
@@ -137,6 +144,9 @@ impl LongCaptureSession {
             hovered_action: None,
             toolbar_position: None,
             toolbar_drag_origin: None,
+            async_thumbnail_enabled: false,
+            desired_thumbnail_spec: None,
+            last_thumbnail_spec: None,
         }
     }
 
@@ -199,7 +209,7 @@ impl LongCaptureSession {
 
     /// 判断长截图画布是否与初始选区首帧尺寸一致（即已反向裁剪回退到原点）
     pub fn is_at_initial_size(&self) -> bool {
-        let (cw, ch) = self.stitcher.canvas().dimensions();
+        let (cw, ch) = self.stitcher.dimensions();
         let (iw, ih) = self.stitcher.initial_frame_size();
         match self.direction {
             StitchDirection::Vertical => ch <= ih,
@@ -283,13 +293,35 @@ impl LongCaptureSession {
         self.crop_sub_menu_open = !self.crop_sub_menu_open;
     }
 
-    /// 投喂最新捕获的屏幕帧并返回精细状态结果，精确区分推进、静止、失配与忽略。
+    /// 投喂最新捕获的屏幕帧并返回精细状态结果，精确区分推进、静止、失配、达限与忽略。
+    #[cfg(test)]
     pub fn feed_frame_outcome(&mut self, frame: &image::RgbaImage) -> StitchFrameOutcome {
         if !self.is_capturing || self.is_editing {
             return StitchFrameOutcome::Ignored;
         }
         self.last_feed_time = Instant::now();
         let outcome = self.stitcher.feed_frame_outcome(frame);
+        self.record_feed_outcome(outcome)
+    }
+
+    /// 提交后台工作线程已完成匹配的位移结果，避免在 GUI 主线程重复运算匹配算法。
+    pub fn apply_analyzed_shift(
+        &mut self,
+        selection_frame: image::RgbaImage,
+        expected_generation: u64,
+        analysis: FrameShiftAnalysis,
+    ) -> StitchFrameOutcome {
+        if !self.is_capturing || self.is_editing {
+            return StitchFrameOutcome::Ignored;
+        }
+        self.last_feed_time = Instant::now();
+        let outcome =
+            self.stitcher
+                .apply_analyzed_shift(selection_frame, expected_generation, analysis);
+        self.record_feed_outcome(outcome)
+    }
+
+    fn record_feed_outcome(&mut self, outcome: StitchFrameOutcome) -> StitchFrameOutcome {
         match outcome {
             StitchFrameOutcome::Stitched { .. } => {
                 self.is_matched = true;
@@ -302,7 +334,7 @@ impl LongCaptureSession {
             StitchFrameOutcome::Unmatched { .. } => {
                 self.is_matched = false;
             }
-            StitchFrameOutcome::Ignored => {}
+            StitchFrameOutcome::LimitReached | StitchFrameOutcome::Ignored => {}
         }
         outcome
     }
@@ -374,14 +406,15 @@ impl LongCaptureSession {
 
     /// 在长图编辑模式下根据滚轮滚动调整视口偏移
     pub fn scroll_viewport(&mut self, delta_y: f32, viewport_span: f32) {
+        let (cw, ch) = self.stitcher.dimensions();
         match self.direction {
             StitchDirection::Vertical => {
-                let canvas_height = self.stitcher.canvas().height() as f32;
+                let canvas_height = ch as f32;
                 let max_offset = (canvas_height - viewport_span).max(0.0);
                 self.viewport_offset_y = (self.viewport_offset_y - delta_y).clamp(0.0, max_offset);
             }
             StitchDirection::Horizontal => {
-                let canvas_width = self.stitcher.canvas().width() as f32;
+                let canvas_width = cw as f32;
                 let max_offset = (canvas_width - viewport_span).max(0.0);
                 self.viewport_offset_x = (self.viewport_offset_x - delta_y).clamp(0.0, max_offset);
             }
@@ -394,7 +427,7 @@ impl LongCaptureSession {
         view_width: u32,
         view_height: u32,
     ) -> (u32, u32) {
-        let (cw, ch) = self.stitcher.canvas().dimensions();
+        let (cw, ch) = self.stitcher.dimensions();
         match self.direction {
             StitchDirection::Vertical => (
                 0,
@@ -443,7 +476,7 @@ impl LongCanvasSpace {
         if pw == 0 || ph == 0 {
             return None;
         }
-        let (cw, ch) = session.stitcher.canvas().dimensions();
+        let (cw, ch) = session.stitcher.dimensions();
         let (ox, oy) = session.effective_viewport_offset(pw, ph);
         let copy_w = pw.min(cw.saturating_sub(ox));
         let copy_h = ph.min(ch.saturating_sub(oy));

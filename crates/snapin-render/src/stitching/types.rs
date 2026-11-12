@@ -12,6 +12,12 @@ pub const MIN_CROPPED_SPAN: u32 = 32;
 /// 侧边预览缩略图的默认最小可读交叉轴厚度（逻辑像素对应的目标像素）。
 pub const DEFAULT_MIN_THUMBNAIL_CROSS: u32 = 56;
 
+/// 长截图画布默认最大像素总量（约 `6400` 万像素 ≈ `256 MB` RGBA8），超出时触发安全保护停止追加。
+pub const DEFAULT_MAX_CANVAS_PIXELS: u64 = 64_000_000;
+
+/// 长截图画布单轴默认最大像素长度（`32768px`），兼顾软件光栅化与 GPU 纹理安全边界。
+pub const DEFAULT_MAX_CANVAS_EXTENT: u32 = 32_768;
+
 /// 截图滚动与拼接的主方向。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StitchDirection {
@@ -58,6 +64,10 @@ pub struct StitchOptions {
     pub auto_crop_reverse: bool,
     /// 画面顶部（或左侧）固定标题栏/导航条的最大判定比例（默认 0.35）
     pub sticky_header_max_ratio: f32,
+    /// 画布允许的最大总像素数量（`0` 表示不限制，默认 `DEFAULT_MAX_CANVAS_PIXELS`）。
+    pub max_canvas_pixels: u64,
+    /// 画布允许的最大单轴像素长度（`0` 表示不限制，默认 `DEFAULT_MAX_CANVAS_EXTENT`）。
+    pub max_canvas_extent: u32,
 }
 
 impl Default for StitchOptions {
@@ -69,6 +79,8 @@ impl Default for StitchOptions {
             confidence_threshold: 0.70,
             auto_crop_reverse: true,
             sticky_header_max_ratio: 0.35,
+            max_canvas_pixels: DEFAULT_MAX_CANVAS_PIXELS,
+            max_canvas_extent: DEFAULT_MAX_CANVAS_EXTENT,
         }
     }
 }
@@ -131,8 +143,27 @@ pub enum StitchFrameOutcome {
         /// 最佳候选位移对应的置信度得分
         confidence: f32,
     },
+    /// 画布像素总量或单轴尺寸已达配置安全上限，拒绝继续扩展以防止内存耗尽
+    LimitReached,
     /// 帧尺寸不匹配、回滚裁剪已关闭或会话当前不接受新帧，未修改任何拼接状态
     Ignored,
+}
+
+/// 在后台线程无副作用执行的纯帧间位移分析结论，供 UI 主线程快速提交拼接状态。
+///
+/// 实现初衷：把高耗时的静止检测、金字塔构建与多频带 ZNCC 匹配剥离出 GUI 主事件循环，
+/// 主线程收到结果后仅需检查代际号并执行均摊 $O(1)$ 分块画布追加，彻底消除滚动卡顿。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FrameShiftAnalysis {
+    /// 画面相对锚点帧未产生有效位移
+    Unchanged,
+    /// 成功匹配有效位移且通过置信度阈值
+    Matched(MatchResult),
+    /// 未通过置信度阈值或重叠特征不足
+    Unmatched {
+        /// 最佳候选位移对应的置信度得分
+        confidence: f32,
+    },
 }
 
 impl StitchFrameOutcome {

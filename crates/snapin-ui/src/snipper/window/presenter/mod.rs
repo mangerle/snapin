@@ -39,7 +39,7 @@ mod support;
 
 #[cfg(test)]
 pub use support::create_dimmed_pixmap_fast;
-use support::{create_base_pixmap, magnifier_signature};
+use support::{create_base_pixmap, magnifier_signature, update_dimmed_region_fast};
 
 /// 截图全屏窗口呈现器：管理帧缓冲区与 ARGB8888 共享内存表面呈现。
 pub struct SnipperPresenter {
@@ -169,6 +169,30 @@ impl SnipperPresenter {
         let width = self.render_pixmap.width();
         let height = self.render_pixmap.height();
         self.base_bg = create_base_pixmap(bg_image, width, height, dimmed)?;
+        self.overlay = None;
+        Ok(())
+    }
+
+    /// 仅局部更新预计算底图中指定矩形边界（例如长截图锁定选区内部），避免每次滚动全屏暗化。
+    ///
+    /// 若分辨率发生变化，则自动回退到全量 [`Self::replace_background`]。
+    ///
+    /// # Errors
+    ///
+    /// 尺寸变更后重分配全屏底图失败时返回 [`UiError::PixmapAlloc`]。
+    pub fn update_background_region(
+        &mut self,
+        bg_image: &RgbaImage,
+        region: &Rect,
+        dimmed: bool,
+    ) -> Result<(), UiError> {
+        let width = self.render_pixmap.width();
+        let height = self.render_pixmap.height();
+        if self.base_bg.width() != bg_image.width() || self.base_bg.height() != bg_image.height() {
+            return self.replace_background(bg_image, dimmed);
+        }
+        let bounds = region.to_pixel_bounds(width, height);
+        update_dimmed_region_fast(&mut self.base_bg, bg_image, bounds, dimmed);
         self.overlay = None;
         Ok(())
     }

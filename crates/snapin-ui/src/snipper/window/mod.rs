@@ -22,6 +22,7 @@ pub(crate) mod redaction;
 pub mod state;
 pub mod types;
 pub mod view;
+mod view_long_capture;
 
 pub use state::SnipperPhase;
 pub use types::{SnipMode, SnipperLaunch, SnipperOutcome, SnipperRuntime};
