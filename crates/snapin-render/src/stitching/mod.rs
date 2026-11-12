@@ -4,12 +4,15 @@ mod canvas_ops;
 mod history;
 mod matcher;
 mod overlay;
+mod pyramid;
 mod stitcher;
 mod thumbnail;
 mod types;
 
 #[cfg(test)]
 mod bidirectional_tests;
+#[cfg(test)]
+mod consensus_tests;
 #[cfg(test)]
 mod tests;
 

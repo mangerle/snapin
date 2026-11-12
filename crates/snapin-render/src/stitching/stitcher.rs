@@ -203,20 +203,18 @@ impl LongCaptureStitcher {
         } else {
             footer
         };
-        heal_canvas_with_floating_mask(
-            &mut self.canvas,
-            &OverlayHealSpec {
-                prev: &self.last_frame,
-                curr: frame,
-                direction: self.direction,
-                step,
-                header: result.sticky_header_size,
-                footer,
-                existing_canvas_header: self.attached_header_size,
-                existing_canvas_footer: peel,
-                is_prepend: false,
-            },
-        );
+        let spec = OverlayHealSpec {
+            prev: &self.last_frame,
+            curr: frame,
+            direction: self.direction,
+            step,
+            header: result.sticky_header_size,
+            footer,
+            existing_canvas_header: self.attached_header_size,
+            existing_canvas_footer: peel,
+            is_prepend: false,
+        };
+        heal_canvas_with_floating_mask(&mut self.canvas, &spec);
         let Some(new_footer) =
             append_forward_slice(&mut self.canvas, frame, self.direction, step, footer, peel)
         else {
@@ -240,20 +238,18 @@ impl LongCaptureStitcher {
         } else {
             header
         };
-        heal_canvas_with_floating_mask(
-            &mut self.canvas,
-            &OverlayHealSpec {
-                prev: &self.last_frame,
-                curr: frame,
-                direction: self.direction,
-                step,
-                header,
-                footer: result.sticky_footer_size,
-                existing_canvas_header: peel,
-                existing_canvas_footer: self.attached_footer_size,
-                is_prepend: true,
-            },
-        );
+        let spec = OverlayHealSpec {
+            prev: &self.last_frame,
+            curr: frame,
+            direction: self.direction,
+            step,
+            header,
+            footer: result.sticky_footer_size,
+            existing_canvas_header: peel,
+            existing_canvas_footer: self.attached_footer_size,
+            is_prepend: true,
+        };
+        heal_canvas_with_floating_mask(&mut self.canvas, &spec);
         let Some(new_header) =
             prepend_backward_slice(&mut self.canvas, frame, self.direction, step, header, peel)
         else {
