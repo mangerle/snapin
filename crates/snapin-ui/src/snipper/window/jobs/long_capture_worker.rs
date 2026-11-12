@@ -15,8 +15,9 @@ use snapin_render::{
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, SyncSender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
+use tracing::warn;
 
 /// 后台长截图工作线程向 UI 事件循环投递的异步结果。
 pub enum LongCaptureAsyncEvent {
@@ -149,10 +150,7 @@ impl LongCaptureWorker {
             return;
         };
         {
-            let mut slot = self
-                .latest_thumb
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut slot = lock_thumb_slot(&self.latest_thumb);
             *slot = Some(task);
         }
         if !self.thumb_queued.swap(true, Ordering::AcqRel) && sender.try_send(()).is_err() {
@@ -166,10 +164,14 @@ impl Drop for LongCaptureWorker {
         drop(self.analyze_sender.take());
         drop(self.thumb_sender.take());
         if let Some(handle) = self.analyze_handle.take() {
-            let _ = handle.join();
+            if handle.join().is_err() {
+                warn!("长截图后台位移分析线程异常退出");
+            }
         }
         if let Some(handle) = self.thumb_handle.take() {
-            let _ = handle.join();
+            if handle.join().is_err() {
+                warn!("长截图后台缩略图渲染线程异常退出");
+            }
         }
     }
 }
@@ -210,6 +212,17 @@ fn run_analyze_task(task: AnalyzeFrameTask, sink: &LongCaptureEventSink) {
     });
 }
 
+fn lock_thumb_slot(
+    thumb_slot: &Arc<Mutex<Option<ThumbnailRenderTask>>>,
+) -> MutexGuard<'_, Option<ThumbnailRenderTask>> {
+    thumb_slot.lock().unwrap_or_else(|poisoned| {
+        warn!("后台缩略图任务槽互斥锁处于中毒状态，已记录异常并接管清理陈旧槽位");
+        let mut guard = poisoned.into_inner();
+        *guard = None;
+        guard
+    })
+}
+
 fn run_latest_thumbnail_task(
     thumb_slot: &Arc<Mutex<Option<ThumbnailRenderTask>>>,
     queued_flag: &Arc<AtomicBool>,
@@ -218,9 +231,7 @@ fn run_latest_thumbnail_task(
     loop {
         queued_flag.store(false, Ordering::Release);
         let next = {
-            let mut slot = thumb_slot
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut slot = lock_thumb_slot(thumb_slot);
             slot.take()
         };
         let Some(task) = next else {
@@ -235,10 +246,7 @@ fn run_latest_thumbnail_task(
             overview,
         });
         if !queued_flag.load(Ordering::Acquire) {
-            let has_more = thumb_slot
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .is_some();
+            let has_more = lock_thumb_slot(thumb_slot).is_some();
             if !has_more {
                 break;
             }
