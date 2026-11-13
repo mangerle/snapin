@@ -299,6 +299,108 @@ impl Drop for MacosCursorRestoreGuard {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, Clone, Copy)]
+struct MacosMonitorGeometry {
+    logical_x: f64,
+    logical_y: f64,
+    phys_x: f64,
+    phys_y: f64,
+    phys_width: f64,
+    phys_height: f64,
+    scale: f64,
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn resolve_macos_logical_focus_point(
+    monitors: &[MacosMonitorGeometry],
+    focus_point: (f32, f32),
+) -> Option<(f64, f64)> {
+    let (fx, fy) = focus_point;
+    if monitors.is_empty() || !fx.is_finite() || !fy.is_finite() {
+        return None;
+    }
+    let min_phys_x = monitors
+        .iter()
+        .map(|m| m.phys_x)
+        .fold(f64::INFINITY, f64::min);
+    let min_phys_y = monitors
+        .iter()
+        .map(|m| m.phys_y)
+        .fold(f64::INFINITY, f64::min);
+    let global_phys_x = min_phys_x + f64::from(fx);
+    let global_phys_y = min_phys_y + f64::from(fy);
+
+    let target_monitor = monitors
+        .iter()
+        .find(|m| {
+            global_phys_x >= m.phys_x
+                && global_phys_x < m.phys_x + m.phys_width
+                && global_phys_y >= m.phys_y
+                && global_phys_y < m.phys_y + m.phys_height
+        })
+        .or_else(|| {
+            monitors.iter().min_by(|a, b| {
+                let da = (global_phys_x - (a.phys_x + a.phys_width * 0.5)).powi(2)
+                    + (global_phys_y - (a.phys_y + a.phys_height * 0.5)).powi(2);
+                let db = (global_phys_x - (b.phys_x + b.phys_width * 0.5)).powi(2)
+                    + (global_phys_y - (b.phys_y + b.phys_height * 0.5)).powi(2);
+                da.total_cmp(&db)
+            })
+        })?;
+
+    let scale = target_monitor.scale.max(1.0);
+    let lx = target_monitor.logical_x + (global_phys_x - target_monitor.phys_x) / scale;
+    let ly = target_monitor.logical_y + (global_phys_y - target_monitor.phys_y) / scale;
+    Some((lx, ly))
+}
+
+#[cfg(target_os = "macos")]
+fn collect_macos_monitor_geometries() -> Vec<MacosMonitorGeometry> {
+    use core_graphics::display::CGDisplay;
+
+    if let Ok(monitors) = xcap::Monitor::all() {
+        let mut list = Vec::with_capacity(monitors.len());
+        for monitor in monitors {
+            let (Ok(mx), Ok(my), Ok(mw), Ok(mh)) =
+                (monitor.x(), monitor.y(), monitor.width(), monitor.height())
+            else {
+                continue;
+            };
+            let scale = f64::from(monitor.scale_factor().unwrap_or(1.0).max(1.0));
+            list.push(MacosMonitorGeometry {
+                logical_x: f64::from(mx),
+                logical_y: f64::from(my),
+                phys_x: (f64::from(mx) * scale).round(),
+                phys_y: (f64::from(my) * scale).round(),
+                phys_width: (f64::from(mw) * scale).round().max(1.0),
+                phys_height: (f64::from(mh) * scale).round().max(1.0),
+                scale,
+            });
+        }
+        if !list.is_empty() {
+            return list;
+        }
+    }
+
+    let main = CGDisplay::main();
+    let bounds = main.bounds();
+    let scale = if bounds.size.width > 0.0 {
+        (main.pixels_wide() as f64 / bounds.size.width).max(1.0)
+    } else {
+        1.0
+    };
+    vec![MacosMonitorGeometry {
+        logical_x: bounds.origin.x,
+        logical_y: bounds.origin.y,
+        phys_x: (bounds.origin.x * scale).round(),
+        phys_y: (bounds.origin.y * scale).round(),
+        phys_width: (bounds.size.width * scale).round().max(1.0),
+        phys_height: (bounds.size.height * scale).round().max(1.0),
+        scale,
+    }]
+}
+
 #[cfg(target_os = "macos")]
 fn simulate_macos_wheel(spec: WheelInputSpec) -> Result<(), PlatformError> {
     use core_graphics::display::CGDisplay;
@@ -311,19 +413,11 @@ fn simulate_macos_wheel(spec: WheelInputSpec) -> Result<(), PlatformError> {
             message: "创建 macOS 滚轮事件源失败".to_string(),
         }
     })?;
-    let _cursor_guard = spec.focus_point.and_then(|(fx, fy)| {
+    let _cursor_guard = spec.focus_point.and_then(|focus| {
         let prev = CGEvent::new(source.clone()).ok().map(|ev| ev.location())?;
-        let main = CGDisplay::main();
-        let bounds = main.bounds();
-        let scale = if bounds.size.width > 0.0 {
-            (main.pixels_wide() as f64 / bounds.size.width).max(1.0)
-        } else {
-            1.0
-        };
-        let target = CGPoint::new(
-            bounds.origin.x + f64::from(fx) / scale,
-            bounds.origin.y + f64::from(fy) / scale,
-        );
+        let monitors = collect_macos_monitor_geometries();
+        let (lx, ly) = resolve_macos_logical_focus_point(&monitors, focus)?;
+        let target = CGPoint::new(lx, ly);
         CGDisplay::warp_mouse_cursor_position(target).ok()?;
         Some(MacosCursorRestoreGuard(Some(prev)))
     });
@@ -480,5 +574,40 @@ mod tests {
         let mut clamp_rem = 0.0f32;
         assert_eq!(accumulate_linux_wheel_steps(3.4, &mut clamp_rem), 3);
         assert_eq!(accumulate_linux_wheel_steps(-100.0, &mut clamp_rem), -20);
+    }
+
+    #[test]
+    fn test_macos_multimonitor_focus_point_resolves_negative_and_mixed_dpi() {
+        // 副屏在主屏左侧（逻辑 X = -1920..0，1x 缩放），主屏为 Retina 2x（逻辑 0..1512）
+        let monitors = [
+            MacosMonitorGeometry {
+                logical_x: -1920.0,
+                logical_y: 0.0,
+                phys_x: -1920.0,
+                phys_y: 0.0,
+                phys_width: 1920.0,
+                phys_height: 1080.0,
+                scale: 1.0,
+            },
+            MacosMonitorGeometry {
+                logical_x: 0.0,
+                logical_y: 0.0,
+                phys_x: 0.0,
+                phys_y: 0.0,
+                phys_width: 3024.0,
+                phys_height: 1964.0,
+                scale: 2.0,
+            },
+        ];
+
+        // 全屏快照原点在 (-1920, 0)，因此副屏中心物理像素为 (960, 540)，对应 Quartz 逻辑坐标 (-960, 540)
+        let secondary = resolve_macos_logical_focus_point(&monitors, (960.0, 540.0)).unwrap();
+        assert!((secondary.0 - (-960.0)).abs() < 1e-6);
+        assert!((secondary.1 - 540.0).abs() < 1e-6);
+
+        // 主屏中心物理像素为 (1920 + 1512, 982) = (3432, 982)，对应 Quartz 逻辑坐标 (756, 491)
+        let primary = resolve_macos_logical_focus_point(&monitors, (3432.0, 982.0)).unwrap();
+        assert!((primary.0 - 756.0).abs() < 1e-6);
+        assert!((primary.1 - 491.0).abs() < 1e-6);
     }
 }
