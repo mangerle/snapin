@@ -74,11 +74,10 @@ pub(crate) fn plan_extend_span(
     } else {
         0
     };
-    let projected = old_main
-        .saturating_sub(safe_peel)
-        .saturating_add(valid_step)
-        .saturating_add(safe_band);
-    Some((valid_step, safe_peel, safe_band, projected))
+    // 防止新帧固定栏吞入过多正文留白导致正向/反向切片起点反超终点，保证画布增量严格等于 valid_step
+    let effective_band = safe_band.min(valid_step.saturating_add(safe_peel));
+    let projected = old_main.saturating_add(valid_step);
+    Some((valid_step, safe_peel, effective_band, projected))
 }
 
 /// 均摊 $O(1)$ 向画布尾部追加一截新增切片，剥离旧页脚并重附单一页脚。
@@ -98,18 +97,18 @@ pub(crate) fn append_forward_slice(
     if safe_peel > 0 {
         let _ = canvas.pop_tail(safe_peel);
     }
+    // 旧画布正文截止于上一帧的 frame_main - safe_peel，在当前帧中上移了 valid_step
     let body_start = frame_main
-        .saturating_sub(safe_footer)
+        .saturating_sub(safe_peel)
         .saturating_sub(valid_step);
-    let body_slice = slice_img_axis(spec.frame, spec.direction, body_start, valid_step);
-    canvas.append_contiguous(&body_slice);
+    let body_end = frame_main.saturating_sub(safe_footer);
+    let body_len = body_end.saturating_sub(body_start);
+    if body_len > 0 {
+        let body_slice = slice_img_axis(spec.frame, spec.direction, body_start, body_len);
+        canvas.append_contiguous(&body_slice);
+    }
     if safe_footer > 0 {
-        let footer_slice = slice_img_axis(
-            spec.frame,
-            spec.direction,
-            frame_main.saturating_sub(safe_footer),
-            safe_footer,
-        );
+        let footer_slice = slice_img_axis(spec.frame, spec.direction, body_end, safe_footer);
         canvas.append_contiguous(&footer_slice);
     }
     SliceExtendOutcome::Applied(safe_footer)
@@ -131,8 +130,13 @@ pub(crate) fn prepend_backward_slice(
     if safe_peel > 0 {
         let _ = canvas.pop_head(safe_peel);
     }
-    let body_slice = slice_img_axis(spec.frame, spec.direction, safe_header, valid_step);
-    canvas.prepend_contiguous(&body_slice);
+    // 旧画布正文起始于上一帧的 safe_peel，在当前帧中下移了 valid_step
+    let body_end = safe_peel.saturating_add(valid_step);
+    let body_len = body_end.saturating_sub(safe_header);
+    if body_len > 0 {
+        let body_slice = slice_img_axis(spec.frame, spec.direction, safe_header, body_len);
+        canvas.prepend_contiguous(&body_slice);
+    }
     if safe_header > 0 {
         let header_slice = slice_img_axis(spec.frame, spec.direction, 0, safe_header);
         canvas.prepend_contiguous(&header_slice);

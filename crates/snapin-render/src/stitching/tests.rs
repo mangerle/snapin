@@ -2,7 +2,9 @@
 
 use super::matcher::estimate_shift;
 use super::stitcher::LongCaptureStitcher;
-use super::types::{StitchDirection, StitchFrameOutcome, StitchOptions};
+use super::types::{
+    FrameShiftAnalysis, MatchResult, StitchDirection, StitchFrameOutcome, StitchOptions,
+};
 use image::{Rgba, RgbaImage};
 
 /// 辅助生成带丰富几何条纹特征的合成图像，用于位移与拼接精度验证
@@ -921,4 +923,99 @@ fn test_periodic_repeating_rows_with_jitter_rejected_by_harmonic_guard() {
         !res.is_matched(options.confidence_threshold),
         "周期性重复行仅存在轻微微扰时，3 倍频谐波(+36)低误差陷阱应被多义性守卫拦截: {res:?}"
     );
+}
+
+#[test]
+fn test_fluctuating_sticky_footer_and_header_keep_exact_geometry_without_duplication_or_skip() {
+    let width = 80u32;
+    let height = 200u32;
+    // 用像素 R 通道编码唯一文档行号 (doc_y % 250)，便于精确校验接缝处是否吞行或重影
+    let build_doc_frame = |scroll: u32, footer_h: u32| -> RgbaImage {
+        let mut img = RgbaImage::new(width, height);
+        for y in 0..height {
+            let is_footer = y >= height - footer_h;
+            for x in 0..width {
+                if is_footer {
+                    img.put_pixel(x, y, Rgba([10, 10, 10, 255]));
+                } else {
+                    let doc_y = y + scroll;
+                    let r = (doc_y % 250) as u8;
+                    img.put_pixel(x, y, Rgba([r, ((doc_y / 250) * 50) as u8, 128, 255]));
+                }
+            }
+        }
+        img
+    };
+
+    // 第 0 帧：scroll = 0, 底栏 20px
+    let f0 = build_doc_frame(0, 20);
+    let mut stitcher =
+        LongCaptureStitcher::new(f0, StitchDirection::Vertical, StitchOptions::default());
+
+    // 第 1 帧：下滚 +40px，底栏 20px
+    let f1 = build_doc_frame(40, 20);
+    let gen1 = stitcher.generation();
+    let out1 = stitcher.apply_analyzed_shift(
+        f1,
+        gen1,
+        FrameShiftAnalysis::Matched(MatchResult {
+            offset: 40,
+            confidence: 0.98,
+            sticky_header_size: 0,
+            sticky_footer_size: 20,
+        }),
+    );
+    assert!(out1.is_stitched());
+    assert_eq!(stitcher.dimensions(), (width, 240));
+
+    // 第 2 帧：下滚 +30px，底栏突然膨胀到 45px（模拟多吞入 25px 纯白正文）
+    let f2 = build_doc_frame(70, 45);
+    let gen2 = stitcher.generation();
+    let out2 = stitcher.apply_analyzed_shift(
+        f2,
+        gen2,
+        FrameShiftAnalysis::Matched(MatchResult {
+            offset: 30,
+            confidence: 0.98,
+            sticky_header_size: 0,
+            sticky_footer_size: 45,
+        }),
+    );
+    assert!(out2.is_stitched());
+    assert_eq!(
+        stitcher.dimensions(),
+        (width, 270),
+        "固定底栏膨胀时画布总高度增量仍应严格等于步长"
+    );
+
+    // 第 3 帧：下滚 +50px，底栏回缩到 15px
+    let f3 = build_doc_frame(120, 15);
+    let gen3 = stitcher.generation();
+    let out3 = stitcher.apply_analyzed_shift(
+        f3,
+        gen3,
+        FrameShiftAnalysis::Matched(MatchResult {
+            offset: 50,
+            confidence: 0.98,
+            sticky_header_size: 0,
+            sticky_footer_size: 15,
+        }),
+    );
+    assert!(out3.is_stitched());
+    assert_eq!(
+        stitcher.dimensions(),
+        (width, 320),
+        "固定底栏回缩时画布总高度增量仍应严格等于步长"
+    );
+
+    // 验证正文每一行 doc_y (0 .. 320 - 15 = 305) 完全连续无跳行无重复
+    let canvas = stitcher.canvas();
+    for y in 0..(320 - 15) {
+        let expected_r = (y % 250) as u8;
+        assert_eq!(
+            canvas.get_pixel(10, y).0[0],
+            expected_r,
+            "第 {y} 行文档内容发生错位或吞字"
+        );
+    }
 }

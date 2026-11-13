@@ -50,6 +50,8 @@ const MAX_LOCAL_INDICATOR_ROWS: usize = 12;
 const MIN_RESUME_STATIC_ROWS: usize = 3;
 /// 单条固定栏内部累计允许豁免的动态行数上限，防止跨多个内容块误桥接。
 const MAX_TOTAL_BRIDGED_ROWS: usize = 16;
+/// 固定栏内侧边缘允许保留的纯平无结构内边距最大行数，超出则判定为正文纯色留白并回缩。
+const MAX_TRAILING_FLAT_ROWS: usize = 8;
 
 fn scan_sticky_header(
     prev: &[u8],
@@ -186,6 +188,44 @@ fn scan_sticky_edge_rows(view: &StickyScanView<'_>, max_rows: usize, from_bottom
         bridged_total += gap_len;
         rows = resume_end;
     }
+    trim_trailing_uniform_body_margin(view, rows, from_bottom)
+}
+
+/// 回缩固定栏内侧末尾的大段纯平区域，避免将紧邻顶/底栏的纯色正文留白吞入固定栏。
+fn trim_trailing_uniform_body_margin(
+    view: &StickyScanView<'_>,
+    rows: usize,
+    from_bottom: bool,
+) -> usize {
+    if rows <= MAX_TRAILING_FLAT_ROWS {
+        return rows;
+    }
+    let mut step = rows;
+    while step > 0 {
+        let cur_idx = step - 1;
+        let y = view.map_y(cur_idx, from_bottom);
+        let has_h_tex =
+            row_has_horizontal_texture(view.curr, y, view.width, view.x_start, view.x_end);
+        // 与更内侧一行对比垂直跳变，精确停在固定栏背景边界或分割线本体，不额外吞入内侧纯白首行
+        let has_v_edge = step < rows
+            && row_avg_diff_same_plane(
+                view.curr,
+                y,
+                view.map_y(step, from_bottom),
+                view.width,
+                view.x_start,
+                view.x_end,
+            ) >= 2.0;
+        if has_h_tex || has_v_edge {
+            let trailing_flat = rows - step;
+            return if trailing_flat > MAX_TRAILING_FLAT_ROWS {
+                step
+            } else {
+                rows
+            };
+        }
+        step -= 1;
+    }
     rows
 }
 
@@ -282,6 +322,23 @@ fn row_avg_diff(
     (sum as f64) / (row_len as f64)
 }
 
+fn row_avg_diff_same_plane(
+    plane: &[u8],
+    y_a: usize,
+    y_b: usize,
+    width: usize,
+    x_start: usize,
+    x_end: usize,
+) -> f64 {
+    let base_a = y_a * width;
+    let base_b = y_b * width;
+    let row_len = (x_end - x_start).max(1);
+    let sum: u64 = (x_start..x_end)
+        .map(|x| u64::from(plane[base_a + x].abs_diff(plane[base_b + x])))
+        .sum();
+    (sum as f64) / (row_len as f64)
+}
+
 #[derive(Clone, Copy)]
 struct BandRegion {
     y_start: usize,
@@ -291,29 +348,38 @@ struct BandRegion {
     x_end: usize,
 }
 
-fn band_has_horizontal_texture(plane: &[u8], band: BandRegion) -> bool {
-    let row_len = band.x_end.saturating_sub(band.x_start);
-    if row_len < 2 || band.y_start >= band.y_end {
+fn row_has_horizontal_texture(
+    plane: &[u8],
+    y: usize,
+    width: usize,
+    x_start: usize,
+    x_end: usize,
+) -> bool {
+    let row_len = x_end.saturating_sub(x_start);
+    if row_len < 2 {
         return false;
     }
-    for y in band.y_start..band.y_end {
-        let base = y * band.width;
-        let mut min_v = u8::MAX;
-        let mut max_v = u8::MIN;
-        let mut grad_sum = 0u64;
-        for x in band.x_start..band.x_end {
-            let v = plane[base + x];
-            min_v = min_v.min(v);
-            max_v = max_v.max(v);
-            if x > band.x_start {
-                grad_sum += u64::from(v.abs_diff(plane[base + x - 1]));
-            }
-        }
-        if max_v.saturating_sub(min_v) >= 5 || (grad_sum as f64 / ((row_len - 1) as f64)) > 0.6 {
-            return true;
+    let base = y * width;
+    let mut min_v = u8::MAX;
+    let mut max_v = u8::MIN;
+    let mut grad_sum = 0u64;
+    for x in x_start..x_end {
+        let v = plane[base + x];
+        min_v = min_v.min(v);
+        max_v = max_v.max(v);
+        if x > x_start {
+            grad_sum += u64::from(v.abs_diff(plane[base + x - 1]));
         }
     }
-    false
+    max_v.saturating_sub(min_v) >= 5 || (grad_sum as f64 / ((row_len - 1) as f64)) > 0.6
+}
+
+fn band_has_horizontal_texture(plane: &[u8], band: BandRegion) -> bool {
+    if band.y_start >= band.y_end {
+        return false;
+    }
+    (band.y_start..band.y_end)
+        .any(|y| row_has_horizontal_texture(plane, y, band.width, band.x_start, band.x_end))
 }
 
 /// 检测候选栏是否存在跨行均值差异或静态水平分割线，兼顾极简纯色底栏与带边线顶栏。
@@ -712,5 +778,35 @@ mod tests {
             bands.footer, 26,
             "含内部局部动态指示灯的固定底栏应完整识别到顶分割线"
         );
+    }
+
+    #[test]
+    fn test_sticky_bars_do_not_swallow_adjacent_uniform_body_whitespace() {
+        let width = 160usize;
+        let height = 220usize;
+        let mut prev = vec![250u8; width * height];
+        let mut curr = vec![250u8; width * height];
+
+        // 顶部 20px 固定栏 + 第 20 行分割线，紧接着 25 行完全纯白正文留白 (y=21..46)
+        for x in 0..width {
+            prev[20 * width + x] = 210;
+            curr[20 * width + x] = 210;
+        }
+        // 底部 24px 固定栏 + y=height-24 分割线，上方紧邻 25 行纯白正文留白 (height-49..height-24)
+        for x in 0..width {
+            prev[(height - 24) * width + x] = 205;
+            curr[(height - 24) * width + x] = 205;
+        }
+        // 中间真实滚动纹理区 (y=46..height-49)
+        for y in 46..(height - 49) {
+            for x in 10..150 {
+                prev[y * width + x] = ((y * 13 + x * 7) % 180 + 40) as u8;
+                curr[y * width + x] = (((y + 18) * 13 + x * 7) % 180 + 40) as u8;
+            }
+        }
+
+        let bands = detect_sticky_bands(&prev, &curr, width, height, 0.40, 10, 150);
+        assert_eq!(bands.header, 21, "顶栏不应吞入紧邻的纯白正文留白");
+        assert_eq!(bands.footer, 24, "底栏不应吞入紧邻的纯白正文留白");
     }
 }
