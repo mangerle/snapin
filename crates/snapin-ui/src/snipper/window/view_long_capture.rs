@@ -32,7 +32,16 @@ impl SnipperView {
         if !self.window.is_visible().unwrap_or(false) {
             self.window.set_visible(true);
         }
-        self.window.focus_window();
+        // 录制进行中严禁每帧抢回系统焦点，防止底层目标窗口频繁失焦导致下拉列表关闭或滚轮响应中断；
+        // 仅当捕获已暂停或退出长截图模式时才把焦点还给覆盖层以恢复快捷键控制。
+        let still_capturing = self
+            .state
+            .long_capture
+            .as_ref()
+            .is_some_and(|session| session.is_capturing);
+        if !still_capturing {
+            self.window.focus_window();
+        }
         match self
             .state
             .plan_long_frame_analysis(&self.bg_image, request_id, result)

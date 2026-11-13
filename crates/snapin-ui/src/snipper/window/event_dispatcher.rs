@@ -204,14 +204,18 @@ pub(super) fn dispatch_pending_long_capture_frame(
         selection_bounds
     );
     let desktop = state.session.desktop.clone();
+    let has_wheel_injection =
+        wheel_delta.x.abs() > f32::EPSILON || wheel_delta.y.abs() > f32::EPSILON;
     if desktop.long_capture_requires_window_hide() {
         window.set_visible(false);
-    } else if let Err(error) = window.set_cursor_hittest(false) {
-        tracing::debug!("禁用覆盖层指针命中失败，回退隐藏窗口: {error}");
-        window.set_visible(false);
-    } else {
-        // Wayland wl_surface.set_input_region 属于双缓冲状态，需触发重绘提交空输入区域。
-        window.request_redraw();
+    } else if has_wheel_injection {
+        if let Err(error) = window.set_cursor_hittest(false) {
+            tracing::debug!("禁用覆盖层指针命中失败，回退隐藏窗口: {error}");
+            window.set_visible(false);
+        } else {
+            // Wayland wl_surface.set_input_region 属于双缓冲状态，需触发重绘提交空输入区域。
+            window.request_redraw();
+        }
     }
     let screen_capture_events = state.jobs.screen_capture_events.clone();
     let mut request = LongCaptureFrameRequest::new(wheel_delta, focus_point);
