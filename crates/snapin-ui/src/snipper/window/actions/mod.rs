@@ -247,7 +247,7 @@ pub fn handle_action_save_beautified(state: &mut SnipperState, original_rgba: &R
 
 /// 取色器单击：读取光标处像素，按用户设置的格式复制颜色并退出。
 pub fn handle_action_pick_color(state: &mut SnipperState, original_rgba: &RgbaImage) {
-    if state.long_capture.is_some() {
+    if state.long_capture.as_ref().is_some_and(|s| !s.is_editing) {
         return;
     }
     state.clear_status_message();
@@ -255,8 +255,29 @@ pub fn handle_action_pick_color(state: &mut SnipperState, original_rgba: &RgbaIm
     state.submit_clipboard_text(text.clone(), SnipperClipboardAction::PickColor(text));
 }
 
-/// 读取光标位置颜色并按当前取色格式输出；坐标越界时夹取到屏幕边缘。
+/// 读取光标位置颜色并按当前取色格式输出；长图编辑态自动映射视口滚动偏移，坐标越界时夹取边缘。
 fn color_text_at_cursor(state: &SnipperState, img: &RgbaImage) -> String {
+    if let (Some(session), SelectionState::Locked { rect, .. }) =
+        (&state.long_capture, &state.viewport.selection)
+    {
+        let canvas = session.stitcher.canvas();
+        if canvas.width() > 0 && canvas.height() > 0 {
+            let (ox, oy) = session.effective_viewport_offset(
+                rect.width.round().max(1.0) as u32,
+                rect.height.round().max(1.0) as u32,
+            );
+            let cx = (state.viewport.cursor_pos.0 as f32 - rect.x + ox as f32).round() as i32;
+            let cy = (state.viewport.cursor_pos.1 as f32 - rect.y + oy as f32).round() as i32;
+            let px = cx.clamp(0, canvas.width().saturating_sub(1) as i32) as u32;
+            let py = cy.clamp(0, canvas.height().saturating_sub(1) as i32) as u32;
+            let pixel = canvas.get_pixel(px, py);
+            return state
+                .viewport
+                .magnifier
+                .format
+                .format_color(pixel[0], pixel[1], pixel[2]);
+        }
+    }
     let px =
         (state.viewport.cursor_pos.0 as i32).clamp(0, img.width().saturating_sub(1) as i32) as u32;
     let py =
@@ -281,7 +302,7 @@ pub fn handle_action_ocr_edit(state: &mut SnipperState, original_rgba: &RgbaImag
 
 /// 按目标交互模式提交同一个 OCR 媒体任务。
 fn dispatch_ocr_job(state: &mut SnipperState, original_rgba: &RgbaImage, kind: SnipperJobKind) {
-    if state.long_capture.is_some() {
+    if state.long_capture.as_ref().is_some_and(|s| !s.is_editing) {
         return;
     }
     state.clear_status_message();
@@ -338,7 +359,7 @@ pub fn handle_action_redact(state: &mut SnipperState, original_rgba: &RgbaImage)
 
 /// 识别选区中的全部二维码，并将首个结果复制到剪贴板。
 pub fn handle_action_qr(state: &mut SnipperState, original_rgba: &RgbaImage) {
-    if state.long_capture.is_some() {
+    if state.long_capture.as_ref().is_some_and(|s| !s.is_editing) {
         return;
     }
     state.clear_status_message();

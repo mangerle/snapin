@@ -106,6 +106,14 @@ pub struct LongCaptureSession {
     pub last_feed_time: Instant,
     /// 侧边缩略图悬浮窗屏幕矩形（用于命中测试与渲染）
     pub thumbnail_rect: Option<Rect>,
+    /// 侧边缩略图纯图像预览区屏幕矩形（用于点击/拖拽快速定位视口）
+    pub thumbnail_content_rect: Option<Rect>,
+    /// 当前缩略图展示切片在整图主轴上的起始比例 `[0.0, 1.0)`
+    pub thumbnail_slice_start_ratio: f32,
+    /// 编辑态缩略图标题栏“补录”按钮屏幕矩形
+    pub resume_button_rect: Option<Rect>,
+    /// 是否正在拖拽侧边缩略图以快速定位编辑视口
+    pub is_dragging_thumbnail: bool,
     /// 长截图专用工具栏屏幕矩形
     pub toolbar_rect: Option<Rect>,
     /// 裁剪展开子栏屏幕矩形
@@ -149,6 +157,10 @@ impl LongCaptureSession {
             viewport_offset_x: 0.0,
             last_feed_time: Instant::now(),
             thumbnail_rect: None,
+            thumbnail_content_rect: None,
+            thumbnail_slice_start_ratio: 0.0,
+            resume_button_rect: None,
+            is_dragging_thumbnail: false,
             toolbar_rect: None,
             crop_submenu_rect: None,
             hovered_action: None,
@@ -180,6 +192,10 @@ impl LongCaptureSession {
             viewport_offset_x: self.viewport_offset_x,
             last_feed_time: self.last_feed_time,
             thumbnail_rect: self.thumbnail_rect,
+            thumbnail_content_rect: self.thumbnail_content_rect,
+            thumbnail_slice_start_ratio: self.thumbnail_slice_start_ratio,
+            resume_button_rect: self.resume_button_rect,
+            is_dragging_thumbnail: self.is_dragging_thumbnail,
             toolbar_rect: self.toolbar_rect,
             crop_submenu_rect: self.crop_submenu_rect,
             hovered_action: self.hovered_action,
@@ -515,7 +531,60 @@ impl LongCaptureSession {
         self.is_editing = true;
         self.crop_sub_menu_open = false;
         self.pending_direction_confirm = false;
+        self.is_dragging_thumbnail = false;
         self.scroll_driver.clear_all();
+    }
+
+    /// 从编辑模式退回暂停待命态，允许继续滚动补录或调整头尾裁剪。
+    pub fn resume_capturing_from_editing(&mut self) {
+        self.is_editing = false;
+        self.is_capturing = false;
+        self.is_dragging_thumbnail = false;
+        self.resume_button_rect = None;
+        self.scroll_driver.clear_all();
+    }
+
+    /// 根据侧边缩略图预览区内的指针坐标快速跳转编辑视口位置。
+    pub fn seek_viewport_from_thumbnail_point(
+        &mut self,
+        px: f32,
+        py: f32,
+        viewport_span: f32,
+    ) -> bool {
+        let Some(content_rect) = self.thumbnail_content_rect else {
+            return false;
+        };
+        let (cw, ch) = self.stitcher.dimensions();
+        let (local_ratio, canvas_span) = match self.direction {
+            StitchDirection::Vertical => {
+                if content_rect.height <= f32::EPSILON {
+                    return false;
+                }
+                (
+                    ((py - content_rect.y) / content_rect.height).clamp(0.0, 1.0),
+                    ch as f32,
+                )
+            }
+            StitchDirection::Horizontal => {
+                if content_rect.width <= f32::EPSILON {
+                    return false;
+                }
+                (
+                    ((px - content_rect.x) / content_rect.width).clamp(0.0, 1.0),
+                    cw as f32,
+                )
+            }
+        };
+        let start = self.thumbnail_slice_start_ratio.clamp(0.0, 0.999);
+        let global_ratio = start + local_ratio * (1.0 - start);
+        let max_offset = (canvas_span - viewport_span).max(0.0);
+        let target_offset =
+            (global_ratio * canvas_span - viewport_span * 0.5).clamp(0.0, max_offset);
+        match self.direction {
+            StitchDirection::Vertical => self.viewport_offset_y = target_offset,
+            StitchDirection::Horizontal => self.viewport_offset_x = target_offset,
+        }
+        true
     }
 
     /// 在长图编辑模式下沿当前拼接主轴（垂直/水平）根据滚轮增量调整视口偏移。
@@ -961,5 +1030,26 @@ mod tests {
             .expect("横向编辑态应构建水平空间映射");
         assert_eq!(h_space.screen_to_canvas(110.0, 75.0), (170.0, 35.0));
         assert_eq!(h_space.viewport_draw_offset(), (-140.0, 0.0));
+    }
+
+    #[test]
+    fn test_editing_mode_supports_resume_and_thumbnail_seek() {
+        let mut session = LongCaptureSession::new(create_test_frame(200, 1200));
+        session.enter_editing();
+        assert!(session.is_editing);
+        assert!(!session.is_capturing);
+
+        session.thumbnail_content_rect = Some(Rect::new(300.0, 100.0, 60.0, 400.0));
+        session.thumbnail_slice_start_ratio = 0.0;
+        assert!(session.seek_viewport_from_thumbnail_point(330.0, 300.0, 200.0));
+        assert!(
+            (session.viewport_offset_y - 500.0).abs() < 1.0,
+            "点击缩略图正中应使 200px 视口居中对齐 1200px 画布的 600px 处: {}",
+            session.viewport_offset_y
+        );
+
+        session.resume_capturing_from_editing();
+        assert!(!session.is_editing);
+        assert!(!session.is_capturing);
     }
 }

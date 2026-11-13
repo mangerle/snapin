@@ -466,3 +466,34 @@ fn test_long_capture_dirty_rect_composition_matches_full_replay() {
     // 显式校验两个半透明矩形重叠区域内部像素（如 (60, 50)）必须 0 误差
     assert_eq!(actual.get_pixel(60, 50), expected.get_pixel(60, 50));
 }
+
+#[test]
+fn test_long_capture_editing_unlocks_pick_color_with_viewport_offset() {
+    let mut state = SnipperState::new();
+    let original = RgbaImage::from_pixel(400, 400, Rgba([0, 0, 0, 255]));
+    state.viewport.selection = SelectionState::Locked {
+        rect: Rect::new(50.0, 50.0, 200.0, 200.0),
+        active_drag: None,
+    };
+
+    let mut long_img = RgbaImage::from_pixel(200, 600, Rgba([10, 20, 30, 255]));
+    long_img.put_pixel(10, 410, Rgba([12, 34, 56, 255]));
+    let mut session = LongCaptureSession::new(long_img);
+    session.enter_editing();
+    session.viewport_offset_y = 400.0;
+    state.long_capture = Some(session);
+
+    state.viewport.cursor_pos = (60.0, 60.0);
+    state.viewport.magnifier.format = ColorFormat::Hex;
+    assert_eq!(
+        color_text_at_cursor(&state, &original),
+        "#0C2238",
+        "编辑态取色应映射视口偏移读取长图实际像素"
+    );
+    state.set_status_message("待清理的旧提示");
+    handle_action_pick_color(&mut state, &original);
+    assert!(
+        state.session.status_message.is_none(),
+        "编辑态下调用取色动作不应被长图录制隔离提前拦截（应执行到 clear_status_message 及后续剪贴板提交）"
+    );
+}

@@ -59,6 +59,16 @@ pub fn handle_cursor_move(
                 state.editor.annotation.toolbar.ui_scale,
             );
         }
+        if session.is_dragging_thumbnail {
+            let span = match state.viewport.selection {
+                SelectionState::Locked { rect, .. } => match session.direction {
+                    snapin_render::StitchDirection::Vertical => rect.height,
+                    snapin_render::StitchDirection::Horizontal => rect.width,
+                },
+                _ => frame.screen_height,
+            };
+            return session.seek_viewport_from_thumbnail_point(frame.x, frame.y, span);
+        }
     }
 
     match state.viewport.selection {

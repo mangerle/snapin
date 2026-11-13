@@ -292,13 +292,15 @@ pub(super) fn handle_left_release(
         return true;
     }
 
-    // 控制栏拖动只更新工具栏位置，不能落入选区拖动或标注提交分支。
-    if state
-        .long_capture
-        .as_mut()
-        .is_some_and(|session| session.end_toolbar_drag())
-    {
-        return true;
+    // 控制栏拖动与缩略图拖拽只更新对应位置，不能落入选区拖动或标注提交分支。
+    if let Some(session) = state.long_capture.as_mut() {
+        if session.end_toolbar_drag() {
+            return true;
+        }
+        if session.is_dragging_thumbnail {
+            session.is_dragging_thumbnail = false;
+            return true;
+        }
     }
 
     // 标注拖动或手柄拉伸结束：编辑结果已实时写入历史栈，直接消费本次释放

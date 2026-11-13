@@ -12,14 +12,14 @@ use crate::drawing::{add_round_rect, RoundRect};
 use crate::geometry::Rect;
 use crate::snipper::window::state::long_capture::LongCaptureSession;
 use image::RgbaImage;
-use snapin_foundation::trf;
+use snapin_foundation::{i18n::tr, trf};
 use snapin_render::{
     blit_straight_rgba_region_to_pixmap, with_thread_local_text_renderer, BlitRgbaRegion,
     StitchDirection, TextDrawOptions, ThumbnailOverview, DEFAULT_MIN_THUMBNAIL_CROSS,
 };
 use tiny_skia::{FillRule, Paint, PathBuilder, PixmapMut, Stroke, Transform};
 
-/// 绘制长截图侧边缩略预览悬浮窗（录制中与暂停待命均保持可见，仅编辑态隐藏）。
+/// 绘制长截图侧边缩略预览悬浮窗（录制中、暂停待命与编辑态均保持可见以支持概览定位与返回补录）。
 pub(crate) fn render_long_capture_dock(
     pixmap: &mut PixmapMut,
     session: &mut LongCaptureSession,
@@ -27,19 +27,27 @@ pub(crate) fn render_long_capture_dock(
     screen_size: CanvasSize,
     ui_scale: f32,
 ) {
-    if session.is_editing {
-        session.thumbnail_rect = None;
-        return;
-    }
-
     let s = ui_scale;
     let dock_rect = resolve_dock_rect(session, selection_rect, screen_size, s);
+    // 编辑态下若屏幕空间不足导致概览窗必须盖在选区上方，则自动隐藏以免遮挡标注画布
+    let overlaps_selection = dock_rect.x < selection_rect.x + selection_rect.width
+        && dock_rect.x + dock_rect.width > selection_rect.x
+        && dock_rect.y < selection_rect.y + selection_rect.height
+        && dock_rect.y + dock_rect.height > selection_rect.y;
+    if session.is_editing && overlaps_selection {
+        session.thumbnail_rect = None;
+        session.thumbnail_content_rect = None;
+        session.resume_button_rect = None;
+        return;
+    }
     session.thumbnail_rect = Some(dock_rect);
 
     draw_dock_card(pixmap, &dock_rect, s);
 
     let (cw, ch) = session.stitcher.dimensions();
-    let title = if session.is_capturing {
+    let title = if session.is_editing {
+        trf!("概览 {}×{}", "Overview {}×{}", cw, ch)
+    } else if session.is_capturing {
         trf!("长图预览 {}×{}", "Preview {}×{}", cw, ch)
     } else {
         trf!("已暂停 {}×{}", "Paused {}×{}", cw, ch)
@@ -52,7 +60,7 @@ pub(crate) fn render_long_capture_dock(
                 dock_rect.x + 8.0 * s,
                 dock_rect.y + 8.0 * s,
                 11.0 * s,
-                if session.is_capturing {
+                if session.is_capturing || session.is_editing {
                     (45, 52, 65, 255)
                 } else {
                     (100, 116, 139, 255)
@@ -60,6 +68,51 @@ pub(crate) fn render_long_capture_dock(
             ),
         );
     });
+
+    if session.is_editing && dock_rect.width >= 96.0 * s {
+        let btn_w = (42.0 * s).min(dock_rect.width * 0.36);
+        let btn_h = 18.0 * s;
+        let btn_x = dock_rect.x + dock_rect.width - btn_w - 6.0 * s;
+        let btn_y = dock_rect.y + 5.0 * s;
+        let btn_rect = Rect::new(btn_x, btn_y, btn_w, btn_h);
+        let mut pb = PathBuilder::new();
+        add_round_rect(
+            &mut pb,
+            RoundRect {
+                x: btn_x,
+                y: btn_y,
+                width: btn_w,
+                height: btn_h,
+                radius: 4.0 * s,
+            },
+        );
+        if let Some(path) = pb.finish() {
+            let mut paint = Paint::default();
+            paint.set_color_rgba8(59, 130, 246, 230);
+            pixmap.fill_path(
+                &path,
+                &paint,
+                FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+        }
+        with_thread_local_text_renderer(|renderer| {
+            renderer.draw_text_rgba(
+                pixmap,
+                tr("补录"),
+                TextDrawOptions::new(
+                    btn_x + 8.0 * s,
+                    btn_y + 3.0 * s,
+                    10.5 * s,
+                    (255, 255, 255, 255),
+                ),
+            );
+        });
+        session.resume_button_rect = Some(btn_rect);
+    } else {
+        session.resume_button_rect = None;
+    }
 
     render_dock_preview_content(pixmap, session, &dock_rect, s);
 }
@@ -125,6 +178,8 @@ fn render_dock_preview_content(
     );
 
     let thumb_rect = Rect::new(thumb_x, thumb_y, tw as f32, th as f32);
+    session.thumbnail_content_rect = Some(thumb_rect);
+    session.thumbnail_slice_start_ratio = overview.slice_start_ratio;
     if overview.is_cropped_window {
         let track_rect = match session.direction {
             StitchDirection::Vertical => Rect::new(
@@ -550,7 +605,7 @@ mod tests {
     use tiny_skia::Pixmap;
 
     #[test]
-    fn test_paused_dock_remains_visible_and_hides_in_editing() {
+    fn test_dock_remains_visible_in_paused_and_editing_states() {
         let frame = RgbaImage::from_pixel(120, 160, Rgba([80, 120, 160, 255]));
         let mut session = LongCaptureSession::new(frame);
         let selection = Rect::new(40.0, 40.0, 120.0, 160.0);
@@ -567,12 +622,17 @@ mod tests {
             session.thumbnail_rect.is_some(),
             "暂停状态下必须保留侧边长图预览窗口以便裁剪和审查"
         );
+        assert!(session.resume_button_rect.is_none());
 
         session.enter_editing();
         render_long_capture_dock(&mut pixmap.as_mut(), &mut session, &selection, screen, 1.0);
         assert!(
-            session.thumbnail_rect.is_none(),
-            "进入编辑态后应关闭侧边预览窗"
+            session.thumbnail_rect.is_some(),
+            "进入编辑态后应保留侧边概览窗以支持快速视口定位与返回补录"
+        );
+        assert!(
+            session.resume_button_rect.is_some(),
+            "编辑态概览窗应渲染补录按钮"
         );
     }
 

@@ -173,7 +173,8 @@ fn current_selection_frame(state: &SnipperState, original_rgba: &RgbaImage) -> O
     Some(original_rgba.view(x, y, width, height).to_image())
 }
 
-/// 处理长截图非编辑态（就绪/录制/暂停）下的选区范围左键拦截与控制栏分发。
+/// 处理长截图非编辑态（就绪/录制/暂停）下的选区范围左键拦截与控制栏分发；
+/// 编辑态下也优先响应侧边概览窗的“补录”返回按钮与缩略图快速跳转拖拽。
 pub(super) fn handle_non_editing_press(
     state: &mut SnipperState,
     rect: Rect,
@@ -182,6 +183,34 @@ pub(super) fn handle_non_editing_press(
 ) -> Option<bool> {
     let session = state.long_capture.as_mut()?;
     if session.is_editing {
+        if session
+            .resume_button_rect
+            .is_some_and(|r| r.contains(pointer.x, pointer.y))
+        {
+            session.resume_capturing_from_editing();
+            state.editor.annotation.toolbar.active_tool = None;
+            state.editor.annotation.toolbar.sub_rect = None;
+            state.set_status_message(tr("已返回长截图暂停态：可继续滚动补录或裁剪头尾"));
+            return Some(true);
+        }
+        if session
+            .thumbnail_content_rect
+            .is_some_and(|r| r.contains(pointer.x, pointer.y))
+        {
+            let span = match session.direction {
+                StitchDirection::Vertical => rect.height,
+                StitchDirection::Horizontal => rect.width,
+            };
+            session.is_dragging_thumbnail = true;
+            session.seek_viewport_from_thumbnail_point(pointer.x, pointer.y, span);
+            return Some(true);
+        }
+        if session
+            .thumbnail_rect
+            .is_some_and(|r| r.contains(pointer.x, pointer.y))
+        {
+            return Some(true);
+        }
         return None;
     }
 
@@ -212,11 +241,16 @@ pub(super) fn handle_non_editing_press(
 }
 
 fn handle_crop_head_action(state: &mut SnipperState) {
+    let step = if state.viewport.modifiers.shift_key() {
+        150
+    } else {
+        30
+    };
     let Some(session) = state.long_capture.as_mut() else {
         return;
     };
     let direction = session.direction;
-    let cropped = session.crop_head(30);
+    let cropped = session.crop_head(step);
     if cropped == 0 {
         state.set_status_message(tr("已达最小尺寸，无法继续裁剪"));
         return;
@@ -229,12 +263,17 @@ fn handle_crop_head_action(state: &mut SnipperState) {
 }
 
 fn handle_crop_tail_action(state: &mut SnipperState) {
+    let step = if state.viewport.modifiers.shift_key() {
+        150
+    } else {
+        30
+    };
     let Some(session) = state.long_capture.as_mut() else {
         return;
     };
     let was_capturing = session.is_capturing;
     let direction = session.direction;
-    let cropped = session.crop_tail(30);
+    let cropped = session.crop_tail(step);
     if cropped == 0 {
         state.set_status_message(tr("已达最小尺寸，无法继续裁剪"));
         return;
