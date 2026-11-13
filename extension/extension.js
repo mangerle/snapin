@@ -98,6 +98,8 @@ const PLACEMENT_TTL_US = 5 * 1000 * 1000;
 // 取值覆盖 Wayland 客户端提交首帧的常见耗时，过短会放空，过长会与用户拖动产生明显争抢。
 const PLACEMENT_REPLAY_DELAYS_MS = [60, 180];
 const AUTH_TOKEN_FILE = 'extension.token';
+// 单格标准滚轮换算为 Clutter 连续滚动的逻辑像素系数，用于保留自适应小数步长精度
+const CONTINUOUS_SCROLL_PIXELS_PER_STEP = 48.0;
 
 export default class SnapinHelperExtension extends Extension {
     enable() {
@@ -118,6 +120,8 @@ export default class SnapinHelperExtension extends Extension {
         this._recordingScreenCastPath = null;
         this._recordingStreamPath = null;
         this._recordingSignalId = 0;
+        this._scrollRemainderX = 0;
+        this._scrollRemainderY = 0;
 
         // 2. 监听全局窗口创建事件：贴图窗口一诞生立即强制置顶，并设为 UTILITY 类型从 Dock 隐藏
         this._windowCreatedId = global.display.connect('window-created', (_display, metaWin) => {
@@ -148,6 +152,8 @@ export default class SnapinHelperExtension extends Extension {
 
         this._pendingPlacements = new Map();
         this._virtualPointer = null;
+        this._scrollRemainderX = 0;
+        this._scrollRemainderY = 0;
 
         if (this._dbusImpl) {
             this._dbusImpl.unexport();
@@ -540,19 +546,75 @@ export default class SnapinHelperExtension extends Extension {
     }
 
     /**
-     * 按指定方向与步数向虚拟指针发送离散滚轮事件。
+     * 按指定方向与步数向虚拟指针发送离散滚轮事件（带小数余数累积以保留微调平均步长）。
      * @param {Clutter.VirtualInputDevice} device 虚拟指针设备
      * @param {Clutter.ScrollDirection} direction 滚轮方向
      * @param {number} delta 对应轴的滚动增量
+     * @param {'x'|'y'} axis 滚动轴标识
      */
-    _emitDiscreteScrollSteps(device, direction, delta) {
-        const steps = Math.max(1, Math.min(30, Math.round(Math.abs(delta))));
+    _emitDiscreteScrollSteps(device, direction, delta, axis) {
+        const key = axis === 'x' ? '_scrollRemainderX' : '_scrollRemainderY';
+        const prevRem = this[key] || 0;
+        const total = delta + prevRem;
+        let steps = Math.trunc(Math.abs(total));
+        if (steps === 0 && prevRem === 0 && Math.abs(delta) > 0) {
+            steps = 1;
+            this[key] = total - Math.sign(delta);
+        } else {
+            this[key] = total - Math.sign(total) * steps;
+        }
+        steps = Math.min(30, steps);
         for (let index = 0; index < steps; index++) {
             device.notify_discrete_scroll(
                 GLib.get_monotonic_time(),
                 direction,
                 Clutter.ScrollSource.WHEEL
             );
+        }
+    }
+
+    /**
+     * 向虚拟指针注入二维滚轮事件；优先使用连续平滑滚动保留浮点步长精度，不可用时回退离散滚动。
+     * @param {Clutter.VirtualInputDevice} device 虚拟指针设备
+     * @param {number} deltaX 水平滚轮增量（正数向左、负数向右）
+     * @param {number} deltaY 垂直滚轮增量（正数向上、负数向下）
+     */
+    _emitWheelScroll(device, deltaX, deltaY) {
+        const validX = Number.isFinite(deltaX) && deltaX !== 0;
+        const validY = Number.isFinite(deltaY) && deltaY !== 0;
+        if (!validX && !validY) {
+            return;
+        }
+        if (typeof device.notify_scroll_continuous === 'function') {
+            try {
+                const dx = validX ? -deltaX * CONTINUOUS_SCROLL_PIXELS_PER_STEP : 0;
+                const dy = validY ? -deltaY * CONTINUOUS_SCROLL_PIXELS_PER_STEP : 0;
+                const finishFlags = Clutter.ScrollFinishFlags
+                    ? Clutter.ScrollFinishFlags.NONE
+                    : 0;
+                device.notify_scroll_continuous(
+                    GLib.get_monotonic_time(),
+                    dx,
+                    dy,
+                    Clutter.ScrollSource.WHEEL,
+                    finishFlags
+                );
+                return;
+            } catch (_e) {
+                // 部分旧版 Mutter 签名或枚举不兼容时安全回退离散滚轮
+            }
+        }
+        if (validY) {
+            const verticalDirection = deltaY > 0
+                ? Clutter.ScrollDirection.UP
+                : Clutter.ScrollDirection.DOWN;
+            this._emitDiscreteScrollSteps(device, verticalDirection, deltaY, 'y');
+        }
+        if (validX) {
+            const horizontalDirection = deltaX > 0
+                ? Clutter.ScrollDirection.LEFT
+                : Clutter.ScrollDirection.RIGHT;
+            this._emitDiscreteScrollSteps(device, horizontalDirection, deltaX, 'x');
         }
     }
 
@@ -606,28 +668,36 @@ export default class SnapinHelperExtension extends Extension {
         if (!device)
             return false;
 
+        let restorePointer = null;
         try {
             if (hasAnchor && Number.isFinite(anchorX) && Number.isFinite(anchorY)) {
                 this._focusWindowAtPointer(anchorX, anchorY);
+                if (typeof device.notify_absolute_motion === 'function') {
+                    const [prevX, prevY] = global.get_pointer();
+                    const anchorStage = this._physicalAreaToStage(anchorX, anchorY, 2, 2);
+                    device.notify_absolute_motion(
+                        GLib.get_monotonic_time(),
+                        anchorStage.x,
+                        anchorStage.y
+                    );
+                    restorePointer = [prevX, prevY];
+                }
             } else {
                 this._focusWindowAtPointer();
             }
-            if (validY) {
-                const verticalDirection = deltaY > 0
-                    ? Clutter.ScrollDirection.UP
-                    : Clutter.ScrollDirection.DOWN;
-                this._emitDiscreteScrollSteps(device, verticalDirection, deltaY);
-            }
-            if (validX) {
-                const horizontalDirection = deltaX > 0
-                    ? Clutter.ScrollDirection.LEFT
-                    : Clutter.ScrollDirection.RIGHT;
-                this._emitDiscreteScrollSteps(device, horizontalDirection, deltaX);
-            }
+            this._emitWheelScroll(device, deltaX, deltaY);
             return true;
         } catch (e) {
             console.error('Snapin 注入滚轮事件失败:', e);
             return false;
+        } finally {
+            if (restorePointer && typeof device.notify_absolute_motion === 'function') {
+                device.notify_absolute_motion(
+                    GLib.get_monotonic_time(),
+                    restorePointer[0],
+                    restorePointer[1]
+                );
+            }
         }
     }
 

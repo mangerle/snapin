@@ -20,6 +20,10 @@ use crate::{
     extension_client::simulate_mouse_wheel_extension,
 };
 #[cfg(target_os = "linux")]
+use std::env;
+#[cfg(target_os = "linux")]
+use std::sync::{Mutex, OnceLock, PoisonError};
+#[cfg(target_os = "linux")]
 use std::time::Duration;
 
 /// 外部滚轮注入工具的最长等待时间，防止输入工具卡死长期占用阻塞线程。
@@ -191,21 +195,6 @@ pub(crate) fn compute_macos_pixel_scroll(delta: f32) -> i32 {
     }
 }
 
-/// 将任意非零浮点滚动增量换算为 Linux 回退工具的离散带符号步数（1..=20 步）。
-#[cfg(any(target_os = "linux", test))]
-#[must_use]
-pub(crate) fn compute_linux_wheel_steps(delta: f32) -> i32 {
-    if !is_nonzero_delta(delta) {
-        return 0;
-    }
-    let magnitude = (f64::from(delta).abs().round() as i32).clamp(1, LINUX_MAX_WHEEL_STEPS);
-    if delta.is_sign_positive() {
-        magnitude
-    } else {
-        -magnitude
-    }
-}
-
 #[cfg(target_os = "windows")]
 struct WindowsCursorRestoreGuard(Option<windows_sys::Win32::Foundation::POINT>);
 
@@ -350,16 +339,58 @@ fn simulate_macos_wheel(spec: WheelInputSpec) -> Result<(), PlatformError> {
 }
 
 #[cfg(target_os = "linux")]
+fn accumulate_linux_wheel_steps(delta: f32, remainder: &mut f32) -> i32 {
+    if !is_nonzero_delta(delta) {
+        return 0;
+    }
+    let prev_rem = *remainder;
+    let total = delta + prev_rem;
+    let mut steps = total.abs().trunc() as i32;
+    if steps == 0 && prev_rem.abs() < f32::EPSILON {
+        // 首次微调立即响应 1 格，并将多发出的不足 1 格部分记为反向余数供后续步长抵消
+        steps = 1;
+        *remainder = total - delta.signum();
+    } else {
+        *remainder = total - total.signum() * (steps as f32);
+    }
+    let signed = if total.is_sign_negative() {
+        -steps
+    } else {
+        steps
+    };
+    signed.clamp(-LINUX_MAX_WHEEL_STEPS, LINUX_MAX_WHEEL_STEPS)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_wheel_accumulators() -> &'static Mutex<(f32, f32)> {
+    static ACCUM: OnceLock<Mutex<(f32, f32)>> = OnceLock::new();
+    ACCUM.get_or_init(|| Mutex::new((0.0, 0.0)))
+}
+
+#[cfg(target_os = "linux")]
 fn simulate_linux_wheel(spec: WheelInputSpec) -> Result<(), PlatformError> {
-    let steps_y = compute_linux_wheel_steps(spec.delta_y);
-    let steps_x = compute_linux_wheel_steps(spec.delta_x);
+    let (steps_x, steps_y) = {
+        let mut guard = linux_wheel_accumulators()
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let sx = accumulate_linux_wheel_steps(spec.delta_x, &mut guard.0);
+        let sy = accumulate_linux_wheel_steps(spec.delta_y, &mut guard.1);
+        (sx, sy)
+    };
     if steps_x == 0 && steps_y == 0 {
+        return Ok(());
+    }
+    // 带有选区锚点且存在 X11 显示时，优先使用支持光标临时定位与恢复的 xdotool，
+    // 防止 ydotool 在光标位于选区外时将滚轮发往错误控件。
+    let prefer_xdotool =
+        spec.focus_point.is_some() && env::var_os("DISPLAY").is_some_and(|v| !v.is_empty());
+    if prefer_xdotool && try_xdotool_wheel(steps_x, steps_y, spec.focus_point) {
         return Ok(());
     }
     if try_ydotool_wheel(steps_x, steps_y) {
         return Ok(());
     }
-    if try_xdotool_wheel(steps_x, steps_y, spec.focus_point) {
+    if !prefer_xdotool && try_xdotool_wheel(steps_x, steps_y, spec.focus_point) {
         return Ok(());
     }
     Err(PlatformError::Unsupported {
@@ -436,11 +467,18 @@ mod tests {
         assert_eq!(compute_macos_pixel_scroll(-50.0), -360);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
-    fn test_linux_wheel_steps_scale_proportionally_and_clamp() {
-        assert_eq!(compute_linux_wheel_steps(0.0), 0);
-        assert_eq!(compute_linux_wheel_steps(-0.2), -1);
-        assert_eq!(compute_linux_wheel_steps(3.4), 3);
-        assert_eq!(compute_linux_wheel_steps(-100.0), -20);
+    fn test_linux_fractional_wheel_accumulator_preserves_average_step() {
+        let mut rem = 0.0f32;
+        assert_eq!(accumulate_linux_wheel_steps(0.0, &mut rem), 0);
+        assert_eq!(accumulate_linux_wheel_steps(-0.5, &mut rem), -1);
+        assert_eq!(accumulate_linux_wheel_steps(-0.5, &mut rem), 0);
+        assert_eq!(accumulate_linux_wheel_steps(-0.5, &mut rem), -1);
+        assert_eq!(accumulate_linux_wheel_steps(-0.5, &mut rem), 0);
+
+        let mut clamp_rem = 0.0f32;
+        assert_eq!(accumulate_linux_wheel_steps(3.4, &mut clamp_rem), 3);
+        assert_eq!(accumulate_linux_wheel_steps(-100.0, &mut clamp_rem), -20);
     }
 }
