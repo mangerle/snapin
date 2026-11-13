@@ -6,11 +6,122 @@ use super::jobs::SnipperJobKind;
 use crate::ports::MediaJob;
 use crate::snipper::selection::{Rect, SelectionState};
 use image::{GenericImageView, RgbaImage};
+use snapin_annotation::{AnnotationHistory, AnnotationShape};
 use snapin_render::{pixmap_into_rgba_image, rgba_image_to_pixmap};
 
 mod pin;
 pub use pin::handle_action_pin;
 pub(crate) use pin::{build_pin_item, evaluate_pin_size_policy, PinSizeDecision};
+
+/// 标注脏矩形安全扩边（覆盖粗描边、箭头翼展、文字阴影与抗锯齿溢出）。
+const ANNOTATION_DIRTY_PADDING: f32 = 32.0;
+
+/// 收集互不相交的标注脏矩形；存在全局图元（如聚光灯）时返回 `None` 以回退整图合成。
+fn collect_disjoint_dirty_rects(
+    annotations: &AnnotationHistory,
+    canvas_width: u32,
+    canvas_height: u32,
+) -> Option<Vec<(u32, u32, u32, u32)>> {
+    if canvas_width == 0 || canvas_height == 0 {
+        return Some(Vec::new());
+    }
+    let max_x = canvas_width as f32;
+    let max_y = canvas_height as f32;
+    let mut rects: Vec<(u32, u32, u32, u32)> = Vec::with_capacity(annotations.undo_stack().len());
+    for shape in annotations.undo_stack() {
+        if matches!(shape, AnnotationShape::Spotlight(_)) {
+            return None;
+        }
+        let bounds = shape.bounds()?;
+        let x0 = (bounds.x - ANNOTATION_DIRTY_PADDING)
+            .floor()
+            .clamp(0.0, max_x) as u32;
+        let y0 = (bounds.y - ANNOTATION_DIRTY_PADDING)
+            .floor()
+            .clamp(0.0, max_y) as u32;
+        let x1 = (bounds.x + bounds.width + ANNOTATION_DIRTY_PADDING)
+            .ceil()
+            .clamp(0.0, max_x) as u32;
+        let y1 = (bounds.y + bounds.height + ANNOTATION_DIRTY_PADDING)
+            .ceil()
+            .clamp(0.0, max_y) as u32;
+        if x1 > x0 && y1 > y0 {
+            rects.push((x0, y0, x1, y1));
+        }
+    }
+
+    // 合并存在交集的脏矩形，确保互不相交，避免半透明图元在重叠区被二次回放叠加
+    let mut i = 0;
+    while i < rects.len() {
+        let mut merged_any = false;
+        let mut j = i + 1;
+        while j < rects.len() {
+            let a = rects[i];
+            let b = rects[j];
+            let intersects = a.0 < b.2 && a.2 > b.0 && a.1 < b.3 && a.3 > b.1;
+            if intersects {
+                rects[i] = (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3));
+                rects.swap_remove(j);
+                merged_any = true;
+            } else {
+                j += 1;
+            }
+        }
+        if !merged_any {
+            i += 1;
+        }
+    }
+
+    Some(
+        rects
+            .into_iter()
+            .map(|(x0, y0, x1, y1)| (x0, y0, x1 - x0, y1 - y0))
+            .collect(),
+    )
+}
+
+/// 将长截图画布与矢量标注局部合成，避免整图多次连续拷贝引发 3 倍内存峰值。
+fn compose_long_capture_annotations(
+    long_canvas: &RgbaImage,
+    annotations: &AnnotationHistory,
+) -> Option<RgbaImage> {
+    let (cw, ch) = long_canvas.dimensions();
+    let total_pixels = u64::from(cw).saturating_mul(u64::from(ch));
+    let dirty_rects = collect_disjoint_dirty_rects(annotations, cw, ch);
+    let dirty_pixels: u64 = dirty_rects.as_ref().map_or(u64::MAX, |rects| {
+        rects
+            .iter()
+            .map(|(_, _, w, h)| u64::from(*w).saturating_mul(u64::from(*h)))
+            .sum()
+    });
+
+    // 若存在全局遮罩或标注几乎铺满整图，直接走整图单次合成
+    if dirty_rects.is_none() || dirty_pixels.saturating_mul(100) > total_pixels.saturating_mul(65) {
+        let mut pixmap = rgba_image_to_pixmap(long_canvas)?;
+        annotations.replay_all(&mut pixmap.as_mut());
+        return pixmap_into_rgba_image(pixmap);
+    }
+
+    let mut output = long_canvas.clone();
+    let out_stride = (cw as usize).saturating_mul(4);
+    let out_raw = output.as_mut();
+    for (bx, by, bw, bh) in dirty_rects? {
+        let sub_image = long_canvas.view(bx, by, bw, bh).to_image();
+        let mut sub_pixmap = rgba_image_to_pixmap(&sub_image)?;
+        annotations.replay_with_offset(&mut sub_pixmap.as_mut(), -(bx as f32), -(by as f32));
+        let rendered = pixmap_into_rgba_image(sub_pixmap)?;
+        let src_stride = (bw as usize).saturating_mul(4);
+        let src_raw = rendered.as_raw();
+        let dst_x_off = (bx as usize).saturating_mul(4);
+        for row in 0..(bh as usize) {
+            let src_start = row * src_stride;
+            let dst_start = ((by as usize) + row) * out_stride + dst_x_off;
+            out_raw[dst_start..dst_start + src_stride]
+                .copy_from_slice(&src_raw[src_start..src_start + src_stride]);
+        }
+    }
+    Some(output)
+}
 
 /// 裁剪当前选区图像并合成已绘制的矢量标注
 pub fn crop_selection_image(
@@ -26,9 +137,7 @@ pub fn crop_selection_image(
         if !state.editor.annotations.can_undo() {
             return Some(long_canvas.clone());
         }
-        let mut pixmap = rgba_image_to_pixmap(long_canvas)?;
-        state.editor.annotations.replay_all(&mut pixmap.as_mut());
-        return pixmap_into_rgba_image(pixmap);
+        return compose_long_capture_annotations(long_canvas, &state.editor.annotations);
     }
 
     if let SelectionState::Locked { rect, .. } = &state.viewport.selection {

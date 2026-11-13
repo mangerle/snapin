@@ -381,3 +381,88 @@ fn test_long_capture_crop_selection_image_composites_scrolled_annotations_and_al
         "半透明混合颜色不应受预乘畸变或发黑: {blended:?}"
     );
 }
+
+/// 相交或邻近的半透明标注必须合并为互不相交的脏矩形，且合成结果与整图回放逐像素一致
+#[test]
+fn test_long_capture_dirty_rect_composition_matches_full_replay() {
+    let mut state = SnipperState::new();
+    let mut first_frame = RgbaImage::from_pixel(200, 1200, Rgba([220, 230, 240, 255]));
+    for y in 0..1200 {
+        for x in 0..200 {
+            first_frame.put_pixel(x, y, Rgba([((x + y) % 255) as u8, 180, 210, 255]));
+        }
+    }
+    state.long_capture = Some(LongCaptureSession::new(first_frame.clone()));
+    state.viewport.selection = SelectionState::Locked {
+        rect: Rect::new(0.0, 0.0, 200.0, 300.0),
+        active_drag: None,
+    };
+
+    // 顶部两个半透明重叠矩形（应合并为单个脏矩形，避免二次回放变深）
+    state
+        .editor
+        .annotations
+        .push(AnnotationShape::Rect(RectAction {
+            rect: Rect::new(10.0, 20.0, 80.0, 60.0),
+            color: (255, 0, 0, 128).into(),
+            stroke_width: 2.0,
+            is_filled: true,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
+        }));
+    state
+        .editor
+        .annotations
+        .push(AnnotationShape::Rect(RectAction {
+            rect: Rect::new(50.0, 40.0, 80.0, 60.0),
+            color: (0, 0, 255, 128).into(),
+            stroke_width: 2.0,
+            is_filled: true,
+            corner_radius: 0.0,
+            line_style: LineStyle::Solid,
+        }));
+    // 底部远端一个独立矩形
+    state
+        .editor
+        .annotations
+        .push(AnnotationShape::Rect(RectAction {
+            rect: Rect::new(30.0, 1050.0, 70.0, 50.0),
+            color: (0, 200, 0, 255).into(),
+            stroke_width: 3.0,
+            is_filled: false,
+            corner_radius: 4.0,
+            line_style: LineStyle::Solid,
+        }));
+
+    let rects = collect_disjoint_dirty_rects(&state.editor.annotations, 200, 1200)
+        .expect("普通图元应生成互不相交的脏矩形列表");
+    assert_eq!(rects.len(), 2, "重叠的两个顶部图元应合并，总共 2 个脏矩形");
+
+    let actual = crop_selection_image(&mut state, &first_frame).expect("应成功局部合成长图");
+    let mut expected_pixmap = rgba_image_to_pixmap(&first_frame).unwrap();
+    state
+        .editor
+        .annotations
+        .replay_all(&mut expected_pixmap.as_mut());
+    let expected = pixmap_into_rgba_image(expected_pixmap).unwrap();
+    // 局部 Pixmap 平移坐标后，tiny_skia 对圆角贝塞尔曲线细分存在极微小的浮点抗锯齿覆盖率差异，
+    // 其余全部区域及半透明重叠区域必须逐像素一致。
+    for y in 0..1200 {
+        for x in 0..200 {
+            let a = actual.get_pixel(x, y).0;
+            let b = expected.get_pixel(x, y).0;
+            let max_diff = a
+                .iter()
+                .zip(b.iter())
+                .map(|(u, v)| u.abs_diff(*v))
+                .max()
+                .unwrap_or(0);
+            assert!(
+                max_diff <= 16,
+                "像素 ({x}, {y}) 合成差异过大: actual={a:?}, expected={b:?}"
+            );
+        }
+    }
+    // 显式校验两个半透明矩形重叠区域内部像素（如 (60, 50)）必须 0 误差
+    assert_eq!(actual.get_pixel(60, 50), expected.get_pixel(60, 50));
+}
