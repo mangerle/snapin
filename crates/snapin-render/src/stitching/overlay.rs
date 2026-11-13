@@ -503,21 +503,31 @@ fn build_floating_mask(
         return None;
     }
 
-    // 横向扩张 1 格覆盖抗锯齿边缘光晕。
+    // 3x3 邻域膨胀 1 格，覆盖浮层四向抗锯齿边缘与投影光晕。
     let mut dilated = mask.clone();
     for r in 0..rows {
         for c in 0..cols {
-            if mask[r * cols + c] {
-                if c > 0 {
-                    dilated[r * cols + c - 1] = true;
-                }
-                if c + 1 < cols {
-                    dilated[r * cols + c + 1] = true;
+            if !mask[r * cols + c] {
+                continue;
+            }
+            for nr in r.saturating_sub(1)..=(r + 1).min(rows - 1) {
+                for nc in c.saturating_sub(1)..=(c + 1).min(cols - 1) {
+                    dilated[nr * cols + nc] = true;
                 }
             }
         }
     }
     Some(dilated)
+}
+
+#[inline]
+fn pixel_visual_diff(a: [u8; 4], b: [u8; 4]) -> u64 {
+    let luma_diff =
+        u64::from(rgb_to_luma(a[0], a[1], a[2]).abs_diff(rgb_to_luma(b[0], b[1], b[2])));
+    let dr = u64::from(a[0].abs_diff(b[0]));
+    let dg = u64::from(a[1].abs_diff(b[1]));
+    let db = u64::from(a[2].abs_diff(b[2]));
+    luma_diff.max((dr + dg + db) / 3)
 }
 
 fn is_floating_block(spec: &OverlayHealSpec<'_>, m_range: (u32, u32), c_range: (u32, u32)) -> bool {
@@ -533,36 +543,30 @@ fn is_floating_block(spec: &OverlayHealSpec<'_>, m_range: (u32, u32), c_range: (
         for c in c_range.0..c_range.1 {
             let p = read_axis_pixel(spec.prev, m, c, spec.direction);
             let q = read_axis_pixel(spec.curr, m, c, spec.direction);
-            let pl = rgb_to_luma(p[0], p[1], p[2]);
-            let ql = rgb_to_luma(q[0], q[1], q[2]);
-            static_sum += u64::from(pl.abs_diff(ql));
+            static_sum += pixel_visual_diff(p, q);
             count += 1;
 
             // 按滚动极性确定相邻帧的对齐偏移符号，校验静态浮层与真实位移正文间的显著反差。
             if !spec.is_prepend {
                 if m + spec.step < body_end {
                     let s_px = read_axis_pixel(spec.prev, m + spec.step, c, spec.direction);
-                    let sl = rgb_to_luma(s_px[0], s_px[1], s_px[2]);
-                    shifted_sum += u64::from(ql.abs_diff(sl));
+                    shifted_sum += pixel_visual_diff(q, s_px);
                     shifted_count += 1;
                 }
                 if m >= body_start + spec.step {
                     let c_px = read_axis_pixel(spec.curr, m - spec.step, c, spec.direction);
-                    let cl = rgb_to_luma(c_px[0], c_px[1], c_px[2]);
-                    shifted_sum += u64::from(pl.abs_diff(cl));
+                    shifted_sum += pixel_visual_diff(p, c_px);
                     shifted_count += 1;
                 }
             } else {
                 if m + spec.step < body_end {
                     let c_px = read_axis_pixel(spec.curr, m + spec.step, c, spec.direction);
-                    let cl = rgb_to_luma(c_px[0], c_px[1], c_px[2]);
-                    shifted_sum += u64::from(pl.abs_diff(cl));
+                    shifted_sum += pixel_visual_diff(p, c_px);
                     shifted_count += 1;
                 }
                 if m >= body_start + spec.step {
                     let s_px = read_axis_pixel(spec.prev, m - spec.step, c, spec.direction);
-                    let sl = rgb_to_luma(s_px[0], s_px[1], s_px[2]);
-                    shifted_sum += u64::from(ql.abs_diff(sl));
+                    shifted_sum += pixel_visual_diff(q, s_px);
                     shifted_count += 1;
                 }
             }
@@ -610,6 +614,9 @@ fn apply_clean_backfill(
     } else {
         grid.body_end.saturating_sub(spec.step)
     };
+    let frame_main = axis_dims(spec.curr, spec.direction).0;
+    let prev_canvas_body_start = spec.existing_canvas_header;
+    let prev_canvas_body_end = frame_main.saturating_sub(spec.existing_canvas_footer);
     let mut cursor = canvas.write_cursor();
     for curr_m in range_start..range_end {
         let r_curr = ((curr_m - grid.body_start) / grid.block_m) as usize;
@@ -623,14 +630,20 @@ fn apply_clean_backfill(
             continue;
         }
         let canvas_m = if spec.is_prepend {
-            let rel_in_body = prev_m.saturating_sub(grid.body_start);
+            if prev_m < prev_canvas_body_start {
+                continue;
+            }
+            let rel_in_body = prev_m - prev_canvas_body_start;
             let target = spec.existing_canvas_header.saturating_add(rel_in_body);
             if target >= canvas_main {
                 continue;
             }
             target
         } else {
-            let dist_from_body_end = grid.body_end.saturating_sub(prev_m);
+            if prev_m >= prev_canvas_body_end {
+                continue;
+            }
+            let dist_from_body_end = prev_canvas_body_end - prev_m;
             if dist_from_body_end > grid.canvas_body_end {
                 continue;
             }
@@ -808,5 +821,80 @@ mod tests {
         let bands = detect_sticky_bands(&prev, &curr, width, height, 0.40, 10, 150);
         assert_eq!(bands.header, 21, "顶栏不应吞入紧邻的纯白正文留白");
         assert_eq!(bands.footer, 24, "底栏不应吞入紧邻的纯白正文留白");
+    }
+
+    #[test]
+    fn test_heal_floating_overlay_handles_isoluminant_badge_vertical_halo_and_footer_mismatch() {
+        use image::Rgba;
+        let width = 120u32;
+        let height = 200u32;
+        let step = 40u32;
+        // 构造同亮度但彩色对比明显的浮动徽章 (y=80..96, x=88..104) 以及上下 2px 淡灰投影光晕 (y=78..80, 96..98)
+        let build_frame = |scroll: u32, footer_h: u32| -> RgbaImage {
+            let mut img = RgbaImage::new(width, height);
+            for y in 0..height {
+                for x in 0..width {
+                    if y >= height - footer_h {
+                        img.put_pixel(x, y, Rgba([20, 20, 20, 255]));
+                        continue;
+                    }
+                    let doc_y = y + scroll;
+                    // 等亮度蓝色纹理正文 (luma ~ 128)
+                    let base: [u8; 4] = if (doc_y / 8 + x / 16).is_multiple_of(2) {
+                        [100, 130, 190, 255]
+                    } else {
+                        [130, 128, 128, 255]
+                    };
+                    let mut px = base;
+                    // 同亮度红色浮动角标及上下阴影光晕
+                    if (88..104).contains(&x) && (80..96).contains(&y) {
+                        px = [210, 110, 90, 255];
+                    } else if (88..104).contains(&x)
+                        && ((78..80).contains(&y) || (96..98).contains(&y))
+                    {
+                        // 轻微阴影（差值不足 12），依赖 3x3 膨胀覆盖
+                        px = [
+                            px[0].saturating_sub(8),
+                            px[1].saturating_sub(8),
+                            px[2].saturating_sub(8),
+                            255,
+                        ];
+                    }
+                    img.put_pixel(x, y, Rgba(px));
+                }
+            }
+            img
+        };
+
+        let f0 = build_frame(0, 20);
+        let f1 = build_frame(step, 32);
+        let mut canvas = PagedCanvas::new(f0.clone(), StitchDirection::Vertical);
+        let spec = OverlayHealSpec {
+            prev: &f0,
+            curr: &f1,
+            direction: StitchDirection::Vertical,
+            step,
+            header: 0,
+            footer: 32,
+            existing_canvas_header: 0,
+            existing_canvas_footer: 20,
+            is_prepend: false,
+        };
+        heal_canvas_with_floating_mask(&mut canvas, &spec);
+
+        let healed = canvas.as_contiguous();
+        // 原来位于 y=80..96 以及上下阴影 y=79、y=96 的浮动角标和光晕应被正确坐标的正文像素擦除恢复
+        for y in [79u32, 82, 88, 95, 96] {
+            let expected = if (y / 8 + 94 / 16).is_multiple_of(2) {
+                [100, 130, 190, 255]
+            } else {
+                [130, 128, 128, 255]
+            };
+            assert_eq!(
+                healed.get_pixel(94, y).0,
+                expected,
+                "第 {y} 行浮层或纵向光晕未按正确正文坐标无损自愈"
+            );
+        }
     }
 }
