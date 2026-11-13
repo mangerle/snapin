@@ -42,8 +42,12 @@ const DESKTOP_WRITE_QUEUE_CAPACITY: usize = 8;
 const LONG_CAPTURE_PASSTHROUGH_SETTLE: Duration = Duration::from_millis(16);
 /// 需要整窗隐藏时等待合成器完成 unmap 的稳定时间。
 const LONG_CAPTURE_HIDE_SETTLE: Duration = Duration::from_millis(80);
-/// 模拟底层滚动后等待目标应用完成排版重绘的稳定时间（与扩展内单帧排除周期累加）。
+/// 模拟底层滚动后等待目标应用完成排版重绘的基础稳定时间。
 const LONG_CAPTURE_SCROLL_SETTLE: Duration = Duration::from_millis(48);
+/// 平滑滚动惯性动画探测的轮询间隔。
+const SMOOTH_SETTLE_POLL_INTERVAL: Duration = Duration::from_millis(40);
+/// 平滑滚动动画等待的最大补抓探测次数（上限约 48 + 3 * 40 = 168ms）。
+const MAX_SMOOTH_SETTLE_PROBES: usize = 3;
 
 /// 长截图抓屏完成守卫；任务取消或 panic 时也必须回传失败，确保隐藏的覆盖层被恢复。
 struct ScreenCaptureCompletion {
@@ -407,7 +411,30 @@ async fn capture_long_capture_frame_async(
         )
     })?;
     tokio::time::sleep(LONG_CAPTURE_SCROLL_SETTLE).await;
-    let capture_result = match request.selection_bounds {
+    let has_scroll = request.delta.x.abs() > f32::EPSILON || request.delta.y.abs() > f32::EPSILON;
+    let mut latest = capture_once(request.selection_bounds).await?;
+    if !has_scroll {
+        return Ok(latest);
+    }
+
+    // 针对浏览器/Electron 等带平滑滚动或惯性动画的窗口，短暂轮询确认画面已停稳再提交，
+    // 防止在动画半程截断或停止滚轮后丢失惯性尾部。
+    for _ in 0..MAX_SMOOTH_SETTLE_PROBES {
+        tokio::time::sleep(SMOOTH_SETTLE_POLL_INTERVAL).await;
+        let next = capture_once(request.selection_bounds).await?;
+        let settled = is_frame_settled(&latest, &next);
+        latest = next;
+        if settled {
+            break;
+        }
+    }
+    Ok(latest)
+}
+
+async fn capture_once(
+    selection_bounds: Option<(u32, u32, u32, u32)>,
+) -> Result<image::RgbaImage, PortError> {
+    let capture_result = match selection_bounds {
         Some(bounds) => capture_region_snapshot_excluding_window("Snapin", bounds).await,
         None => capture_fullscreen_snapshot_excluding_window("Snapin").await,
     };
@@ -418,6 +445,40 @@ async fn capture_long_capture_frame_async(
             error.to_string(),
         )
     })
+}
+
+/// 抽样比较前后两帧是否已停止平滑滚动动画（允许 <= 3% 局部光标或角标微动）。
+fn is_frame_settled(prev: &image::RgbaImage, curr: &image::RgbaImage) -> bool {
+    let (w, h) = prev.dimensions();
+    if curr.dimensions() != (w, h) || w == 0 || h == 0 {
+        return false;
+    }
+    let step_x = (w / 24).max(1) as usize;
+    let step_y = (h / 24).max(1) as usize;
+    let mut total = 0usize;
+    let mut unchanged = 0usize;
+    let prev_raw = prev.as_raw();
+    let curr_raw = curr.as_raw();
+    let row_stride = (w as usize) * 4;
+
+    let mut y = step_y / 2;
+    while y < h as usize {
+        let row_off = y * row_stride;
+        let mut x = step_x / 2;
+        while x < w as usize {
+            let idx = row_off + x * 4;
+            let dr = prev_raw[idx].abs_diff(curr_raw[idx]);
+            let dg = prev_raw[idx + 1].abs_diff(curr_raw[idx + 1]);
+            let db = prev_raw[idx + 2].abs_diff(curr_raw[idx + 2]);
+            total += 1;
+            if dr <= 2 && dg <= 2 && db <= 2 {
+                unchanged += 1;
+            }
+            x += step_x;
+        }
+        y += step_y;
+    }
+    total > 0 && unchanged.saturating_mul(100) >= total.saturating_mul(97)
 }
 
 fn worker_start_error(operation: &str, error: snapin_runtime::TaskRuntimeError) -> PortError {
@@ -499,5 +560,36 @@ mod tests {
         drop(completion);
 
         assert_eq!(count.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn test_is_frame_settled_detects_scroll_motion_and_tolerates_tiny_cursor_blink() {
+        let mut a = image::RgbaImage::from_pixel(240, 240, image::Rgba([250, 250, 250, 255]));
+        for y in 40..200 {
+            for x in 20..220 {
+                let v = ((y * 17 + x * 5) % 180 + 30) as u8;
+                a.put_pixel(x, y, image::Rgba([v, v, v, 255]));
+            }
+        }
+        let mut b_settled = a.clone();
+        // 模拟极小局部光标闪烁（仅 4x10 区域变化），应判定已停稳
+        for y in 60..70 {
+            for x in 60..64 {
+                b_settled.put_pixel(x, y, image::Rgba([20, 20, 20, 255]));
+            }
+        }
+        assert!(is_frame_settled(&a, &b_settled));
+
+        // 模拟整体内容向下平滑滚动 8px，应判定仍在运动中
+        let mut b_moving =
+            image::RgbaImage::from_pixel(240, 240, image::Rgba([250, 250, 250, 255]));
+        for y in 48..208 {
+            for x in 20..220 {
+                let src_y = y - 8;
+                let v = ((src_y * 17 + x * 5) % 180 + 30) as u8;
+                b_moving.put_pixel(x, y, image::Rgba([v, v, v, 255]));
+            }
+        }
+        assert!(!is_frame_settled(&a, &b_moving));
     }
 }
