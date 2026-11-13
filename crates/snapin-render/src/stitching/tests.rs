@@ -1105,3 +1105,90 @@ fn test_transient_sticky_footer_miss_still_peels_previous_footer_without_mid_can
         assert_eq!(px[0], (y % 250) as u8, "第 {y} 行正文内容不连续");
     }
 }
+
+#[test]
+fn test_seam_feathering_smooths_subtle_subpixel_brightness_step() {
+    let width = 40u32;
+    let height = 100u32;
+    let f0 = RgbaImage::from_pixel(width, height, Rgba([100, 100, 100, 255]));
+    let f1 = RgbaImage::from_pixel(width, height, Rgba([114, 114, 114, 255]));
+
+    let mut stitcher =
+        LongCaptureStitcher::new(f0, StitchDirection::Vertical, StitchOptions::default());
+    let gen = stitcher.generation();
+    assert!(stitcher
+        .apply_analyzed_shift(
+            f1,
+            gen,
+            FrameShiftAnalysis::Matched(MatchResult {
+                offset: 30,
+                confidence: 0.99,
+                sticky_header_size: 0,
+                sticky_footer_size: 0,
+            }),
+        )
+        .is_stitched());
+
+    let canvas = stitcher.canvas();
+    // 接缝在 y=100，重叠羽化带位于 y=94..100，像素应从 100 单调平滑过渡到 114 而非硬跳变
+    let before = canvas.get_pixel(10, 93).0[0];
+    let mid = canvas.get_pixel(10, 96).0[0];
+    let seam_prev = canvas.get_pixel(10, 99).0[0];
+    let after = canvas.get_pixel(10, 100).0[0];
+    assert_eq!(before, 100);
+    assert_eq!(after, 114);
+    assert!(
+        before < mid && mid < seam_prev && seam_prev < after,
+        "接缝重叠区应呈现单调递增的平滑羽化过渡: before={before}, mid={mid}, seam_prev={seam_prev}, after={after}"
+    );
+}
+
+#[test]
+fn test_periodic_table_with_unique_cell_markers_survives_pyramid_coarse_filtering() {
+    let options = StitchOptions::default();
+    let width = 360u32;
+    let height = 380u32;
+    let period = 18u32;
+
+    let build_table_frame = |scroll: u32| -> RgbaImage {
+        let mut img = RgbaImage::new(width, height);
+        for y in 0..height {
+            let doc_y = y + scroll;
+            let row_idx = doc_y / period;
+            let py = doc_y % period;
+            let bg = if py == 0 {
+                200u8
+            } else if row_idx.is_multiple_of(2) {
+                248
+            } else {
+                242
+            };
+            for x in 0..width {
+                let mut val = bg;
+                // 每行包含多列唯一单元格文本块，模拟真实数据表格的文本密度
+                let col1 = 36 + ((row_idx * 37) % 80);
+                let col2 = 150 + ((row_idx * 53) % 80);
+                let col3 = 260 + ((row_idx * 71) % 50);
+                if (4..14).contains(&py)
+                    && ((x >= col1 && x < col1 + 44)
+                        || (x >= col2 && x < col2 + 44)
+                        || (x >= col3 && x < col3 + 36))
+                    && (x + py * 2).is_multiple_of(3)
+                {
+                    val = 30;
+                }
+                img.put_pixel(x, y, Rgba([val, val, val, 255]));
+            }
+        }
+        img
+    };
+
+    let f0 = build_table_frame(0);
+    let f1 = build_table_frame(162); // 9 倍周期偏移 (9 * 18 = 162)
+    let res = estimate_shift(&f0, &f1, StitchDirection::Vertical, &options);
+    assert_eq!(
+        res.offset, 162,
+        "周期性表格大步长滚动不应在金字塔阶段漏波谷"
+    );
+    assert!(res.is_matched(options.confidence_threshold));
+}

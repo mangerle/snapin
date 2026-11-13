@@ -477,6 +477,19 @@ pub(crate) fn slice_img_axis(
     }
 }
 
+pub(crate) fn get_axis_pixel(
+    img: &RgbaImage,
+    main: u32,
+    cross: u32,
+    direction: StitchDirection,
+) -> [u8; 4] {
+    let (x, y) = match direction {
+        StitchDirection::Vertical => (cross, main),
+        StitchDirection::Horizontal => (main, cross),
+    };
+    img.get_pixel(x, y).0
+}
+
 pub(crate) fn put_axis_pixel(
     img: &mut RgbaImage,
     main: u32,

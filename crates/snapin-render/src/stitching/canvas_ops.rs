@@ -6,9 +6,14 @@
 //! 滚动扩展与回滚彻底摆脱整图重分配与全量像素拷贝，单步耗时保持均摊 $O(1)$；
 //! 同时在扩展写入前前置校验像素总量与单轴长度上限，阻止恶意或无限页面耗尽内存。
 
-use super::paged_canvas::{alloc_axis_canvas, img_axis_dims, slice_img_axis, PagedCanvas};
+use super::paged_canvas::{
+    alloc_axis_canvas, get_axis_pixel, img_axis_dims, put_axis_pixel, slice_img_axis, PagedCanvas,
+};
 use super::types::{StitchDirection, StitchOptions};
 use image::RgbaImage;
+
+/// 接缝处线性 Alpha 羽化融合像素带宽，用以消除字体亚像素渲染微差导致的硬切横线。
+const FEATHER_SEAM_BAND: u32 = 6;
 
 /// 前向追加或反向前插的规划状态。
 pub(crate) enum SliceExtendOutcome {
@@ -102,6 +107,19 @@ pub(crate) fn append_forward_slice(
         .saturating_sub(valid_step);
     let body_end = frame_main.saturating_sub(safe_footer);
     let body_len = body_end.saturating_sub(body_start);
+    let feather_len = FEATHER_SEAM_BAND.min(canvas.main_span()).min(body_start);
+    if feather_len > 0 {
+        let canvas_start = canvas.main_span() - feather_len;
+        feather_seam_overlap(
+            canvas,
+            spec.frame,
+            spec.direction,
+            canvas_start,
+            body_start - feather_len,
+            feather_len,
+            false,
+        );
+    }
     if body_len > 0 {
         let body_slice = slice_img_axis(spec.frame, spec.direction, body_start, body_len);
         canvas.append_contiguous(&body_slice);
@@ -126,12 +144,27 @@ pub(crate) fn prepend_backward_slice(
         return SliceExtendOutcome::LimitReached;
     }
 
+    let frame_main = img_axis_dims(spec.frame, spec.direction).0;
     if safe_peel > 0 {
         let _ = canvas.pop_head(safe_peel);
     }
     // 旧画布正文起始于上一帧的 safe_peel，在当前帧中下移了 valid_step
     let body_end = safe_peel.saturating_add(valid_step);
     let body_len = body_end.saturating_sub(safe_header);
+    let feather_len = FEATHER_SEAM_BAND
+        .min(canvas.main_span())
+        .min(frame_main.saturating_sub(body_end));
+    if feather_len > 0 {
+        feather_seam_overlap(
+            canvas,
+            spec.frame,
+            spec.direction,
+            0,
+            body_end,
+            feather_len,
+            true,
+        );
+    }
     if body_len > 0 {
         let body_slice = slice_img_axis(spec.frame, spec.direction, safe_header, body_len);
         canvas.prepend_contiguous(&body_slice);
@@ -141,6 +174,44 @@ pub(crate) fn prepend_backward_slice(
         canvas.prepend_contiguous(&header_slice);
     }
     SliceExtendOutcome::Applied(safe_header)
+}
+
+/// 在拼接接缝重叠区做窄带线性 Alpha 羽化混合，平滑消除硬切横线与亚像素微差。
+fn feather_seam_overlap(
+    canvas: &mut PagedCanvas,
+    frame: &RgbaImage,
+    direction: StitchDirection,
+    canvas_start: u32,
+    frame_start: u32,
+    feather_len: u32,
+    is_prepend: bool,
+) {
+    let cross_span = img_axis_dims(frame, direction).1;
+    let denom = feather_len + 1;
+    let mut cursor = canvas.write_cursor();
+    for i in 0..feather_len {
+        let Some((chunk, local_m, dir)) = cursor.locate_row_mut(canvas_start + i) else {
+            continue;
+        };
+        let w_curr = if is_prepend { feather_len - i } else { i + 1 };
+        let w_old = denom - w_curr;
+        let frame_m = frame_start + i;
+        for c in 0..cross_span {
+            let old_px = get_axis_pixel(chunk, local_m, c, dir);
+            let new_px = get_axis_pixel(frame, frame_m, c, direction);
+            let blended = [
+                ((u32::from(old_px[0]) * w_old + u32::from(new_px[0]) * w_curr + denom / 2) / denom)
+                    as u8,
+                ((u32::from(old_px[1]) * w_old + u32::from(new_px[1]) * w_curr + denom / 2) / denom)
+                    as u8,
+                ((u32::from(old_px[2]) * w_old + u32::from(new_px[2]) * w_curr + denom / 2) / denom)
+                    as u8,
+                ((u32::from(old_px[3]) * w_old + u32::from(new_px[3]) * w_curr + denom / 2) / denom)
+                    as u8,
+            ];
+            put_axis_pixel(chunk, local_m, c, dir, blended);
+        }
+    }
 }
 
 /// 双向自动回滚的执行结果。

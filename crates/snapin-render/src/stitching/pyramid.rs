@@ -205,7 +205,7 @@ pub(crate) fn pick_coarse_candidate_centers(
             let err = coarse_weighted_error(prev_c, curr_c, (cs as i32) * sign);
             curve.push((cs as i32 * sign * 2, err));
         }
-        collect_top_valleys(&curve, 6, &mut centers);
+        collect_top_valleys(&curve, 8, &mut centers);
     }
     centers
 }
