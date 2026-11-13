@@ -65,15 +65,14 @@ pub(crate) fn plan_extend_span(
     let old_main = canvas.main_span();
     let frame_main = img_axis_dims(spec.frame, spec.direction).0;
     let safe_band = spec.band_size.min(frame_main / 2);
-    let valid_step = spec.step.min(frame_main.saturating_sub(safe_band));
+    // 只要画布先前确实附着了旧固定栏（peel_size > 0），即便当前帧漏检（safe_band == 0），也必须剥离旧栏以防其残留在长图中间
+    let safe_peel = spec.peel_size.min(old_main.saturating_sub(1));
+    let valid_step = spec
+        .step
+        .min(frame_main.saturating_sub(safe_band.max(safe_peel)));
     if valid_step == 0 {
         return None;
     }
-    let safe_peel = if safe_band > 0 {
-        spec.peel_size.min(old_main.saturating_sub(1))
-    } else {
-        0
-    };
     // 防止新帧固定栏吞入过多正文留白导致正向/反向切片起点反超终点，保证画布增量严格等于 valid_step
     let effective_band = safe_band.min(valid_step.saturating_add(safe_peel));
     let projected = old_main.saturating_add(valid_step);
@@ -165,11 +164,7 @@ pub(crate) fn rollback_tail_preserving_initial(
     let old_main = canvas.main_span();
     let frame_main = img_axis_dims(spec.frame, spec.direction).0;
     let safe_footer = spec.band_size.min(frame_main / 2);
-    let safe_peel = if safe_footer > 0 {
-        spec.attached_band_size.min(old_main.saturating_sub(1))
-    } else {
-        0
-    };
+    let safe_peel = spec.attached_band_size.min(old_main.saturating_sub(1));
     let available_after_band = old_main
         .saturating_sub(safe_peel)
         .saturating_add(safe_footer);
@@ -204,11 +199,7 @@ pub(crate) fn rollback_head_preserving_initial(
     let old_main = canvas.main_span();
     let frame_main = img_axis_dims(spec.frame, spec.direction).0;
     let safe_header = spec.band_size.min(frame_main / 2);
-    let safe_peel = if safe_header > 0 {
-        spec.attached_band_size.min(old_main.saturating_sub(1))
-    } else {
-        0
-    };
+    let safe_peel = spec.attached_band_size.min(old_main.saturating_sub(1));
     let available_after_band = old_main
         .saturating_sub(safe_peel)
         .saturating_add(safe_header);

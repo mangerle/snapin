@@ -438,8 +438,8 @@ pub(crate) struct OverlayHealSpec<'a> {
 pub(crate) fn heal_canvas_with_floating_mask(canvas: &mut PagedCanvas, spec: &OverlayHealSpec<'_>) {
     let (frame_main, cross_span) = axis_dims(spec.curr, spec.direction);
     let canvas_main = canvas.main_span();
-    let body_end = frame_main.saturating_sub(spec.footer);
-    let body_start = spec.header.min(body_end);
+    let body_end = frame_main.saturating_sub(spec.footer.max(spec.existing_canvas_footer));
+    let body_start = spec.header.max(spec.existing_canvas_header).min(body_end);
     if spec.step == 0 || body_end <= body_start + spec.step {
         return;
     }
@@ -526,8 +526,8 @@ fn is_floating_block(spec: &OverlayHealSpec<'_>, m_range: (u32, u32), c_range: (
     let mut shifted_count = 0u64;
     let mut count = 0u64;
     let frame_main = axis_dims(spec.curr, spec.direction).0;
-    let body_end = frame_main.saturating_sub(spec.footer);
-    let body_start = spec.header.min(body_end);
+    let body_end = frame_main.saturating_sub(spec.footer.max(spec.existing_canvas_footer));
+    let body_start = spec.header.max(spec.existing_canvas_header).min(body_end);
 
     for m in m_range.0..m_range.1 {
         for c in c_range.0..c_range.1 {

@@ -1019,3 +1019,89 @@ fn test_fluctuating_sticky_footer_and_header_keep_exact_geometry_without_duplica
         );
     }
 }
+
+#[test]
+fn test_transient_sticky_footer_miss_still_peels_previous_footer_without_mid_canvas_artifact() {
+    let width = 80u32;
+    let height = 200u32;
+    let footer_h = 30u32;
+    let build_doc_frame = |scroll: u32| -> RgbaImage {
+        let mut img = RgbaImage::new(width, height);
+        for y in 0..height {
+            let is_footer = y >= height - footer_h;
+            for x in 0..width {
+                if is_footer {
+                    // 用特殊特征像素标识固定底栏，绝不应出现在画布正文中间
+                    img.put_pixel(x, y, Rgba([255, 0, 255, 255]));
+                } else {
+                    let doc_y = y + scroll;
+                    img.put_pixel(x, y, Rgba([(doc_y % 250) as u8, 80, 128, 255]));
+                }
+            }
+        }
+        img
+    };
+
+    let mut stitcher = LongCaptureStitcher::new(
+        build_doc_frame(0),
+        StitchDirection::Vertical,
+        StitchOptions::default(),
+    );
+
+    // 第 1 帧：正常检出底栏 30px
+    let gen1 = stitcher.generation();
+    assert!(stitcher
+        .apply_analyzed_shift(
+            build_doc_frame(40),
+            gen1,
+            FrameShiftAnalysis::Matched(MatchResult {
+                offset: 40,
+                confidence: 0.98,
+                sticky_header_size: 0,
+                sticky_footer_size: footer_h,
+            }),
+        )
+        .is_stitched());
+
+    // 第 2 帧：模拟底栏内按钮闪烁导致本帧漏检返回 sticky_footer_size = 0
+    let gen2 = stitcher.generation();
+    assert!(stitcher
+        .apply_analyzed_shift(
+            build_doc_frame(80),
+            gen2,
+            FrameShiftAnalysis::Matched(MatchResult {
+                offset: 40,
+                confidence: 0.98,
+                sticky_header_size: 0,
+                sticky_footer_size: 0,
+            }),
+        )
+        .is_stitched());
+
+    // 第 3 帧：恢复检出底栏 30px
+    let gen3 = stitcher.generation();
+    assert!(stitcher
+        .apply_analyzed_shift(
+            build_doc_frame(120),
+            gen3,
+            FrameShiftAnalysis::Matched(MatchResult {
+                offset: 40,
+                confidence: 0.98,
+                sticky_header_size: 0,
+                sticky_footer_size: footer_h,
+            }),
+        )
+        .is_stitched());
+
+    assert_eq!(stitcher.dimensions(), (width, 320));
+    let canvas = stitcher.canvas();
+    for y in 0..(320 - footer_h) {
+        let px = canvas.get_pixel(10, y).0;
+        assert_ne!(
+            px,
+            [255, 0, 255, 255],
+            "第 {y} 行出现固定底栏残留在正文中间"
+        );
+        assert_eq!(px[0], (y % 250) as u8, "第 {y} 行正文内容不连续");
+    }
+}
